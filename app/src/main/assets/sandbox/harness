@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-# mina — talk to Mina from inside the sandbox.
+# harness — talk to Harness Agent from inside the sandbox.
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Mina authors
 #
 # Usage:
-#   mina progress <text>        show a progress line on the task card (at most once per second)
-#   mina share <path> [name]    save a file from /workspace to the phone's Download/Mina
-#   mina info                   Mina version, whether the network is on, the workspace path
-#   mina phone <op> [json]      call a phone tool on this task's virtual screen
-# Prints Mina's JSON reply. Exit code 0 when the reply says ok, 1 otherwise.
+#   harness progress <text>        show a progress line on the task card (at most once per second)
+#   harness share <path> [name]    save a file from /workspace to the phone's Download/Harness
+#   harness info                   Harness version, whether the network is on, the workspace path
+#   harness phone <op> [json]      call a phone tool on this task's virtual screen
+# Prints Harness's JSON reply. Exit code 0 when the reply says ok, 1 otherwise.
 import json
 import os
 import socket
 import sys
 
-USAGE = "usage: mina progress <text> | mina share <path> [name] | mina info | mina phone <op> [json-args]"
+USAGE = "usage: harness progress <text> | harness share <path> [name] | harness info | harness phone <op> [json-args]"
 
 
 def request(argv):
@@ -41,15 +41,15 @@ def main(argv):
     try:
         method, params = request(argv)
     except ValueError as e:
-        print("mina: %s" % e, file=sys.stderr)
+        print("harness: %s" % e, file=sys.stderr)
         return 1
     if method is None:
         print(USAGE, file=sys.stderr)
         return 1
-    name = os.environ.get("MINA_BRIDGE")
-    token = os.environ.get("MINA_TOKEN")
+    name = os.environ.get("HARNESS_BRIDGE") or os.environ.get("MINA_BRIDGE")
+    token = os.environ.get("HARNESS_TOKEN") or os.environ.get("MINA_TOKEN")
     if not name or not token:
-        print("mina: not running inside a Mina sandbox command", file=sys.stderr)
+        print("harness: not running inside a Harness sandbox command", file=sys.stderr)
         return 1
     line = json.dumps({"token": token, "method": method, "params": params}, ensure_ascii=False) + "\n"
     try:
@@ -64,7 +64,7 @@ def main(argv):
                     break
                 reply += chunk
     except OSError as e:
-        print("mina: cannot reach Mina: %s" % e, file=sys.stderr)
+        print("harness: cannot reach Harness: %s" % e, file=sys.stderr)
         return 1
     text = reply.decode("utf-8", "replace").strip()
     print(text)

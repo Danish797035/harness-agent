@@ -16,7 +16,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.pollUntil
 import com.meenai.mina.core.agent.QuoteMessage
 import com.meenai.mina.core.model.ChatModel
@@ -47,7 +47,7 @@ import org.junit.runner.RunWith
 class SteerEditingDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val app get() = context.applicationContext as MinaApp
+    private val app get() = context.applicationContext as HarnessApp
     private val vm get() = app.chat
     private val script = ScriptedModel()
     private val release = CompletableDeferred<Unit>()

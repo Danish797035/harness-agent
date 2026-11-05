@@ -26,7 +26,7 @@ import java.util.UUID
  */
 class RemoteTaskHub(
     private val context: Context,
-    private val runs: () -> List<TaskRun> = { (context.applicationContext as com.meenai.mina.MinaApp).taskState.runs.value },
+    private val runs: () -> List<TaskRun> = { (context.applicationContext as com.meenai.mina.HarnessApp).taskState.runs.value },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : McpTaskHost, RemoteTasks {
     private class Record(val id: String, val conversation: String, val goal: String, val createdAtMs: Long) {

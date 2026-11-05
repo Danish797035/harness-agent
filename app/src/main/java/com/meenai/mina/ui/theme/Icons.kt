@@ -11,9 +11,9 @@ import androidx.compose.ui.graphics.vector.addPathNodes
  * 自己画的线条图标:24 视窗、默认显示 22dp、线宽 1.7、圆头圆角。颜色由 Icon 的 tint 给。
  * 都是 object 里的常量,只建一次;个别要在小尺寸下看清的(勾、发送、箭头、关闭)线宽加粗一点。
  */
-object MinaIcons {
-    private fun stroke(name: String, vararg paths: String, width: Float = MinaSize.IconStroke): ImageVector =
-        ImageVector.Builder(name, MinaSize.Icon, MinaSize.Icon, 24f, 24f).apply {
+object HarnessIcons {
+    private fun stroke(name: String, vararg paths: String, width: Float = HarnessSize.IconStroke): ImageVector =
+        ImageVector.Builder(name, HarnessSize.Icon, HarnessSize.Icon, 24f, 24f).apply {
             paths.forEach {
                 addPath(
                     addPathNodes(it), stroke = SolidColor(Color.Black), strokeLineWidth = width,
@@ -23,7 +23,7 @@ object MinaIcons {
         }.build()
 
     private fun filled(name: String, vararg paths: String): ImageVector =
-        ImageVector.Builder(name, MinaSize.Icon, MinaSize.Icon, 24f, 24f).apply {
+        ImageVector.Builder(name, HarnessSize.Icon, HarnessSize.Icon, 24f, 24f).apply {
             paths.forEach { addPath(addPathNodes(it), fill = SolidColor(Color.Black)) }
         }.build()
 
@@ -213,3 +213,5 @@ object MinaIcons {
         "M10.2 18.72 a1.8 1.8 0 1 0 3.6 0 a1.8 1.8 0 1 0 -3.6 0",
     )
 }
+
+typealias MinaIcons = HarnessIcons

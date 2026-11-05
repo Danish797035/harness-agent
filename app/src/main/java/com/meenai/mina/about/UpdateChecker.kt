@@ -59,7 +59,7 @@ class UpdateChecker(
     private val file: File,
     private val currentVersion: String,
     private val client: OkHttpClient = defaultClient(),
-    private val releaseApi: String = MinaLinks.LATEST_RELEASE_API,
+    private val releaseApi: String = HarnessLinks.LATEST_RELEASE_API,
     private val now: () -> Long = System::currentTimeMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** 本机支持的 ABI(Build.SUPPORTED_ABIS),用来挑发布里合适的 APK;为空时取全架构包。 */
@@ -116,7 +116,7 @@ class UpdateChecker(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mina/$currentVersion")
+            .header("User-Agent", "HarnessAgent/$currentVersion")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .build()

@@ -12,7 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.chat.ConversationStore
 import com.meenai.mina.core.agent.Turn
@@ -186,7 +186,7 @@ object TriggerRuntime {
     }
 
     private fun engine(context: Context, store: FileTriggerStore) = TriggerEngine(store,
-        { at -> arm(context, at) }, isIdle = { !((context.applicationContext as MinaApp).taskState.busy.value) }) { trigger, window ->
+        { at -> arm(context, at) }, isIdle = { !((context.applicationContext as HarnessApp).taskState.busy.value) }) { trigger, window ->
             if (trigger.reminderText != null) deliverReminder(context, store, trigger, window.key)
             else try { TaskService.startTrigger(context, trigger.goal, trigger.threadId, window.key, trigger.conditionGoal) }
                 catch (e: Exception) { reportStartFailure(context, store, trigger, window.key, e); throw e }

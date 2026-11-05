@@ -69,9 +69,13 @@ fun Modifier.floatShadow(colors: MinaColors, shape: Shape): Modifier =
 
 /** 一张卡片,内容裁在圆角里(行的按压效果不出角)。 */
 @Composable
-fun MinaCard(modifier: Modifier = Modifier, shape: Shape = MinaShapes.Card, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxWidth().cardSurface(MinaTheme.colors, shape).clip(shape), content = content)
+fun HarnessCard(modifier: Modifier = Modifier, shape: Shape = HarnessShapes.Card, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.fillMaxWidth().cardSurface(HarnessTheme.colors, shape).clip(shape), content = content)
 }
+
+@Composable
+fun MinaCard(modifier: Modifier = Modifier, shape: Shape = HarnessShapes.Card, content: @Composable ColumnScope.() -> Unit) =
+    HarnessCard(modifier, shape, content)
 
 /**
  * 分组卡片:一组 [ListRow]。下面自带 12dp 间距,和下一组的 [GroupLabel](上 8)合起来是分组之间的 20。

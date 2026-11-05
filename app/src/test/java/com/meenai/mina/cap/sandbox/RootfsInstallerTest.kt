@@ -40,7 +40,7 @@ class RootfsInstallerTest {
         b: RuntimeBundle = bundle(),
         client: ByteArray? = "#!/usr/bin/env python3\n".toByteArray(),
         free: Long = 4L shl 30,
-        selfTest: Pair<Int, String> = 0 to "minarun ok\nseccomp ok\n",
+        selfTest: Pair<Int, String> = 0 to "harnessrun ok\nseccomp ok\n",
     ) = RootfsInstaller(
         dirs, state, b,
         abis = { listOf("arm64-v8a") },
@@ -148,7 +148,7 @@ class RootfsInstallerTest {
 
     @Test
     fun selfTestFailureStopsAtCheck() = runBlocking {
-        expectFailure { installer(selfTest = 125 to "minarun: cannot exec\n").install { _, _ -> } }
+        expectFailure { installer(selfTest = 125 to "harnessrun: cannot exec\n").install { _, _ -> } }
         assertEquals(0, opens)
         assertEquals(null, state.completedStep())
         assertTrue(state.status.value is SandboxStatus.Broken)

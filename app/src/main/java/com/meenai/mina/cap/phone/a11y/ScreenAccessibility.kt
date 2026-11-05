@@ -69,7 +69,7 @@ open class ScreenAccessibility : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             windowGeneration.incrementAndGet()
         }
-        val access = (application as com.meenai.mina.MinaApp).appAccess.current()
+        val access = (application as com.meenai.mina.HarnessApp).appAccess.current()
         if (access.denial(event.packageName?.toString()) != null) return
         if (event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && notifications.subscriptionCount.value > 0) {
             val notification = event.parcelableData as? Notification

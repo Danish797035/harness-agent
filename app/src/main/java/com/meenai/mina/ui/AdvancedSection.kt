@@ -37,7 +37,7 @@ import com.meenai.mina.ui.theme.MinaType
 import com.meenai.mina.ui.components.RowValue
 import com.meenai.mina.ui.components.RowChevron
 import com.meenai.mina.ui.components.GroupLabel
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.sandbox.SandboxDirs
 import com.meenai.mina.cap.sandbox.SandboxUsage
 import com.meenai.mina.cap.sandbox.SandboxUsageReader
@@ -119,7 +119,7 @@ fun AdvancedSettings() {
     var network by remember { mutableStateOf(state.networkAllowed) }
     val proxies = remember { NetProxyStore.get(context) }
     var proxy by remember { mutableStateOf("") }
-    val app = context.applicationContext as MinaApp
+    val app = context.applicationContext as HarnessApp
     val usageReader = remember {
         SandboxUsageReader(SandboxDirs(context), { app.conversations.list() }, { app.taskState.activeConversations.value })
     }

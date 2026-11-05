@@ -29,7 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.settings.ProviderStore
@@ -72,7 +72,7 @@ class SpeechPickActions(
 fun SpeechModelScreen(store: ProviderStore, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val settings = (context.applicationContext as? MinaApp)?.speech
+    val settings = (context.applicationContext as? HarnessApp)?.speech
     var doubaoConfigured by remember { mutableStateOf(settings?.hasDoubaoCredentials == true) }
     // 豆包的设置页叠在这一页上面;返回键先关它
     var doubaoOpen by remember { mutableStateOf(false) }

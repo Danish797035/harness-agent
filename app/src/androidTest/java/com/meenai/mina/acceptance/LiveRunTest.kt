@@ -10,7 +10,7 @@ import android.os.Bundle
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.memory.MemoryRuntime
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -172,7 +172,7 @@ class LiveRunTest {
             compose.activity.currentFocus?.clearFocus()
             WindowCompat.getInsetsController(w, w.decorView).hide(WindowInsetsCompat.Type.ime())
         }
-        val chat = (context.applicationContext as MinaApp).chat
+        val chat = (context.applicationContext as HarnessApp).chat
         chat.ui.value.blocked?.let { error("blocked by prerequisites: $it") }
         // 发出去了,对话里就有这一问;没有就立刻报,不白等到超时
         check(chat.ui.value.exchanges.any { it.goal == goal.trim() }) {
@@ -205,7 +205,7 @@ class LiveRunTest {
             if (cancelAt > 0 && !cancelled && s is TaskState.Running && s.step >= cancelAt) {
                 cancelled = true
                 note("stopping at step ${s.step}")
-                compose.runOnUiThread { (context.applicationContext as MinaApp).chat.cancel() }
+                compose.runOnUiThread { (context.applicationContext as HarnessApp).chat.cancel() }
             }
             if (s is TaskState.Held && s.reason.resumable && pausesHandled == 0) {
                 pausesHandled++
@@ -282,7 +282,7 @@ class LiveRunTest {
      * 不碰页面自己的东西),存一张它那块显示的画面。返回写进 result.txt 的几行。
      */
     private fun keptPageCheck(seconds: Long, dir: File, note: (String) -> Unit): String {
-        val keeper = (context.applicationContext as MinaApp).pageKeeper
+        val keeper = (context.applicationContext as HarnessApp).pageKeeper
         val page = keeper.page.value
         val tab = keeper.keptTab()
         if (page == null || tab == null) {
@@ -335,7 +335,7 @@ class LiveRunTest {
         val log = File(dir, "log.txt")
         fun note(s: String) = log.appendText("[${System.currentTimeMillis()}] $s\n")
         val instr = InstrumentationRegistry.getInstrumentation()
-        val app = context.applicationContext as MinaApp
+        val app = context.applicationContext as HarnessApp
         val store = ProviderStore.get(context)
         val cfg = store.configFor(ModelRole.Main) ?: error("no main model configured")
         val recorder = Recorder(::note)
@@ -548,7 +548,7 @@ class LiveRunTest {
         skills.list().forEach { appendLine("skill ${it.name} status=${it.status} outcomes=${it.outcomes}\n${it.markdown}\n") }
         skills.drafts().forEach { (id, s) -> appendLine("skill-draft $id ${s.name}\n${s.markdown}\n") }
         memory.appKnowledge().all().forEach { appendLine("app ${it.appName} stage=${it.stage} lesson=${it.lesson} revises=${it.revises} trials=${it.trialOutcomes}\n${it.markdown}\n") }
-        appendLine("routes=${(context.applicationContext as MinaApp).routes.count()}")
+        appendLine("routes=${(context.applicationContext as HarnessApp).routes.count()}")
     }
 
     /** Mina 当前通知的标题、正文和按钮(从 dumpsys notification 里摘)。 */

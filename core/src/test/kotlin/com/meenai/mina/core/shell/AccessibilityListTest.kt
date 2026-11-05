@@ -7,7 +7,7 @@ import org.junit.Test
 
 class AccessibilityListTest {
     private val mina = PermissionCommands.accessibilityService("com.meenai.mina")
-    private val minaLong = "com.meenai.mina/com.meenai.mina.a11y.MinaAccessibilityService"
+    private val minaLong = "com.meenai.mina/com.meenai.mina.a11y.HarnessAccessibilityService"
     private val other = "com.example.reader/.ReaderService"
     private val other2 = "org.sample.keys/org.sample.keys.KeyService"
 

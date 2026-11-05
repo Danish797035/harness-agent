@@ -5,14 +5,14 @@ import android.os.ParcelFileDescriptor
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meenai.mina.cap.phone.display.AgentDisplay
 import com.meenai.mina.cap.phone.display.LazyAgentDisplay
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.cap.phone.shell.ShellBinding
 import com.meenai.mina.cap.phone.PhoneServices
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import com.meenai.mina.a11y.MinaAccessibilityService
+import com.meenai.mina.a11y.HarnessAccessibilityService
 
 /** 真机测试共用:shell 连接、无障碍服务、虚拟屏上的 AndroidScreen。需要内置助手在运行(已配对、无线调试开着)且 Mina 无障碍服务已开启。 */
 object DeviceSupport {
@@ -26,7 +26,7 @@ object DeviceSupport {
      * 另一方手里的 binder 随之失效。
      */
     @Synchronized
-    fun shell(): IMinaShell {
+    fun shell(): IHarnessShell {
         val c = connection ?: phone.sharedShell.acquire().also {
             connection = it
             rebindAccessibility()
@@ -35,7 +35,7 @@ object DeviceSupport {
     }
 
     /** 等连接拿到活着的助手;等不到就带着当前状态失败,提示先配对。助手被杀后看门狗重起要一会儿,断开回调到达前也可能还拿着已死的 binder。 */
-    fun awaitShell(c: ShellBinding, timeoutMs: Long = 30_000): IMinaShell = runBlocking {
+    fun awaitShell(c: ShellBinding, timeoutMs: Long = 30_000): IHarnessShell = runBlocking {
         withTimeoutOrNull(timeoutMs) { c.shell.filterNotNull().first { it.asBinder().pingBinder() } }
     } ?: error(
         "Mina's phone helper is not running (status=${phone.shellControl.status.value}): " +
@@ -70,7 +70,7 @@ object DeviceSupport {
     private fun rebindAccessibility() {
         if (ScreenAccessibility.instance.value != null) return
         val key = "enabled_accessibility_services"
-        val mina = "${InstrumentationRegistry.getInstrumentation().targetContext.packageName}/${MinaAccessibilityService::class.java.name}"
+        val mina = "${InstrumentationRegistry.getInstrumentation().targetContext.packageName}/${HarnessAccessibilityService::class.java.name}"
         val enabled = sh("settings get secure $key").trim().split(':')
         if (mina !in enabled) return
         try {
@@ -98,7 +98,7 @@ object DeviceSupport {
      * 主屏状态:系统的最上层焦点屏、0 号屏的焦点窗口与焦点 Activity、主屏最上面的任务。
      * Agent 在虚拟屏上做任何事,这些都不应该变。
      */
-    fun mainScreenState(shell: IMinaShell): String {
+    fun mainScreenState(shell: IHarnessShell): String {
         val topDisplay = sh("dumpsys window").lines().map { it.trim() }
             .firstOrNull { it.startsWith("mTopFocusedDisplayId=") }
         checkNotNull(topDisplay) { "mTopFocusedDisplayId not found in dumpsys window" }

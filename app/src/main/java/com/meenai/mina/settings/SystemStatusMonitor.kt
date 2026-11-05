@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import com.meenai.mina.a11y.MinaAccessibilityService
+import com.meenai.mina.a11y.HarnessAccessibilityService
 
 /**
  * 实时汇总开始任务需要的系统状态。内置助手、无障碍、开发者开关有回调就跟着变;
@@ -114,7 +114,7 @@ class SystemStatusMonitor(context: Context, private val shell: BuiltinShellContr
         if (ScreenAccessibility.instance.value != null) return AccessibilityState.On
         val enabled = Settings.Secure.getString(app.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').mapNotNull { ComponentName.unflattenFromString(it.trim()) }
-        val me = ComponentName(app, MinaAccessibilityService::class.java)
+        val me = ComponentName(app, HarnessAccessibilityService::class.java)
         return if (me in enabled) AccessibilityState.EnabledNotRunning else AccessibilityState.Off
     }
 

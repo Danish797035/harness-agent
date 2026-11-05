@@ -23,3 +23,5 @@ __pycache__/
 *.egg-info/
 download_temp/
 *.jks
+*.idsig
+hitrans_cache.json

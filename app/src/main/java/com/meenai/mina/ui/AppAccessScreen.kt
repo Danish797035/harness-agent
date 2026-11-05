@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.cap.phone.a11y.launchableApps
 import com.meenai.mina.core.access.*
@@ -56,7 +56,7 @@ private fun classifierLanguage(locale: java.util.Locale): String = when {
 
 @Composable
 fun AppAccessScreen(onBack: () -> Unit, classifyApps: Boolean = true) {
-    val app = LocalContext.current.applicationContext as MinaApp
+    val app = LocalContext.current.applicationContext as HarnessApp
     val store = app.appAccess
     val state by store.state.collectAsState()
     val scope = rememberCoroutineScope()

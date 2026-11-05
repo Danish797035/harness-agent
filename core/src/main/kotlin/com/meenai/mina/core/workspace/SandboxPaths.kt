@@ -6,7 +6,8 @@ import java.nio.file.Files
 /** 模型只看到沙箱里的路径;这里规范化并判断越界。 */
 object SandboxPaths {
     const val WORKSPACE = "/workspace"
-    const val SKILLS = "/opt/mina/skills"
+    const val SKILLS = "/opt/harness/skills"
+    const val LEGACY_SKILLS = "/opt/mina/skills"
 
     /** 相对路径以 [cwd] 为基;规范化后不在 [WORKSPACE] 或 [SKILLS] 下返回 null。 */
     fun normalize(path: String, cwd: String = WORKSPACE): String? {
@@ -18,7 +19,7 @@ object SandboxPaths {
             else -> parts.addLast(seg)
         }
         val n = "/" + parts.joinToString("/")
-        return n.takeIf { under(it, WORKSPACE) || under(it, SKILLS) }
+        return n.takeIf { under(it, WORKSPACE) || under(it, SKILLS) || under(it, LEGACY_SKILLS) }
     }
 
     /** 只有工作区可写;技能目录只读。 */

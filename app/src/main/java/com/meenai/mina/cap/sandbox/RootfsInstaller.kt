@@ -172,7 +172,7 @@ class RootfsInstaller(
         if (free < need) throw IOException(tr(R.string.install_no_space, need shr 20, free / (1 shl 20)))
         val (code, out) = selfTest()
         val lines = out.lines().map { it.trim() }
-        if (code != 0 || lines.firstOrNull() != "minarun ok") {
+        if (code != 0 || (lines.firstOrNull() != "harnessrun ok" && lines.firstOrNull() != "minarun ok")) {
             throw IOException(tr(R.string.install_cannot_start, lines.lastOrNull { it.isNotEmpty() } ?: tr(R.string.install_exit_code, code)))
         }
         // 断网过滤器不可用不挡安装:联网关着时命令会被拒绝,这里只记下原因给设置页
@@ -183,6 +183,7 @@ class RootfsInstaller(
         writeInRootfs("etc/hosts", "127.0.0.1 localhost\n::1 localhost\n")
         writeInRootfs("etc/resolv.conf", dnsServers().ifEmpty { FALLBACK_DNS }.joinToString("") { "nameserver $it\n" })
         val client = clientScript() ?: throw IOException(tr(R.string.install_no_client))
+        writeInRootfs("usr/local/bin/harness", client, executable = true)
         writeInRootfs("usr/local/bin/mina", client, executable = true)
         prepareDev(dirs.rootfs)
         writeProcStandIns()
@@ -226,7 +227,7 @@ class RootfsInstaller(
             val dirs = SandboxDirs(app)
             return RootfsInstaller(
                 dirs, SandboxState.get(app), RuntimeBundle.bundled(app),
-                clientScript = { runCatching { app.assets.open("sandbox/mina").use { it.readBytes() } }.getOrNull() },
+                clientScript = { runCatching { app.assets.open("sandbox/harness").use { it.readBytes() } }.getOrNull() },
                 dnsServers = { AndroidSandbox.dns(app) },
                 syncSkills = { SkillsSync.sync(dirs) },
             )
@@ -235,7 +236,7 @@ class RootfsInstaller(
         private fun hostCanRead(path: String): Boolean = runCatching { File(path).inputStream().use { it.read() }; true }.getOrDefault(false)
 
         private suspend fun runSelfTest(dirs: SandboxDirs): Pair<Int, String> {
-            val o = AndroidSandbox.launch(listOf(dirs.lib("libminarun.so").path, "--self-test"), emptyMap(), 15_000)
+            val o = AndroidSandbox.launch(listOf(dirs.lib("libharnessrun.so").path, "--self-test"), emptyMap(), 15_000)
             return o.exitCode to String(o.output, Charsets.UTF_8)
         }
 

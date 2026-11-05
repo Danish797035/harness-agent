@@ -28,17 +28,18 @@ object ProcRunner {
         dirs: SandboxDirs, workspace: File, cwd: String, timeoutSec: Int, network: Boolean, standIns: List<String>, command: List<String>,
         devices: List<String> = ProotDevices.bindArgs(),
     ): List<String> = listOf(
-        dirs.lib("libminarun.so").path, "--timeout", timeoutSec.toString(), "--net", if (network) "on" else "off", "--",
+        dirs.lib("libharnessrun.so").path, "--timeout", timeoutSec.toString(), "--net", if (network) "on" else "off", "--",
         dirs.lib("libproot.so").path, "--kill-on-exit", "--link2symlink", "-0", "-r", dirs.rootfs.path,
     ) + devices + listOf("-b", "/proc", "-b", "/sys") +
         standIns.flatMap { listOf("-b", "${File(dirs.procStandIns, it).path}:/proc/$it") } +
         listOf(
             "-b", "${workspace.path}:${SandboxPaths.WORKSPACE}",
             "-b", "${dirs.skills.path}:${SandboxPaths.SKILLS}",
+            "-b", "${dirs.skills.path}:${SandboxPaths.LEGACY_SKILLS}",
             "-w", if (cwd.isEmpty()) SandboxPaths.WORKSPACE else "${SandboxPaths.WORKSPACE}/$cwd",
         ) + command
 
-    /** 环境先清空,只给这些;桥没开时不给 MINA_BRIDGE / MINA_TOKEN。 */
+    /** 环境先清空,只给这些;桥没开时不给 HARNESS_BRIDGE / HARNESS_TOKEN。 */
     fun env(
         dirs: SandboxDirs, bridgeName: String?, token: String?, conversationId: String,
         /** 容器的网络代理;空串表示不用(见 NetProxyStore)。不允许联网时调用方给空串。 */
@@ -52,8 +53,15 @@ object ProcRunner {
         put("TMPDIR", "/tmp")
         // 每次启动都读取手机当前时区;Alpine 的 libc 不会读取 Android 的系统时区。
         put("TZ", timezone())
-        bridgeName?.let { put("MINA_BRIDGE", it) }
-        token?.let { put("MINA_TOKEN", it) }
+        bridgeName?.let {
+            put("HARNESS_BRIDGE", it)
+            put("MINA_BRIDGE", it)
+        }
+        token?.let {
+            put("HARNESS_TOKEN", it)
+            put("MINA_TOKEN", it)
+        }
+        put("HARNESS_CONVERSATION", conversationId)
         put("MINA_CONVERSATION", conversationId)
         // 代理只给容器里的命令用:常见工具认这几个变量(有的只认大写);本机地址不走代理
         if (proxy.isNotBlank()) {

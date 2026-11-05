@@ -8,7 +8,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.task.TaskService
@@ -24,7 +24,7 @@ import com.meenai.mina.task.TaskService
  * 以前台服务的方式起:安卓 12 起后台的 App 一般不能自己开前台服务,但由 shell 发起的启动不在此限。
  */
 class McpService : Service() {
-    private val runtime get() = (application as MinaApp).mcp
+    private val runtime get() = (application as HarnessApp).mcp
 
     override fun onBind(intent: Intent?): IBinder? = null
 

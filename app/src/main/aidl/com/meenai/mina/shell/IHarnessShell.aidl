@@ -7,7 +7,7 @@ import android.os.Bundle;
 import android.view.Surface;
 
 // 运行在 shell 身份(uid 2000)进程里的常驻服务:经无线调试拉起的内置助手。
-interface IMinaShell {
+interface IHarnessShell {
     int createDisplay(in Surface surface, int width, int height, int dpi) = 1;
     void releaseDisplay(int displayId) = 2;
     // 0=已启动 1=用户正在主屏使用该 App(不启动,不打扰主屏) 2=没有可启动的入口 3=出错

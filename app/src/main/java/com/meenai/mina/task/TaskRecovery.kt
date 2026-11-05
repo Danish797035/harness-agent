@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.meenai.mina.settings.KeyCipher
 import com.meenai.mina.settings.KeystoreKeyCipher
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.cap.phone.shell.AppAudioKey
 import com.meenai.mina.cap.phone.shell.SharedShell
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +62,7 @@ interface AudioPort {
     fun setMode(packageName: String, mode: String): Boolean
 }
 
-class ShellAudio(private val shell: IMinaShell) : AudioPort {
+class ShellAudio(private val shell: IHarnessShell) : AudioPort {
     override fun mode(packageName: String): String? = runCatching {
         val (pkg, user) = AppAudioKey.parse(packageName) ?: return null
         if (user == null) shell.getAudioMode(pkg) else shell.getAudioModeInUser(pkg, user)
@@ -153,7 +153,7 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
     /** 还在跑的任务;进程被杀后为空,所有记录都归恢复处理。 */
     private val live = ConcurrentHashMap.newKeySet<String>()
 
-    fun audioMute(shell: IMinaShell, runKey: String) = AudioMute(ShellAudio(shell), marker(runKey))
+    fun audioMute(shell: IHarnessShell, runKey: String) = AudioMute(ShellAudio(shell), marker(runKey))
 
     private fun marker(runKey: String) = PrefsMarker(prefs(), "${MUTED}_$runKey")
 
@@ -167,7 +167,7 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
         markerNames().any { it !in liveNames() } || (live.isEmpty() && prefs().getBoolean(CLIP_HELD, false))
 
     /** 任务开工:先恢复没人收尾的遗留,再登记为在跑。 */
-    suspend fun beginRun(shell: IMinaShell, runKey: String) = lock.withLock {
+    suspend fun beginRun(shell: IHarnessShell, runKey: String) = lock.withLock {
         withContext(Dispatchers.IO) { recoverWith(shell) }
         live += runKey
     }
@@ -194,7 +194,7 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
     }
 
     /** 已持有 [lock] 时调用。 */
-    fun recoverWith(shell: IMinaShell) {
+    fun recoverWith(shell: IHarnessShell) {
         val records = markerNames().associateWith { PrefsMarker(prefs(), it) }
         if (!restoreRuns(records, ShellAudio(shell), liveNames())) Log.w(TAG, "muted apps not restored yet")
         if (live.isNotEmpty()) return

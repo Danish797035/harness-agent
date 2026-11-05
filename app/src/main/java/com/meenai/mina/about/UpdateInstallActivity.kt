@@ -2,7 +2,7 @@ package com.meenai.mina.about
 
 import android.app.Activity
 import android.os.Bundle
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 class UpdateInstallActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val app = application as MinaApp
+        val app = application as HarnessApp
         val updater = ApkUpdater(this)
         Thread {
             val intent = runCatching {

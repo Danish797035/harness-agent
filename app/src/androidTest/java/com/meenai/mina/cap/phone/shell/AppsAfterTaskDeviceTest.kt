@@ -10,7 +10,7 @@ import com.meenai.mina.cap.phone.a11y.DeviceSupport
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.TEST_PACKAGE
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.pollUntil
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.sh
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,14 +21,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 任务结束时 Mina 屏上的 App 怎么办(IMinaShell.finishDisplay):没出声的留下,挪到主屏最后面、不到用户眼前;
+ * 任务结束时 Mina 屏上的 App 怎么办(IHarnessShell.finishDisplay):没出声的留下,挪到主屏最后面、不到用户眼前;
  * 下次经启动入口打开时同一个任务挪回 Mina 的屏;正在出声的、标了 close 的随屏关掉;标了 keep 的出声也留下。
  * 需要外壳已连上。用户的主屏不该有任何变化(焦点、焦点窗口都不变,留下的任务看不见)。
  */
 @RunWith(AndroidJUnit4::class)
 class AppsAfterTaskDeviceTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val shell: IMinaShell get() = DeviceSupport.shell()
+    private val shell: IHarnessShell get() = DeviceSupport.shell()
     private val screens = mutableListOf<ParityScreen>()
     private lateinit var probe: ShellProbe
 

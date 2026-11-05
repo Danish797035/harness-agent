@@ -63,7 +63,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.assembly.knownTools
 import com.meenai.mina.browser.PageAskMode
 import com.meenai.mina.browser.PageAskModel
@@ -139,7 +139,7 @@ object PageAskCopy {
  */
 @Stable
 class PageChat(private val context: Context, private val browser: UserBrowser, private val scope: CoroutineScope) {
-    private val app = context.applicationContext as MinaApp
+    private val app = context.applicationContext as HarnessApp
     private val store = ConversationStore.shared(context)
     private val model = CapsuleModel()
     private val toolLabels by lazy { ToolLabels(knownTools()) }

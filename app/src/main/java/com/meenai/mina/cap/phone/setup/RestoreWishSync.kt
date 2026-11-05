@@ -8,7 +8,7 @@ import com.meenai.mina.core.shell.RecoveryCapability
 import com.meenai.mina.core.shell.RecoveryConsent
 import com.meenai.mina.core.shell.RestoreWish
 import com.meenai.mina.core.shell.RestoreWishSender
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 把「Mina 被杀后要不要拉起来」([RestoreWish])交给内置助手:胶囊模式、有没有任务在跑、「替我打开无障碍」、
- * 系统列表里有没有 Mina 的无障碍服务,任一变了、或换了助手,就经 [IMinaShell.setRestoreWish] 再交一次。
+ * 系统列表里有没有 Mina 的无障碍服务,任一变了、或换了助手,就经 [IHarnessShell.setRestoreWish] 再交一次。
  * 助手读不到 Mina 的设置,Mina 死后只按最后交到的这一份行事。
  */
 class RestoreWishSync(
@@ -34,7 +34,7 @@ class RestoreWishSync(
     private val accessibility: Flow<A11yObservation>,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val sender = RestoreWishSender<IMinaShell> { shell, wish ->
+    private val sender = RestoreWishSender<IHarnessShell> { shell, wish ->
         runCatching { shell.setRestoreWish(wish.flags) }
             .onFailure { Log.w(TAG, "cannot hand the restore wish to the helper", it) }
             .isSuccess

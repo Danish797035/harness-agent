@@ -85,7 +85,7 @@ internal class ShareQuota(private val maxFiles: Int = SHARE_MAX_FILES, private v
  * 它跟的是 fork 出它的那个线程:线程池回收空闲线程时,那条线程起的命令会被当成「Mina 死了」而杀掉。
  * 协程调度器把 start() 的异常交回调用方,线程本身不会因异常退出。
  */
-private val launcherThread = Executors.newSingleThreadExecutor { r -> Thread(r, "mina-sandbox-launcher").apply { isDaemon = true } }
+private val launcherThread = Executors.newSingleThreadExecutor { r -> Thread(r, "harness-sandbox-launcher").apply { isDaemon = true } }
     .asCoroutineDispatcher()
 
 /** [SandboxPort] 的安卓实现:启动器 + PRoot 跑命令,文件类操作直接读写宿主目录。 */
@@ -96,7 +96,7 @@ class AndroidSandbox internal constructor(
     /** 每次运行开一个桥会话;JVM 测试里没有安卓套接字,传 false。 */
     private val bridges: Boolean = false,
     private val version: String = "",
-    /** 存到「下载/Mina」:(已过关口核实的文件, 保存名) → 导出的文件;为空时不能导出。 */
+    /** 存到「下载/Harness」:(已过关口核实的文件, 保存名) → 导出的文件;为空时不能导出。 */
     private val exporter: (suspend (GatedFile, String) -> SharedFile)? = null,
     /** 导出成功后告诉任务(文件卡片)。 */
     private val onShared: (SharedFile) -> Unit = {},
@@ -122,7 +122,7 @@ class AndroidSandbox internal constructor(
         startPreparing = { RuntimePreparer.ensure(context, retryFailed = true) },
         allowNetwork = { state.networkAllowed },
         proxy = { NetProxyStore.get(context).get() },
-        clientScript = { context.assets.open("sandbox/mina").use { it.readBytes() } },
+        clientScript = { context.assets.open("sandbox/harness").use { it.readBytes() } },
     )
 
     private val quota = ShareQuota()
@@ -181,7 +181,7 @@ class AndroidSandbox internal constructor(
         val text = String(o.output, Charsets.UTF_8)
         if (o.exitCode == EXIT_LAUNCHER_ERROR) {
             val reason = text.trimEnd().lineSequence().lastOrNull().orEmpty()
-            if (reason.startsWith("minarun: network isolation unavailable")) {
+            if (reason.startsWith("harnessrun: network isolation unavailable") || reason.startsWith("minarun: network isolation unavailable")) {
                 throw SandboxError("sandbox_network_isolation_unavailable",
                     "The sandbox cannot cut off the network on this device, so commands are refused while network access is off. ($reason)")
             }
@@ -311,11 +311,16 @@ class AndroidSandbox internal constructor(
     /** 已安装的根文件系统版本可能没变，但 APK 中的桥客户端已经更新。 */
     private fun syncClientScript() {
         val expected = bundledClient ?: return
-        val rel = "usr/local/bin/mina"
+        val rel = "usr/local/bin/harness"
         val matches = runCatching {
             dirs.gate.openRead(dirs.rootfs, rel).use { it.size == expected.size.toLong() && it.read(0, expected.size).contentEquals(expected) }
         }.getOrDefault(false)
         if (!matches || !File(dirs.rootfs, rel).canExecute()) dirs.gate.replace(dirs.rootfs, rel, expected, mode = 493 /* 0755 */)
+        val legacy = "usr/local/bin/mina"
+        val legacyMatches = runCatching {
+            dirs.gate.openRead(dirs.rootfs, legacy).use { it.size == expected.size.toLong() && it.read(0, expected.size).contentEquals(expected) }
+        }.getOrDefault(false)
+        if (!legacyMatches || !File(dirs.rootfs, legacy).canExecute()) dirs.gate.replace(dirs.rootfs, legacy, expected, mode = 493 /* 0755 */)
     }
 
     override suspend fun verifyScript(skillPath: String, file: String): Boolean {

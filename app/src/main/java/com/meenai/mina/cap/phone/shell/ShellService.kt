@@ -45,7 +45,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.system.exitProcess
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 
 /**
  * 以 shell 身份(uid 2000)常驻,持有 Agent 的虚拟屏,跑在内置助手进程([HelperMain])里。
@@ -58,7 +58,7 @@ class ShellService(
     private val allowedUid: Int,
     /** 静音记录放的目录;shell 身份能写的位置。 */
     stateDir: File = File("/data/local/tmp"),
-) : IMinaShell.Stub() {
+) : IHarnessShell.Stub() {
     private val context: Context = ShellContext.create()
     private val displays = HashMap<Int, VirtualDisplay>()
     /** 被静音的包 → 静音前的 PLAY_AUDIO 模式("default" 表示原先未设置),落在 [stateDir] 里,进程被杀后下次启动接着恢复。 */
@@ -1245,13 +1245,19 @@ class ShellService(
 
     private fun commandResult(code: Int, output: String) = Bundle().apply { putInt("exitCode", code); putString("output", output) }
 
-    /** 以 shell 身份跑 `sh -c`,合并输出,限时限长;[displayId] 不为空时放进 MINA_DISPLAY_ID。 */
+    /** 以 shell 身份跑 `sh -c`,合并输出,限时限长;[displayId] 不为空时放进 HARNESS_DISPLAY_ID。 */
     private fun exec(command: String, displayId: Int?): Bundle {
         fun result(code: Int, output: String) = commandResult(code, output)
         if (command.isBlank() || command.length > 4_000) return result(-1, "Invalid command length.")
         val process = try {
             ProcessBuilder("/system/bin/sh", "-c", command).redirectErrorStream(true)
-                .apply { if (displayId != null) environment()["MINA_DISPLAY_ID"] = displayId.toString() }.start()
+                .apply {
+                    if (displayId != null) {
+                        val dStr = displayId.toString()
+                        environment()["HARNESS_DISPLAY_ID"] = dStr
+                        environment()["MINA_DISPLAY_ID"] = dStr
+                    }
+                }.start()
         } catch (t: Throwable) {
             return result(-1, t.message ?: "Command could not start.")
         }

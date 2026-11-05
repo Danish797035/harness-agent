@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.os.ParcelFileDescriptor
 import java.io.IOException
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 
 /**
  * Mina 进程里内置助手 Binder 的落点。助手经 [HandoffProvider] 交来 Binder,在这里核对后收下;
@@ -30,9 +30,9 @@ import com.meenai.mina.shell.IMinaShell
 class HelperHub(context: Context) {
     private val app = context.applicationContext
 
-    private val _shell = MutableStateFlow<IMinaShell?>(null)
+    private val _shell = MutableStateFlow<IHarnessShell?>(null)
     /** 现在手里的助手接口;助手进程死了就变回 null。 */
-    val shell: StateFlow<IMinaShell?> = _shell.asStateFlow()
+    val shell: StateFlow<IHarnessShell?> = _shell.asStateFlow()
 
     private val _restores = MutableStateFlow<HelperRestoreReport?>(null)
     /** 助手交接时报来的「Mina 被杀后由它拉起来」的记录(诊断信息用);没拉过为 null。 */
@@ -82,7 +82,7 @@ class HelperHub(context: Context) {
         val nonce = extras?.getString(HelperHandoff.KEY_NONCE)
         // 口令不对就不碰对方给的 Binder
         if (!gate.matches(nonce)) return reject(HelperHandoff.Reject.BadNonce)
-        val shell = IMinaShell.Stub.asInterface(binder!!)
+        val shell = IHarnessShell.Stub.asInterface(binder!!)
         val ids = runCatching { shell.identity() }.getOrNull()
         if (ids == null || ids.size < 2 || ids[0] != callingUid || ids[1] != callingPid) {
             return reject(HelperHandoff.Reject.BinderElsewhere)
@@ -139,7 +139,7 @@ class HelperHub(context: Context) {
  * 内置助手交接 Binder 的入口。要对 shell 开放所以是 exported,清单里另要求 INTERACT_ACROSS_USERS_FULL
  * (shell 有,普通 App 没有),普通 App 连 provider 都拿不到;真正的把关在 [HelperHub.offer]。
  * 落点是 App 的那一份([PhoneServices.of]):App 对象在 provider 之前就构造好了,但交接调用可能早于或与 Application.onCreate 同时到达;
- * 安全靠 MinaApp.phone 与 [HelperHub] 里口令都是同步的 lazy(谁先到谁建、只建一次),[HelperHub.offer] 本身也加了锁,不依赖 onCreate 先跑完。
+ * 安全靠 HarnessApp.phone 与 [HelperHub] 里口令都是同步的 lazy(谁先到谁建、只建一次),[HelperHub.offer] 本身也加了锁,不依赖 onCreate 先跑完。
  */
 open class HandoffProvider : ContentProvider() {
     override fun onCreate() = true

@@ -110,7 +110,7 @@ fun SettingsScreen(
     var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
     // 换语言时界面会重建,这里每次进来读一次即可
     val language = remember { AppLanguage.current(context) }
-    val runtimeLimit by (context.applicationContext as com.meenai.mina.MinaApp).taskState.parallelLimit.collectAsState()
+    val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
     var speed by remember { mutableStateOf(flags.speedFlags()) }
     val routeStore = remember { FileRouteStore.shared(context) }
     var routeCount by remember { mutableStateOf<Int?>(null) }
@@ -126,12 +126,12 @@ fun SettingsScreen(
         if (proxy == null) proxy = withContext(Dispatchers.IO) { proxies.get() }
         browserProxy = withContext(Dispatchers.IO) { WebProxy.mode() }
     }
-    val mcp = remember { (context.applicationContext as com.meenai.mina.MinaApp).mcp }
+    val mcp = remember { (context.applicationContext as com.meenai.mina.HarnessApp).mcp }
     val mcpNetworkOn by mcp.settings.enabled.collectAsState()
     val mcpUsbOn by mcp.usb.enabled.collectAsState()
     val mcpOn = mcpNetworkOn || mcpUsbOn
     // 「Token 用量」一行的值:近 7 天的合计,账本每记一笔就重算
-    val usage = remember { (context.applicationContext as com.meenai.mina.MinaApp).usage }
+    val usage = remember { (context.applicationContext as com.meenai.mina.HarnessApp).usage }
     val usageVersion by usage.version.collectAsState()
     var usageWeek by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(usageVersion) {

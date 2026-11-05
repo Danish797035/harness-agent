@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** 字号与字重。只定大小、字重、行高,颜色由用的地方给。 */
-object MinaType {
+object HarnessType {
     /** 大标题:空状态、欢迎页。 */
     val LargeTitle = TextStyle(fontSize = 28.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold)
     /** 页面标题:顶栏。 */
@@ -27,8 +27,10 @@ object MinaType {
     val Value = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal)
 }
 
+typealias MinaType = HarnessType
+
 /** 间距。页面左右留 [Page]。 */
-object MinaSpace {
+object HarnessSpace {
     val S4 = 4.dp
     val S8 = 8.dp
     val S12 = 12.dp
@@ -38,8 +40,10 @@ object MinaSpace {
     val Page = 16.dp
 }
 
+typealias MinaSpace = HarnessSpace
+
 /** 各类元素的尺寸。 */
-object MinaSize {
+object HarnessSize {
     val TopBar = 56.dp
     val IconButton = 40.dp
     val RowMin = 52.dp
@@ -54,8 +58,10 @@ object MinaSize {
     const val IconStroke = 1.7f
 }
 
+typealias MinaSize = HarnessSize
+
 /** 圆角。 */
-object MinaRadius {
+object HarnessRadius {
     val Card = 16.dp
     val Bubble = 20.dp
     val BubbleTail = 6.dp
@@ -63,14 +69,18 @@ object MinaRadius {
     val Tile = 9.dp
 }
 
+typealias MinaRadius = HarnessRadius
+
 /** 常用形状;顶层常量,重组时不新建。 */
-object MinaShapes {
-    val Card = RoundedCornerShape(MinaRadius.Card)
+object HarnessShapes {
+    val Card = RoundedCornerShape(HarnessRadius.Card)
     /** 用户消息气泡:右下角是尾角。 */
-    val UserBubble = RoundedCornerShape(MinaRadius.Bubble, MinaRadius.Bubble, MinaRadius.BubbleTail, MinaRadius.Bubble)
-    /** Mina 的回答:左下角是尾角,和用户气泡对称。 */
-    val AnswerBubble = RoundedCornerShape(MinaRadius.Bubble, MinaRadius.Bubble, MinaRadius.Bubble, MinaRadius.BubbleTail)
-    val Button = RoundedCornerShape(MinaRadius.Button)
-    val Tile = RoundedCornerShape(MinaRadius.Tile)
+    val UserBubble = RoundedCornerShape(HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.BubbleTail, HarnessRadius.Bubble)
+    /** Harness 的回答:左下角是尾角,和用户气泡对称。 */
+    val AnswerBubble = RoundedCornerShape(HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.BubbleTail)
+    val Button = RoundedCornerShape(HarnessRadius.Button)
+    val Tile = RoundedCornerShape(HarnessRadius.Tile)
     val Pill = CircleShape
 }
+
+typealias MinaShapes = HarnessShapes

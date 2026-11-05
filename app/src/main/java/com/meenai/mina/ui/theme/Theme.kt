@@ -27,8 +27,8 @@ import androidx.activity.enableEdgeToEdge
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.ThemeMode
 
-/** 动效:时长和曲线。系统关了动画时([MinaTheme.reduceMotion])直接到位。 */
-object MinaMotion {
+/** 动效:时长和曲线。系统关了动画时([HarnessTheme.reduceMotion])直接到位。 */
+object HarnessMotion {
     const val PAGE_MS = 220
     const val SWITCH_MS = 200
     /** 减速曲线:起步快、落地慢。 */
@@ -38,19 +38,23 @@ object MinaMotion {
     fun <T> switch(reduceMotion: Boolean): AnimationSpec<T> = if (reduceMotion) snap() else tween(SWITCH_MS, easing = Decelerate)
 }
 
+typealias MinaMotion = HarnessMotion
+
 /** 系统「移除动画」(动画时长缩放为 0)时为真。 */
 fun animationsOff(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 val LocalReduceMotion = staticCompositionLocalOf { false }
 
-object MinaTheme {
-    val colors: MinaColors
-        @Composable @ReadOnlyComposable get() = LocalMinaColors.current
+object HarnessTheme {
+    val colors: HarnessColors
+        @Composable @ReadOnlyComposable get() = LocalHarnessColors.current
 
     val reduceMotion: Boolean
         @Composable @ReadOnlyComposable get() = LocalReduceMotion.current
 }
+
+typealias MinaTheme = HarnessTheme
 
 /**
  * 设置里的外观:跟随系统时看系统,一直浅色/深色时照设置。设置一改(设置页或任务里改的)当场换,不重建界面,
@@ -82,17 +86,22 @@ fun ComponentActivity.systemBarsFor(dark: Boolean) {
 
 /** 深浅色按设置里的外观([appearanceDark]);同时把 Material 组件(弹窗、输入框、底部面板)的颜色对上。 */
 @Composable
-fun MinaTheme(dark: Boolean = appearanceDark(), reduceMotion: Boolean = false, content: @Composable () -> Unit) {
+fun HarnessTheme(dark: Boolean = appearanceDark(), reduceMotion: Boolean = false, content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors
     val scheme = if (dark) DarkScheme else LightScheme
-    CompositionLocalProvider(LocalMinaColors provides colors, LocalReduceMotion provides reduceMotion) {
+    CompositionLocalProvider(LocalHarnessColors provides colors, LocalReduceMotion provides reduceMotion) {
         MaterialTheme(colorScheme = scheme) {
             CompositionLocalProvider(LocalContentColor provides colors.ink, content = content)
         }
     }
 }
 
-private fun scheme(c: MinaColors): ColorScheme {
+@Composable
+fun MinaTheme(dark: Boolean = appearanceDark(), reduceMotion: Boolean = false, content: @Composable () -> Unit) {
+    HarnessTheme(dark = dark, reduceMotion = reduceMotion, content = content)
+}
+
+private fun scheme(c: HarnessColors): ColorScheme {
     val base = if (c.isDark) darkColorScheme() else lightColorScheme()
     return base.copy(
         primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.accentSoft, onPrimaryContainer = c.accent,

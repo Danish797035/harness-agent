@@ -58,7 +58,7 @@ import androidx.compose.runtime.getValue
  * [onCheckedChange] 为空时只显示(整行可点时用)。
  */
 @Composable
-fun MinaSwitch(
+fun HarnessSwitch(
     checked: Boolean,
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
@@ -90,6 +90,14 @@ fun MinaSwitch(
             },
     )
 }
+
+@Composable
+fun MinaSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) = HarnessSwitch(checked, onCheckedChange, modifier, enabled)
 
 // ---------- 胶囊 ----------
 
@@ -127,7 +135,7 @@ enum class ButtonSize(val height: Dp, val shape: RoundedCornerShape, val text: T
 
 /** 按钮。宽度由 [modifier] 定(铺满、按权重分或包住文字)。 */
 @Composable
-fun MinaButton(
+fun HarnessButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -156,6 +164,16 @@ fun MinaButton(
         Text(text, style = size.text, color = fg, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
+
+@Composable
+fun MinaButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    kind: ButtonKind = ButtonKind.Primary,
+    size: ButtonSize = ButtonSize.Large,
+    enabled: Boolean = true,
+) = HarnessButton(text, onClick, modifier, kind, size, enabled)
 
 // ---------- 分段控件 ----------
 

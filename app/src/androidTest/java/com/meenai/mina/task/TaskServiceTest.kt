@@ -19,7 +19,7 @@ import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.verify.Verifier
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class TaskServiceTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var shell: IMinaShell
+    private lateinit var shell: IHarnessShell
     /**
      * 每个任务一个脚本模型:模型的调用编号、核查次数各任务分开数。共用一个时,上一个任务没取走的调用
      * (核查、收尾)会被下一个任务的等待取到,测试就跑到了任务前面。

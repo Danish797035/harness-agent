@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Main window background matches the theme tokens page background so launch does not flash white; dark variant in values-night -->
-    <style name="Theme.Mina" parent="@android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/mina_bg</item>
+    <style name="Theme.Harness" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/harness_bg</item>
     </style>
-    <color name="mina_bg">#F7F7F8</color>
+    <style name="Theme.Mina" parent="Theme.Harness" />
+    <color name="harness_bg">#F7F7F8</color>
+    <color name="mina_bg">@color/harness_bg</color>
 </resources>

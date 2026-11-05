@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import com.meenai.mina.BuildConfig
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.a11y.AppCopyReader
 import com.meenai.mina.cap.phone.a11y.launchableApps
@@ -60,7 +60,7 @@ object DiagnosticsCollector {
     private const val RECENT_RUNS = 3
 
     fun collect(context: Context, status: SystemStatus, setup: SetupInputs? = null): DiagnosticsSnapshot {
-        val app = context.applicationContext as MinaApp
+        val app = context.applicationContext as HarnessApp
         val phone = PhoneServices.of(app)
         val inputs = setup ?: status.setupInputs(phone.shellControl.pairingDiscovery.value, phone.pairing.repairing.value)
         return DiagnosticsSnapshot(
@@ -105,7 +105,7 @@ object DiagnosticsCollector {
     }
 
     /** 内置助手连着时问它每份别的用户的判定,再数能打开的另一份有几个(只数,不列包名);问不到为 null。 */
-    private fun appCopies(app: MinaApp, phone: PhoneServices): String? = runCatching {
+    private fun appCopies(app: HarnessApp, phone: PhoneServices): String? = runCatching {
         val shell = phone.hub.shell.value ?: return null
         val summary = shell.appCopyUsers()?.getString(ShellService.KEY_COPY_SUMMARY) ?: return null
         val copies = AppCopyReader.read(shell, launchableApps(app.packageManager, app.packageName))
@@ -144,7 +144,7 @@ object DiagnosticsCollector {
         cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
     }.getOrNull()
 
-    private fun models(app: MinaApp): DiagnosticsSnapshot.Models {
+    private fun models(app: HarnessApp): DiagnosticsSnapshot.Models {
         val store = app.providers
         fun role(r: ModelRole) = store.configFor(r)?.let { DiagnosticsSnapshot.RoleModel(it.model, it.baseUrl) }
         val chatGpt = store.chatGptProvider()
@@ -160,7 +160,7 @@ object DiagnosticsCollector {
     }
 
     /** 语音转文字:选择、手机自带识别的能力和记号、手机上登记的识别服务(组件名、开不开放、要的权限)。 */
-    private fun speech(app: MinaApp): DiagnosticsSnapshot.Speech? = runCatching {
+    private fun speech(app: HarnessApp): DiagnosticsSnapshot.Speech? = runCatching {
         val settings = app.speech
         val cap = SystemSpeech.capability(app, settings.systemSilent.value)
         val choice = when (val c = settings.choice.value) {
@@ -183,7 +183,7 @@ object DiagnosticsCollector {
     }.getOrNull()
 
     /** 最近几次运行:结局和步数取小结,模型取概要;目标、回答、失败原话都不取。 */
-    private fun runs(app: MinaApp): List<DiagnosticsSnapshot.Run> = runCatching {
+    private fun runs(app: HarnessApp): List<DiagnosticsSnapshot.Run> = runCatching {
         val store = RunStore(app)
         val models = store.list().take(RECENT_RUNS * 2).associate { it.id to it.model }
         store.metrics.recent(RECENT_RUNS).reversed().map { m ->

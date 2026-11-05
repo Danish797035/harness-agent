@@ -41,7 +41,7 @@ class ShareExporter(private val context: Context) {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
-            put(MediaStore.Downloads.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_DOWNLOADS}/Mina/")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_DOWNLOADS}/Harness/")
             mimeOf(name)?.let { put(MediaStore.Downloads.MIME_TYPE, it) }
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -68,7 +68,7 @@ class ShareExporter(private val context: Context) {
             throw e
         }
         val actual = displayName(uri) ?: name
-        return SharedFile(actual, size, "Download/Mina/$actual", uri.toString())
+        return SharedFile(actual, size, "Download/Harness/$actual", uri.toString())
     }
 
     /**
@@ -76,16 +76,18 @@ class ShareExporter(private val context: Context) {
      */
     fun cleanPending() {
         val resolver = context.contentResolver
-        val args = Bundle().apply {
-            putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
-                "${MediaStore.MediaColumns.IS_PENDING} = 1 AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?")
-            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf("${android.os.Environment.DIRECTORY_DOWNLOADS}/Mina/%", context.packageName))
-            putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+        for (folder in listOf("Harness", "Mina")) {
+            val args = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
+                    "${MediaStore.MediaColumns.IS_PENDING} = 1 AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?")
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf("${android.os.Environment.DIRECTORY_DOWNLOADS}/$folder/%", context.packageName))
+                putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            }
+            val ids = resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.MediaColumns._ID), args, null)?.use { c ->
+                buildList { while (c.moveToNext()) add(c.getLong(0)) }
+            }.orEmpty()
+            for (id in ids) runCatching { resolver.delete(ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id), null, null) }
         }
-        val ids = resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.MediaColumns._ID), args, null)?.use { c ->
-            buildList { while (c.moveToNext()) add(c.getLong(0)) }
-        }.orEmpty()
-        for (id in ids) runCatching { resolver.delete(ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id), null, null) }
     }
 
     private fun displayName(uri: Uri): String? =

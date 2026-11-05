@@ -13,10 +13,14 @@ package com.meenai.mina.core.agent
  * 引的那一段:语言提示和回答的语言检查不算;记忆、技能的引文只在引的是用户自己说过的话时算(见 [UserWords])。旧对话里的话没有这一行,照原样显示。
  */
 object QuoteMessage {
-    /** 引的是谁的话:Mina 的回答,还是用户自己说过的话。 */
+    /** 引的是谁的话:Harness 的回答,还是用户自己说过的话。 */
     enum class From(val header: String) {
         Mina("> [Quoting your earlier reply]"),
-        You("> [Quoting my earlier message]"),
+        You("> [Quoting my earlier message]");
+
+        companion object {
+            val Harness = Mina
+        }
     }
 
     /** 引的内容最多交给模型这么多字,多的截掉、末尾加「…」。 */

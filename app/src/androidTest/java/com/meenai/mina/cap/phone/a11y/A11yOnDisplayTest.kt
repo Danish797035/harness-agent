@@ -10,7 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meenai.mina.cap.phone.display.AgentDisplay
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.shell.BuiltinShellConnection
 import kotlinx.coroutines.CoroutineStart
@@ -27,7 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import com.meenai.mina.a11y.MinaAccessibilityService
+import com.meenai.mina.a11y.HarnessAccessibilityService
 
 /** 真机测试:需要内置助手在运行(已配对、无线调试开着),且 Mina 无障碍服务已开启。 */
 @RunWith(AndroidJUnit4::class)
@@ -59,7 +59,7 @@ class A11yOnDisplayTest {
         private fun rebindAccessibility() {
             if (ScreenAccessibility.instance.value != null) return
             val key = "enabled_accessibility_services"
-            val mina = "com.meenai.mina/${MinaAccessibilityService::class.java.name}"
+            val mina = "com.meenai.mina/${HarnessAccessibilityService::class.java.name}"
             val enabled = shellCommand("settings get secure $key").trim().split(':')
             if (mina !in enabled) return
             try {
@@ -79,11 +79,11 @@ class A11yOnDisplayTest {
             return ParcelFileDescriptor.AutoCloseInputStream(pfd).bufferedReader().use { it.readText() }
         }
 
-        private fun awaitShell(): IMinaShell =
+        private fun awaitShell(): IHarnessShell =
             DeviceSupport.awaitShell(connection)
     }
 
-    private val shell: IMinaShell get() = awaitShell()
+    private val shell: IHarnessShell get() = awaitShell()
     private var display: AgentDisplay? = null
 
     @After

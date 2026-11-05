@@ -30,7 +30,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.phone.a11y.DeviceSupport
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.SETTINGS
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.pollUntil
@@ -66,7 +66,7 @@ class ChatScreenDeviceTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
     // 从界面发起的任务在第一个动作前要另问一次意图;固定答「要操作」,脚本里每一问都是任务循环本身的一步
     private val model = ScriptedModel().apply { intent = "ACT" }
-    private val vm get() = (context.applicationContext as MinaApp).chat
+    private val vm get() = (context.applicationContext as HarnessApp).chat
     private val anyway = Prerequisites.Check(emptyList())
     private var savedSpeed: SpeedFlags? = null
 

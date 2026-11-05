@@ -4,7 +4,7 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.i18n.uiLocale
 import com.meenai.mina.about.CheckStatus
-import com.meenai.mina.about.MinaLinks
+import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.about.UpdateState
 
 /** 关于页的文字,以及「检查更新」一行、设置首页「关于 Mina」一行、侧栏入口上的提示怎么显示。 */
@@ -57,10 +57,10 @@ object AboutCopy {
 
     val FOLLOW: String get() = tr(R.string.about_follow)
     val FOLLOW_X: String get() = tr(R.string.about_follow_x)
-    val FOLLOW_X_SUB: String get() = tr(R.string.about_follow_x_sub, MinaLinks.X_HANDLE)
-    val FOLLOW_SUB: String get() = tr(R.string.about_follow_sub, MinaLinks.INSTAGRAM_HANDLE)
+    val FOLLOW_X_SUB: String get() = ""
+    val FOLLOW_SUB: String get() = ""
     val REPO: String get() = tr(R.string.about_repo)
-    val REPO_SUB: String get() = tr(R.string.about_repo_sub, MinaLinks.REPO_LABEL)
+    val REPO_SUB: String get() = tr(R.string.about_repo_sub, HarnessLinks.REPO_LABEL)
     val GUIDE: String get() = tr(R.string.about_guide)
     val GUIDE_SUB: String get() = tr(R.string.about_guide_sub)
 

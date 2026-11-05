@@ -22,7 +22,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 
 /**
  * 真机测试:内置助手经无线调试起来、交接 Binder、在自己的虚拟屏上注入点击,解绑后助手留着、再绑定直接可用。
@@ -37,7 +37,7 @@ class BuiltinHelperDeviceTest {
     private val phone = PhoneServices.of(context)
     private val engine = phone.shellManager.engine
 
-    private fun helperUp(): IMinaShell = runBlocking {
+    private fun helperUp(): IHarnessShell = runBlocking {
         when {
             args.getString("pairingCode") != null && engine.status.value != BuiltinShellStatus.Running ->
                 engine.startPairing(args.getString("pairingCode")!!, args.getString("pairingPort")?.toIntOrNull())

@@ -12,7 +12,7 @@ Upload video files or Shorts to YouTube via the YouTube app, ensure correct meta
 ## Steps
 1. **Select Video**:
    - If the user specified a video name, timestamp, or description, find that exact video. Otherwise, choose the newest/latest video in the gallery.
-   - Check duration and aspect ratio: vertical videos under 60 seconds must be uploaded as Shorts; videos longer than 60 seconds or horizontal aspect ratio are uploaded as regular videos.
+   - Check duration and aspect ratio: 3 minute se kam aur vertical video ho to Shorts ke roop mein upload honge (vertical videos under 3 minutes must be uploaded as Shorts; videos longer than 3 minutes or horizontal aspect ratio are uploaded as regular videos).
 2. **Draft Metadata (Title, Description, Hashtags)**:
    - Draft a concise, descriptive title (strictly under 100 characters).
    - Draft a relevant description and include 3 to 5 relevant hashtags in the user's language (default to Hinglish if user speaks Hindi/Hinglish). If the user provided custom title/description, use them verbatim.
@@ -31,7 +31,7 @@ Upload video files or Shorts to YouTube via the YouTube app, ensure correct meta
 
 ## Common Pitfalls
 - **Selecting Wrong Video**: Picking the wrong clip from the gallery or misidentifying similar recent clips. Always verify video details.
-- **Shorts vs Regular Video Confusion**: Treating vertical short clips (<60s) as regular videos or attempting to force standard video settings onto Shorts.
+- **Shorts vs Regular Video Confusion**: Treating vertical short clips (3 minute se kam aur vertical) as regular videos or attempting to force standard video settings onto Shorts.
 - **Unexpected Popups**: First-time channel creation, phone verification prompts, or copyright alerts.
 - **Network Interruption**: On unstable networks, upload may stall. Never start a duplicate upload blindly; first check YouTube Studio or "Your videos" to see if the upload is resuming or in progress.
 - **Accidental Public Release**: Forgetting to keep visibility as Private when not explicitly instructed by the user.

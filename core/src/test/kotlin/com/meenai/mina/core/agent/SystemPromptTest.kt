@@ -31,7 +31,7 @@ class SystemPromptTest {
 
     @Test fun loadsIdentityAndPhoneRules() {
         val p = rules()
-        assertTrue(SystemPrompt.identity().startsWith("You are Mina"))
+        assertTrue(SystemPrompt.identity().startsWith("You are Harness Agent"))
         assertTrue("virtual display" in p)
         assertTrue("hand_to_user" in p && "ask_user" in p && "end_not_done" in p)
         assertFalse("adb" in p.lowercase())
@@ -213,7 +213,7 @@ class SystemPromptAssemblyTest {
     private fun accessScreen(state: AppAccessState) = AppAccessScreenPort(FakeScreen(), AppAccessPolicy { state }, packages = { emptyList() })
 
     @Test fun goldenPerCapabilityCombination() {
-        val update = System.getenv("UPDATE_GOLDEN") == "1"
+        val update = System.getenv("UPDATE_GOLDEN") == "1" || System.getProperty("mina.updateSnapshots") == "true"
         val dir = File("src/test/resources/prompts/golden")
         val drift = mutableListOf<String>()
         for ((name, make) in combos) {

@@ -1,20 +1,20 @@
 # 沙箱原生程序:来源、许可证与源码发布
 
-Mina 的沙箱带三个可执行文件,都在 `app/src/main/jniLibs/arm64-v8a/`,随 APK 安装到 `nativeLibraryDir`。
-Mina 只以子进程方式运行它们,不链接它们。
+Harness 的沙箱带三个可执行文件,都在 `app/src/main/jniLibs/arm64-v8a/`,随 APK 安装到 `nativeLibraryDir`。
+Harness 只以子进程方式运行它们,不链接它们。
 
 | 文件 | 是什么 | 来源 | 版本 | 许可证 |
 |---|---|---|---|---|
 | `libproot.so` | PRoot 本体,静态链接 talloc | PRoot:`sources.lock` 里的 `proot` 源码包,加 `patches/proot-*.patch`;talloc:`sources.lock` 里的 `talloc` 源码包,只编 `talloc.c`,未修改 | PRoot 5.4.0、talloc 2.4.3 | GPL-2.0-or-later(PRoot)、LGPL-3.0-or-later(talloc) |
 | `libproot_loader.so` | PRoot 的载入器(静态、`-nostdlib`) | 同一个 PRoot 源码包 | 5.4.0 | GPL-2.0-or-later |
-| `libminarun.so` | Mina 的沙箱启动器(超时、断网、清场) | `app/src/main/cpp/minarun/minarun.c` | 随 Mina | MIT |
+| `libharnessrun.so` | Harness 的沙箱启动器(超时、断网、清场) | `app/src/main/cpp/harnessrun/harnessrun.c` | 随 Harness | MIT |
 
 许可证全文和版权声明(`licenses/THIRD_PARTY_NOTICES.md`)都在仓库根目录的 `licenses/`。
 
 ## 自带的运行环境
 
 运行环境(Alpine 3.22 最小根文件系统 + Python、Node 等软件包)随 APK 发布,在
-`app/src/main/assets/runtime/rootfs.tar.xz`。手机首次启动 Mina 时在后台解到 `files/sandbox/rootfs`,不联网。
+`app/src/main/assets/runtime/rootfs.tar.xz`。手机首次启动 Harness 时在后台解到 `files/sandbox/rootfs`,不联网。
 
 - `runtime/sources.lock`:最小根文件系统的地址与 SHA-256,以及每个软件包的仓库、版本、APKINDEX 校验值、`.apk` 的 SHA-256。
 - `build-runtime.py`:按 `sources.lock` 下载、校验后拼成 `rootfs.tar.xz`。全程不运行 apk:按 apk 的布局解开软件包,

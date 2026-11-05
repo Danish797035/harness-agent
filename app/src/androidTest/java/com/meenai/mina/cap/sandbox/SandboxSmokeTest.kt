@@ -39,7 +39,7 @@ class SandboxSmokeTest {
 
     private fun execInRootfs(vararg command: String): Result = exec(
         listOf(
-            lib("libminarun.so"), "--",
+            lib("libharnessrun.so"), "--",
             lib("libproot.so"), "--kill-on-exit", "--link2symlink", "-0",
             "-r", rootfs.absolutePath,
         ) + ProotDevices.bindArgs() + listOf("-b", "/proc", "-b", "/sys", "-w", "/") + command,

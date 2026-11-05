@@ -39,9 +39,9 @@ class RecoveryPermissionsTest {
 
     @Test
     fun accessibilityComponentKeepsTheClassNamespaceWithAnApplicationIdSuffix() {
-        assertEquals("com.meenai.mina/.a11y.MinaAccessibilityService", PermissionCommands.accessibilityService("com.meenai.mina"))
+        assertEquals("com.meenai.mina/.a11y.HarnessAccessibilityService", PermissionCommands.accessibilityService("com.meenai.mina"))
         assertEquals(
-            "com.meenai.mina.compat/com.meenai.mina.a11y.MinaAccessibilityService",
+            "com.meenai.mina.compat/com.meenai.mina.a11y.HarnessAccessibilityService",
             PermissionCommands.accessibilityService("com.meenai.mina.compat"),
         )
     }

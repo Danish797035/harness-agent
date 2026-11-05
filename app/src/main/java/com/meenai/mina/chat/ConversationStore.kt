@@ -311,7 +311,7 @@ class ConversationStore(private val dir: File) {
 
     companion object {
         /** App 进程里共用的那一份(读写都在它的锁里串行)。 */
-        fun shared(context: Context): ConversationStore = (context.applicationContext as com.meenai.mina.MinaApp).conversations
+        fun shared(context: Context): ConversationStore = (context.applicationContext as com.meenai.mina.HarnessApp).conversations
 
         /** `current` 文件里表示「新开还没说话的对话」的那个值(对话编号只会是字母数字、`-`、`_`,不会撞上)。 */
         private const val CURRENT_FRESH = "fresh"

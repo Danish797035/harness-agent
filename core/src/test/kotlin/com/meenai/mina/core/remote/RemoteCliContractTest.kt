@@ -20,7 +20,7 @@ class RemoteCliContractTest {
         val directory = Files.createTempDirectory("mina-cli-contract").toFile()
         val token = File(directory, "token").apply { writeText("contract-test-token") }
         val errors = File(directory, "stderr")
-        val script = File("../tools/mina/scripts/mina_cli.py").canonicalPath
+        val script = File("../tools/harness/scripts/harness_cli.py").canonicalPath
         server.start()
         try {
             fun cli(vararg args: String, exit: Int = 0): JsonObject {

@@ -21,7 +21,7 @@ The bottom navigation bar has Home, Shorts, Subscriptions, and You/Library tabs,
 - **Upload Action**: Tapping "Upload" or "Upload Short" queues and starts the upload. Progress can be monitored in the notification bar or You > Your videos.
 
 ## Known Behaviors
-- Vertical videos under 60 seconds may automatically route to the Shorts trimming/details flow.
+- Vertical videos under 3 minutes may automatically route to the Shorts trimming/details flow.
 - The Audience setting ("made for kids") is required before the upload can proceed.
 - Unverified accounts uploading videos longer than 15 minutes or using custom thumbnails may be prompted for phone number SMS verification.
 - Interrupted or failed uploads show up under "Your videos" with retry or resume status.

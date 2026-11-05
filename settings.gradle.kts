@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Mina"
+rootProject.name = "HarnessAgent"
 include(":core", ":app")

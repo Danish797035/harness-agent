@@ -58,16 +58,16 @@ class BridgeDeviceTest {
     @Test fun shareCallsExporter() {
         // 名字带随机串,下载目录里不会撞名;工作区外的文件先被路径规则拒掉
         val name = "mina-bridge-test-${UUID.randomUUID().toString().take(8)}.txt"
-        val r = sh("echo hi > $name; mina share $name; echo rc=$?; mina share /etc/passwd; echo rc=$?")
-        assertTrue(r.output, r.output.contains("\"savedAs\":\"Download/Mina/$name\""))
+        val r = sh("echo hi > $name; harness share $name; echo rc=$?; harness share /etc/passwd; echo rc=$?")
+        assertTrue(r.output, r.output.contains("\"savedAs\":\"Download/Harness/$name\""))
         assertTrue(r.output, r.output.contains("rc=0"))
         assertTrue(r.output, r.output.contains("path_outside_workspace"))
         assertEquals(r.output, 1, Regex("rc=1").findAll(r.output).count())
-        assertEquals(listOf("Download/Mina/$name"), shared.map { it.savedAs })
+        assertEquals(listOf("Download/Harness/$name"), shared.map { it.savedAs })
     }
 
     @Test fun bridgeWorksWithNetOff() {
-        val r = sh("mina info")
+        val r = sh("harness info")
         assertEquals(r.output, 0, r.exitCode)
         assertTrue(r.output, r.output.contains("\"network\":false"))
         assertTrue(r.output, r.output.contains("\"workspace\":\"/workspace\""))

@@ -16,7 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.content.ClipboardManager
 import com.meenai.mina.about.CheckStatus
-import com.meenai.mina.about.MinaLinks
+import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.about.ReleaseInfo
 import com.meenai.mina.about.UpdateState
 import com.meenai.mina.core.shell.BuiltinShellStatus
@@ -77,7 +77,7 @@ class AboutScreenTest {
         compose.onNodeWithText("版本 0.1.0").assertIsDisplayed()
         compose.onNodeWithText("Beta").assertIsDisplayed()
         compose.onNodeWithText("· 构建 abc1234").assertIsDisplayed()
-        for (t in listOf("检查更新", "更新记录", "联系作者", "反馈问题", "关注作者", "开源仓库", "使用说明与参与方式", AboutCopy.DATA_NOTE, AboutCopy.AUTHOR)) {
+        for (t in listOf("检查更新", "更新记录", "反馈问题", "开源仓库", "使用说明与参与方式", AboutCopy.DATA_NOTE, AboutCopy.AUTHOR)) {
             scrollTo(t)
             compose.onNodeWithText(t).assertIsDisplayed()
         }
@@ -88,11 +88,11 @@ class AboutScreenTest {
     @Test
     fun externalRowsOpenLinks() {
         val calls = about()
-        for (t in listOf("关注作者", "开源仓库", "使用说明与参与方式")) {
+        for (t in listOf("开源仓库", "使用说明与参与方式")) {
             scrollTo(t)
             compose.onNodeWithText(t).performClick()
         }
-        assertEquals(listOf(MinaLinks.X, MinaLinks.REPO, MinaLinks.README), calls.urls)
+        assertEquals(listOf(HarnessLinks.REPO, HarnessLinks.README), calls.urls)
     }
 
     @Test
@@ -103,13 +103,12 @@ class AboutScreenTest {
     }
 
     @Test
-    fun feedbackSheetHasThreeOptions() {
+    fun feedbackSheetHasTwoOptions() {
         val calls = about()
         compose.onNodeWithText("反馈问题").performClick()
         compose.awaitOne(AboutCopy.FEEDBACK_SHEET_SUB)
-        compose.onAllNodesWithTag("feedback-option").assertCountEquals(3)
+        compose.onAllNodesWithTag("feedback-option").assertCountEquals(2)
         compose.onNodeWithText("复制诊断信息").assertIsDisplayed()
-        compose.onNodeWithText("在微信或 X 群聊里说").assertIsDisplayed()
         compose.onNodeWithText(AboutCopy.FEEDBACK_GITHUB).performClick()
         compose.waitForIdle()
         assertEquals(listOf("issue://prefilled"), calls.urls)
@@ -133,44 +132,6 @@ class AboutScreenTest {
             clip = cm.primaryClip?.getItemAt(0)?.text?.toString()
         }
         assertEquals(sampleDiagnostics, clip)
-    }
-
-    @Test
-    fun feedbackGroupOpensGroupSheet() {
-        val calls = about()
-        compose.onNodeWithText("反馈问题").performClick()
-        compose.awaitOne("在微信或 X 群聊里说").performClick()
-        compose.awaitOne(AboutCopy.GROUP_SHEET_SUB)
-        compose.onNodeWithTag("wechat-qr").assertExists()
-        compose.onNodeWithText(AboutCopy.SAVE_QR).performClick()
-        assertEquals(1, calls.saves)
-    }
-
-    /** 联系作者面板:作者微信码、保存按钮,下面「不用微信？」接 X 群聊。 */
-    @Test
-    fun groupRowOpensGroupSheet() {
-        val calls = about()
-        compose.onNodeWithText("联系作者").performClick()
-        compose.awaitOne(AboutCopy.GROUP_SHEET_SUB).assertIsDisplayed()
-        compose.onNodeWithTag("wechat-qr").assertExists()
-        compose.onNodeWithText(AboutCopy.GROUP_HINT).assertExists()
-        compose.onNodeWithText(AboutCopy.SAVE_QR).assertExists()
-        compose.onNodeWithText("不用微信？").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("group-join-x").performScrollTo().assertIsDisplayed()
-        // 中文界面微信在前
-        assertTrue(top("wechat-qr") < top("group-join-x"))
-        compose.onNodeWithTag("group-join-x").performClick()
-        compose.waitForIdle()
-        assertEquals(listOf(MinaLinks.X_GROUP), calls.urls)
-    }
-
-    /** 英文界面([GroupSheet] 的 xFirst):X 群聊按钮在微信码上面,不再写「不用微信？」。 */
-    @Test
-    fun groupSheetPutsXFirstWhenAsked() {
-        compose.setContent { MinaTheme { GroupSheet(xFirst = true, onSave = {}, onJoinX = {}, onDismiss = {}) } }
-        compose.awaitOne(AboutCopy.GROUP_SHEET_SUB)
-        assertTrue(top("group-join-x") < top("wechat-qr"))
-        compose.onAllNodesWithText("不用微信？").assertCountEquals(0)
     }
 
     private fun top(tag: String) = compose.onNodeWithTag(tag).getUnclippedBoundsInRoot().top
@@ -277,7 +238,7 @@ class AboutScreenTest {
         compose.onNodeWithText("0.2.0 · 2026-11-05").assertExists()
         compose.onNodeWithText(AboutCopy.CHANGELOG_ALL).performClick()
         compose.waitForIdle()
-        assertEquals(listOf(MinaLinks.RELEASES), calls.urls)
+        assertEquals(listOf(HarnessLinks.RELEASES), calls.urls)
     }
 
     /** 侧栏最底下一行两个:设置靠左、关于 Mina 靠右(红点在最右边);有新版时关于带红点。 */

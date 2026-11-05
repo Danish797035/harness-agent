@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
  * 实色只用在强调(主按钮、选中、开关、用户消息)和状态(成功、需要你、出错);图标块一律中性。
  */
 @Immutable
-class MinaColors(
+class HarnessColors(
     /** 页面背景。 */
     val bg: Color,
     /** 卡片、分组。 */
@@ -62,7 +62,9 @@ class MinaColors(
     val isDark: Boolean,
 )
 
-val LightColors = MinaColors(
+typealias MinaColors = HarnessColors
+
+val LightColors = HarnessColors(
     bg = Color(0xFFF7F7F8),
     surface = Color(0xFFFFFFFF),
     fill = Color(0x0A000000),
@@ -95,7 +97,7 @@ val LightColors = MinaColors(
     isDark = false,
 )
 
-val DarkColors = MinaColors(
+val DarkColors = HarnessColors(
     bg = Color(0xFF0E0E10),
     surface = Color(0xFF1A1A1D),
     fill = Color(0x0FFFFFFF),
@@ -128,5 +130,5 @@ val DarkColors = MinaColors(
     isDark = true,
 )
 
-/** 没有包在 [MinaTheme] 里时(比如界面测试)按浅色。 */
-val LocalMinaColors = staticCompositionLocalOf { LightColors }
+val LocalHarnessColors = staticCompositionLocalOf { LightColors }
+val LocalMinaColors = LocalHarnessColors

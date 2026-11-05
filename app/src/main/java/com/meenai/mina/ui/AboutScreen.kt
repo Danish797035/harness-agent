@@ -54,7 +54,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.meenai.mina.R
 import com.meenai.mina.about.CheckStatus
-import com.meenai.mina.about.MinaLinks
+import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.about.ReleaseInfo
 import com.meenai.mina.about.UpdateState
 import com.meenai.mina.ui.components.ButtonKind
@@ -70,7 +70,7 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /** 关于页上点开的底部面板。 */
-private enum class AboutSheet { Update, Changelog, Feedback, Group, Diagnostics }
+private enum class AboutSheet { Update, Changelog, Feedback, Diagnostics }
 
 /**
  * 关于 Mina:顶上图标、名字、一句话介绍、版本(Beta 标记、构建编号);下面三组——检查更新与更新记录,
@@ -133,14 +133,11 @@ fun AboutScreen(
             ListRow(MinaIcons.Lines, AboutCopy.CHANGELOG, AboutCopy.CHANGELOG_SUB, onClick = { sheet = AboutSheet.Changelog }) { RowChevron() }
         }
         GroupCard {
-            ListRow(MinaIcons.Chats, AboutCopy.GROUP, AboutCopy.GROUP_SUB, first = true, onClick = { sheet = AboutSheet.Group }) { RowChevron() }
-            ListRow(MinaIcons.Bug, AboutCopy.FEEDBACK, AboutCopy.FEEDBACK_SUB, onClick = { sheet = AboutSheet.Feedback }) { RowChevron() }
+            ListRow(MinaIcons.Bug, AboutCopy.FEEDBACK, AboutCopy.FEEDBACK_SUB, first = true, onClick = { sheet = AboutSheet.Feedback }) { RowChevron() }
         }
         GroupCard {
-            ListRow(MinaIcons.Camera, AboutCopy.FOLLOW, AboutCopy.FOLLOW_SUB, first = true, onClick = { onOpenUrl(MinaLinks.INSTAGRAM) }) { ExternalMark() }
-            ListRow(MinaIcons.XMark, AboutCopy.FOLLOW_X, AboutCopy.FOLLOW_X_SUB, onClick = { onOpenUrl(MinaLinks.X) }) { ExternalMark() }
-            ListRow(MinaIcons.Code, AboutCopy.REPO, AboutCopy.REPO_SUB, onClick = { onOpenUrl(MinaLinks.REPO) }) { ExternalMark() }
-            ListRow(MinaIcons.Book, AboutCopy.GUIDE, AboutCopy.GUIDE_SUB, onClick = { onOpenUrl(MinaLinks.README) }) { ExternalMark() }
+            ListRow(MinaIcons.Code, AboutCopy.REPO, AboutCopy.REPO_SUB, first = true, onClick = { onOpenUrl(HarnessLinks.REPO) }) { ExternalMark() }
+            ListRow(MinaIcons.Book, AboutCopy.GUIDE, AboutCopy.GUIDE_SUB, onClick = { onOpenUrl(HarnessLinks.README) }) { ExternalMark() }
         }
 
         Row(
@@ -172,17 +169,13 @@ fun AboutScreen(
         AboutSheet.Update -> update.update?.let { r ->
             UpdateSheet(r, versionName, beta, onOpenUrl = { close(); onOpenUrl(it) }, onDismiss = close)
         }
-        AboutSheet.Changelog -> ChangelogSheet(update.latest, onOpenAll = { close(); onOpenUrl(MinaLinks.RELEASES) }, onDismiss = close)
+        AboutSheet.Changelog -> ChangelogSheet(update.latest, onOpenAll = { close(); onOpenUrl(HarnessLinks.RELEASES) }, onDismiss = close)
         AboutSheet.Feedback -> FeedbackSheet(
             onGitHub = { close(); onOpenUrl(issueUrl) },
             onDiagnostics = { sheet = AboutSheet.Diagnostics },
-            onGroup = { sheet = AboutSheet.Group },
             onDismiss = close,
         )
         AboutSheet.Diagnostics -> DiagnosticsSheet(diagnostics, onDismiss = close)
-        AboutSheet.Group -> GroupSheet(
-            xFirst = AboutCopy.X_GROUP_FIRST, onSave = saveQr, onJoinX = { close(); onOpenUrl(MinaLinks.X_GROUP) }, onDismiss = close,
-        )
         null -> Unit
     }
 }
@@ -195,7 +188,7 @@ private fun Hero(versionName: String, build: String, beta: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Image(
-            painterResource(R.drawable.mina_launcher_art), contentDescription = null,
+            painterResource(R.drawable.harness_launcher_art), contentDescription = null,
             Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)),
         )
         Text("Harness Agent", Modifier.padding(top = 12.dp), style = MinaType.Title, fontWeight = FontWeight.Bold, color = c.ink)
@@ -303,13 +296,11 @@ private fun ChangelogSheet(latest: ReleaseInfo?, onOpenAll: () -> Unit, onDismis
 }
 
 @Composable
-private fun FeedbackSheet(onGitHub: () -> Unit, onDiagnostics: () -> Unit, onGroup: () -> Unit, onDismiss: () -> Unit) {
+private fun FeedbackSheet(onGitHub: () -> Unit, onDiagnostics: () -> Unit, onDismiss: () -> Unit) {
     AboutSheetFrame(AboutCopy.FEEDBACK, AboutCopy.FEEDBACK_SHEET_SUB, "feedback-sheet", onDismiss) {
         Column(Modifier.padding(top = 6.dp)) {
             FeedbackOption(MinaIcons.Code, AboutCopy.FEEDBACK_GITHUB, AboutCopy.FEEDBACK_GITHUB_SUB, first = true, onGitHub)
             FeedbackOption(MinaIcons.Copy, AboutCopy.DIAGNOSTICS, AboutCopy.DIAGNOSTICS_SUB, first = false, onDiagnostics)
-            // 作者微信、X 群聊都在联系作者面板里,这里只开那个面板
-            FeedbackOption(MinaIcons.Chats, AboutCopy.FEEDBACK_GROUP, AboutCopy.GROUP_SUB, first = false, onGroup)
         }
     }
 }
@@ -321,22 +312,3 @@ private fun FeedbackOption(icon: ImageVector, title: String, sub: String, first:
     }
 }
 
-/**
- * 联系作者面板:作者的微信二维码(长按或按钮存进相册)和 X 群聊入口。[xFirst] 时(英文界面)X 群聊在上、微信码在下,
- * 不然微信在前、X 群聊作为「不用微信？」的去处放在下面。
- */
-@Composable
-internal fun GroupSheet(xFirst: Boolean, onSave: () -> Unit, onJoinX: () -> Unit, onDismiss: () -> Unit) {
-    val c = MinaTheme.colors
-    AboutSheetFrame(AboutCopy.GROUP_SHEET_TITLE, AboutCopy.GROUP_SHEET_SUB, "group-sheet", onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(
-                painterResource(R.drawable.mina_whatsapp_qr), contentDescription = null,
-                Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)),
-            )
-            Text(AboutCopy.GROUP_HINT, Modifier.padding(top = 8.dp), style = MinaType.Hint, color = c.ink3, textAlign = TextAlign.Center)
-        }
-        MinaButton(AboutCopy.SAVE_QR, onSave, Modifier.fillMaxWidth().padding(top = 14.dp), kind = ButtonKind.Tonal)
-        MinaButton(AboutCopy.GROUP_JOIN_X, onJoinX, Modifier.fillMaxWidth().padding(top = 8.dp).testTag("group-join-x"))
-    }
-}

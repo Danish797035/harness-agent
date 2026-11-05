@@ -51,7 +51,7 @@ import com.meenai.mina.core.uistate.relocate
 import com.meenai.mina.core.uistate.RELOCATE_MAX_SHIFT
 import com.meenai.mina.cap.phone.display.FrameMath
 import com.meenai.mina.cap.phone.display.LazyAgentDisplay
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.cap.phone.shell.MainScreenWatch
 import com.meenai.mina.cap.phone.shell.ShellService
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +92,7 @@ import kotlin.math.roundToInt
  */
 class AndroidScreen(
     private val a11y: ScreenAccessibility,
-    private val shell: IMinaShell,
+    private val shell: IHarnessShell,
     private val display: LazyAgentDisplay,
     /** 剪贴板暂时换成 Mina 的文字时为 true,还原后为 false;任务服务据此记下,进程意外结束后下次启动还原。 */
     private val clipHeld: (Boolean) -> Unit = {},

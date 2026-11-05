@@ -128,7 +128,7 @@ abstract class WorkspaceFileGateContract {
         hardLink(File(ws, "etc/hosts"), target)
         gate.replace(ws, "etc/hosts", "127.0.0.1 localhost\n".toByteArray())
         assertEquals("h", target.readText())
-        assertTrue(File(ws, "etc").list()!!.none { it.startsWith(".mina-new-") })
+        assertTrue(File(ws, "etc").list()!!.none { it.startsWith(".harness-new-") || it.startsWith(".mina-new-") })
     }
 
     @Test fun symlinkReplacesTheEntryAndMkdirsAnchored() {

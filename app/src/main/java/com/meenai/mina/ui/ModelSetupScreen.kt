@@ -8,7 +8,7 @@ import android.widget.Toast
 import com.meenai.mina.R
 import com.meenai.mina.core.chatgpt.ChatGptAuth
 import com.meenai.mina.core.oauth.OpenRouterAuth
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.voice.SystemSpeech
 import com.meenai.mina.settings.ChatGptSignIns
 import com.meenai.mina.i18n.tr
@@ -98,12 +98,12 @@ fun ModelSetupScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val vm = remember {
-        val signIns = (context.applicationContext as? MinaApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
+        val signIns = (context.applicationContext as? HarnessApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
         ModelSetupViewModel(
             store, scope, browser = AndroidSignInBrowser(context.applicationContext), signIns = signIns,
-            speech = (context.applicationContext as? MinaApp)?.speech,
+            speech = (context.applicationContext as? HarnessApp)?.speech,
             systemSpeech = {
-                val silent = (context.applicationContext as? MinaApp)?.speech?.systemSilent?.value ?: false
+                val silent = (context.applicationContext as? HarnessApp)?.speech?.systemSilent?.value ?: false
                 SystemSpeech.capability(context.applicationContext, silent)
             },
         )

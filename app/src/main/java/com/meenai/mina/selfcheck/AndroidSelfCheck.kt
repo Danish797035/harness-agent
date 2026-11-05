@@ -44,7 +44,7 @@ import com.meenai.mina.core.uistate.ScreenSnapshot
 import com.meenai.mina.core.uistate.UiElement
 import com.meenai.mina.settings.AccessibilityState
 import com.meenai.mina.settings.SystemStatus
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -66,7 +66,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
     private val phone = PhoneServices.of(app)
 
     @Volatile private var connection: ShellBinding? = null
-    @Volatile private var shell: IMinaShell? = null
+    @Volatile private var shell: IHarnessShell? = null
     @Volatile private var display: AgentDisplay? = null
     @Volatile private var screen: AndroidScreen? = null
     @Volatile private var web: Web? = null
@@ -467,19 +467,19 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
     }
 
     /** 主屏最上面的任务;读不到为 null。 */
-    private fun mainTop(sh: IMinaShell): Int? = runCatching { sh.topTaskId(Display.DEFAULT_DISPLAY) }.getOrNull()?.takeIf { it >= 0 }
+    private fun mainTop(sh: IHarnessShell): Int? = runCatching { sh.topTaskId(Display.DEFAULT_DISPLAY) }.getOrNull()?.takeIf { it >= 0 }
 
-    private suspend fun sampleMain(sh: IMinaShell, stage: String) {
+    private suspend fun sampleMain(sh: IHarnessShell, stage: String) {
         val before = mainBefore ?: return
         val now = withContext(Dispatchers.IO) { mainTop(sh) }
         if (now != before && stage !in mainChanged) mainChanged += stage
     }
 
-    private fun topPackage(sh: IMinaShell, displayId: Int): String? = runCatching {
+    private fun topPackage(sh: IHarnessShell, displayId: Int): String? = runCatching {
         sh.topTaskId(displayId).takeIf { it >= 0 }?.let(sh::packageOfTask)
     }.getOrNull()
 
-    private fun isTestPageOnTop(sh: IMinaShell, displayId: Int): Boolean =
+    private fun isTestPageOnTop(sh: IHarnessShell, displayId: Int): Boolean =
         runCatching { sh.topActivity(displayId) }.getOrNull()?.contains(SelfCheckTargetActivity::class.java.simpleName) == true
 
     private suspend fun awaitFrame(d: AgentDisplay): Bitmap? {

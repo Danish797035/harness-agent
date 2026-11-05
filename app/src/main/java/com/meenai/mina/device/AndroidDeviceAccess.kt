@@ -16,18 +16,18 @@ import com.meenai.mina.core.device.DeviceCredential
 import com.meenai.mina.core.device.DeviceState
 import com.meenai.mina.settings.DeviceAccessSettings
 import com.meenai.mina.settings.KeystoreKeyCipher
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /** App 级唯一实例:设置页与经过认证的 MCP 共用,不经过模型、屏幕工具或运行记录。 */
-class AndroidDeviceAccess(context: Context, helper: () -> IMinaShell?) {
+class AndroidDeviceAccess(context: Context, helper: () -> IHarnessShell?) {
     val settings = DeviceAccessSettings(File(context.filesDir, "settings"), KeystoreKeyCipher("mina-device-access"))
     val access = DeviceAccess(AndroidDeviceAccessPort(context, helper), settings)
 }
 
-internal class AndroidDeviceAccessPort(context: Context, private val helper: () -> IMinaShell?) : DeviceAccessPort {
+internal class AndroidDeviceAccessPort(context: Context, private val helper: () -> IHarnessShell?) : DeviceAccessPort {
     private val power = context.getSystemService(PowerManager::class.java)
     private val keyguard = context.getSystemService(KeyguardManager::class.java)
     private val user = context.getSystemService(UserManager::class.java)

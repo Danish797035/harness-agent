@@ -23,7 +23,9 @@ import kotlin.concurrent.thread
  * 根文件系统与 SandboxSmokeTest 共用。
  */
 @RunWith(AndroidJUnit4::class)
-class MinarunDeviceTest {
+class HarnessrunDeviceTest {
+
+    typealias MinarunDeviceTest = HarnessrunDeviceTest
 
     @Test
     fun exitCodePassesThrough() {
@@ -80,7 +82,7 @@ class MinarunDeviceTest {
             }
             val launcherPid = File("/proc").listFiles().orEmpty().mapNotNull { it.name.toIntOrNull() }.single {
                 val args = cmdline(it)
-                args.firstOrNull()?.endsWith("libminarun.so") == true && script in args
+                args.firstOrNull()?.endsWith("libharnessrun.so") == true && script in args
             }
             // 启动器来不及清场:靠 PRoot 的 PDEATHSIG 与 PTRACE_O_EXITKILL 带走全部沙箱进程
             Os.kill(launcherPid, OsConstants.SIGKILL)
@@ -128,22 +130,22 @@ class MinarunDeviceTest {
 
     @Test
     fun selfTestReportsSeccomp() {
-        val r = run(listOf(SandboxSmokeTest.lib("libminarun.so"), "--self-test"))
+        val r = run(listOf(SandboxSmokeTest.lib("libharnessrun.so"), "--self-test"))
         assertEquals(r.output, 0, r.exitCode)
-        assertEquals(listOf("minarun ok", "seccomp ok"), r.output.trim().lines())
+        assertEquals(listOf("harnessrun ok", "seccomp ok"), r.output.trim().lines())
     }
 
     @Test
     fun prootWithoutLoaderIsRefused() {
         val r = run(launcher("--timeout", "20") + proot("/bin/true"), withLoader = false)
         assertEquals(r.output, 125, r.exitCode)
-        assertTrue(r.output, r.output.trim().lines().last().startsWith("minarun: PROOT_LOADER missing"))
+        assertTrue(r.output, r.output.trim().lines().last().startsWith("harnessrun: PROOT_LOADER missing"))
     }
 
     private data class Result(val exitCode: Int, val output: String, val elapsedMs: Long)
 
     private fun launcher(vararg options: String): List<String> =
-        listOf(SandboxSmokeTest.lib("libminarun.so")) + options + "--"
+        listOf(SandboxSmokeTest.lib("libharnessrun.so")) + options + "--"
 
     private fun proot(vararg command: String, extraBinds: List<String> = emptyList()): List<String> =
         listOf(

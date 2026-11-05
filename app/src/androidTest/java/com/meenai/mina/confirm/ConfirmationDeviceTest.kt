@@ -16,7 +16,7 @@ import com.meenai.mina.cap.phone.a11y.DeviceSupport.sh
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.task.ScriptedModel
 import com.meenai.mina.task.TaskService
 import android.util.Log
@@ -38,7 +38,7 @@ import com.meenai.mina.task.TaskEnvironment
 class ConfirmationDeviceTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var shell: IMinaShell
+    private lateinit var shell: IHarnessShell
     // 界面发起的任务在第一个工具调用前另问一次意图(没配轻量模型时问的就是这个模型):固定答 ACT,不占脚本
     private val model = ScriptedModel().apply { intent = "ACT" }
     private var appTask = -1

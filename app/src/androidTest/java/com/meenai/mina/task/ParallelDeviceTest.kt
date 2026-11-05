@@ -14,7 +14,7 @@ import com.meenai.mina.cap.phone.a11y.DeviceSupport.sh
 import com.meenai.mina.core.agent.SpeedFlags
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.settings.FeatureFlags
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(AndroidJUnit4::class)
 class ParallelDeviceTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var shell: IMinaShell
+    private lateinit var shell: IHarnessShell
     private val models = listOf(ScriptedModel(), ScriptedModel())
     private val handedOut = AtomicInteger()
     private lateinit var priorFlags: SpeedFlags

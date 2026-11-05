@@ -20,7 +20,7 @@ import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.model.Message
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.task.ScriptedModel
 import com.meenai.mina.task.TaskService
 import kotlinx.serialization.json.buildJsonObject
@@ -43,7 +43,7 @@ import com.meenai.mina.task.TaskEnvironment
 class TakeoverTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var shell: IMinaShell
+    private lateinit var shell: IHarnessShell
     private val model = ScriptedModel()
     private var settingsTask = -1
     private lateinit var priorAudio: String

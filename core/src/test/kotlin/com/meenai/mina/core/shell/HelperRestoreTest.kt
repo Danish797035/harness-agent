@@ -115,7 +115,7 @@ class HelperRestoreTest {
         assertEquals(listOf(RestoreCommands.ENABLE_ACCESSIBILITY), RestoreCommands.accessibility("$mina:$other", mina))
         assertEquals(
             listOf(RestoreCommands.ENABLE_ACCESSIBILITY),
-            RestoreCommands.accessibility("com.meenai.mina/com.meenai.mina.a11y.MinaAccessibilityService", mina),
+            RestoreCommands.accessibility("com.meenai.mina/com.meenai.mina.a11y.HarnessAccessibilityService", mina),
         )
     }
 

@@ -18,7 +18,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.core.trace.TraceArchive
 import com.meenai.mina.core.trace.TraceRow
@@ -42,7 +42,7 @@ private const val TRACE_REFRESH_MS = 1_000L
 @Composable
 internal fun RunTraceSection(runId: String) {
     val context = LocalContext.current
-    val store = (context.applicationContext as MinaApp).detailedTraces.store
+    val store = (context.applicationContext as HarnessApp).detailedTraces.store
     // 运行过程页在任务跑着时就能打开:还在录就按秒重读,录完再读最后一次就停
     val loaded by produceState<Pair<TraceArchive, List<TraceRow>>?>(null, runId) {
         var archive: TraceArchive? = null
@@ -155,7 +155,7 @@ private suspend fun saveTrace(archive: TraceArchive, includeBody: Boolean, open:
 
 @Composable
 internal fun TraceSettingsRows() {
-    val traces = (LocalContext.current.applicationContext as MinaApp).detailedTraces
+    val traces = (LocalContext.current.applicationContext as HarnessApp).detailedTraces
     val scope = LocalLifecycleOwner.current.lifecycleScope
     var traceEnabled by remember { mutableStateOf(traces.enabled) }
     var traceLimitMiB by remember { mutableIntStateOf(traces.limitMiB) }

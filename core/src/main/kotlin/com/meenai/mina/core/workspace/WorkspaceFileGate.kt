@@ -70,7 +70,7 @@ class WorkspaceFileGate(private val sys: FdSys) {
         val segs = segments(rel)
         if (segs.isEmpty()) throw outside()
         anchored(root, segs.dropLast(1), create = true) { rootReal, dir ->
-            val tmp = ".mina-new-" + UUID.randomUUID()
+            val tmp = ".harness-new-" + UUID.randomUUID()
             val f = file(dir, tmp, OpenHow.CREATE_NEW)
             try {
                 f.use {
@@ -93,7 +93,7 @@ class WorkspaceFileGate(private val sys: FdSys) {
         if (segs.isEmpty()) throw outside()
         anchored(root, segs.dropLast(1), create = true) { _, dir ->
             if (sys.readlink(dir, segs.last()) == target) return@anchored
-            val tmp = ".mina-link-" + UUID.randomUUID()
+            val tmp = ".harness-link-" + UUID.randomUUID()
             sys.symlink(dir, tmp, target)
             try { sys.rename(dir, tmp, segs.last()) } catch (e: Exception) { runCatching { sys.remove(dir, tmp) }; throw e }
         }
@@ -200,7 +200,7 @@ class WorkspaceFileGate(private val sys: FdSys) {
         if (!inside(real, rootReal) || real != dir.realPath().trimEnd('/') + "/" + name) throw outside()
         val st = f.stat()
         if (st.kind != FdStat.Kind.FILE) throw notAFile()
-        if (st.nlink != 1L) throw SandboxError(LINKED_FILE, "The file has more than one hard link, so Mina does not use it; copy it (cp) and use the copy.", recoverable = true)
+        if (st.nlink != 1L) throw SandboxError(LINKED_FILE, "The file has more than one hard link, so Harness does not use it; copy it (cp) and use the copy.", recoverable = true)
         return st
     }
 
@@ -209,7 +209,7 @@ class WorkspaceFileGate(private val sys: FdSys) {
         FdSysException.Kind.EXISTS -> SandboxError(FILE_EXISTS, "A file with this name already exists.", recoverable = true)
         FdSysException.Kind.NOT_DIR -> SandboxError(FILE_NOT_FOUND, "A folder on this path is not a folder.", recoverable = true)
         FdSysException.Kind.LINK ->
-            if (dirStep) SandboxError(NOT_A_FILE, "A folder on this path is a link; Mina's file tools do not follow links. Use the real path.", recoverable = true)
+            if (dirStep) SandboxError(NOT_A_FILE, "A folder on this path is a link; Harness's file tools do not follow links. Use the real path.", recoverable = true)
             else notAFile()
         FdSysException.Kind.NOT_FILE -> notAFile()
     }

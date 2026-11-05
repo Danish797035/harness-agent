@@ -9,7 +9,7 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,7 +21,7 @@ import java.io.ByteArrayOutputStream
  * 期间旧帧由 acquireLatestImage 丢弃。
  */
 class AgentDisplay(
-    private val shell: IMinaShell,
+    private val shell: IHarnessShell,
     val width: Int,
     val height: Int,
     dpi: Int,

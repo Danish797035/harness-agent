@@ -6,7 +6,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.record.RunStore
 import okhttp3.mockwebserver.MockResponse
@@ -30,7 +30,7 @@ class OtlpSendDeviceTest {
         val dir = Files.createTempDirectory(context.cacheDir.toPath(), "test-otlp").toFile()
         val runs = RunStore(dir, { null }, keep = 1, clock = System::currentTimeMillis) { it }
         val runId = runs.open("OTLP test").use { it.runId }
-        val store = (context.applicationContext as MinaApp).detailedTraces.store
+        val store = (context.applicationContext as HarnessApp).detailedTraces.store
         try {
             val trace = store.start(runId)!!
             trace.event(RunEvent.TaskEnded(0, "succeeded", ""))

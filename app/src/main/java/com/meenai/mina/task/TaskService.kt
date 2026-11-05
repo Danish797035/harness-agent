@@ -84,17 +84,17 @@ private const val QUIET_GROUP = "com.meenai.mina.quiet"
  * specialUse 没有运行时限制,只需在清单里写明子类型。
  */
 class TaskService : Service() {
-    internal val taskState: TaskCenterState get() = (application as com.meenai.mina.MinaApp).taskState
+    internal val taskState: TaskCenterState get() = (application as com.meenai.mina.HarnessApp).taskState
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** 最近一次 start 时读到的开关;关着时登记处上限恒为 1。 */
     @Volatile private var parallel = false
     private val center by lazy {
-        TaskCenter<TaskRun>(::limit, { it.conversationId }, { it.key }, (application as com.meenai.mina.MinaApp).runStore,
-            (application as com.meenai.mina.MinaApp).resources) { c, g ->
+        TaskCenter<TaskRun>(::limit, { it.conversationId }, { it.key }, (application as com.meenai.mina.HarnessApp).runStore,
+            (application as com.meenai.mina.HarnessApp).resources) { c, g ->
             TaskRun(c, g, this, scope, freeSlot(), parallel)
         }
     }
-    private val outbox get() = (application as com.meenai.mina.MinaApp).outbox
+    private val outbox get() = (application as com.meenai.mina.HarnessApp).outbox
     private val localChannel by lazy { LocalChannel { _, delivery ->
         if (delivery is Delivery.Ask) {
             center.byConversation(delivery.threadId)?.let(::refreshNotifications)
@@ -142,7 +142,7 @@ class TaskService : Service() {
         ChannelPeer(LocalChannel.ID, "phone-owner", threadId))
 
     /** 任务结束后留在后台的那一页(见 [com.meenai.mina.cap.web.PageKeeper]):留着时服务不退,前台通知换成它的。 */
-    private val keeper get() = (application as com.meenai.mina.MinaApp).pageKeeper
+    private val keeper get() = (application as com.meenai.mina.HarnessApp).pageKeeper
 
     internal fun otherRunHasDisplay(run: TaskRun) = center.running().any { it !== run && it.displayId.value >= 0 }
     internal fun hasActiveRuns() = center.running().isNotEmpty()
@@ -171,7 +171,7 @@ class TaskService : Service() {
             }
         }
         // 没结束的运行在 App 启动时就处理过了;这里只补一道(进程里只做一次),并把此刻在跑的运行排除在外
-        (application as com.meenai.mina.MinaApp).runRecovery.recover(center.runs().map { RunId(it.key) }.toSet())
+        (application as com.meenai.mina.HarnessApp).runRecovery.recover(center.runs().map { RunId(it.key) }.toSet())
     }
 
     private fun waitKeyOf(intent: Intent) = intent.getIntExtra(EXTRA_WAIT_KEY, -1).takeIf { it >= 0 }
@@ -392,7 +392,7 @@ class TaskService : Service() {
                 }
             }.onFailure { Log.w(TAG, "result notification failed", it) }
             if (delivered) center.markDelivered(run)
-            run.mcpExternalId?.let { (application as com.meenai.mina.MinaApp).remoteTasks.ended(it, end, run.steers.value) }
+            run.mcpExternalId?.let { (application as com.meenai.mina.HarnessApp).remoteTasks.ended(it, end, run.steers.value) }
             onRunEnded(run, store)
         }
     }
@@ -467,7 +467,7 @@ class TaskService : Service() {
         run.handoffUnconsumed(cancelled = true)
         run.end(TaskState.Cancelled)
         recordTurn(ConversationStore.shared(this), run.conversationId, run.goal, TaskState.Cancelled, null)
-        run.mcpExternalId?.let { (application as com.meenai.mina.MinaApp).remoteTasks.ended(it, TaskState.Cancelled, run.steers.value) }
+        run.mcpExternalId?.let { (application as com.meenai.mina.HarnessApp).remoteTasks.ended(it, TaskState.Cancelled, run.steers.value) }
         publishRuns()
         center.queued().forEachIndexed { i, q -> q.queue(i + 1) }
     }
@@ -615,7 +615,7 @@ class TaskService : Service() {
      */
     private fun attentionNotification(run: TaskRun, state: TaskState): Notification? {
         if (!awaitingUser(run, state)) return null
-        val quiet = (application as com.meenai.mina.MinaApp).capsule.showing.value
+        val quiet = (application as com.meenai.mina.HarnessApp).capsule.showing.value
         if (state is TaskState.WaitingConfirmation) {
             return ConfirmationNotifier.build(
                 this, CHANNEL_ATTENTION, state, TaskService::class.java, ACTION_APPROVE, ACTION_DECLINE, openApp(),
@@ -745,9 +745,9 @@ class TaskService : Service() {
         if (center.runs().isNotEmpty()) {
             // 标中断后当场善后(定时窗口、补送、告知、写进对话):进程还在,不等下次启动;用 App 级作用域,服务没了也做完
             center.store.interruptUnfinished()
-            val app = application as com.meenai.mina.MinaApp
+            val app = application as com.meenai.mina.HarnessApp
             center.runs().forEach { r -> r.mcpExternalId?.let { app.remoteTasks.ended(it, TaskState.Failed(tr(R.string.task_interrupted), FailKind.Environment), r.steers.value) } }
-            (application as com.meenai.mina.MinaApp).runRecovery.settleInterrupted()
+            (application as com.meenai.mina.HarnessApp).runRecovery.settleInterrupted()
             taskState._state.value = TaskState.Failed(tr(R.string.task_interrupted), FailKind.Environment)
             taskState._runs.value = emptyList()
             taskState._activeConversations.value = emptyList()
@@ -894,7 +894,7 @@ class TaskService : Service() {
         }
 
         fun cancelMcp(context: Context, externalId: String) {
-            val state = (context.applicationContext as com.meenai.mina.MinaApp).taskState
+            val state = (context.applicationContext as com.meenai.mina.HarnessApp).taskState
             if (state.runs.value.none { it.mcpExternalId == externalId }) return
             context.startService(Intent(context, TaskService::class.java).setAction(ACTION_CANCEL_MCP)
                 .putExtra(EXTRA_MCP_ID, externalId))
@@ -946,7 +946,7 @@ class TaskService : Service() {
 
         /** 该任务此刻的状态;任务已不在时为 Idle(动作作废)。[runKey] 为空时是显示中的任务。 */
         private fun stateFor(context: Context, runKey: String?): TaskState {
-            val state = (context.applicationContext as com.meenai.mina.MinaApp).taskState
+            val state = (context.applicationContext as com.meenai.mina.HarnessApp).taskState
             return if (runKey == null) state.state.value else state.runs.value.firstOrNull { it.key == runKey }?.state?.value ?: TaskState.Idle
         }
 

@@ -30,7 +30,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 
 /**
  * 外壳 20 项能力的对照验收(destroy 在 [ShellDestroyParityDeviceTest])。
@@ -41,7 +41,7 @@ import com.meenai.mina.shell.IMinaShell
 @RunWith(AndroidJUnit4::class)
 class ShellParityDeviceTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val shell: IMinaShell get() = DeviceSupport.shell()
+    private val shell: IHarnessShell get() = DeviceSupport.shell()
     private val screens = mutableListOf<ParityScreen>()
     private lateinit var probe: ShellProbe
     private var audioBefore: String = "default"
@@ -529,7 +529,7 @@ class ShellParityDeviceTest {
 }
 
 /** 测试直接经外壳建的屏,画面进本进程的 ImageReader。 */
-class ParityScreen(private val shell: IMinaShell, width: Int, height: Int, dpi: Int) : AutoCloseable {
+class ParityScreen(private val shell: IHarnessShell, width: Int, height: Int, dpi: Int) : AutoCloseable {
     val reader: ImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
     val id: Int = shell.createDisplay(reader.surface, width, height, dpi)
     private var closed = false

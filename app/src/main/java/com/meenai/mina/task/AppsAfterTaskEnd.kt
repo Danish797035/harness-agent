@@ -3,10 +3,10 @@ package com.meenai.mina.task
 import android.util.Log
 import com.meenai.mina.cap.phone.shell.AppsAfterTask
 import com.meenai.mina.core.uistate.AfterTaskMarks
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 
 /**
- * 任务收尾时 Mina 屏上的 App 怎么办:把模型标下的去留交给内置助手([IMinaShell.finishDisplay]),
+ * 任务收尾时 Mina 屏上的 App 怎么办:把模型标下的去留交给内置助手([IHarnessShell.finishDisplay]),
  * 由它按规则([AppsAfterTask])留下或关掉、再释放虚拟屏。要在还原静音之前调:正在出声的先关掉,留下的不会在还原时突然响。
  * 助手没做成(出错、不认得这块屏)时屏照旧在收尾时释放,上面的 App 随屏关掉。
  */
@@ -29,7 +29,7 @@ internal object AppsAfterTaskEnd {
         val diagnostics: String get() = AppsAfterTask.diagnosticsLine(kept.size, closed, note)
     }
 
-    fun finish(shell: IMinaShell, displayId: Int, marks: AfterTaskMarks?): Outcome {
+    fun finish(shell: IHarnessShell, displayId: Int, marks: AfterTaskMarks?): Outcome {
         val keep = marks?.keepKeys().orEmpty().toTypedArray()
         val close = marks?.closeKeys().orEmpty().toTypedArray()
         val result = try {

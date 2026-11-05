@@ -4,7 +4,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.Message
 import com.meenai.mina.core.model.ToolSpec
@@ -32,7 +32,7 @@ class RunTraceDeviceTest {
 
     @Test fun releaseIgnoresAPreviouslyEnabledRecordingPreference() {
         org.junit.Assume.assumeFalse(com.meenai.mina.record.DetailedTraces.supportedBuild)
-        val app = compose.activity.application as MinaApp
+        val app = compose.activity.application as HarnessApp
         val prefs = app.getSharedPreferences("trace_settings", android.content.Context.MODE_PRIVATE)
         val previous = prefs.getBoolean("enabled", false)
         try {
@@ -46,7 +46,7 @@ class RunTraceDeviceTest {
 
     @Test fun recordsAndViewsARequestFromTheSettingsSwitch() {
         org.junit.Assume.assumeTrue(com.meenai.mina.record.DetailedTraces.supportedBuild)
-        val app = compose.activity.application as MinaApp
+        val app = compose.activity.application as HarnessApp
         val previous = app.detailedTraces.enabled
         val previousLimit = app.detailedTraces.limitMiB
         MockWebServer().use { server ->

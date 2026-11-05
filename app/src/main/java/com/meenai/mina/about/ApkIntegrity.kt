@@ -21,7 +21,7 @@ class ApkRejected(val reason: Reason) : Exception(reason.name) {
  * 所以下载完的文件一律再验:大小与 SHA-256(发布元数据给了才验)、包名、版本号、签名证书。
  */
 internal object ApkIntegrity {
-    private val official = "${MinaLinks.RELEASES}/download/".toHttpUrl()
+    private val official = "${HarnessLinks.RELEASES}/download/".toHttpUrl()
 
     fun requireOfficialUrl(url: String) {
         val parsed = url.toHttpUrl()

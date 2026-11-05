@@ -9,7 +9,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.task.TaskService
@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  */
 class ChatGptSignInService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val signIns get() = (application as MinaApp).chatGptSignIn
+    private val signIns get() = (application as HarnessApp).chatGptSignIn
     private var watch: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -8,7 +8,7 @@ import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meenai.mina.cap.phone.a11y.DeviceSupport
-import com.meenai.mina.shell.IMinaShell
+import com.meenai.mina.shell.IHarnessShell
 import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.shell.BuiltinShellConnection
 import com.meenai.mina.cap.phone.shell.ShellService
@@ -51,12 +51,12 @@ class AgentDisplayTest {
             InstrumentationRegistry.getInstrumentation().runOnMainSync { connection.unbind() }
         }
 
-        private fun awaitShell(): IMinaShell =
+        private fun awaitShell(): IHarnessShell =
             DeviceSupport.awaitShell(connection)
     }
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val shell: IMinaShell get() = awaitShell()
+    private val shell: IHarnessShell get() = awaitShell()
     private var display: AgentDisplay? = null
 
     @After

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Mina" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/mina_bg</item>
+    <style name="Theme.Harness" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/harness_bg</item>
     </style>
-    <color name="mina_bg">#0E0E10</color>
+    <style name="Theme.Mina" parent="Theme.Harness" />
+    <color name="harness_bg">#0E0E10</color>
+    <color name="mina_bg">@color/harness_bg</color>
 </resources>

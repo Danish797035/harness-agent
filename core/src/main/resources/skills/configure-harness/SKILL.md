@@ -1,7 +1,7 @@
 ---
-name: configure-mina
-display: 改 Mina 自己的设置
-description: 用户让 Mina 改自己的设置时用它看和改;模型、Key 与删数据不在其中
+name: configure-harness
+display: 改 Harness 自己的设置
+description: 用户让 Harness 改自己的设置时用它看和改;模型、Key 与删数据不在其中
 aliases: ["设置你自己", "改你的设置", "调快一点", "别静音", "换个外观"]
 terms: ["设置", "配置", "快一点", "慢一点", "静音", "外观", "深色", "浅色", "胶囊"]
 ---

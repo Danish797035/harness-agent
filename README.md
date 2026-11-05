@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="docs/media/logo.png" alt="Mina" width="88" />
+<img src="docs/media/logo.png" alt="Harness Agent" width="88" />
 
 # Harness Agent
-
-Based on Mina by its original author, licensed under Apache-2.0.
 
 **An AI assistant on your phone: say what you need, and it works your apps and the web until it's done.**
 
@@ -86,7 +84,7 @@ The names are shown as they appear in the knowledge files.
 |---|---|
 | **Apps** | Android Settings, Baijiahao, Bilibili, BOSS Zhipin, Chrome, Dedao, Douyin, Feishu, Gmail, Jike, Kuaishou, LinkedIn, QQ Mail, Telegram, Toutiao, Uber, Uber Eats, WeChat, Weibo, WhatsApp, Xianyu, Xiaohongshu, YouTube, YouTube Studio, Zhihu |
 | **Websites** | Amazon, Bilibili, Google Calendar, Douban, Douyin, Instagram, Gmail, Google Maps, Telegram, Baidu Tieba, Weibo, Sogou WeChat, WhatsApp, Xiaohongshu, Xiaoyuzhou, YouTube, Zhihu, BOSS Zhipin |
-| **How-to skills** | Change Mina's own settings, Turn content into text, Work with PDF documents, Look something up, Messages & email, Write skills, YouTube Upload |
+| **How-to skills** | Change Harness's own settings, Turn content into text, Work with PDF documents, Look something up, Messages & email, Write skills, YouTube Upload |
 <!-- generated:knowledge:end -->
 
 </details>
@@ -157,14 +155,12 @@ More answers are in the [FAQ](docs/faq.en.md).
 
 ## Contributors
 
-Thanks to everyone who has helped build Mina:
+Thanks to everyone who has helped build Harness Agent:
 
 <a href="https://github.com/Danish797035/harness-agent/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Danish797035/harness-agent&max=100&columns=12" alt="Contributors" />
 </a>
 
 ## License
-
-Based on Mina by its original author, licensed under Apache-2.0.
 
 [Apache-2.0](LICENSE) · [NOTICE](NOTICE) · [Third-party components](licenses/THIRD_PARTY_NOTICES.md)

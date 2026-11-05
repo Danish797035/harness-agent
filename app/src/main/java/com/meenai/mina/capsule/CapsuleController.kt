@@ -30,7 +30,7 @@ import com.meenai.mina.i18n.tr
 import com.meenai.mina.chat.ConversationStore
 import java.util.UUID
 import kotlinx.coroutines.withContext
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.phone.a11y.MainScreenCapture
 import com.meenai.mina.cap.phone.a11y.OverlayDrag
 import com.meenai.mina.cap.phone.a11y.OverlayHold
@@ -115,7 +115,7 @@ class CapsuleController(
     private val model = CapsuleModel(::reasonLabel)
     private val flags = FeatureFlags.get(context)
     /** 任务结束后留在后台运行的那一页(没有任务时胶囊说它,卡片里能看画面、关掉)。 */
-    private val keeper get() = (context.applicationContext as MinaApp).pageKeeper
+    private val keeper get() = (context.applicationContext as HarnessApp).pageKeeper
     private val toolLabels by lazy { ToolLabels(knownTools()) }
     private val appLabels = HashMap<String, String>()
     /** 各任务这一问一答此刻的样子,和对话页同一套推法(步骤、要你做的事、结果)。 */
@@ -139,7 +139,7 @@ class CapsuleController(
     private var idle: CardView.Chat? = null
 
     /** 长按说话;[talkIdle] 是空闲图标上开始说时去读的最近那段对话(说完发给它)。 */
-    private val talk = CapsuleTalk(context, { (context.applicationContext as MinaApp).voice }, scope, ::spoken)
+    private val talk = CapsuleTalk(context, { (context.applicationContext as HarnessApp).voice }, scope, ::spoken)
     private var talkIdle: Deferred<CardView.Chat>? = null
     /** 胶囊上临时闪的一句(已发出、没听清、用不了);到时自己消失。 */
     private var note by mutableStateOf<CapsuleNote?>(null)
@@ -507,7 +507,7 @@ class CapsuleController(
      * 再写成带屏幕的一句话([UserScreenMessage])照常发出;存不下就不发。
      */
     private fun deliver(c: CardView, kind: CardInputKind, shot: CapturedScreen, words: String) {
-        val access = (context.applicationContext as MinaApp).appAccess.current()
+        val access = (context.applicationContext as HarnessApp).appAccess.current()
         if (shot.sourcePackages.isEmpty() || shot.sourcePackages.any { !access.canShare(it) }) {
             inputUi = inputUi.copy(screen = null)
             android.widget.Toast.makeText(context, tr(R.string.appaccess_share_expired), android.widget.Toast.LENGTH_SHORT).show()
@@ -515,9 +515,9 @@ class CapsuleController(
         }
         val conversationId = CapsuleCards.conversationOf(c) ?: ConversationStore.shared(context).newConversation()
         scope.launch {
-            val saved = runCatching { (context.applicationContext as MinaApp).userScreens.save(conversationId, shot) }
+            val saved = runCatching { (context.applicationContext as HarnessApp).userScreens.save(conversationId, shot) }
                 .onFailure { Log.w(TAG, "could not save the screen", it) }.getOrNull() ?: return@launch
-            val latest = (context.applicationContext as MinaApp).appAccess.current()
+            val latest = (context.applicationContext as HarnessApp).appAccess.current()
             if (shot.sourcePackages.any { !latest.canShare(it) }) {
                 inputUi = inputUi.copy(screen = null)
                 android.widget.Toast.makeText(context, tr(R.string.appaccess_share_expired), android.widget.Toast.LENGTH_SHORT).show()
@@ -578,7 +578,7 @@ class CapsuleController(
             }
             // 空着的那个窗口(展开时一颗那个、收起时卡片那个)不画东西,不用等它
             suspend fun <T> OverlayWindow.hidden(block: suspend () -> T): T = if (height > 0) hiddenWhile(block) else block()
-            val store = (context.applicationContext as MinaApp).appAccess
+            val store = (context.applicationContext as HarnessApp).appAccess
             val sources = MainScreenCapture.sourcePackages(service) ?: return null
             if (context.packageName in sources || !store.current().available) return null
             for (pkg in sources) {
@@ -965,7 +965,7 @@ class CapsuleController(
 
     /** 此刻能不能在胶囊上说话:有面板窗口、不是「你来处理」那一条、语音输入没设成不用。 */
     private fun canTalk(): Boolean = panelWindow != null && !isBar() &&
-        (context.applicationContext as MinaApp).speech.choice.value != SpeechChoice.Off
+        (context.applicationContext as HarnessApp).speech.choice.value != SpeechChoice.Off
 
     /** 一颗那个窗口交来的长按:开始说、手指移动算落点、松开按落点收尾。 */
     private val talkHold = object : OverlayHold {

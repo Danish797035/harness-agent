@@ -36,7 +36,7 @@ import com.meenai.mina.cap.phone.a11y.PhoneUnavailable
 import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.a11y.launchableApps
 import com.meenai.mina.confirm.ConfirmationNotifier
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.action.ConfirmChoice
 import com.meenai.mina.core.agent.AgentLoop
 import com.meenai.mina.core.agent.SystemPrompt
@@ -447,7 +447,7 @@ class TaskRun(
         var afterTask: com.meenai.mina.core.uistate.AfterTaskMarks? = null
         var shellDeath: IBinder.DeathRecipient? = null
         var shellBinder: IBinder? = null
-        val traces = (service.application as MinaApp).detailedTraces
+        val traces = (service.application as HarnessApp).detailedTraces
         val traceTicket = traces.ticket()
         var record: RunHandle? = null
         var runStore: RunStore? = null
@@ -460,7 +460,7 @@ class TaskRun(
         var mcpEvents: AutoCloseable? = null
         var liveFeed: AutoCloseable? = null
         // 询问 / 自主:开工时取一份,开发者选项里换开关时跟着变;收尾时交还
-        val approvalControl = (service.application as MinaApp).approvalControl
+        val approvalControl = (service.application as HarnessApp).approvalControl
         var approval: RunApproval? = null
         // 任务期间的旁路协程(助手连接状态、静音与挪走监视、状态发布),任务结束一并取消
         val side = CoroutineScope(
@@ -482,7 +482,7 @@ class TaskRun(
                 val learnedNotes = legacyNames().let { legacy -> memoryRuntime.appKnowledge().notes().mapValues { it.value.copy(text = legacy.rewrite(it.value.text)) } }
                 KnowledgeStore(KnowledgeStore.loadBundled(), userNotes, learnedNotes) to GuideCatalog.loadBundled()
             }
-            val appAccess = (service.application as MinaApp).appAccess
+            val appAccess = (service.application as HarnessApp).appAccess
             // 应用访问边界:工具和预览画面共用一份(下面接手机端口时建),窗口没变时核对结果直接沿用,预览不必每一帧都问窗口
             var accessGuard: com.meenai.mina.core.uistate.AppAccessScreenPort? = null
             suspend fun previewAllowed(): Boolean {
@@ -684,7 +684,7 @@ class TaskRun(
                 }
             }
             // 这个对话里用户发来的屏幕(跟着对话存在工作区里)
-            val userScreens = (service.application as MinaApp).userScreens.source(conversationId)
+            val userScreens = (service.application as HarnessApp).userScreens.source(conversationId)
             val runSpec = RunSpec(RunId(key), goal, conversationId,
                 priorTurns,
                 provenance, if (conditionCheck) setOf("web", "sandbox") else null, readOnly = conditionCheck)
@@ -703,7 +703,7 @@ class TaskRun(
                         confirmations = runApproval.gate(), approvals = runApproval, autonomous = runApproval.startedAutonomous,
                         reviewFinalAnswer = false, flags = speed, outwardPacing = OutwardPacing.human())
                 },
-                store = (service.application as MinaApp).childRuns,
+                store = (service.application as HarnessApp).childRuns,
                 ownerAlive = { job?.isActive == true },
             ).also { children = it } else null
             val tools = toolDispatcher(accessedPhone, model.capabilities.vision, catalog, recordFrames = true, vision = vision?.let { VisionService(it, BitmapImageOps) },
@@ -786,7 +786,7 @@ class TaskRun(
             )
             loop = agent
             liveFeed = agent.events.subscribe(liveEvents)
-            mcpExternalId?.let { mcpEvents = (service.application as MinaApp).remoteTasks.attach(it, agent.events) }
+            mcpExternalId?.let { mcpEvents = (service.application as HarnessApp).remoteTasks.attach(it, agent.events) }
             kit = LearnKit(switches, memory, utterances, tools, agent, catalog, knowledge, model, light, runStore, agent.flags.replay, priorTurns)
             suspend fun <T> io(fallback: T, call: () -> T): T =
                 withContext(Dispatchers.IO) { runCatching(call).getOrDefault(fallback) }
@@ -930,7 +930,7 @@ class TaskRun(
 
     /** 手机一侧:用过手机的任务才有。 */
     private class PhoneSide(
-        val shell: com.meenai.mina.shell.IMinaShell, val a11y: ScreenAccessibility, val screen: AndroidScreen,
+        val shell: com.meenai.mina.shell.IHarnessShell, val a11y: ScreenAccessibility, val screen: AndroidScreen,
         val display: LazyAgentDisplay, val audio: AppMuter,
     )
 
@@ -938,7 +938,7 @@ class TaskRun(
      * 这次任务的静音规则(见 [AppMuter]):Mina 自己不静;没有桌面入口的系统包不静(系统界面、选择框一类);
      * 用户在主屏上看得见的不静;没静成的记下,任务进度上提示可能出声。
      */
-    private fun appMuter(shell: com.meenai.mina.shell.IMinaShell, audio: AudioMute): AppMuter {
+    private fun appMuter(shell: com.meenai.mina.shell.IHarnessShell, audio: AudioMute): AppMuter {
         val pm = service.packageManager
         val own = service.packageName
         fun system(pkg: String) = runCatching {

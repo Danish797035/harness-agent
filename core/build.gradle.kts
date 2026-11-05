@@ -146,7 +146,7 @@ val cliContractTest by tasks.registering(Test::class) {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.main.get().output + sourceSets.test.get().runtimeClasspath
     include("**/RemoteCliContractTest*")
-    inputs.dir(rootProject.file("tools/mina/scripts"))
+    inputs.dir(rootProject.file("tools/harness/scripts"))
     systemProperty("mina.python", providers.gradleProperty("minaPython").getOrElse("python3"))
 }
 
@@ -156,5 +156,5 @@ val cliTest by tasks.registering(Exec::class) {
     description = "CLI 进程、假 ADB、独立 Skill 与真实 HTTP 契约测试 (Python 3.10+)"
     dependsOn(cliContractTest)
     workingDir(rootProject.projectDir)
-    commandLine(providers.gradleProperty("minaPython").getOrElse("python3"), "-m", "unittest", "discover", "-s", "tools/mina/tests", "-v")
+    commandLine(providers.gradleProperty("minaPython").getOrElse("python3"), "-m", "unittest", "discover", "-s", "tools/harness/tests", "-v")
 }

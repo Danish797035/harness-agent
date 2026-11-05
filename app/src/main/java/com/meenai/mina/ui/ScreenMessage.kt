@@ -37,7 +37,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.agent.QuoteMessage
 import com.meenai.mina.core.cap.web.AttachedPage
 import com.meenai.mina.core.userscreen.UserScreen
@@ -95,7 +95,7 @@ private class StoredScreenShots(private val context: Context) : ScreenShots {
     override suspend fun load(conversationId: String, id: String): ShownScreen? = withContext(Dispatchers.IO) {
         val key = "$conversationId/$id"
         cache.get(key)?.let { return@withContext it }
-        val files = (context.applicationContext as MinaApp).userScreens
+        val files = (context.applicationContext as HarnessApp).userScreens
         val screen = files.screen(conversationId, id) ?: return@withContext null
         val thumb = if (screen.blocked) null else files.image(conversationId, id)?.let(::screenThumbnail)
         ShownScreen(screen, thumb).also { cache.put(key, it) }

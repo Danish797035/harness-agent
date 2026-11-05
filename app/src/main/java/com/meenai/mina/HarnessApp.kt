@@ -68,7 +68,7 @@ import com.meenai.mina.task.TriggerRuntime
  * App 容器:进程里共用的服务都在这里建一份,经各自的 Owner 接口交给安卓入口(界面、服务、广播、provider),
  * 其余代码经构造参数拿到。助手进程(HelperMain、ShellService)没有这个对象,不用这里的任何服务。
  */
-class MinaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, PhoneServices.Owner,
+class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, PhoneServices.Owner,
     MemoryRuntime.Owner, ProviderStore.Owner, FileRouteStore.Owner, TaskRecovery.Owner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -108,7 +108,7 @@ class MinaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
                 p.runId?.let { runId ->
                     scope.launch(Dispatchers.IO) {
                         runCatching { conversations.updateTurn(p.conversationId, runId) { it.copy(keptPageClosed = reason.wire) } }
-                            .onFailure { android.util.Log.w("MinaApp", "could not note the kept page closing", it) }
+                            .onFailure { android.util.Log.w("HarnessApp", "could not note the kept page closing", it) }
                     }
                 }
             }
@@ -122,7 +122,7 @@ class MinaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
     val usage: UsageLedger by lazy { UsageLedger(java.io.File(filesDir, "usage-v1.json")) }
 
     /** 模型配置与 Key;建出的模型都套上计量,记到 [usage]。 */
-    override val providers: ProviderStore by lazy { ProviderStore.create(this, usage, "Mina/${BuildConfig.VERSION_NAME}") }
+    override val providers: ProviderStore by lazy { ProviderStore.create(this, usage, "HarnessAgent/${BuildConfig.VERSION_NAME}") }
 
     /** 语音转文字的选择:整个进程一份,设置页改了输入框立刻看得到(两份实例互相看不到对方的 set)。 */
     val speech: com.meenai.mina.voice.SpeechSettings by lazy { com.meenai.mina.voice.SpeechSettings.get(this) }
@@ -301,7 +301,7 @@ class MinaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         com.meenai.mina.settings.NetProxyStore.get(this)
         com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
         // 内置浏览器:设了代理才给 WebView 设上(读设置要解密,放到后台;没设代理不为此加载 WebView)
-        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@MinaApp) } }
+        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@HarnessApp) } }
         capsule.start()
         // 内置助手的真实现,并开始看着助手(Mina 进程起来后,还活着的助手会自己交接 Binder)
         phone.shellManager.start()
@@ -315,22 +315,24 @@ class MinaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         scope.launch { taskRecovery.recover() }
         // 上次进程被杀时没结束的运行:现在就标为中断并告知,不等任务服务起来
         runRecovery.recover().let { if (it.isNotEmpty()) Log.w("MinaTask", "${it.size} runs interrupted by process restart") }
-        scope.launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@MinaApp) } }
+        scope.launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@HarnessApp) } }
         // 给电脑跑的「经 USB 连接」脚本;顺带清掉上次开机留下的 USB 连接信息
         scope.launch(Dispatchers.IO) { runCatching { mcp.writeUsbScript() }.onFailure { Log.w("MinaMcp", "cannot write USB script", it) } }
         // 上次导出写到一半被杀留下的空壳条目
-        scope.launch { runCatching { ShareExporter(this@MinaApp).cleanPending() } }
+        scope.launch { runCatching { ShareExporter(this@HarnessApp).cleanPending() } }
         // 上次进程留下的网页上传副本
-        scope.launch { runCatching { WebFiles.clearStale(this@MinaApp, SandboxDirs(this@MinaApp).gate) } }
+        scope.launch { runCatching { WebFiles.clearStale(this@HarnessApp, SandboxDirs(this@HarnessApp).gate) } }
         // 更新已经装上后,关于页下好的安装包
-        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@MinaApp).dropInstalled() } }
+        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@HarnessApp).dropInstalled() } }
         // 运行环境没准备好(首次启动、Mina 升级后)就在后台准备,不联网、对用户不可见
         RuntimePreparer.ensure(this)
         // 沙箱就绪(启动时已就绪,或刚装好)就把技能目录核对一次:App 更新带来的脚本马上能用
         scope.launch {
-            SandboxState.get(this@MinaApp).status.first { it is SandboxStatus.Ready }
-            val state = SandboxState.get(this@MinaApp)
-            runCatching { SkillsSync.sync(SandboxDirs(this@MinaApp)) { state.status.value is SandboxStatus.Ready } }
+            SandboxState.get(this@HarnessApp).status.first { it is SandboxStatus.Ready }
+            val state = SandboxState.get(this@HarnessApp)
+            runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
         }
     }
 }
+
+typealias MinaApp = HarnessApp

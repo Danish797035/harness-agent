@@ -11,7 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.cap.phone.a11y.DeviceSupport
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.SETTINGS
 import com.meenai.mina.cap.phone.a11y.DeviceSupport.pollUntil
@@ -41,7 +41,7 @@ class RunTimelineDeviceTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
     private val model = ScriptedModel()
-    private val vm get() = (context.applicationContext as MinaApp).chat
+    private val vm get() = (context.applicationContext as HarnessApp).chat
 
     @Before
     fun setUp() {

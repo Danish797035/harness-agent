@@ -42,10 +42,10 @@ import com.meenai.mina.cap.web.WebHandover
 import com.meenai.mina.cap.web.WebSites
 import com.meenai.mina.browser.UserBrowser
 import com.meenai.mina.BuildConfig
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.about.Diagnostics
 import com.meenai.mina.about.DiagnosticsCollector
-import com.meenai.mina.about.MinaLinks
+import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.about.QrImage
 import com.meenai.mina.chat.ConversationStore
 import com.meenai.mina.record.RunStore
@@ -58,7 +58,7 @@ import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.setup.DeveloperSettings
 import com.meenai.mina.cap.phone.setup.PairingNotifier
 import com.meenai.mina.core.shell.BuiltinShellStatus
-import com.meenai.mina.ui.theme.MinaTheme
+import com.meenai.mina.ui.theme.HarnessTheme
 import com.meenai.mina.ui.theme.animationsOff
 import com.meenai.mina.ui.theme.appearanceDark
 import com.meenai.mina.ui.theme.systemBarsFor
@@ -88,10 +88,10 @@ class MainActivity : ComponentActivity() {
             // 外观按设置来,改了当场换;系统栏图标的深浅跟着界面
             val dark = appearanceDark()
             LaunchedEffect(dark) { systemBarsFor(dark) }
-            MinaTheme(dark = dark, reduceMotion = animationsOff(this)) {
+            HarnessTheme(dark = dark, reduceMotion = animationsOff(this)) {
                 // 在输入框外面点一下或拖动就收起键盘,全 App 统一
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
-                    MinaRoot(store, monitor, ::perform, requestedConversation) { requestedConversation = null }
+                    HarnessRoot(store, monitor, ::perform, requestedConversation) { requestedConversation = null }
                 }
             }
         }
@@ -107,9 +107,9 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         monitor.start()
         // 每次打开都悄悄查一次新版本(两分钟内连着打开的只查一次),失败不吭声
-        com.meenai.mina.about.UpdateAutomation.onAppOpened(this, (application as MinaApp).updates)
+        com.meenai.mina.about.UpdateAutomation.onAppOpened(this, (application as HarnessApp).updates)
         // 电脑连接开着、服务却不在(被系统停过、从后台没能起来):界面在前台时补起来
-        (application as MinaApp).mcp.ensureRunning()
+        (application as HarnessApp).mcp.ensureRunning()
     }
 
     override fun onResume() {
@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
             Fix.OpenProgressChannel -> openChannelSettings(TaskService.CHANNEL_PROGRESS)
             Fix.OpenPairingChannel -> openChannelSettings(PairingNotifier.ensureChannel(this).id)
             Fix.AddModel -> Unit // 设置页自己处理
-            // 换页由 MinaRoot 处理
+            // 换页由 HarnessRoot 处理
             Fix.OpenPhoneSetup, Fix.RepairPhoneHelper -> Unit
             Fix.RetryPhoneHelper -> phone.pairing.scope.launch {
                 phone.sharedShell.reconnect()
@@ -205,7 +205,7 @@ internal fun <T> firstThatStarts(candidates: List<T>, start: (T) -> Boolean): Bo
  * 各页面只通过回调进出,不知道彼此。
  */
 @Composable
-private fun MinaRoot(store: ProviderStore, monitor: SystemStatusMonitor, activityFix: (Fix) -> Unit,
+private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, activityFix: (Fix) -> Unit,
     requestedConversation: String?, onConversationOpened: () -> Unit) {
     val nav = rememberNavStack()
     // 从设置页「重新配对」进来时先回到配对一步
@@ -230,7 +230,7 @@ private fun MinaRoot(store: ProviderStore, monitor: SystemStatusMonitor, activit
     val hasMain = roles.main != null
     val check = Prerequisites.check(status, hasMain)
     val context = LocalContext.current
-    val app = context.applicationContext as MinaApp
+    val app = context.applicationContext as HarnessApp
     // 查到的新版本:侧栏、设置首页、关于页的红点都看它
     val updateState by app.updates.state.collectAsState()
     LaunchedEffect(requestedConversation) {
@@ -360,8 +360,8 @@ private fun MinaRoot(store: ProviderStore, monitor: SystemStatusMonitor, activit
             versionName = BuildConfig.VERSION_NAME, build = BuildConfig.GIT_HASH, beta = BuildConfig.BETA,
             update = updateState,
             issueUrl = remember {
-                MinaLinks.issueUrl(
-                    MinaLinks.Device(
+                HarnessLinks.issueUrl(
+                    HarnessLinks.Device(
                         Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
                         BuildConfig.VERSION_NAME, BuildConfig.GIT_HASH,
                     ),

@@ -1,16 +1,16 @@
 /*
- * minarun — Mina 沙箱启动器。
+ * harnessrun — Harness 沙箱启动器。
  * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2026 Mina authors
  *
  * 用法:
- *   libminarun.so [--timeout <秒,1-3600>] [--net on|off] [--nice <0-19,默认10>]
+ *   libharnessrun.so [--timeout <秒,1-3600>] [--net on|off] [--nice <0-19,默认10>]
  *                 [--max-procs <默认256>] [--max-file-mb <默认2048>] -- <程序> [参数…]
- *   libminarun.so --self-test    输出 "minarun ok" 与 "seccomp ok" 或 "seccomp unavailable: <原因>",退出 0
+ *   libharnessrun.so --self-test    输出 "harnessrun ok" 与 "seccomp ok" 或 "seccomp unavailable: <原因>",退出 0
  *
  * 不给 --net 时按 off 处理(断网是默认值)。不给 --timeout 时不限时。
  * 退出码:命令自身的退出码;超时 124;命令被信号 N 杀死 128+N;
- *         启动器自身出错 125,原因写在标准错误最后一行,以 "minarun:" 开头。
+ *         启动器自身出错 125,原因写在标准错误最后一行,以 "harnessrun:" 开头。
  */
 
 #include <dirent.h>
@@ -71,9 +71,9 @@ struct options {
 static int fail(const char *what, const char *detail)
 {
 	if (detail != NULL)
-		fprintf(stderr, "minarun: %s: %s\n", what, detail);
+		fprintf(stderr, "harnessrun: %s: %s\n", what, detail);
 	else
-		fprintf(stderr, "minarun: %s\n", what);
+		fprintf(stderr, "harnessrun: %s\n", what);
 	return EXIT_LAUNCHER_ERROR;
 }
 
@@ -87,7 +87,7 @@ static int parse_long(const char *name, const char *text, long min, long max, lo
 	errno = 0;
 	v = strtol(text, &end, 10);
 	if (errno != 0 || end == text || *end != '\0' || v < min || v > max) {
-		fprintf(stderr, "minarun: invalid value for %s: %s (allowed %ld-%ld)\n", name, text, min, max);
+		fprintf(stderr, "harnessrun: invalid value for %s: %s (allowed %ld-%ld)\n", name, text, min, max);
 		return -1;
 	}
 	*out = v;
@@ -262,7 +262,7 @@ static int self_test(void)
 {
 	char reason[160];
 
-	if (printf("minarun ok\n") < 0 || fflush(stdout) != 0)
+	if (printf("harnessrun ok\n") < 0 || fflush(stdout) != 0)
 		return fail("self-test", "cannot write stdout");
 	if (probe_net_filter(reason, sizeof(reason)) == 0)
 		printf("seccomp ok\n");
@@ -283,6 +283,8 @@ static int api_level(void)
 {
 #ifdef __ANDROID__
 	return android_get_device_api_level();
+#elif defined(HARNESSRUN_HOST_API_LEVEL)
+	return HARNESSRUN_HOST_API_LEVEL;
 #elif defined(MINARUN_HOST_API_LEVEL)
 	return MINARUN_HOST_API_LEVEL; /* 只用于在普通 Linux 上测退路 */
 #else
@@ -512,7 +514,7 @@ static void kill_tree(pid_t child, int *status, int *have_status)
 		sleep_ms(POLL_MS);
 		reap(child, status, have_status);
 	}
-	fprintf(stderr, "minarun: warning: descendants still present after SIGKILL\n");
+	fprintf(stderr, "harnessrun: warning: descendants still present after SIGKILL\n");
 }
 
 static long now_ms(void)
@@ -678,7 +680,7 @@ static int run(const struct options *opts)
 		set_oom_score_adj("1000");
 		close_inherited_fds();
 		execv(opts->command[0], opts->command);
-		fprintf(stderr, "minarun: exec failed: %s\n", strerror(errno));
+		fprintf(stderr, "harnessrun: exec failed: %s\n", strerror(errno));
 		_exit(EXIT_LAUNCHER_ERROR);
 	}
 

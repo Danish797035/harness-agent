@@ -32,10 +32,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.meenai.mina.MinaApp
+import com.meenai.mina.HarnessApp
 import com.meenai.mina.R
 import com.meenai.mina.about.Diagnostics
-import com.meenai.mina.about.MinaLinks
+import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.core.selfcheck.Advice
 import com.meenai.mina.core.selfcheck.CheckResult
 import com.meenai.mina.core.selfcheck.CheckStatus
@@ -147,7 +147,7 @@ object SelfCheckCopy {
 @Composable
 fun SelfCheckScreen(status: SystemStatus, onBack: () -> Unit) {
     val context = LocalContext.current
-    val app = context.applicationContext as MinaApp
+    val app = context.applicationContext as HarnessApp
     val current = rememberUpdatedState(status)
     val taskBusy by app.taskState.busy.collectAsState()
     val scope = rememberCoroutineScope()
@@ -168,7 +168,7 @@ fun SelfCheckScreen(status: SystemStatus, onBack: () -> Unit) {
         onCopy = { copyReport(context, render(state), tr(R.string.selfcheck_copied)) },
         onGithub = {
             copyReport(context, render(state), tr(R.string.selfcheck_github_copied))
-            openInBrowser(context, SelfCheckReport.issueUrl(MinaLinks.NEW_ISSUE, state.facts))
+            openInBrowser(context, SelfCheckReport.issueUrl(HarnessLinks.NEW_ISSUE, state.facts))
         },
         onBack = onBack,
     )

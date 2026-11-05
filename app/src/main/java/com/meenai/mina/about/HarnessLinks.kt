@@ -4,20 +4,13 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import java.net.URLEncoder
 
-/** All of Mina's public links live here: repo, issues, author, and the update-check sources. Change addresses in this one place. */
-object MinaLinks {
+/** All of Harness Agent's public links live here: repo, issues, and update-check sources. Change addresses in this one place. */
+object HarnessLinks {
     const val REPO = "https://github.com/Danish797035/harness-agent"
     const val REPO_LABEL = "github.com/Danish797035/harness-agent"
     const val README = "$REPO#readme"
     const val RELEASES = "$REPO/releases"
     const val NEW_ISSUE = "$REPO/issues/new"
-    const val X = "https://x.com/anilmeenaaa"
-    const val INSTAGRAM = "https://www.instagram.com/aniltron"
-    const val X_HANDLE = "@anilmeenaaa"
-    const val INSTAGRAM_HANDLE = "@aniltron"
-
-    /** Where the contact sheet sends people: the WhatsApp community. */
-    const val X_GROUP = "https://chat.whatsapp.com/COjMS1kgsZD96OKRNJVF5h?s=qs&p=a&iam=2"
 
     /** Update checks only ask the GitHub releases page (no sign-in, hourly rate limit). */
     const val LATEST_RELEASE_API = "https://api.github.com/repos/Danish797035/harness-agent/releases/latest"
@@ -32,7 +25,7 @@ object MinaLinks {
         val build: String,
     )
 
-    /** Pre-filled issue body: device model, Android version, and Mina version on three lines, blank paragraphs below for the user. */
+    /** Pre-filled issue body: device model, Android version, and Harness version on three lines, blank paragraphs below for the user. */
     fun issueBody(d: Device): String {
         val model = if (d.model.startsWith(d.manufacturer, ignoreCase = true)) d.model else "${d.manufacturer} ${d.model}"
         return buildString {
