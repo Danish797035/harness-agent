@@ -57,16 +57,10 @@ android {
         // sirf v1 signatures padh paate hain, isliye update pre-check ke liye v1 on rakho.
         getByName("debug") {
             enableV1Signing = true
-            // /tmp wipe hone par Gradle naya debug keystore bana deta hai, jisse release ka
-            // cert badal jata hai aur phone pe update install fail ho jata hai.
-            // Isliye agar workspace me keystore maujood hai to use use karo, warna default debug keystore use hoga.
-            val pinned = file("/workspace/.android/debug.keystore")
-            if (pinned.exists()) {
-                storeFile = pinned
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
-            }
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
