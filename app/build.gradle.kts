@@ -14,7 +14,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.meenai.mina"
+        applicationId = "com.danish.harnessagent"
         minSdk = 30
         targetSdk = 35
         versionCode = 46

@@ -36,7 +36,7 @@
     <string name="about_repo_sub">%1$s · सितारों का स्वागत है</string>
     <string name="about_guide">मार्गदर्शन करें और योगदान कैसे करें</string>
     <string name="about_guide_sub">शुरू करना; बिना कोडिंग के भी ऐप का ज्ञान जोड़ें</string>
-    <string name="about_data_note">मीना आप जो भेजते हैं - संदेश, स्क्रीन सामग्री और स्क्रीनशॉट - केवल आपके द्वारा सेट किए गए मॉडल प्रदाता को जाता है। मीना के पास अपना कोई सर्वर नहीं है और वह आपका कोई भी डेटा एकत्र नहीं करता है; अपडेट की जाँच केवल GitHub से संपर्क करती है।</string>
+    <string name="about_data_note">Harness Agent आप जो भेजते हैं - संदेश, स्क्रीन सामग्री और स्क्रीनशॉट - केवल आपके द्वारा सेट किए गए मॉडल प्रदाता को जाता है। Harness Agent के पास अपना कोई सर्वर नहीं है और वह आपका कोई भी डेटा एकत्र नहीं करता है; अपडेट की जाँच केवल GitHub से संपर्क करती है।</string>
     <string name="about_license_link">अपाचे-2.0 लाइसेंस</string>
     <string name="about_author">मीनएआई द्वारा निर्मित · मिका पर निर्मित</string>
     <string name="about_license_title">अपाचे-2.0 लाइसेंस</string>
@@ -49,11 +49,11 @@
     <string name="about_update_retry">पुनः डाउनलोड करें</string>
     <string name="about_update_cancel">डाउनलोड हटाएँ</string>
     <string name="about_update_working">कार्यरत…</string>
-    <string name="about_update_install_hint">डाउनलोड होने पर, "इंस्टॉल अपडेट" पर टैप करें और सिस्टम इंस्टॉलर में पुष्टि करें। आपको पहले मीना को अज्ञात ऐप्स इंस्टॉल करने की अनुमति देनी पड़ सकती है।</string>
+    <string name="about_update_install_hint">डाउनलोड होने पर, "इंस्टॉल अपडेट" पर टैप करें और सिस्टम इंस्टॉलर में पुष्टि करें। आपको पहले Harness Agent को अज्ञात ऐप्स इंस्टॉल करने की अनुमति देनी पड़ सकती है।</string>
     <string name="about_update_error">डाउनलोड या इंस्टालेशन पूरा नहीं हुआ. कृपया बाद में पुन: प्रयास करें।</string>
     <string name="about_update_bad_file">डाउनलोड किया गया पैकेज अधूरा है या रिलीज़ से मेल नहीं खाता है। इसे हटा दिया गया; कृपया दोबारा डाउनलोड करें.</string>
-    <string name="about_update_not_newer">डाउनलोड किया गया पैकेज स्थापित मीना से नया नहीं है। इसे हटा दिया गया.</string>
-    <string name="about_update_bad_signer">यह पैकेज स्थापित मीना से अलग हस्ताक्षरित है, इसलिए इसे अपडेट नहीं किया जा सकता है। इसे हटा दिया गया. यदि आपने मीना स्वयं बनाया है, तो पहले इसे अनइंस्टॉल करें, फिर आधिकारिक संस्करण इंस्टॉल करें।</string>
+    <string name="about_update_not_newer">डाउनलोड किया गया पैकेज स्थापित Harness Agent से नया नहीं है। इसे हटा दिया गया.</string>
+    <string name="about_update_bad_signer">यह पैकेज स्थापित Harness Agent से अलग हस्ताक्षरित है, इसलिए इसे अपडेट नहीं किया जा सकता है। इसे हटा दिया गया. यदि आपने Harness Agent स्वयं बनाया है, तो पहले इसे अनइंस्टॉल करें, फिर आधिकारिक संस्करण इंस्टॉल करें।</string>
     <string name="about_update_later">बाद में</string>
     <string name="about_no_browser">लिंक खोलने के लिए कोई ब्राउज़र उपलब्ध नहीं है</string>
     <string name="about_version">संस्करण %1$s</string>
@@ -63,7 +63,7 @@
     <string name="about_current">वर्तमान %1$s</string>
     <string name="about_released_on">" · जारी किया गया %1$s"</string>
     <string name="about_released_under">%1$s के तहत जारी किया गया</string>
-    <string name="issue_body">- डिवाइस: %1$s\n- एंड्रॉइड संस्करण: %2$s (एसडीके %3$d)\n- मीना संस्करण: %4$s (बिल्ड %5$s)\n\n### क्या गलत हुआ\n\n\n### आपके द्वारा उठाए गए कदम\n\n\n### आपको क्या उम्मीद थी\n\n\n### डायग्नोस्टिक्स\n(वैकल्पिक) मीना में, इसके बारे में खोलें › फ़ीडबैक भेजें › डायग्नोस्टिक्स कॉपी करें, फिर उसे यहां पेस्ट करें\n\n</string>
+    <string name="issue_body">- डिवाइस: %1$s\n- एंड्रॉइड संस्करण: %2$s (एसडीके %3$d)\n- Harness Agent संस्करण: %4$s (बिल्ड %5$s)\n\n### क्या गलत हुआ\n\n\n### आपके द्वारा उठाए गए कदम\n\n\n### आपको क्या उम्मीद थी\n\n\n### डायग्नोस्टिक्स\n(वैकल्पिक) Harness Agent में, इसके बारे में खोलें › फ़ीडबैक भेजें › डायग्नोस्टिक्स कॉपी करें, फिर उसे यहां पेस्ट करें\n\n</string>
     <string name="licenses_third_party">तृतीय-पक्ष घटक · %1$d</string>
     <string name="licenses_footer">पूर्ण लाइसेंस पाठ और कॉपीराइट नोटिस लाइसेंस और स्रोत भंडार के लाइसेंस/फ़ोल्डर (THIRD_PARTY_NOTICES.md सहित) में हैं।</string>
     <string name="diagnostics_copy">डायग्नोस्टिक्स की प्रतिलिपि बनाएँ</string>
@@ -75,6 +75,6 @@
     <string name="diagnostics_copied">कॉपी किया गया</string>
     <string name="diagnostics_loading">संग्रहित किया जा रहा है...</string>
     <string name="about_update_channel">ऐप अपडेट</string>
-    <string name="about_update_ready">मीना %1$s स्थापित करने के लिए तैयार</string>
+    <string name="about_update_ready">Harness Agent %1$s स्थापित करने के लिए तैयार</string>
     <string name="about_update_notification_text">नया संस्करण स्थापित करने के लिए टैप करें. आपकी चैट और सेटिंग्स रखी जाती हैं.</string>
 </resources>

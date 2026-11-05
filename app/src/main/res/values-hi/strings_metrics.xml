@@ -6,8 +6,8 @@
     <string name="metrics_other">अन्य (प्रतीक्षा करता है, पुनः प्रयास करता है)</string>
     <string name="metrics_title">आँकड़े चलाएँ</string>
     <string name="metrics_sub">समय, मॉडल राउंड ट्रिप और हाल की दौड़ के टोकन</string>
-    <string name="metrics_empty">अभी तक कोई रन आँकड़े नहीं. मीना से कुछ करने के लिए कहें और इसे यहां रिकॉर्ड किया जाएगा।</string>
-    <string name="metrics_note">इस फ़ोन पर केवल अंतिम %1$d रन ही गिने जाते हैं। समय तब शुरू होता है जब मीना काम करना शुरू करती है; पहली प्रतिक्रिया तब होती है जब आप पहली बार देखते हैं कि यह क्या कर रहा है।</string>
+    <string name="metrics_empty">अभी तक कोई रन आँकड़े नहीं. Harness Agent से कुछ करने के लिए कहें और इसे यहां रिकॉर्ड किया जाएगा।</string>
+    <string name="metrics_note">इस फ़ोन पर केवल अंतिम %1$d रन ही गिने जाते हैं। समय तब शुरू होता है जब Harness Agent काम करना शुरू करती है; पहली प्रतिक्रिया तब होती है जब आप पहली बार देखते हैं कि यह क्या कर रहा है।</string>
     <string name="metrics_copy">JSON कॉपी करें</string>
     <string name="metrics_share">JSON साझा करें</string>
     <string name="metrics_last_10">अंतिम 10</string>

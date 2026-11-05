@@ -16,12 +16,12 @@
     <string name="dev_parallel_sub">अलग-अलग चैट के प्रत्येक कार्य को एक वर्चुअल स्क्रीन मिलती है और वे एक साथ चलते हैं</string>
     <string name="dev_compaction">लंबे कार्यों के लिए संरचित सारांश</string>
     <string name="dev_compaction_sub">जब कई चरणों को संपीड़ित करने की आवश्यकता होती है, तो लक्ष्य, तथ्य, प्रगति और अगला चरण नोट करें</string>
-    <string name="dev_group">मीना कैसे काम करती है</string>
+    <string name="dev_group">Harness Agent कैसे काम करती है</string>
     <string name="dev_autonomy">स्वायत्त मोड</string>
-    <string name="dev_autonomy_sub">चालू होने पर, मीना भुगतान करने से पहले भी नहीं पूछती और बस ख़त्म कर देती है; बंद होने पर, यह भुगतान करने से पहले ही पूछता है</string>
-    <string name="dev_note">ये स्विच प्रभावित करते हैं कि मीना कैसे और कितनी तेजी से काम करती है। आमतौर पर उन्हें डिफॉल्ट पर छोड़ देते हैं।</string>
+    <string name="dev_autonomy_sub">चालू होने पर, Harness Agent भुगतान करने से पहले भी नहीं पूछती और बस ख़त्म कर देती है; बंद होने पर, यह भुगतान करने से पहले ही पूछता है</string>
+    <string name="dev_note">ये स्विच प्रभावित करते हैं कि Harness Agent कैसे और कितनी तेजी से काम करती है। आमतौर पर उन्हें डिफॉल्ट पर छोड़ देते हैं।</string>
     <string name="dev_grounding">विज़न ग्राउंडिंग सत्यापित</string>
-    <string name="dev_grounding_sub">चीज़ों का सटीक पता लगाने के लिए विज़न मॉडल %1$s का परीक्षण हो जाने पर उसे चालू करें; बंद होने पर, जिन स्थितियों को यह चिह्नित करता है उन्हें मीना द्वारा टैप करने से पहले अन्य साक्ष्य की आवश्यकता होती है।</string>
+    <string name="dev_grounding_sub">चीज़ों का सटीक पता लगाने के लिए विज़न मॉडल %1$s का परीक्षण हो जाने पर उसे चालू करें; बंद होने पर, जिन स्थितियों को यह चिह्नित करता है उन्हें Harness Agent द्वारा टैप करने से पहले अन्य साक्ष्य की आवश्यकता होती है।</string>
     <string name="dev_speed">रफ़्तार</string>
     <string name="dev_experiments">प्रयोगों</string>
     <string name="dev_run_log">रिकॉर्ड चलाएँ</string>

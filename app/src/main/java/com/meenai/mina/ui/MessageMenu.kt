@@ -160,7 +160,7 @@ internal fun Modifier.behindMenu(open: Boolean, progress: () -> Float): Modifier
 
 /** 把消息的纯文字放进剪贴板,提示一句「已复制」。 */
 internal fun copyMessage(context: Context, text: String) {
-    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Mina", text))
+    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Harness Agent", text))
     Toast.makeText(context, context.getString(R.string.chat_copied), Toast.LENGTH_SHORT).show()
 }
 

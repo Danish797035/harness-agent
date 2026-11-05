@@ -8,7 +8,7 @@
     <string name="usage_title">टोकन का उपयोग</string>
     <string name="usage_none">अभी तक कोई नहीं</string>
     <string name="usage_empty_title">इस अवधि में कोई उपयोग नहीं</string>
-    <string name="usage_empty_body">मीना से कुछ करने के लिए कहें और इस्तेमाल किए गए टोकन यहां रिकॉर्ड किए जाएंगे।</string>
+    <string name="usage_empty_body">Harness Agent से कुछ करने के लिए कहें और इस्तेमाल किए गए टोकन यहां रिकॉर्ड किए जाएंगे।</string>
     <string name="usage_note">नंबर आपके प्रदाताओं द्वारा बताए गए अनुसार हैं और केवल इसी फ़ोन पर रहते हैं।</string>
     <string name="usage_total">कुल</string>
     <string name="usage_trend">रुझान</string>

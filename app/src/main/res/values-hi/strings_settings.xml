@@ -2,7 +2,7 @@
 <resources>
     <string name="language_title">भाषा</string>
     <string name="language_system">सिस्टम का पालन करें</string>
-    <string name="language_system_detail">जब मीना के पास आपके सिस्टम की भाषा होती है तो उसका उपयोग करता है, अन्यथा अंग्रेजी का</string>
+    <string name="language_system_detail">जब Harness Agent के पास आपके सिस्टम की भाषा होती है तो उसका उपयोग करता है, अन्यथा अंग्रेजी का</string>
     <string name="language_english" translatable="false">English</string>
     <string name="language_hindi" translatable="false">Hinglish</string>
     <string name="settings_basic">बुनियादी</string>
@@ -13,7 +13,7 @@
     <string name="settings_during_work_sub">संचालन की गति, स्क्रीन चालू रहती है, उपयोग किया जा रहा ऐप म्यूट है</string>
     <string name="settings_notif_sub">जब वे पॉप अप हों, तो सिस्टम सेटिंग्स में बदलाव करें</string>
     <string name="settings_privacy">गोपनीयता और डेटा</string>
-    <string name="settings_memory_sub">मीना को क्या याद है और उसने क्या-क्या कौशल सीखे</string>
+    <string name="settings_memory_sub">Harness Agent को क्या याद है और उसने क्या-क्या कौशल सीखे</string>
     <string name="settings_web_logins">वेबसाइट साइन-इन</string>
     <plurals name="settings_count_sites">
         <item quantity="one">%1$d साइट</item>
@@ -28,7 +28,7 @@
     </plurals>
     <string name="settings_recovery">पुनर्प्राप्ति एवं मरम्मत</string>
     <string name="settings_developer">डेवलपर विकल्प</string>
-    <string name="settings_about">मीना के बारे में</string>
+    <string name="settings_about">Harness Agent के बारे में</string>
     <string name="pill_unsupported">समर्थित नहीं</string>
     <string name="pill_available">तैयार</string>
     <string name="pill_needs_attention">ध्यान देने की जरूरत है</string>
@@ -38,7 +38,7 @@
     <string name="settings_all_ready_detail">मॉडल सेटअप · फ़ोन नियंत्रण तैयार</string>
     <string name="settings_status">स्थिति</string>
     <string name="settings_a11y">अभिगम्यता सेवा</string>
-    <string name="settings_a11y_sub">मीना की वर्चुअल स्क्रीन को पढ़ता है और नियंत्रित करता है</string>
+    <string name="settings_a11y_sub">Harness Agent की वर्चुअल स्क्रीन को पढ़ता है और नियंत्रित करता है</string>
     <string name="settings_notif_progress_sub">प्रगति और "आपकी आवश्यकता है" अलर्ट</string>
     <string name="settings_system_version">सिस्टम संस्करण</string>
     <string name="settings_android_focus">एंड्रॉइड %1$s · एंड्रॉइड 12-13 पर पृष्ठभूमि कार्य आपकी स्क्रीन से फोकस चुरा सकता है; Android 14+ अनुशंसित</string>
@@ -50,7 +50,7 @@
     <string name="settings_keep_on">स्क्रीन ऑन करो</string>
     <string name="settings_keep_on_sub">कार्य चलने के दौरान स्क्रीन चालू रहती है (जब आप इसका उपयोग नहीं कर रहे हों तब भी यह मंद हो सकती है), फिर वापस सामान्य हो जाती है</string>
     <string name="settings_mute">उपयोग किए जा रहे ऐप को म्यूट करें</string>
-    <string name="settings_mute_sub">ऐप्स मीना का उपयोग चुप रहने के लिए किया जा रहा है; जब आप कार्यभार संभालते हैं तो ध्वनि वापस आ जाती है</string>
+    <string name="settings_mute_sub">ऐप्स Harness Agent का उपयोग चुप रहने के लिए किया जा रहा है; जब आप कार्यभार संभालते हैं तो ध्वनि वापस आ जाती है</string>
     <string name="settings_pace">परिचालन गति</string>
     <string name="settings_pace_fast">तेज़</string>
     <string name="settings_pace_fast_detail">चरणों के बीच कोई विराम नहीं; पाठ एक ही बार में भर जाता है</string>
@@ -67,14 +67,14 @@
     </plurals>
     <string name="capsule_settings_title">तैरता हुआ कैप्सूल</string>
     <string name="capsule_settings_sub">अन्य ऐप्स का उपयोग करते समय स्क्रीन पर कार्य की प्रगति देखें</string>
-    <string name="capsule_settings_foot">कैप्सूल को मीना की पहुंच-योग्यता सेवा का उपयोग करके तैयार किया गया है जो पहले से ही चालू है, इसलिए किसी अतिरिक्त अनुमति की आवश्यकता नहीं है। यदि वह सेवा बंद है या नहीं आ सकती, तब भी आपको सूचनाएं मिलेंगी।</string>
-    <string name="capsule_settings_background">कुछ फ़ोन बैकग्राउंड में ऐप्स बंद कर देते हैं। यदि कैप्सूल गायब हो जाता है, तो मीना को पृष्ठभूमि में चलने दें और अपने फ़ोन की सिस्टम सेटिंग्स में स्वचालित रूप से प्रारंभ होने दें।</string>
+    <string name="capsule_settings_foot">कैप्सूल को Harness Agent की पहुंच-योग्यता सेवा का उपयोग करके तैयार किया गया है जो पहले से ही चालू है, इसलिए किसी अतिरिक्त अनुमति की आवश्यकता नहीं है। यदि वह सेवा बंद है या नहीं आ सकती, तब भी आपको सूचनाएं मिलेंगी।</string>
+    <string name="capsule_settings_background">कुछ फ़ोन बैकग्राउंड में ऐप्स बंद कर देते हैं। यदि कैप्सूल गायब हो जाता है, तो Harness Agent को पृष्ठभूमि में चलने दें और अपने फ़ोन की सिस्टम सेटिंग्स में स्वचालित रूप से प्रारंभ होने दें।</string>
     <string name="capsule_mode_off">बंद</string>
     <string name="capsule_mode_tasks">कार्यों के दौरान</string>
     <string name="capsule_mode_always">हमेशा</string>
     <string name="capsule_mode_off_detail">केवल सूचनाएं</string>
     <string name="capsule_mode_tasks_detail">जब कोई कार्य चल रहा होता है या आपका इंतजार कर रहा होता है, तब प्रकट होता है और कुछ सेकंड बाद चला जाता है</string>
-    <string name="capsule_mode_always_detail">बिना किसी कार्य के भी स्क्रीन पर मीना आइकन रखता है</string>
+    <string name="capsule_mode_always_detail">बिना किसी कार्य के भी स्क्रीन पर Harness Agent आइकन रखता है</string>
     <string name="routes_saved">सहेजे गए मार्ग</string>
     <string name="loading">लोड हो रहा है</string>
     <plurals name="routes_count">
@@ -83,14 +83,14 @@
     </plurals>
     <string name="routes_clear_all">सभी साफ करें</string>
     <string name="routes_clear_title">सभी सहेजे गए मार्ग साफ़ करें?</string>
-    <string name="routes_clear_body">साफ़ करने के बाद, मीना अगली बार फिर से चरण दर चरण काम करती है। अन्य सेटिंग्स प्रभावित नहीं होतीं.</string>
+    <string name="routes_clear_body">साफ़ करने के बाद, Harness Agent अगली बार फिर से चरण दर चरण काम करती है। अन्य सेटिंग्स प्रभावित नहीं होतीं.</string>
     <string name="clear">स्पष्ट</string>
     <string name="sandbox_proxy_off">%1$s · नेटवर्क एक्सेस चालू होने पर उपयोग किया जाता है</string>
     <string name="net_proxy">नेटवर्क प्रॉक्सी</string>
     <string name="net_proxy_row_sub">मॉडल अनुरोधों, अपडेट, इन-ऐप ब्राउज़र और कमांड के लिए</string>
-    <string name="net_proxy_hint">मीना के मॉडल अनुरोधों (चैट, मॉडल सूचियां, खाता साइन-इन), इन-ऐप अपडेट डाउनलोड, इन-ऐप ब्राउज़र और फ़ाइलों और कंप्यूटिंग वातावरण में कमांड के लिए उपयोग किया जाता है, जबकि नेटवर्क एक्सेस वहां पर है। इस फ़ोन या आपके स्थानीय नेटवर्क पर पते (लोकलहोस्ट, 192.168.x.x, 10.x.x.x, .local में समाप्त होने वाले नाम) हमेशा सीधे कनेक्ट होते हैं, इसलिए स्थानीय मॉडल काम करते रहते हैं। इसमें इस फ़ोन पर एन्क्रिप्टेड रूप से संग्रहीत उपयोगकर्ता: पासवर्ड@ शामिल हो सकता है। सीधे कनेक्शन के लिए खाली छोड़ें.</string>
+    <string name="net_proxy_hint">Harness Agent के मॉडल अनुरोधों (चैट, मॉडल सूचियां, खाता साइन-इन), इन-ऐप अपडेट डाउनलोड, इन-ऐप ब्राउज़र और फ़ाइलों और कंप्यूटिंग वातावरण में कमांड के लिए उपयोग किया जाता है, जबकि नेटवर्क एक्सेस वहां पर है। इस फ़ोन या आपके स्थानीय नेटवर्क पर पते (लोकलहोस्ट, 192.168.x.x, 10.x.x.x, .local में समाप्त होने वाले नाम) हमेशा सीधे कनेक्ट होते हैं, इसलिए स्थानीय मॉडल काम करते रहते हैं। इसमें इस फ़ोन पर एन्क्रिप्टेड रूप से संग्रहीत उपयोगकर्ता: पासवर्ड@ शामिल हो सकता है। सीधे कनेक्शन के लिए खाली छोड़ें.</string>
     <string name="net_proxy_invalid">इसे http://host:port (socks5, socks5h और https भी काम करते हैं) के रूप में लिखें, वैकल्पिक रूप से होस्ट से पहले user:password@ के साथ लिखें।</string>
-    <string name="net_proxy_container_only">https:// प्रॉक्सी का उपयोग केवल फ़ाइलों और कंप्यूटिंग वातावरण में कमांड द्वारा किया जाता है; मीना के अपने संबंध प्रत्यक्ष रहते हैं। सब कुछ कवर करने के लिए http:// या socks5:// का उपयोग करें।</string>
+    <string name="net_proxy_container_only">https:// प्रॉक्सी का उपयोग केवल फ़ाइलों और कंप्यूटिंग वातावरण में कमांड द्वारा किया जाता है; Harness Agent के अपने संबंध प्रत्यक्ष रहते हैं। सब कुछ कवर करने के लिए http:// या socks5:// का उपयोग करें।</string>
     <string name="net_proxy_browser_unsupported">इस फ़ोन का वेबव्यू एक अलग प्रॉक्सी का उपयोग नहीं कर सकता है, इसलिए इन-ऐप ब्राउज़र सीधे कनेक्ट होता है।</string>
     <string name="net_proxy_browser_socks_auth">इन-ऐप ब्राउज़र SOCKS प्रॉक्सी का उपयोग नहीं कर सकता जिसके लिए उपयोगकर्ता नाम और पासवर्ड की आवश्यकता होती है, इसलिए यह सीधे कनेक्ट होता है।</string>
     <string name="net_proxy_unreachable">नेटवर्क प्रॉक्सी तक नहीं पहुंच सका, या उसने अनुरोध को आगे नहीं बढ़ाया। जांचें कि प्रॉक्सी चल रही है और सेटिंग्स › नेटवर्क प्रॉक्सी में पता सही है।</string>
@@ -117,6 +117,6 @@
     <string name="appearance_system_detail">प्रकाश या अँधेरा, फ़ोन जिस भी स्थिति में हो</string>
     <string name="appearance_light">हमेशा प्रकाश</string>
     <string name="appearance_dark">हमेशा अंधेरा</string>
-    <string name="settings_self_config">मीना को अपनी सेटिंग्स बदलने दें</string>
+    <string name="settings_self_config">Harness Agent को अपनी सेटिंग्स बदलने दें</string>
     <string name="settings_self_config_sub">चालू होने पर, कार्यों को इन प्राथमिकताओं (गति, म्यूट, कैप्सूल, उपस्थिति, स्क्रीन-ऑन) को पढ़ने और बदलने के लिए एक टूल मिलता है। मॉडल, एपीआई कुंजी, कंटेनर नेटवर्क और डेटा हटाने वाली कोई भी चीज़ कभी शामिल नहीं होती है</string>
 </resources>

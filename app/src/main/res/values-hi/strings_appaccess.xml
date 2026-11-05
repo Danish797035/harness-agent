@@ -2,7 +2,7 @@
 <resources>
     <string name="appaccess_title">ऐप एक्सेस</string>
     <string name="appaccess_row_sub">ऐप्स को ब्लॉक करें और प्रति ऐप स्क्रीन शेयरिंग करें</string>
-    <string name="appaccess_intro">चुनें कि मीना किन ऐप्स को पढ़ सकती है और मानक फ़ोन टूल के साथ संचालित कर सकती है। शेल कमांड, सैंडबॉक्स और कंप्यूटर एक्सेस (एमसीपी) इस सेटिंग द्वारा प्रतिबंधित नहीं हैं।</string>
+    <string name="appaccess_intro">चुनें कि Harness Agent किन ऐप्स को पढ़ सकती है और मानक फ़ोन टूल के साथ संचालित कर सकती है। शेल कमांड, सैंडबॉक्स और कंप्यूटर एक्सेस (एमसीपी) इस सेटिंग द्वारा प्रतिबंधित नहीं हैं।</string>
     <string name="appaccess_privacy">वर्गीकृत करने से ऐप के नाम और पैकेज के नाम एआई मॉडल पर भेजे जाते हैं; "ऐप सूची ताज़ा करें" आपसे पहले पूछता है।</string>
     <string name="appaccess_unavailable">ऐप एक्सेस सेटिंग्स को पढ़ा नहीं जा सकता, इसलिए मानक फ़ोन एक्सेस रोक दिया गया है। रीसेट करने से सहेजी गई अनुमतियाँ और श्रेणियाँ साफ़ हो जाती हैं।</string>
     <string name="appaccess_reset">ऐप एक्सेस रीसेट करें</string>
@@ -23,7 +23,7 @@
     <string name="appaccess_cancel">रद्द करना</string>
 
     <string name="appaccess_recommend_title">ब्लॉक करने की अनुशंसा: वित्त ऐप्स</string>
-    <string name="appaccess_recommend_body">इन ऐप्स को वित्त या भुगतान के रूप में वर्गीकृत किया गया है, और मीना अभी भी इन्हें संचालित कर सकती है। उन्हें एक-एक करके, या सभी को एक साथ ब्लॉक करें।</string>
+    <string name="appaccess_recommend_body">इन ऐप्स को वित्त या भुगतान के रूप में वर्गीकृत किया गया है, और Harness Agent अभी भी इन्हें संचालित कर सकती है। उन्हें एक-एक करके, या सभी को एक साथ ब्लॉक करें।</string>
     <string name="appaccess_recommend_empty">रोकने के लिए कुछ भी नहीं.</string>
     <string name="appaccess_block">अवरोध पैदा करना</string>
     <string name="appaccess_block_all">सभी को ब्लॉक करें</string>

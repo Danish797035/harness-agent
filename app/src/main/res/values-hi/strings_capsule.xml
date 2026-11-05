@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="card_approve_once">बस एक बार इसे मंजूरी दे दीजिए</string>
-    <string name="card_see_process">पूरी प्रक्रिया के लिए मीना पर वापस जाएँ</string>
-    <string name="card_back_to_mina">मीना को लौटें</string>
+    <string name="card_see_process">पूरी प्रक्रिया के लिए Harness Agent पर वापस जाएँ</string>
+    <string name="card_back_to_mina">Harness Agent को लौटें</string>
     <string name="card_continue_last">अंतिम बातचीत जारी रखें</string>
     <string name="card_screen">पृष्ठभूमि स्क्रीन, बड़ा करने के लिए टैप करें</string>
     <string name="card_screen_label">पृष्ठभूमि</string>
     <string name="card_zoomed">बढ़ी हुई पृष्ठभूमि स्क्रीन, बंद करने के लिए टैप करें</string>
-    <string name="card_zoom_hint">मीना पृष्ठभूमि में काम कर रही है · बंद करने के लिए टैप करें</string>
+    <string name="card_zoom_hint">Harness Agent पृष्ठभूमि में काम कर रही है · बंद करने के लिए टैप करें</string>
     <string name="card_continuing">जारी रखें "%1$s"</string>
     <string name="card_queued_ahead">पहले दूसरा अधिग्रहण समाप्त करें, फिर यह</string>
-    <string name="card_hint_answer">जवाब दो मीना...</string>
+    <string name="card_hint_answer">जवाब दो Harness Agent...</string>
     <string name="card_hint_continue">आगे बोलो…</string>
     <plurals name="capsule_behind">
         <item quantity="one">इसके बाद, %1$d और आपका इंतजार कर रहा है</item>
@@ -24,11 +24,11 @@
     <string name="capsule_stopped">रुक गया</string>
     <string name="capsule_stop">ऐसा करना बंद करो</string>
     <string name="capsule_expand">इस कार्य का विस्तार करें</string>
-    <string name="capsule_talk">मीना से बात करो</string>
+    <string name="capsule_talk">Harness Agent से बात करो</string>
     <string name="capsule_swap_side">दूसरी ओर चले जाओ</string>
     <string name="capsule_desc_needs">%1$s, संभालने के लिए टैप करें</string>
-    <string name="capsule_desc_running">मीना काम कर रही है: %1$s, विवरण के लिए टैप करें</string>
-    <string name="capsule_desc_other">मीना: %1$s, विवरण के लिए टैप करें</string>
+    <string name="capsule_desc_running">Harness Agent काम कर रही है: %1$s, विवरण के लिए टैप करें</string>
+    <string name="capsule_desc_other">Harness Agent: %1$s, विवरण के लिए टैप करें</string>
     <string name="capsule_then_tap_right">पूरा होने पर दाईं ओर टैप करें</string>
     <string name="capsule_need_of_total">%1$d आपकी जरूरत है · %2$d कुल मिलाकर</string>
     <string name="capsule_of_total">%1$s · %2$d कुल मिलाकर</string>
@@ -37,7 +37,7 @@
     <string name="capsule_needs_you">आपकी जरूरत है: %1$s</string>
     <string name="capsule_handle_it">नज़र रखना</string>
     <string name="capsule_needs_ok">आपके ओके की आवश्यकता है: %1$s</string>
-    <string name="capsule_asks">मीना पूछती है: %1$s</string>
+    <string name="capsule_asks">Harness Agent पूछती है: %1$s</string>
     <string name="capsule_hold_why">होल्ड पर: %1$s</string>
     <string name="capsule_you_handle">आपकी बारी</string>
     <string name="capsule_thinking">अगले कदम के बारे में सोच रहा हूं</string>

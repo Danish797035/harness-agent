@@ -10,7 +10,7 @@
     <string name="memory_procedures">कैसे करें</string>
     <string name="memory_fact">तथ्य</string>
     <string name="search">खोज</string>
-    <string name="memory_unreadable">पहले की स्मृति पढ़ी नहीं जा सकती थी; इसे अलग रख दिया गया और मीना ने नए सिरे से शुरुआत की।</string>
+    <string name="memory_unreadable">पहले की स्मृति पढ़ी नहीं जा सकती थी; इसे अलग रख दिया गया और Harness Agent ने नए सिरे से शुरुआत की।</string>
     <string name="memory_pending_n">समीक्षा करने के लिए %1$d</string>
     <string name="memory_pending">समीक्षा करने के लिए</string>
     <string name="memory_memory">याद</string>
@@ -22,11 +22,11 @@
     <string name="memory_pending_title">मेमोरी आपके ओके का इंतजार कर रही है</string>
     <string name="memory_switches">स्विच</string>
     <string name="memory_use">स्मृति का प्रयोग करें</string>
-    <string name="memory_use_sub">बंद होने पर, मीना न तो पढ़ती है और न ही स्मृति सहेजती है</string>
+    <string name="memory_use_sub">बंद होने पर, Harness Agent न तो पढ़ती है और न ही स्मृति सहेजती है</string>
     <string name="memory_auto">मैं जो कहता हूं उसे याद रखें</string>
     <string name="memory_auto_sub">प्रत्येक कार्य के बाद अपने शब्दों से व्यवस्थित करें</string>
     <string name="memory_learn">पिछले कार्यों से सीखें (कौशल और ऐप नोट्स)</string>
-    <string name="memory_learn_sub">मीना जो सीखती है उसका उपयोग आपके द्वारा उसे स्वीकार करने के बाद ही किया जाता है</string>
+    <string name="memory_learn_sub">Harness Agent जो सीखती है उसका उपयोग आपके द्वारा उसे स्वीकार करने के बाद ही किया जाता है</string>
     <string name="memory_clear_sub">सभी स्मृति और सीखे गए कौशल हटा दें</string>
     <string name="edit_it">संपादन करना</string>
     <string name="unpin">अनपिन</string>
@@ -51,7 +51,7 @@
     <string name="skill_missing_description">एक पंक्ति के विवरण की आवश्यकता है</string>
     <string name="skill_missing_section">पांच अनुभागों की आवश्यकता है: प्रवेश, चरण, सामान्य नुकसान, क्या पूरा माना जाता है, और कब रुकना और सौंपना है</string>
     <string name="skill_too_long">कौशल बहुत लंबा है; अधिकतम 4000 अक्षर</string>
-    <string name="skill_unknown_tool">इसमें उन उपकरणों का उल्लेख है जो मीना के पास नहीं हैं</string>
+    <string name="skill_unknown_tool">इसमें उन उपकरणों का उल्लेख है जो Harness Agent के पास नहीं हैं</string>
     <string name="memory_manual">आपके द्वारा लिखा गया</string>
     <string name="date_pattern_md">एमएमएम डी</string>
     <string name="memory_said_via">आपने %1$s पर %2$s के माध्यम से कहा: "%3$s"</string>

@@ -37,7 +37,7 @@
     <string name="mcp_cli_install">1. अपना कंप्यूटर सेट करें</string>
     <string name="mcp_cli_install_sub">अपने कंप्यूटर AI पर इंस्टाल गाइड भेजें, या स्वयं कंप्यूटर पर इसका अनुसरण करें।</string>
     <string name="mcp_copy_install">इंस्टॉल गाइड की प्रतिलिपि बनाएँ</string>
-    <string name="mcp_cli_install_prompt">इस एजेंट के लिए मीना सीएलआई या स्किल स्थापित करने के लिए https://github.com/wangzon101/Mina/blob/main/docs/agent-quickstart.en.md का पालन करें। फ़ोन पर चयनित कनेक्शन विधि का उपयोग करें: USB अधिकृत ADB का उपयोग करता है; वाई-फ़ाई/निजी वीपीएन HTTP पते और एक निजी टोकन फ़ाइल का उपयोग करता है। कनेक्शन सत्यापित करने के लिए कनेक्ट चलाएँ। केवल कौशल के साथ, इसकी बंडल स्क्रिप्ट का उपयोग करें। बातचीत में फ़ोन कार्य सबमिट न करें या टोकन प्रिंट न करें।</string>
+    <string name="mcp_cli_install_prompt">इस एजेंट के लिए Harness Agent सीएलआई या स्किल स्थापित करने के लिए https://github.com/wangzon101/Harness Agent/blob/main/docs/agent-quickstart.en.md का पालन करें। फ़ोन पर चयनित कनेक्शन विधि का उपयोग करें: USB अधिकृत ADB का उपयोग करता है; वाई-फ़ाई/निजी वीपीएन HTTP पते और एक निजी टोकन फ़ाइल का उपयोग करता है। कनेक्शन सत्यापित करने के लिए कनेक्ट चलाएँ। केवल कौशल के साथ, इसकी बंडल स्क्रिप्ट का उपयोग करें। बातचीत में फ़ोन कार्य सबमिट न करें या टोकन प्रिंट न करें।</string>
     <string name="mcp_cli_connect">2. फ़ोन कनेक्ट करें</string>
     <string name="mcp_cli_connect_sub">अपने कंप्यूटर पर USB या युग्मित वायरलेस डिबगिंग पर चलाएँ। कनेक्ट कनेक्शन को सत्यापित करता है। केवल कौशल के साथ, एजेंट से उसके बंडल क्लाइंट को चलाने के लिए कहें।</string>
     <string name="mcp_copy_command">आदेश कॉपी करें</string>
@@ -50,7 +50,7 @@
     <string name="mcp_usb_client">3. अपने एमसीपी क्लाइंट को कॉन्फ़िगर करें</string>
     <string name="mcp_usb_client_sub">स्टार्ट कमांड कंप्यूटर पर पता और टोकन प्रिंट करता है। उन्हें अपने क्लाइंट में जोड़ें और जांचें कि ऊपर दिए गए अनुरोध का समय अपडेट हो गया है।</string>
     <string name="mcp_copy_instructions">सेटअप निर्देश कॉपी करें</string>
-    <string name="mcp_usb_client_instructions">इस कंप्यूटर पर http://127.0.0.1:%1$d/mcp पर एक स्ट्रीम करने योग्य HTTP MCP सर्वर जोड़ें। प्राधिकरण हेडर को बियरर पर सेट करें और उसके बाद मीना स्टार्ट कमांड द्वारा मुद्रित टोकन सेट करें। बातचीत में टोकन प्रिंट न करें. टूल सूची को कनेक्ट या रीफ़्रेश करें और जांचें कि फ़ोन पर अनुरोध का समय अपडेट होता है या नहीं। गाइड: https://github.com/wangzon101/Mina/blob/main/docs/mcp.en.md</string>
+    <string name="mcp_usb_client_instructions">इस कंप्यूटर पर http://127.0.0.1:%1$d/mcp पर एक स्ट्रीम करने योग्य HTTP MCP सर्वर जोड़ें। प्राधिकरण हेडर को बियरर पर सेट करें और उसके बाद Harness Agent स्टार्ट कमांड द्वारा मुद्रित टोकन सेट करें। बातचीत में टोकन प्रिंट न करें. टूल सूची को कनेक्ट या रीफ़्रेश करें और जांचें कि फ़ोन पर अनुरोध का समय अपडेट होता है या नहीं। गाइड: https://github.com/wangzon101/Harness Agent/blob/main/docs/mcp.en.md</string>
     <string name="mcp_network_enable">इस नेटवर्क कनेक्शन की अनुमति दें</string>
     <string name="mcp_network_enable_action">नेटवर्क एक्सेस सक्षम करें</string>
     <string name="mcp_network_address_step">1. पहुंच योग्य पता चुनें</string>

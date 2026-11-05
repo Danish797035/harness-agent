@@ -198,7 +198,7 @@ private fun Hero(versionName: String, build: String, beta: Boolean) {
             painterResource(R.drawable.mina_launcher_art), contentDescription = null,
             Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)),
         )
-        Text("Mina", Modifier.padding(top = 12.dp), style = MinaType.Title, fontWeight = FontWeight.Bold, color = c.ink)
+        Text("Harness Agent", Modifier.padding(top = 12.dp), style = MinaType.Title, fontWeight = FontWeight.Bold, color = c.ink)
         Text(AboutCopy.TAGLINE, Modifier.padding(top = 4.dp), style = MinaType.Caption, color = c.ink2, textAlign = TextAlign.Center)
         Row(Modifier.padding(top = 10.dp).testTag("about-version"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(AboutCopy.version(versionName), style = MinaType.Hint, color = c.ink3)

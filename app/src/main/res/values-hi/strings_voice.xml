@@ -24,7 +24,7 @@
     <string name="voice_mic_unavailable">माइक्रोफ़ोन उपलब्ध नहीं है. हो सकता है कोई दूसरा ऐप इसका इस्तेमाल कर रहा हो</string>
     <string name="voice_hold_to_talk">लगा रहो बातो मै</string>
     <string name="voice_mic_blocked_title">माइक्रोफ़ोन अभी भी उपलब्ध नहीं है</string>
-    <string name="voice_mic_blocked_body">रिकॉर्डिंग की अनुमति पहले से ही है, लेकिन मीना अभी भी रिकॉर्ड नहीं कर सकती। जांचें कि त्वरित सेटिंग्स में माइक्रोफ़ोन एक्सेस स्विच चालू है (एंड्रॉइड 12 और बाद में), और सिस्टम के अनुमति प्रबंधक में मीना का माइक्रोफ़ोन बंद नहीं है। हो सकता है कि कोई अन्य ऐप भी माइक्रोफ़ोन का उपयोग कर रहा हो.</string>
+    <string name="voice_mic_blocked_body">रिकॉर्डिंग की अनुमति पहले से ही है, लेकिन Harness Agent अभी भी रिकॉर्ड नहीं कर सकती। जांचें कि त्वरित सेटिंग्स में माइक्रोफ़ोन एक्सेस स्विच चालू है (एंड्रॉइड 12 और बाद में), और सिस्टम के अनुमति प्रबंधक में Harness Agent का माइक्रोफ़ोन बंद नहीं है। हो सकता है कि कोई अन्य ऐप भी माइक्रोफ़ोन का उपयोग कर रहा हो.</string>
     <string name="voice_provider_failed">इसे पाठ में नहीं बदला जा सका: %1$s</string>
     <string name="voice_unavailable_title">ध्वनि इनपुट तैयार नहीं है</string>
     <string name="voice_unavailable_no_engine">इस फ़ोन में कोई अंतर्निहित वाक् पहचान नहीं है, और कोई वाक्-से-पाठ मॉडल नहीं चुना गया है। सेटिंग्स › मॉडल › स्पीच टू टेक्स्ट में प्रदाता का स्पीच मॉडल चुनें और यह काम करेगा।</string>
@@ -33,13 +33,13 @@
     <string name="voice_unavailable_provider_gone">चुने गए भाषण मॉडल के प्रदाता को हटा दिया गया है। सेटिंग्स › मॉडल › स्पीच टू टेक्स्ट में कोई दूसरा चुनें।</string>
     <string name="voice_unavailable_off">भाषण से पाठ बंद है. सेटिंग्स › मॉडल › स्पीच टू टेक्स्ट में से एक चुनें।</string>
     <string name="voice_go_pick">एक चुनें</string>
-    <string name="voice_permission_title">मीना को माइक्रोफोन की जरूरत है</string>
-    <string name="voice_permission_body">जब आप बात कर रहे हों तो आपको सुनने के लिए, मीना को ऑडियो रिकॉर्ड करना होगा। इससे पहले इनकार कर दिया गया था, इसलिए फ़ोन दोबारा नहीं पूछेगा। सिस्टम सेटिंग्स में मीना के अनुमति पृष्ठ पर माइक्रोफ़ोन चालू करें।</string>
+    <string name="voice_permission_title">Harness Agent को माइक्रोफोन की जरूरत है</string>
+    <string name="voice_permission_body">जब आप बात कर रहे हों तो आपको सुनने के लिए, Harness Agent को ऑडियो रिकॉर्ड करना होगा। इससे पहले इनकार कर दिया गया था, इसलिए फ़ोन दोबारा नहीं पूछेगा। सिस्टम सेटिंग्स में Harness Agent के अनुमति पृष्ठ पर माइक्रोफ़ोन चालू करें।</string>
     <string name="voice_permission_open">खुली सेटिंग</string>
     <!-- Floating capsule: long press to talk -->
     <string name="capsule_voice_talk">बात करना</string>
     <string name="capsule_voice_send">भेजना</string>
-    <string name="capsule_voice_answer_title">मीना जवाब दे रही है</string>
+    <string name="capsule_voice_answer_title">Harness Agent जवाब दे रही है</string>
     <string name="capsule_voice_continue_title">जारी "%1$s"</string>
     <string name="capsule_voice_cancel">रद्द करना</string>
     <string name="capsule_voice_edit">संपादन करना</string>
@@ -53,7 +53,7 @@
     <string name="capsule_voice_steered">कार्य बताया: %1$s</string>
     <string name="capsule_voice_answered">उत्तर दिया गया: %1$s</string>
     <string name="capsule_voice_sent">भेजा गया: %1$s</string>
-    <string name="capsule_voice_need_mic">मीना में माइक की अनुमति देने के लिए टैप करें</string>
+    <string name="capsule_voice_need_mic">Harness Agent में माइक की अनुमति देने के लिए टैप करें</string>
     <string name="capsule_voice_not_ready">ध्वनि इनपुट तैयार नहीं है · टैप करें</string>
-    <string name="capsule_voice_open">मीना खोलें</string>
+    <string name="capsule_voice_open">Harness Agent खोलें</string>
 </resources>

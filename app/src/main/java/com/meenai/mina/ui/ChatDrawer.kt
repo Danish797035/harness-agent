@@ -229,7 +229,7 @@ fun ChatDrawer(
         ) {
             MinaLogo(36.dp, corner = 10.dp)
             Column {
-                Text("Mina", style = MinaType.Title, color = c.ink)
+                Text("Harness Agent", style = MinaType.Title, color = c.ink)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.size(6.dp).background(if (ok) c.ok else c.warnSolid, CircleShape))
                     Text(state, style = MinaType.Hint, fontWeight = FontWeight.Medium, color = c.ink3)

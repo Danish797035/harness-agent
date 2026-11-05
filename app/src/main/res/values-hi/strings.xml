@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Mina</string>
-    <string name="a11y_service_description">यह सिस्टम अनुमति मीना को किसी भी स्क्रीन पर मौजूद चीज़ों को पढ़ने और संचालित करने की सुविधा देती है। मीना इसका उपयोग केवल अपनी वर्चुअल स्क्रीन पर आपके द्वारा दिए गए कार्यों को करने के लिए करती है, और आपकी मुख्य स्क्रीन पर तभी कार्य करती है जब आप उसे वहां कोई कार्य सौंपते हैं।</string>
+    <string name="app_name" translatable="false">Harness Agent</string>
+    <string name="a11y_service_description">यह सिस्टम अनुमति Harness Agent को किसी भी स्क्रीन पर मौजूद चीज़ों को पढ़ने और संचालित करने की सुविधा देती है। Harness Agent इसका उपयोग केवल अपनी वर्चुअल स्क्रीन पर आपके द्वारा दिए गए कार्यों को करने के लिए करती है, और आपकी मुख्य स्क्रीन पर तभी कार्य करती है जब आप उसे वहां कोई कार्य सौंपते हैं।</string>
     <string name="channel_attention">आपकी जरूरत है</string>
     <string name="takeover_title">आपकी जरूरत है</string>
     <string name="takeover_title_reason">आपकी जरूरत है: %1$s</string>
@@ -13,15 +13,15 @@
     <string name="takeover_handed_over_hint">ऐप अब आपकी मुख्य स्क्रीन पर है। जब आपका काम पूरा हो जाए तो "संपन्न" पर टैप करें; यदि आपने पहले ही पूरा काम स्वयं कर लिया है, तो "मैंने इसे स्वयं किया" पर टैप करें।</string>
     <string name="takeover_web_busy">सेटिंग्स में एक वेबसाइट साइन-इन खुला है। वहां पहले "संपन्न" पर टैप करें, फिर "मैं इसे संभाल लूंगा" पर टैप करें।</string>
     <string name="takeover_move_to_main_failed">ऐप को मुख्य स्क्रीन पर नहीं ले जाया जा सका. पुनः प्रयास करने के लिए "मैं इसे संभाल लूँगा" पर टैप करें।</string>
-    <string name="takeover_move_back_failed">ऐप को मीना की स्क्रीन पर वापस नहीं ले जाया जा सका। पुनः प्रयास करें।</string>
+    <string name="takeover_move_back_failed">ऐप को Harness Agent की स्क्रीन पर वापस नहीं ले जाया जा सका। पुनः प्रयास करें।</string>
     <string name="action_take_over">मैं इसे संभाल लूंगा</string>
     <string name="action_hand_back">हो गया</string>
     <string name="action_finished_myself">यह मैंने खुद किया है</string>
     <string name="action_skip">छोडना</string>
     <string name="action_cancel_task">कार्य रद्द करें</string>
     <string name="input_title">आपका उत्तर चाहिए</string>
-    <string name="no_answer_note">यदि %1$d मिनट के भीतर कोई उत्तर नहीं मिलता है, तो मीना बिना उत्तर के ही आगे बढ़ जाएगी।</string>
-    <string name="input_too_late">बहुत देर हो गई: %1$d मिनट के बाद मीना बिना कोई जवाब दिए चली गई।</string>
+    <string name="no_answer_note">यदि %1$d मिनट के भीतर कोई उत्तर नहीं मिलता है, तो Harness Agent बिना उत्तर के ही आगे बढ़ जाएगी।</string>
+    <string name="input_too_late">बहुत देर हो गई: %1$d मिनट के बाद Harness Agent बिना कोई जवाब दिए चली गई।</string>
     <string name="action_approve">मंज़ूरी देना</string>
     <string name="action_decline">गिरावट</string>
     <string name="confirmation_locked_hint">प्राप्तकर्ता और सामग्री देखने के लिए अनलॉक करें</string>

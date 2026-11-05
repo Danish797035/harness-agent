@@ -5,7 +5,7 @@
     <string name="chat_greeting_afternoon">शुभ दोपहर</string>
     <string name="chat_greeting_evening">शुभ संध्या</string>
     <string name="chat_greeting_night">देर तक जागना</string>
-    <string name="chat_empty_prompt">मीना को क्या करना चाहिए?</string>
+    <string name="chat_empty_prompt">Harness Agent को क्या करना चाहिए?</string>
     <string name="chat_example_message">व्हाट्सएप खोलें और मेरे दोस्त को एक संदेश भेजें</string>
     <string name="chat_example_group_summary">मेरे व्हाट्सएप ग्रुप से आज के संदेशों का सारांश प्रस्तुत करें</string>
     <string name="chat_example_jobs">लिंक्डइन और नौकरी पर 150 एआई उत्पाद प्रबंधक नौकरियों के लिए आवेदन करें</string>
@@ -25,7 +25,7 @@
     </plurals>
     <string name="chat_background_note">पृष्ठभूमि में चल रहा है - अपने फ़ोन का उपयोग करते रहें। छोटे दृश्य को बड़ा करने के लिए उस पर टैप करें।</string>
     <string name="chat_placeholder_busy">विवरण जोड़ें या बदलें...</string>
-    <string name="chat_placeholder_answer">मीना के प्रश्न का उत्तर दीजिए</string>
+    <string name="chat_placeholder_answer">Harness Agent के प्रश्न का उत्तर दीजिए</string>
     <string name="chat_placeholder_more">और बोलो कुछ…</string>
     <string name="chat_cannot_start">अभी कार्य प्रारंभ नहीं किया जा सकता</string>
     <string name="chat_missing">गुम: %1$s</string>
@@ -35,7 +35,7 @@
     <string name="chat_expand_steps">चरण दिखाएँ</string>
     <string name="chat_collapse_steps">चरण छिपाएँ</string>
     <string name="chat_view_process">देखिए यह कैसे हुआ</string>
-    <string name="chat_unlock_body">आपका फ़ोन लॉक है. एक बार जब आप इसे अनलॉक कर देंगे तो मीना जारी रहेगी।</string>
+    <string name="chat_unlock_body">आपका फ़ोन लॉक है. एक बार जब आप इसे अनलॉक कर देंगे तो Harness Agent जारी रहेगी।</string>
     <string name="chat_input_body">%1$s\nकिसी विकल्प पर टैप करें या नीचे टाइप करें। %2$s</string>
     <string name="chat_refuse">अस्वीकार करना</string>
     <string name="chat_allow_once">एक बार इसकी इजाजत दे दीजिए</string>
@@ -99,11 +99,11 @@
     <string name="attach_album">तस्वीरें</string>
     <string name="attach_files">फ़ाइलें</string>
     <string name="attach_recent">हाल की तस्वीरें</string>
-    <string name="attach_recent_partial">तस्वीरें जो आपने मीना को एक्सेस करने दीं</string>
+    <string name="attach_recent_partial">तस्वीरें जो आपने Harness Agent को एक्सेस करने दीं</string>
     <string name="attach_all">सभी तस्वीरें</string>
     <string name="attach_change">पहुंच बदलें</string>
     <string name="attach_no_photos">अभी तक कोई फ़ोटो नहीं</string>
-    <string name="attach_need_access">यहां तस्वीरें लेने के लिए, मीना को अपनी तस्वीरों तक पहुंचने की अनुमति दें</string>
+    <string name="attach_need_access">यहां तस्वीरें लेने के लिए, Harness Agent को अपनी तस्वीरों तक पहुंचने की अनुमति दें</string>
     <string name="attach_grant">फ़ोटो पहुंच की अनुमति दें</string>
     <string name="attach_grant_hint">आप सिस्टम फोटो पिकर का उपयोग करने के लिए ऊपर "फ़ोटो" पर भी टैप कर सकते हैं</string>
     <string name="attach_full">एक समय में अधिकतम %1$d अनुलग्नक</string>
@@ -124,10 +124,10 @@
     <string name="attach_file_and_more">%1$s और %2$d अधिक फ़ाइलें</string>
     <string name="screen_tag">अभी आपकी स्क्रीन</string>
     <string name="screen_blocked">कैप्चर नहीं किया जा सका: यह पृष्ठ स्क्रीनशॉट की अनुमति नहीं देता है</string>
-    <string name="screen_camera">मीना के लिए इस स्क्रीन को कैप्चर करें</string>
+    <string name="screen_camera">Harness Agent के लिए इस स्क्रीन को कैप्चर करें</string>
     <string name="screen_remove">इस स्क्रीनशॉट को हटाएं</string>
-    <string name="screen_send">अपनी वर्तमान स्क्रीन मीना को भेजें</string>
-    <string name="pip_screen">मीना की आभासी स्क्रीन</string>
+    <string name="screen_send">अपनी वर्तमान स्क्रीन Harness Agent को भेजें</string>
+    <string name="pip_screen">Harness Agent की आभासी स्क्रीन</string>
     <string name="collapse">गिर जाना</string>
     <string name="no_app_for_link">कोई भी ऐप इस लिंक को नहीं खोल सकता</string>
     <string name="source_none">इस उत्तर के लिए कोई स्रोत सहेजा नहीं गया था</string>
@@ -140,7 +140,7 @@
     <string name="chat_copied">कॉपी किया गया</string>
     <string name="chat_select_hint">टेक्स्ट को चुनने के लिए उसे दबाकर रखें</string>
     <string name="chat_quote_remove">उद्धरण हटाएँ</string>
-    <string name="chat_quoting_mina">मीना को उद्धृत करते हुए: %1$s</string>
+    <string name="chat_quoting_mina">Harness Agent को उद्धृत करते हुए: %1$s</string>
     <string name="chat_quoting_you">आपको उद्धृत करते हुए: %1$s</string>
     <string name="chat_edit_message">संदेश संपादित करें</string>
     <string name="chat_withdraw_message">संदेश वापस लें</string>

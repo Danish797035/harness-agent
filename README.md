@@ -2,17 +2,19 @@
 
 <img src="docs/media/logo.png" alt="Mina" width="88" />
 
-# Mina
+# Harness Agent
+
+> Based on Mina by its original author, licensed under Apache-2.0.
 
 **An AI assistant on your phone: say what you need, and it works your apps and the web until it's done.**
 
 It works on a hidden background screen, so you can keep using your phone.
 
-<a href="https://github.com/meenaispeaks6-droid/meena/releases/latest"><img src="https://img.shields.io/badge/Download%20APK-Android%2011%2B-2ea043?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" /></a>
+<a href="https://github.com/Danish797035/harness-agent/releases/latest"><img src="https://img.shields.io/badge/Download%20APK-Android%2011%2B-2ea043?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" /></a>
 
-<a href="https://github.com/meenaispeaks6-droid/meena/stargazers"><img src="https://img.shields.io/github/stars/meenaispeaks6-droid/meena?style=flat&logo=github&label=Star&color=1f6feb" alt="stars" /></a>
-<a href="https://github.com/meenaispeaks6-droid/meena/releases"><img src="https://img.shields.io/github/downloads/meenaispeaks6-droid/meena/total?label=downloads&color=2ea043" alt="downloads" /></a>
-<a href="https://github.com/meenaispeaks6-droid/meena/releases/latest"><img src="https://img.shields.io/github/v/release/meenaispeaks6-droid/meena?include_prereleases&label=version" alt="version" /></a>
+<a href="https://github.com/Danish797035/harness-agent/stargazers"><img src="https://img.shields.io/github/stars/Danish797035/harness-agent?style=flat&logo=github&label=Star&color=1f6feb" alt="stars" /></a>
+<a href="https://github.com/Danish797035/harness-agent/releases"><img src="https://img.shields.io/github/downloads/Danish797035/harness-agent/total?label=downloads&color=2ea043" alt="downloads" /></a>
+<a href="https://github.com/Danish797035/harness-agent/releases/latest"><img src="https://img.shields.io/github/v/release/Danish797035/harness-agent?include_prereleases&label=version" alt="version" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
 
 English · (docs/readme/README.ja.md) · 
@@ -47,14 +49,14 @@ English · (docs/readme/README.ja.md) ·
 
 ## Get started in three steps
 
-1. **Install**: download the APK from [Releases](https://github.com/meenaispeaks6-droid/meena/releases/latest).
+1. **Install**: download the APK from [Releases](https://github.com/Danish797035/harness-agent/releases/latest).
 2. **Connect a model**: in Settings › Model, pick a provider and enter an API key, or just sign in with an account ([models and sign-in](docs/models.en.md)).
 3. **To operate phone apps**: follow the "Set up phone control" wizard in Settings and pair wireless debugging on the phone once ([setup guide](docs/setup-guide.en.md)). Skip this if you only want chat, web and files.
 
 Then try saying: "Set alarms for 9:40 and 10:00 tomorrow morning" or "Check the weather at 8 every morning and tell me only if it will rain".
 
 > 💡 Have a computer handy? Send this to the AI agent on it and it will set everything up for you:<br/>
-> `Follow https://github.com/meenaispeaks6-droid/meena/blob/main/docs/install-with-agent.en.md to install Mina on the Android phone connected over USB.`
+> `Follow https://github.com/Danish797035/harness-agent/blob/main/docs/install-with-agent.en.md to install Mina on the Android phone connected over USB.`
 
 ## What it can do
 
@@ -109,7 +111,7 @@ You can also skip the key and sign in with a ChatGPT (Plus / Pro), xAI / Grok or
 | Operating phone apps | Android 12 or later; **Android 14+ recommended** (the background screen has its own focus, so it doesn't get in the way of your typing on the main screen) |
 | Linux sandbox | arm64 devices |
 
-Not sure your phone is up to it? Run Settings › Recovery & repair › **Compatibility self-check**: 12 checks in about a minute, and you can [send us the results](https://github.com/meenaispeaks6-droid/meena/issues/new?template=device-report.yml) in one tap.
+Not sure your phone is up to it? Run Settings › Recovery & repair › **Compatibility self-check**: 12 checks in about a minute, and you can [send us the results](https://github.com/Danish797035/harness-agent/issues/new?template=device-report.yml) in one tap.
 
 ## Privacy & safety
 
@@ -130,7 +132,7 @@ Not sure your phone is up to it? Run Settings › Recovery & repair › **Compat
 
 **Is the app in English?** Yes. The app UI comes in English, Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, Portuguese, Russian and Indonesian, follows your system language, and can be switched in Settings › Language. The built-in app and website knowledge is written in Chinese, but that doesn't limit you: the model reads it fine, and you can talk to Mina in English.
 
-**Where do updates come from?** Only from this repository's [Releases](https://github.com/meenaispeaks6-droid/meena/releases); you can also upgrade in the app from About › Check for updates.
+**Where do updates come from?** Only from this repository's [Releases](https://github.com/Danish797035/harness-agent/releases); you can also upgrade in the app from About › Check for updates.
 
 More answers are in the [FAQ](docs/faq.en.md).
 
@@ -141,15 +143,15 @@ More answers are in the [FAQ](docs/faq.en.md).
 - **Docs**: all docs and a suggested reading order are in the [docs index](docs/README.en.md)
 - **Community**: join the [X group chat](https://x.com/i/chat/group_join/g2116926829198246025/48B52j5svL); to reach the author on WeChat, scan the QR code in the app under About › Contact the author (mention Mina in your request)
 - **Follow the author**: X [@wangzan101](https://x.com/wangzan101)
-- **Report a problem**: [open an issue](https://github.com/meenaispeaks6-droid/meena/issues/new/choose); About › Send feedback in the app can attach diagnostics
+- **Report a problem**: [open an issue](https://github.com/Danish797035/harness-agent/issues/new/choose); About › Send feedback in the app can attach diagnostics
 - **Contribute**: add usage knowledge for an app or website (plain text, no code needed), or contribute code; see the [contributing guide](.github/CONTRIBUTING.md)
 
 ## Star History
 
-<a href="https://star-history.com/#meenaispeaks6-droid/meena&Date">
+<a href="https://star-history.com/#Danish797035/harness-agent&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=meenaispeaks6-droid/meena&type=Date&theme=dark&v=20261101-1623" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=meenaispeaks6-droid/meena&type=Date&v=20261101-1623" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Danish797035/harness-agent&type=Date&theme=dark&v=20261101-1623" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Danish797035/harness-agent&type=Date&v=20261101-1623" width="600" />
   </picture>
 </a>
 
@@ -157,10 +159,12 @@ More answers are in the [FAQ](docs/faq.en.md).
 
 Thanks to everyone who has helped build Mina:
 
-<a href="https://github.com/meenaispeaks6-droid/meena/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=meenaispeaks6-droid/meena&max=100&columns=12" alt="Contributors" />
+<a href="https://github.com/Danish797035/harness-agent/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Danish797035/harness-agent&max=100&columns=12" alt="Contributors" />
 </a>
 
 ## License
+
+Based on Mina by its original author, licensed under Apache-2.0.
 
 [Apache-2.0](LICENSE) · [NOTICE](NOTICE) · [Third-party components](licenses/THIRD_PARTY_NOTICES.md)
