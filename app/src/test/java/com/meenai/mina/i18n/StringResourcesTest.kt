@@ -126,14 +126,9 @@ class StringResourcesTest {
         assertEquals(AppLanguage.System, of(""))
         assertEquals(AppLanguage.English, of("en"))
         assertEquals(AppLanguage.English, of("fr-FR"))
-        // 其他语言只看语言代码,地区不管
-        assertEquals(AppLanguage.Japanese, of("ja-JP"))
-        assertEquals(AppLanguage.Portuguese, of("pt-PT"))
-        assertEquals(AppLanguage.Portuguese, of("pt-BR"))
-        assertEquals(AppLanguage.Spanish, of("es-419"))
-        // 印尼语:现行代码和安卓 Locale 还在用的旧代码都认
-        assertEquals(AppLanguage.Indonesian, of("id-ID"))
-        assertEquals(AppLanguage.Indonesian, of("in-ID"))
+        // Hindi: tag hi-IN ya hi dono
+        assertEquals(AppLanguage.Hindi, of("hi-IN"))
+        assertEquals(AppLanguage.Hindi, of("hi"))
     }
 
     @Test

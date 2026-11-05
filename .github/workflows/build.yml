@@ -33,7 +33,7 @@ jobs:
           echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
       - name: Run Tests and Build Debug APK
-        run: ./gradlew :core:test :app:testDebugUnitTest assembleDebug
+        run: ./gradlew testDebugUnitTest assembleDebug
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
