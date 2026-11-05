@@ -43,6 +43,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.dp
+import com.meenai.mina.ui.theme.HarnessColors
+import com.meenai.mina.ui.theme.HarnessShapes
+import com.meenai.mina.ui.theme.HarnessSize
+import com.meenai.mina.ui.theme.HarnessTheme
+import com.meenai.mina.ui.theme.HarnessType
 import com.meenai.mina.ui.theme.MinaColors
 import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaSize

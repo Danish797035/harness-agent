@@ -2,7 +2,7 @@ name: Build Debug APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "rename-wip" ]
   workflow_dispatch:
 
 jobs:

@@ -301,7 +301,7 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
             ChatWithDrawer(
                 vm = app.chat,
                 check = check,
-                reduceMotion = MinaTheme.reduceMotion,
+                reduceMotion = HarnessTheme.reduceMotion,
                 conversations = { ConversationStore.shared(context).list() },
                 conversationChanges = ConversationStore.shared(context).changes,
                 conversationTitle = { ConversationStore.shared(context).title(it) },
@@ -320,7 +320,7 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                     check = check,
                     frames = app.taskState.frames,
                     webOpen = app.tasks.webScreenOpen,
-                    reduceMotion = MinaTheme.reduceMotion,
+                    reduceMotion = HarnessTheme.reduceMotion,
                     onOpenDrawer = openDrawer,
                     openSettings = { nav.push(Route.Settings) },
                     openRun = { runId = it; nav.push(Route.Run) },
