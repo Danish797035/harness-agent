@@ -4,7 +4,7 @@
 
 # Harness Agent
 
-> Based on Mina by its original author, licensed under Apache-2.0.
+Based on Mina by its original author, licensed under Apache-2.0.
 
 **An AI assistant on your phone: say what you need, and it works your apps and the web until it's done.**
 
