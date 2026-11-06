@@ -1,0 +1,496 @@
+package com.meenai.mina.core.router
+
+import com.meenai.mina.core.model.Author
+import com.meenai.mina.core.model.Message
+import com.meenai.mina.core.model.ModelReply
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
+import com.meenai.mina.core.model.StopReason
+import com.meenai.mina.core.model.ToolSpec
+import com.meenai.mina.core.model.Usage
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+
+enum class ProviderType {
+    OpenAi,
+    Gemini,
+    Anthropic
+}
+
+/**
+ * Handles round-trip conversion between Mina's provider-neutral [Message] format
+ * and specific LLM provider wire formats (OpenAI-compatible, Gemini, Anthropic).
+ * Guarantees stable deterministic tool call IDs and strips reasoning blocks
+ * across provider switches.
+ */
+object ProviderConverter {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Ensures all tool calls across the conversation have deterministic, stable IDs.
+     * Maps corresponding tool results to matching IDs.
+     */
+    fun normalizeToolCallIds(messages: List<Message>): List<Message> {
+        val idMapping = mutableMapOf<String, String>()
+        var toolCallSeq = 0
+
+        val mapped = messages.mapIndexed { msgIdx, msg ->
+            if (msg.role == Role.Assistant) {
+                var callIdx = 0
+                val newParts = msg.parts.map { part ->
+                    if (part is Part.ToolCall) {
+                        val stableId = if (part.id.isNotBlank() && !part.id.startsWith("transient-")) {
+                            part.id
+                        } else {
+                            "call_${msgIdx}_${callIdx}_${part.name}_${toolCallSeq++}"
+                        }
+                        if (part.id.isNotBlank()) {
+                            idMapping[part.id] = stableId
+                        }
+                        callIdx++
+                        part.copy(id = stableId)
+                    } else part
+                }
+                msg.copy(parts = newParts)
+            } else msg
+        }
+
+        if (idMapping.isEmpty()) return mapped
+
+        return mapped.map { msg ->
+            if (msg.role == Role.Tool || msg.parts.any { it is Part.ToolResult }) {
+                val newParts = msg.parts.map { part ->
+                    if (part is Part.ToolResult && idMapping.containsKey(part.callId)) {
+                        part.copy(callId = idMapping[part.callId] ?: part.callId)
+                    } else part
+                }
+                msg.copy(parts = newParts)
+            } else msg
+        }
+    }
+
+    /**
+     * Strips Thinking/reasoning parts unless preserveForProvider is specified and matches.
+     */
+    fun stripForeignThinking(messages: List<Message>, preserveOpaqueFor: String? = null): List<Message> {
+        return messages.map { msg ->
+            if (msg.role != Role.Assistant) return@map msg
+            val filtered = msg.parts.mapNotNull { part ->
+                when {
+                    part is Part.Thinking -> {
+                        if (preserveOpaqueFor != null && part.opaque != null && part.opaque.startsWith(preserveOpaqueFor)) {
+                            part
+                        } else null
+                    }
+                    part is Part.ToolCall && preserveOpaqueFor == null -> part.copy(opaque = null)
+                    else -> part
+                }
+            }
+            msg.copy(parts = filtered)
+        }
+    }
+
+    /**
+     * Converts messages to OpenAI-compatible Chat Completions payload.
+     */
+    fun toOpenAiPayload(
+        systemPrompt: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        model: String,
+        stream: Boolean = false,
+        temperature: Double? = null,
+    ): JsonObject {
+        val normalized = stripForeignThinking(normalizeToolCallIds(messages))
+        val wireMessages = mutableListOf<JsonObject>()
+
+        if (systemPrompt.isNotBlank()) {
+            wireMessages.add(buildJsonObject {
+                put("role", "system")
+                put("content", systemPrompt)
+            })
+        }
+
+        for (msg in normalized) {
+            when (msg.role) {
+                Role.System -> {
+                    val text = msg.parts.filterIsInstance<Part.Text>().joinToString("\n") { it.text }
+                    if (text.isNotBlank()) {
+                        wireMessages.add(buildJsonObject {
+                            put("role", "system")
+                            put("content", text)
+                        })
+                    }
+                }
+                Role.Assistant -> {
+                    val text = msg.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }
+                    val toolCalls = msg.parts.filterIsInstance<Part.ToolCall>()
+                    wireMessages.add(buildJsonObject {
+                        put("role", "assistant")
+                        if (text.isNotEmpty()) put("content", text) else if (toolCalls.isEmpty()) put("content", "")
+                        if (toolCalls.isNotEmpty()) {
+                            putJsonArray("tool_calls") {
+                                toolCalls.forEach { tc ->
+                                    addJsonObject {
+                                        put("id", tc.id)
+                                        put("type", "function")
+                                        putJsonObject("function") {
+                                            put("name", tc.name)
+                                            put("arguments", tc.argsJson)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                }
+                Role.Tool -> {
+                    msg.parts.filterIsInstance<Part.ToolResult>().forEach { tr ->
+                        wireMessages.add(buildJsonObject {
+                            put("role", "tool")
+                            put("tool_call_id", tr.callId)
+                            put("content", tr.content)
+                        })
+                    }
+                }
+                Role.User -> {
+                    val toolResults = msg.parts.filterIsInstance<Part.ToolResult>()
+                    toolResults.forEach { tr ->
+                        wireMessages.add(buildJsonObject {
+                            put("role", "tool")
+                            put("tool_call_id", tr.callId)
+                            put("content", tr.content)
+                        })
+                    }
+                    val nonTool = msg.parts.filter { it !is Part.ToolResult }
+                    if (nonTool.isNotEmpty()) {
+                        val hasImages = nonTool.any { it is Part.Image }
+                        wireMessages.add(buildJsonObject {
+                            put("role", "user")
+                            if (!hasImages) {
+                                put("content", nonTool.filterIsInstance<Part.Text>().joinToString("\n") { it.text })
+                            } else {
+                                putJsonArray("content") {
+                                    nonTool.forEach { part ->
+                                        when (part) {
+                                            is Part.Text -> addJsonObject {
+                                                put("type", "text")
+                                                put("text", part.text)
+                                            }
+                                            is Part.Image -> addJsonObject {
+                                                put("type", "image_url")
+                                                putJsonObject("image_url") {
+                                                    put("url", "data:${part.mime};base64,${part.pngBase64}")
+                                                }
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+        }
+
+        return buildJsonObject {
+            put("model", model)
+            put("messages", JsonArray(wireMessages))
+            if (tools.isNotEmpty()) {
+                putJsonArray("tools") {
+                    tools.forEach { t ->
+                        addJsonObject {
+                            put("type", "function")
+                            putJsonObject("function") {
+                                put("name", t.name)
+                                put("description", t.description)
+                                val schema = try { json.parseToJsonElement(t.parametersJsonSchema) } catch (_: Exception) { JsonObject(emptyMap()) }
+                                put("parameters", schema)
+                            }
+                        }
+                    }
+                }
+            }
+            if (stream) put("stream", true)
+            temperature?.let { put("temperature", it) }
+        }
+    }
+
+    /**
+     * Converts messages to Gemini generateContent wire payload.
+     */
+    fun toGeminiPayload(
+        systemPrompt: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        temperature: Double? = null,
+    ): JsonObject {
+        val normalized = stripForeignThinking(normalizeToolCallIds(messages))
+        val nameById = mutableMapOf<String, String>()
+        normalized.forEach { m ->
+            m.parts.filterIsInstance<Part.ToolCall>().forEach { nameById[it.id] = it.name }
+        }
+
+        val allSystem = (listOf(systemPrompt) + normalized.filter { it.role == Role.System }
+            .flatMap { it.parts.filterIsInstance<Part.Text>() }.map { it.text })
+            .filter { it.isNotBlank() }.joinToString("\n\n")
+
+        val mergedContents = mutableListOf<Pair<String, MutableList<JsonObject>>>()
+
+        for (m in normalized) {
+            if (m.role == Role.System) continue
+            val isModel = m.role == Role.Assistant
+            val role = if (isModel) "model" else "user"
+            val parts = mutableListOf<JsonObject>()
+
+            if (isModel) {
+                m.parts.forEach { part ->
+                    when (part) {
+                        is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject { put("text", part.text) })
+                        is Part.ToolCall -> parts.add(buildJsonObject {
+                            part.opaque?.let { put("thoughtSignature", it) }
+                            putJsonObject("functionCall") {
+                                put("name", part.name)
+                                put("args", try { json.parseToJsonElement(part.argsJson).jsonObject } catch (_: Exception) { JsonObject(emptyMap()) })
+                            }
+                        })
+                        else -> {}
+                    }
+                }
+            } else {
+                m.parts.filterIsInstance<Part.ToolResult>().forEach { tr ->
+                    val funcName = nameById[tr.callId] ?: tr.callId
+                    parts.add(buildJsonObject {
+                        putJsonObject("functionResponse") {
+                            put("name", funcName)
+                            putJsonObject("response") {
+                                put("content", tr.content)
+                                if (tr.isError) put("is_error", true)
+                            }
+                        }
+                    })
+                }
+                m.parts.forEach { part ->
+                    when (part) {
+                        is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject { put("text", part.text) })
+                        is Part.Image -> parts.add(buildJsonObject {
+                            putJsonObject("inlineData") {
+                                put("mimeType", part.mime)
+                                put("data", part.pngBase64)
+                            }
+                        })
+                        else -> {}
+                    }
+                }
+            }
+
+            if (parts.isNotEmpty()) {
+                if (mergedContents.lastOrNull()?.first == role) {
+                    mergedContents.last().second.addAll(parts)
+                } else {
+                    mergedContents.add(role to parts)
+                }
+            }
+        }
+
+        return buildJsonObject {
+            if (allSystem.isNotBlank()) {
+                putJsonObject("systemInstruction") {
+                    putJsonArray("parts") {
+                        addJsonObject { put("text", allSystem) }
+                    }
+                }
+            }
+            if (tools.isNotEmpty()) {
+                putJsonArray("tools") {
+                    addJsonObject {
+                        putJsonArray("functionDeclarations") {
+                            tools.forEach { t ->
+                                addJsonObject {
+                                    put("name", t.name)
+                                    put("description", t.description)
+                                    val sanitized = SchemaSanitizer.sanitizeForGemini(t.parametersJsonSchema)
+                                    val schema = try { json.parseToJsonElement(sanitized) } catch (_: Exception) { JsonObject(emptyMap()) }
+                                    val hasProps = (schema as? JsonObject)?.get("properties")?.let { it is JsonObject && it.isNotEmpty() } == true
+                                    if (hasProps) put("parameters", schema)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            putJsonArray("contents") {
+                mergedContents.forEach { (role, partsList) ->
+                    addJsonObject {
+                        put("role", role)
+                        put("parts", JsonArray(partsList))
+                    }
+                }
+            }
+            if (temperature != null) {
+                putJsonObject("generationConfig") {
+                    put("temperature", temperature)
+                }
+            }
+        }
+    }
+
+    /**
+     * Converts messages to Anthropic Messages wire payload.
+     */
+    fun toAnthropicPayload(
+        systemPrompt: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        model: String,
+        maxTokens: Int = 4096,
+        temperature: Double? = null,
+    ): JsonObject {
+        val normalized = stripForeignThinking(normalizeToolCallIds(messages))
+        val allSystem = (listOf(systemPrompt) + normalized.filter { it.role == Role.System }
+            .flatMap { it.parts.filterIsInstance<Part.Text>() }.map { it.text })
+            .filter { it.isNotBlank() }.joinToString("\n\n")
+
+        val merged = mutableListOf<Pair<String, MutableList<JsonObject>>>()
+
+        for (m in normalized) {
+            if (m.role == Role.System) continue
+            val role = if (m.role == Role.Assistant) "assistant" else "user"
+            val parts = mutableListOf<JsonObject>()
+
+            if (m.role == Role.Assistant) {
+                m.parts.forEach { part ->
+                    when (part) {
+                        is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject {
+                            put("type", "text")
+                            put("text", part.text)
+                        })
+                        is Part.ToolCall -> parts.add(buildJsonObject {
+                            put("type", "tool_use")
+                            put("id", part.id)
+                            put("name", part.name)
+                            put("input", try { json.parseToJsonElement(part.argsJson).jsonObject } catch (_: Exception) { JsonObject(emptyMap()) })
+                        })
+                        else -> {}
+                    }
+                }
+            } else {
+                m.parts.filterIsInstance<Part.ToolResult>().forEach { tr ->
+                    parts.add(buildJsonObject {
+                        put("type", "tool_result")
+                        put("tool_use_id", tr.callId)
+                        put("content", tr.content)
+                        if (tr.isError) put("is_error", true)
+                    })
+                }
+                m.parts.forEach { part ->
+                    when (part) {
+                        is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject {
+                            put("type", "text")
+                            put("text", part.text)
+                        })
+                        is Part.Image -> parts.add(buildJsonObject {
+                            put("type", "image")
+                            putJsonObject("source") {
+                                put("type", "base64")
+                                put("media_type", part.mime)
+                                put("data", part.pngBase64)
+                            }
+                        })
+                        else -> {}
+                    }
+                }
+            }
+
+            if (parts.isNotEmpty()) {
+                if (merged.lastOrNull()?.first == role) {
+                    merged.last().second.addAll(parts)
+                } else {
+                    merged.add(role to parts)
+                }
+            }
+        }
+
+        return buildJsonObject {
+            put("model", model)
+            put("max_tokens", maxTokens)
+            if (allSystem.isNotBlank()) put("system", allSystem)
+            putJsonArray("messages") {
+                merged.forEach { (role, partsList) ->
+                    addJsonObject {
+                        put("role", role)
+                        put("content", JsonArray(partsList))
+                    }
+                }
+            }
+            if (tools.isNotEmpty()) {
+                putJsonArray("tools") {
+                    tools.forEach { t ->
+                        addJsonObject {
+                            put("name", t.name)
+                            put("description", t.description)
+                            val schema = try { json.parseToJsonElement(t.parametersJsonSchema) } catch (_: Exception) { JsonObject(emptyMap()) }
+                            put("input_schema", schema)
+                        }
+                    }
+                }
+            }
+            temperature?.let { put("temperature", it) }
+        }
+    }
+
+    /**
+     * Parses standard OpenAI Chat Completions JSON response into ModelReply.
+     */
+    fun parseOpenAiResponse(responseJson: String): ModelReply {
+        val root = json.parseToJsonElement(responseJson).jsonObject
+        val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject ?: throw IllegalArgumentException("Missing choices in response")
+        val message = choice["message"]?.jsonObject ?: throw IllegalArgumentException("Missing message in choice")
+        val finishReason = (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull
+
+        val parts = mutableListOf<Part>()
+        (message["content"] as? JsonPrimitive)?.contentOrNull?.let { text ->
+            if (text.isNotEmpty()) parts.add(Part.Text(text))
+        }
+
+        message["tool_calls"]?.jsonArray?.forEach { tcElement ->
+            val tc = tcElement.jsonObject
+            val id = (tc["id"] as? JsonPrimitive)?.contentOrNull ?: "call_${parts.size}"
+            val fn = tc["function"]?.jsonObject ?: return@forEach
+            val name = (fn["name"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val args = (fn["arguments"] as? JsonPrimitive)?.contentOrNull ?: "{}"
+            parts.add(Part.ToolCall(id, name, args))
+        }
+
+        val stop = when (finishReason) {
+            "stop" -> if (parts.any { it is Part.ToolCall }) StopReason.ToolUse else StopReason.EndTurn
+            "tool_calls", "function_call" -> StopReason.ToolUse
+            "length" -> StopReason.MaxTokens
+            else -> if (parts.any { it is Part.ToolCall }) StopReason.ToolUse else StopReason.EndTurn
+        }
+
+        val usage = root["usage"]?.jsonObject?.let { u ->
+            val prompt = (u["prompt_tokens"] as? JsonPrimitive)?.intOrNull ?: 0
+            val comp = (u["completion_tokens"] as? JsonPrimitive)?.intOrNull ?: 0
+            Usage(prompt, comp)
+        }
+
+        return ModelReply(parts, stop, usage)
+    }
+}
