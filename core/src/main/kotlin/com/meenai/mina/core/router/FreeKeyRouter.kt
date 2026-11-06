@@ -24,10 +24,7 @@ data class RouterCandidate(
     val isFree: Boolean = true,
 )
 
-class AllLimitsExhaustedException(
-    message: String,
-    val waitMinutes: Int,
-) : ModelError(message)
+typealias AllLimitsExhaustedException = ModelError.AllLimitsExhausted
 
 /**
  * Free Key Router manages a pool of free LLM models, transparently handling rate limits,

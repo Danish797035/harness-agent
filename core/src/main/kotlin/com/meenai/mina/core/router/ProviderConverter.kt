@@ -11,10 +11,8 @@ import com.meenai.mina.core.model.Usage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -23,8 +21,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 enum class ProviderType {
     OpenAi,
@@ -144,18 +140,18 @@ object ProviderConverter {
                         put("role", "assistant")
                         if (text.isNotEmpty()) put("content", text) else if (toolCalls.isEmpty()) put("content", "")
                         if (toolCalls.isNotEmpty()) {
-                            putJsonArray("tool_calls") {
+                            put("tool_calls", buildJsonArray {
                                 toolCalls.forEach { tc ->
-                                    addJsonObject {
+                                    add(buildJsonObject {
                                         put("id", tc.id)
                                         put("type", "function")
-                                        putJsonObject("function") {
+                                        put("function", buildJsonObject {
                                             put("name", tc.name)
                                             put("arguments", tc.argsJson)
-                                        }
-                                    }
+                                        })
+                                    })
                                 }
-                            }
+                            })
                         }
                     })
                 }
@@ -185,23 +181,23 @@ object ProviderConverter {
                             if (!hasImages) {
                                 put("content", nonTool.filterIsInstance<Part.Text>().joinToString("\n") { it.text })
                             } else {
-                                putJsonArray("content") {
+                                put("content", buildJsonArray {
                                     nonTool.forEach { part ->
                                         when (part) {
-                                            is Part.Text -> addJsonObject {
+                                            is Part.Text -> add(buildJsonObject {
                                                 put("type", "text")
                                                 put("text", part.text)
-                                            }
-                                            is Part.Image -> addJsonObject {
+                                            })
+                                            is Part.Image -> add(buildJsonObject {
                                                 put("type", "image_url")
-                                                putJsonObject("image_url") {
+                                                put("image_url", buildJsonObject {
                                                     put("url", "data:${part.mime};base64,${part.pngBase64}")
-                                                }
-                                            }
+                                                })
+                                            })
                                             else -> {}
                                         }
                                     }
-                                }
+                                })
                             }
                         })
                     }
@@ -213,19 +209,19 @@ object ProviderConverter {
             put("model", model)
             put("messages", JsonArray(wireMessages))
             if (tools.isNotEmpty()) {
-                putJsonArray("tools") {
+                put("tools", buildJsonArray {
                     tools.forEach { t ->
-                        addJsonObject {
+                        add(buildJsonObject {
                             put("type", "function")
-                            putJsonObject("function") {
+                            put("function", buildJsonObject {
                                 put("name", t.name)
                                 put("description", t.description)
                                 val schema = try { json.parseToJsonElement(t.parametersJsonSchema) } catch (_: Exception) { JsonObject(emptyMap()) }
                                 put("parameters", schema)
-                            }
-                        }
+                            })
+                        })
                     }
-                }
+                })
             }
             if (stream) put("stream", true)
             temperature?.let { put("temperature", it) }
@@ -265,10 +261,10 @@ object ProviderConverter {
                         is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject { put("text", part.text) })
                         is Part.ToolCall -> parts.add(buildJsonObject {
                             part.opaque?.let { put("thoughtSignature", it) }
-                            putJsonObject("functionCall") {
+                            put("functionCall", buildJsonObject {
                                 put("name", part.name)
                                 put("args", try { json.parseToJsonElement(part.argsJson).jsonObject } catch (_: Exception) { JsonObject(emptyMap()) })
-                            }
+                            })
                         })
                         else -> {}
                     }
@@ -277,23 +273,23 @@ object ProviderConverter {
                 m.parts.filterIsInstance<Part.ToolResult>().forEach { tr ->
                     val funcName = nameById[tr.callId] ?: tr.callId
                     parts.add(buildJsonObject {
-                        putJsonObject("functionResponse") {
+                        put("functionResponse", buildJsonObject {
                             put("name", funcName)
-                            putJsonObject("response") {
+                            put("response", buildJsonObject {
                                 put("content", tr.content)
                                 if (tr.isError) put("is_error", true)
-                            }
-                        }
+                            })
+                        })
                     })
                 }
                 m.parts.forEach { part ->
                     when (part) {
                         is Part.Text -> if (part.text.isNotEmpty()) parts.add(buildJsonObject { put("text", part.text) })
                         is Part.Image -> parts.add(buildJsonObject {
-                            putJsonObject("inlineData") {
+                            put("inlineData", buildJsonObject {
                                 put("mimeType", part.mime)
                                 put("data", part.pngBase64)
-                            }
+                            })
                         })
                         else -> {}
                     }
@@ -311,42 +307,42 @@ object ProviderConverter {
 
         return buildJsonObject {
             if (allSystem.isNotBlank()) {
-                putJsonObject("systemInstruction") {
-                    putJsonArray("parts") {
-                        addJsonObject { put("text", allSystem) }
-                    }
-                }
+                put("systemInstruction", buildJsonObject {
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject { put("text", allSystem) })
+                    })
+                })
             }
             if (tools.isNotEmpty()) {
-                putJsonArray("tools") {
-                    addJsonObject {
-                        putJsonArray("functionDeclarations") {
+                put("tools", buildJsonArray {
+                    add(buildJsonObject {
+                        put("functionDeclarations", buildJsonArray {
                             tools.forEach { t ->
-                                addJsonObject {
+                                add(buildJsonObject {
                                     put("name", t.name)
                                     put("description", t.description)
                                     val sanitized = SchemaSanitizer.sanitizeForGemini(t.parametersJsonSchema)
                                     val schema = try { json.parseToJsonElement(sanitized) } catch (_: Exception) { JsonObject(emptyMap()) }
                                     val hasProps = (schema as? JsonObject)?.get("properties")?.let { it is JsonObject && it.isNotEmpty() } == true
                                     if (hasProps) put("parameters", schema)
-                                }
+                                })
                             }
-                        }
-                    }
-                }
+                        })
+                    })
+                })
             }
-            putJsonArray("contents") {
+            put("contents", buildJsonArray {
                 mergedContents.forEach { (role, partsList) ->
-                    addJsonObject {
+                    add(buildJsonObject {
                         put("role", role)
                         put("parts", JsonArray(partsList))
-                    }
+                    })
                 }
-            }
+            })
             if (temperature != null) {
-                putJsonObject("generationConfig") {
+                put("generationConfig", buildJsonObject {
                     put("temperature", temperature)
-                }
+                })
             }
         }
     }
@@ -407,11 +403,11 @@ object ProviderConverter {
                         })
                         is Part.Image -> parts.add(buildJsonObject {
                             put("type", "image")
-                            putJsonObject("source") {
+                            put("source", buildJsonObject {
                                 put("type", "base64")
                                 put("media_type", part.mime)
                                 put("data", part.pngBase64)
-                            }
+                            })
                         })
                         else -> {}
                     }
@@ -431,25 +427,25 @@ object ProviderConverter {
             put("model", model)
             put("max_tokens", maxTokens)
             if (allSystem.isNotBlank()) put("system", allSystem)
-            putJsonArray("messages") {
+            put("messages", buildJsonArray {
                 merged.forEach { (role, partsList) ->
-                    addJsonObject {
+                    add(buildJsonObject {
                         put("role", role)
                         put("content", JsonArray(partsList))
-                    }
+                    })
                 }
-            }
+            })
             if (tools.isNotEmpty()) {
-                putJsonArray("tools") {
+                put("tools", buildJsonArray {
                     tools.forEach { t ->
-                        addJsonObject {
+                        add(buildJsonObject {
                             put("name", t.name)
                             put("description", t.description)
                             val schema = try { json.parseToJsonElement(t.parametersJsonSchema) } catch (_: Exception) { JsonObject(emptyMap()) }
                             put("input_schema", schema)
-                        }
+                        })
                     }
-                }
+                })
             }
             temperature?.let { put("temperature", it) }
         }

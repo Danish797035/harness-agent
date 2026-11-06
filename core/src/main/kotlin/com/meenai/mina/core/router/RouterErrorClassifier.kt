@@ -12,7 +12,7 @@ enum class RouterAction {
     STOP
 }
 
-class FirstTokenTimeoutException(message: String = "First token timeout exceeded 30 seconds") : ModelError(message)
+typealias FirstTokenTimeoutException = ModelError.FirstTokenTimeout
 
 /**
  * Classifies model execution errors into standardized routing actions:
@@ -86,7 +86,7 @@ object RouterErrorClassifier {
         // 5. Rate limit, quota, server errors, stream cutoff, timeouts -> SWITCH
         if (throwable is ModelError.RateLimited || throwable is ModelError.QuotaExceeded ||
             throwable is ModelError.Server || throwable is ModelError.Network ||
-            throwable is ModelError.StreamCut || throwable is FirstTokenTimeoutException ||
+            throwable is ModelError.StreamCut || throwable is ModelError.FirstTokenTimeout ||
             throwable is SocketTimeoutException || throwable is IOException
         ) {
             return RouterAction.SWITCH
