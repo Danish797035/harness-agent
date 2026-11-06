@@ -11,7 +11,7 @@ Agent 想走固定的最短路径：见 [Agent 快速路径](agent-quickstart.md
 - 让能执行命令、支持 Skill 的电脑 Agent 用 Harness Agent：装 [Skill](#skill安装)，它自带 CLI 脚本，不必另装 CLI。
 - 在终端或脚本里派任务：装 [CLI](#cli安装)，使用 `mina` 命令。
 
-手机端的前提：装好 APK（[Releases](https://github.com/Danish797035/harness-agent/releases/latest)）、打开过一次 Harness Agent、配好模型。**只让 Harness Agent 聊天、上网和处理文件时，可以不开无障碍、不启动手机助手，安卓 11 也能用**；要操作手机 App，才需要按[设置指南](setup-guide.md)完成手机操作设置（安卓 12+）。电脑端工具的安装和升级不会安装或更新手机上的 APK。
+手机端的前提：装好 APK（[Releases](https://github.com/Danish797035/harness-agent/releases/latest)）、打开过一次 Harness Agent、配好模型。**只让 Harness Agent 聊天、上网和处理文件时，可以不开无障碍、不启动手机助手，安卓 11 也能用**；要操作手机 App，才需要按[设置指南](setup-guide.en.md)完成手机操作设置（安卓 12+）。电脑端工具的安装和升级不会安装或更新手机上的 APK。
 
 下文的 `<tag>` 指 [最新 release](https://github.com/Danish797035/harness-agent/releases/latest) 的版本标签（页面标题里的 `v0.1.x`）。电脑端和手机上的 APK 尽量用同一个版本。
 
@@ -49,7 +49,7 @@ Skill 就是仓库里的 `tools/harness` 文件夹：`SKILL.md` 告诉 Agent 怎
 3. 检查自带脚本能运行：
 
    ```bash
-   python3 <技能目录>/mina/scripts/mina_cli.py --version   # Windows 用 py -3 代替 python3
+   python3 <技能目录>/mina/scripts/harness_cli.py --version   # Windows 用 py -3 代替 python3
    ```
 
 4. 重开 Agent 会话，确认它能看到名为 `mina` 的 Skill。
@@ -65,7 +65,7 @@ Skill 就是仓库里的 `tools/harness` 文件夹：`SKILL.md` 告诉 Agent 怎
 
 ## 装好之后：连接检查
 
-只装了 Skill 时，下面的 `mina` 换成 `python3 <技能目录>/mina/scripts/mina_cli.py`（Windows 用 `py -3`）。
+只装了 Skill 时，下面的 `mina` 换成 `python3 <技能目录>/mina/scripts/harness_cli.py`（Windows 用 `py -3`）。
 
 经 USB 或已连接的无线 ADB：
 

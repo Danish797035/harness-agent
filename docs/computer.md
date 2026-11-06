@@ -6,7 +6,7 @@
 
 AI Agent 请直接看 [Agent 快速路径](agent-quickstart.md)。
 
-手机端的前提：装好 APK（[Releases](https://github.com/Danish797035/harness-agent/releases/latest)）、打开过一次 Harness Agent、配好模型。只让 Harness Agent 聊天、上网、处理文件时，安卓 11 就行；要它操作手机 App，还要按[设置指南](setup-guide.md)完成手机操作设置（安卓 12+）。
+手机端的前提：装好 APK（[Releases](https://github.com/Danish797035/harness-agent/releases/latest)）、打开过一次 Harness Agent、配好模型。只让 Harness Agent 聊天、上网、处理文件时，安卓 11 就行；要它操作手机 App，还要按[设置指南](setup-guide.en.md)完成手机操作设置（安卓 12+）。
 
 ## 第一步：选入口（CLI + Skill 或 MCP）
 
@@ -37,7 +37,7 @@ AI Agent 请直接看 [Agent 快速路径](agent-quickstart.md)。
 
 - **CLI 或 Skill**：先按[安装、升级和卸载](computer-install.md)装好，再看[连接与任务命令](cli.md)。
 - **MCP**：按[电脑连接（MCP）](mcp.md)，USB 和 Wi-Fi / VPN 两种连法都有一步步的说明。
-- **让电脑上的 AI 助手替你装**：手机经 USB 连着电脑时，把[用电脑上的 AI 助手安装](install-with-agent.md)这份说明交给它：它先把 Harness Agent 装到手机上；你也要电脑访问的话，它会按你选的入口接着配好。
+- **让电脑上的 AI 助手替你装**：手机经 USB 连着电脑时，把[用电脑上的 AI 助手安装](install-with-agent.en.md)这份说明交给它：它先把 Harness Agent 装到手机上；你也要电脑访问的话，它会按你选的入口接着配好。
 
 ## 电脑任务台（`mina ui`）
 

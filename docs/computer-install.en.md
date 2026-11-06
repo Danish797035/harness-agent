@@ -49,7 +49,7 @@ The Skill is the repository's `tools/harness` folder: `SKILL.md` tells the agent
 3. Check that the bundled script runs:
 
    ```bash
-   python3 <skills-directory>/mina/scripts/mina_cli.py --version   # use py -3 instead of python3 on Windows
+   python3 <skills-directory>/mina/scripts/harness_cli.py --version   # use py -3 instead of python3 on Windows
    ```
 
 4. Start a new agent session and confirm it can see a Skill named `mina`.
@@ -65,7 +65,7 @@ Start a new agent session after any change.
 
 ## After installing: check the connection
 
-With only the Skill installed, replace `mina` below with `python3 <skills-directory>/mina/scripts/mina_cli.py` (`py -3` on Windows).
+With only the Skill installed, replace `mina` below with `python3 <skills-directory>/mina/scripts/harness_cli.py` (`py -3` on Windows).
 
 Over USB or connected wireless ADB:
 
