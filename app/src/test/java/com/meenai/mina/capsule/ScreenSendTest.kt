@@ -1,7 +1,7 @@
 package com.meenai.mina.capsule
 
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.ui.ScreenCopy
 import org.junit.Assert.assertEquals
@@ -12,7 +12,7 @@ import org.junit.Test
 
 /** 双击还是单击、截下的屏幕发进哪个对话、带屏幕的话在列表里怎么称呼。 */
 class ScreenSendTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     @Test fun secondTapWithinTimeoutIsDouble() {
         val t = DoubleTap(300)

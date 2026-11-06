@@ -2,7 +2,7 @@ package com.meenai.mina.cap.phone.setup
 
 import android.app.NotificationManager
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.shell.BuiltinShellFailure
 import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.core.shell.PairingChannelHealth
@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PairingNoticeTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     @Test
     fun codeEntryAppearsOnlyOnceThePairingWindowIsFound() {
@@ -34,17 +34,17 @@ class PairingNoticeTest {
     @Test
     fun pairingFailuresKeepTheInputWithHowToRetry() {
         assertEquals(
-            PairingNotice.EnterCode(5, "配对码不对或已失效：在配对窗口重新点「使用配对码配对设备」拿新的码，再填一次"),
+            PairingNotice.EnterCode(5, "Wrong or expired code: in the pairing window, tap “Pair device with pairing code” again to get a new code, then enter it again"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.WrongCode), PairingDiscovery.Found(5)),
         )
         // 窗口关了(找不到配对窗口)也留着输入框,说同样的办法
         val closed = PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.PairingWindowClosed), PairingDiscovery.Searching)
         closed as PairingNotice.EnterCode
         assertNull(closed.port)
-        assertTrue(closed.error!!.endsWith("拿新的码，再填一次"))
+        assertTrue(closed.error!!.endsWith("then enter it again"))
         // 配对之后的失败请用户回 Mina
         assertEquals(
-            PairingNotice.Problem("连上了,但没能准备好"),
+            PairingNotice.Problem("Connected, but couldn’t get ready"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.HelperStartFailed), PairingDiscovery.Found(5)),
         )
     }
@@ -54,11 +54,11 @@ class PairingNoticeTest {
     fun revokedPairingGetsTheInputOnceThePairingWindowIsFound() {
         val revoked = BuiltinShellStatus.Failed(BuiltinShellFailure.AuthorizationRevoked)
         assertEquals(PairingNotice.EnterCode(37001), PairingNotice.of(revoked, PairingDiscovery.Found(37001)))
-        assertEquals(PairingNotice.Problem("配对失效了"), PairingNotice.of(revoked, PairingDiscovery.Searching))
-        assertEquals(PairingNotice.Problem("配对失效了"), PairingNotice.of(revoked, PairingDiscovery.Idle))
+        assertEquals(PairingNotice.Problem("Pairing expired"), PairingNotice.of(revoked, PairingDiscovery.Searching))
+        assertEquals(PairingNotice.Problem("Pairing expired"), PairingNotice.of(revoked, PairingDiscovery.Idle))
         // 用 USB 启动命令起的助手停了要再运行一次命令,找到配对窗口也不给输入框
         assertEquals(
-            PairingNotice.Problem("手机助手已停止"),
+            PairingNotice.Problem("Phone helper stopped"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.UsbHelperStopped), PairingDiscovery.Found(37001)),
         )
     }
@@ -104,7 +104,7 @@ class PairingNoticeTest {
         assertEquals(PairingNotice.Working to false, PairingNotice.follow(revoked, PairingDiscovery.Searching, repairing = false, submitted = true))
         assertEquals(PairingNotice.Working to false, PairingNotice.follow(BuiltinShellStatus.Running, PairingDiscovery.Searching, repairing = false, submitted = true))
         // 没填码时照常按状态算
-        assertEquals(PairingNotice.Problem("配对失效了") to false, PairingNotice.follow(revoked, PairingDiscovery.Searching, repairing = false, submitted = false))
+        assertEquals(PairingNotice.Problem("Pairing expired") to false, PairingNotice.follow(revoked, PairingDiscovery.Searching, repairing = false, submitted = false))
     }
 
     @Test

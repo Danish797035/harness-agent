@@ -116,7 +116,7 @@ class ToolDispatcherSandboxTest {
             put("source", "skills/report"); put("script", "scripts/tabulate.py"); put("args", JsonArray(args.map(::JsonPrimitive)))
         })).content
         assertEquals(r.toString(), "true", r.s("ok"))
-        assertEquals(listOf("/usr/bin/python3", "/opt/mina/skills/skills/report/scripts/tabulate.py") + args, sb.runs.single().argv)
+        assertEquals(listOf("/usr/bin/python3", "/opt/harness/skills/skills/report/scripts/tabulate.py") + args, sb.runs.single().argv)
         assertEquals(1, sb.prepares)
     }
 
@@ -178,7 +178,7 @@ class ToolDispatcherSandboxTest {
         assertTrue(sb.runs.isEmpty())
         sb.status = SandboxStatus.Ready(network = true)
         assertEquals("true", d.execute(script("scripts/fetch.mjs")).content.s("ok"))
-        assertEquals(listOf("/usr/bin/node", "/opt/mina/skills/skills/report/scripts/fetch.mjs"), sb.runs.single().argv)
+        assertEquals(listOf("/usr/bin/node", "/opt/harness/skills/skills/report/scripts/fetch.mjs"), sb.runs.single().argv)
     }
 
     @Test fun writeOutsideWorkspaceRejected() = runTest {

@@ -1,7 +1,7 @@
 package com.meenai.mina.cap.sandbox
 
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.workspace.SandboxTree
 import com.meenai.mina.core.cap.sandbox.SandboxStatus
 import kotlinx.coroutines.runBlocking
@@ -13,7 +13,7 @@ import java.io.File
 import java.nio.file.Files
 
 class SkillsSyncTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     private val tmp: File = Files.createTempDirectory("skills-sync").toFile()
     private val dirs = SandboxDirs(File(tmp, "files/sandbox"), File(tmp, "cache"), File(tmp, "lib"), JVM_GATE, SandboxTree())
@@ -83,11 +83,11 @@ class SkillsSyncTest {
     }
 
     @Test fun cardLineForSandboxSteps() {
-        assertEquals("正在处理文件:python3 sum.py", com.meenai.mina.ui.StatusCopy.sandboxCommand("python3   sum.py", network = false))
-        assertEquals("正在处理文件:${"x".repeat(40)}… · 可联网", com.meenai.mina.ui.StatusCopy.sandboxCommand("x".repeat(50), network = true))
-        assertEquals("正在运行脚本", com.meenai.mina.ui.StatusCopy.sandboxScript(network = false))
+        assertEquals("Working on files: python3 sum.py", com.meenai.mina.ui.StatusCopy.sandboxCommand("python3   sum.py", network = false))
+        assertEquals("Working on files: ${"x".repeat(40)}… · online", com.meenai.mina.ui.StatusCopy.sandboxCommand("x".repeat(50), network = true))
+        assertEquals("Running a script", com.meenai.mina.ui.StatusCopy.sandboxScript(network = false))
         assertEquals("第 3/10 页", com.meenai.mina.ui.StatusCopy.sandboxProgress("第 3/10 页", network = false))
         // 命令里的零宽字符、改写方向的字符不上卡片
-        assertEquals("正在处理文件:rm a.txt", com.meenai.mina.ui.StatusCopy.sandboxCommand("rm \u202Ea\u200B.txt", network = false))
+        assertEquals("Working on files: rm a.txt", com.meenai.mina.ui.StatusCopy.sandboxCommand("rm \u202Ea\u200B.txt", network = false))
     }
 }

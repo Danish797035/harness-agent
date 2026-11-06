@@ -110,6 +110,7 @@ object ReadmeSections {
         val root = File(args[0])
         listOf(README to true, README_ZH to false).forEach { (name, english) ->
             val file = File(root, name)
+            if (!file.exists()) return@forEach
             val before = file.readText()
             val after = render(before, sections(root, english))
             if (after != before) file.writeText(after)

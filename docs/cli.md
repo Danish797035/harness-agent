@@ -2,13 +2,13 @@
 
 简体中文 | [English](cli.en.md)
 
-> 从电脑使用 Mina，先看[从电脑使用 Mina](computer.md)：怎么在 CLI + Skill 和 MCP 之间选、怎么连。
+> 从电脑使用 Harness Agent，先看[从电脑使用 Harness Agent](computer.md)：怎么在 CLI + Skill 和 MCP 之间选、怎么连。
 
-CLI 与 MCP 是并列入口,共用手机端的远程任务服务。CLI 调用普通 HTTP 任务 API,不需要 MCP SDK、握手、工具发现或 MCP 客户端配置。Skill 告诉电脑 Agent 怎样使用 CLI、处理追问和报告真实结果;手机上的 Mina 仍负责规划和执行。
+CLI 与 MCP 是并列入口,共用手机端的远程任务服务。CLI 调用普通 HTTP 任务 API,不需要 MCP SDK、握手、工具发现或 MCP 客户端配置。Skill 告诉电脑 Agent 怎样使用 CLI、处理追问和报告真实结果;手机上的 Harness Agent 仍负责规划和执行。
 
 ```mermaid
 flowchart LR
-    Skill["电脑 Agent + Skill"] --> CLI["Mina CLI"]
+    Skill["电脑 Agent + Skill"] --> CLI["Harness Agent CLI"]
     Shell["用户 / Shell 脚本"] --> CLI
     Client["MCP 客户端"] --> MCP
     subgraph Phone["Android 手机 · 同一监听与鉴权"]
@@ -32,7 +32,7 @@ flowchart LR
 
 ## 连接手机
 
-ADB 模式需要 Android platform-tools。数据线或已经配对并连接的无线 ADB 都可以；无线 ADB 需要这台电脑与手机完成配对、连接，并在 `adb devices` 中显示为 `device`。Mina 在手机内为启动助手完成的配对，不等于电脑已配对；它们也不同于下面的直接局域网访问。
+ADB 模式需要 Android platform-tools。数据线或已经配对并连接的无线 ADB 都可以；无线 ADB 需要这台电脑与手机完成配对、连接，并在 `adb devices` 中显示为 `device`。Harness Agent 在手机内为启动助手完成的配对，不等于电脑已配对；它们也不同于下面的直接局域网访问。
 
 ```bash
 mina devices --json
@@ -40,7 +40,7 @@ mina connect --device SERIAL --json
 mina doctor --device SERIAL --json
 ```
 
-只有一个在线设备时可省略 `--device`;也支持已有的 ANDROID_SERIAL 环境变量。多设备不猜目标,连接失败也不切换到另一台手机。`connect` 调用 Mina 写到手机上的官方启动脚本,打开电脑连接并启动所需助手;此动作不提交业务任务。其余命令只读取当前连接。
+只有一个在线设备时可省略 `--device`;也支持已有的 ANDROID_SERIAL 环境变量。多设备不猜目标,连接失败也不切换到另一台手机。`connect` 调用 Harness Agent 写到手机上的官方启动脚本,打开电脑连接并启动所需助手;此动作不提交业务任务。其余命令只读取当前连接。
 
 每次调用重新读取当前令牌、端口和开机编号,申请自己的 `adb forward tcp:0` 临时端口,完成后只删除该转发。令牌只保存在进程内存中,启动脚本的原始输出不转发到终端。CLI 退出不关闭手机服务,也不停止正在执行的任务。
 
@@ -95,7 +95,7 @@ mina ui                      # 打开本机浏览器里的任务台
 mina ui --device SERIAL --no-open
 ```
 
-`mina ui` 在 `127.0.0.1` 的随机端口起一个只给本机用的页面，用同一套任务命令派任务、看进度、回答追问、追加要求和取消，界面按浏览器语言显示简体中文或英文。链接末尾 `#` 后面是本次启动的会话密钥，浏览器不会把它发给别处；服务端还核对 Host 和 Origin，只接受固定几种操作。它是给人用的交互界面，不支持 `--json`。详见[从电脑使用 Mina](computer.md#电脑任务台mina-ui)。
+`mina ui` 在 `127.0.0.1` 的随机端口起一个只给本机用的页面，用同一套任务命令派任务、看进度、回答追问、追加要求和取消，界面按浏览器语言显示简体中文或英文。链接末尾 `#` 后面是本次启动的会话密钥，浏览器不会把它发给别处；服务端还核对 Host 和 Origin，只接受固定几种操作。它是给人用的交互界面，不支持 `--json`。详见[从电脑使用 Harness Agent](computer.md#电脑任务台mina-ui)。
 
 ## HTTP 契约
 
@@ -120,7 +120,7 @@ mina ui --device SERIAL --no-open
 ```bash
 ./gradlew :core:test :core:cliTest :app:testDebugUnitTest :app:assembleDebug
 # Python 可单独运行;指定解释器可用 -PminaPython=/path/to/python3
-python3 -m unittest discover -s tools/mina/tests -v
+python3 -m unittest discover -s tools/harness/tests -v
 ```
 
 纯 JVM 测试覆盖共享服务、API/MCP 互操作、鉴权、状态与原有协议回归。`cliTest`(要 Python 3.10+,不在 `check` 里,需要时显式运行)运行真实 CLI 对 Kotlin HTTP 服务的契约测试(核对 CLI 只请求 `/api/v1`),以及假 ADB、丢响应、令牌变化、端口清理和独立 Skill 目录测试。这些都不需要真机或模型 Key。真机无线断连、手机重启和真实 Agent 执行需要另行验收,不能用这些隔离测试代替。

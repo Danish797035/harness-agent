@@ -2,13 +2,13 @@
 
 [简体中文](cli.md) | English
 
-> Using Mina from a computer? Start with [Use Mina from a computer](computer.en.md): how to choose between CLI + Skill and MCP, and how to connect.
+> Using Harness Agent from a computer? Start with [Use Harness Agent from a computer](computer.en.md): how to choose between CLI + Skill and MCP, and how to connect.
 
-CLI and MCP are peer entry points backed by the same remote task service on the phone. The CLI calls an ordinary HTTP task API; it needs no MCP SDK, handshake, tool discovery or MCP client configuration. The Skill tells a computer agent how to delegate, handle questions and report actual results. Mina on Android still plans and executes the task.
+CLI and MCP are peer entry points backed by the same remote task service on the phone. The CLI calls an ordinary HTTP task API; it needs no MCP SDK, handshake, tool discovery or MCP client configuration. The Skill tells a computer agent how to delegate, handle questions and report actual results. Harness Agent on Android still plans and executes the task.
 
 ```mermaid
 flowchart LR
-    Skill["Computer agent + Skill"] --> CLI["Mina CLI"]
+    Skill["Computer agent + Skill"] --> CLI["Harness Agent CLI"]
     Shell["User / shell script"] --> CLI
     Client["MCP client"] --> MCP
     subgraph Phone["Android phone · shared listener and authentication"]
@@ -32,7 +32,7 @@ With only the Skill installed, `mina` below means `python3 <skills-directory>/mi
 
 ## Connect
 
-ADB mode requires Android platform-tools and either USB or connected wireless ADB. For wireless ADB, this computer must be paired and connected to the phone, which must appear as `device` in `adb devices`. Pairing Mina's built-in helper on the phone does not pair the computer; both also differ from direct LAN access below.
+ADB mode requires Android platform-tools and either USB or connected wireless ADB. For wireless ADB, this computer must be paired and connected to the phone, which must appear as `device` in `adb devices`. Pairing Harness Agent's built-in helper on the phone does not pair the computer; both also differ from direct LAN access below.
 
 ```bash
 mina devices --json
@@ -40,7 +40,7 @@ mina connect --device SERIAL --json
 mina doctor --device SERIAL --json
 ```
 
-You may omit `--device` when exactly one device is online; the existing ANDROID_SERIAL environment variable is also supported. Multiple devices require a choice, and connection failure never selects a different phone. `connect` runs Mina's official bootstrap script to enable computer access and start the required helper; it does not submit a task. Other commands only read the current connection.
+You may omit `--device` when exactly one device is online; the existing ANDROID_SERIAL environment variable is also supported. Multiple devices require a choice, and connection failure never selects a different phone. `connect` runs Harness Agent's official bootstrap script to enable computer access and start the required helper; it does not submit a task. Other commands only read the current connection.
 
 Each invocation reads the current token, port and boot number, allocates its own temporary `adb forward tcp:0` mapping, then removes only that mapping. Tokens stay in process memory; bootstrap output is captured instead of printed. Exiting the CLI leaves the phone service and ongoing tasks running.
 
@@ -95,7 +95,7 @@ mina ui                      # open the task desk in a local browser
 mina ui --device SERIAL --no-open
 ```
 
-`mina ui` serves a page for this computer only on a random `127.0.0.1` port. It uses the same task commands to start tasks, follow progress, answer questions, add instructions and cancel, and shows Simplified Chinese or English depending on the browser's language. The part of the link after `#` is the session secret for this run; browsers do not send it anywhere. The server also checks Host and Origin and accepts only a fixed set of actions. It is an interactive page for people and does not support `--json`. See [Use Mina from a computer](computer.en.md#task-desk-mina-ui).
+`mina ui` serves a page for this computer only on a random `127.0.0.1` port. It uses the same task commands to start tasks, follow progress, answer questions, add instructions and cancel, and shows Simplified Chinese or English depending on the browser's language. The part of the link after `#` is the session secret for this run; browsers do not send it anywhere. The server also checks Host and Origin and accepts only a fixed set of actions. It is an interactive page for people and does not support `--json`. See [Use Harness Agent from a computer](computer.en.md#task-desk-mina-ui).
 
 ## HTTP contract
 
@@ -120,7 +120,7 @@ Business validation errors return 400, missing tasks 404, answers incompatible w
 ```bash
 ./gradlew :core:test :core:cliTest :app:testDebugUnitTest :app:assembleDebug
 # Python tests alone; use -PminaPython=/path/to/python3 to select an interpreter
-python3 -m unittest discover -s tools/mina/tests -v
+python3 -m unittest discover -s tools/harness/tests -v
 ```
 
 Pure JVM tests cover the shared service, API/MCP interoperability, authentication, states and existing protocol regressions. `cliTest` (needs Python 3.10+; not part of `check`, run it explicitly) runs the real CLI against the Kotlin HTTP server, checking it only requests `/api/v1`, plus fake-ADB, lost-response, token-rotation, forwarding-cleanup and standalone-Skill tests. No phone or model key is required. Actual wireless disconnects, phone reboot and real agent execution need separate device acceptance; isolated tests do not establish those results.

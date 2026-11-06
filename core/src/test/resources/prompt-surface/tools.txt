@@ -227,7 +227,7 @@ Search file contents under /workspace or /opt/mina/skills with a regular express
 {"type":"object","properties":{"pattern":{"type":"string","description":"Regular expression to search for."},"path":{"type":"string","description":"Directory or file to search (default /workspace)."},"glob":{"type":"string","description":"Optional file name filter, e.g. *.csv or **/*.py."},"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":["pattern"],"additionalProperties":false}
 
 ## share_file
-Save a file from /workspace to the phone's Download/Mina folder (at most 100 MB) and show it to the user as a file card. Use it to hand results to the user.
+Save a file from /workspace to the phone's Download/Harness folder (at most 100 MB) and show it to the user as a file card. Use it to hand results to the user.
 {"type":"object","properties":{"path":{"type":"string","description":"Sandbox path of the file under /workspace."},"name":{"type":"string","description":"Optional file name to save as (default: the file's own name)."},"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":["path"],"additionalProperties":false}
 
 ## skill_read

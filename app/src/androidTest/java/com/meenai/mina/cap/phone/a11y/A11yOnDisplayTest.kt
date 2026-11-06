@@ -58,8 +58,8 @@ class A11yOnDisplayTest {
          */
         private fun rebindAccessibility() {
             if (ScreenAccessibility.instance.value != null) return
-            val key = "enabled_accessibility_services"
-            val mina = "com.meenai.mina/${HarnessAccessibilityService::class.java.name}"
+            val targetPkg = InstrumentationRegistry.getInstrumentation().targetContext.packageName
+            val mina = "$targetPkg/${HarnessAccessibilityService::class.java.name}"
             val enabled = shellCommand("settings get secure $key").trim().split(':')
             if (mina !in enabled) return
             try {

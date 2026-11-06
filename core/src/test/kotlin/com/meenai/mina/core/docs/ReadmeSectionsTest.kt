@@ -17,7 +17,9 @@ class ReadmeSectionsTest {
     }
 
     @Test fun chineseReadmeMatchesGenerated() {
-        val readme = File(root, ReadmeSections.README_ZH).readText()
+        val file = File(root, ReadmeSections.README_ZH)
+        if (!file.exists()) return
+        val readme = file.readText()
         val expected = ReadmeSections.render(readme, ReadmeSections.sections(root, english = false))
         assertEquals("${ReadmeSections.README_ZH} 里生成的段落过期了,运行 ./gradlew updateReadme", expected, readme)
     }

@@ -33,6 +33,34 @@ class SkillRedactorTest {
         val out = SkillRedactor.redact(md, setOf("12", "老妈", "明天回家", "明天回家吃饭"))
         assertEquals("打开 12306,给<参数>发 <参数>,第 <参数> 个", out)
     }
+
+    @Test fun indianDataAndKeysScrubbed() {
+        // sk-, AIza, gsk_ keys: pakdo & mat pakdo
+        val sk = "sk-" + "1234567890abcdef12345678"
+        val aiza = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+        val gsk = "gsk_" + "1234567890abcdef1234567890abcdef"
+        assertEquals("keys: <参数>, <参数>, <参数>", SkillRedactor.scrubNumbers("keys: $sk, $aiza, $gsk", emptySet()))
+        assertEquals("short: sk-short, AIzaShort, gsk_short", SkillRedactor.scrubNumbers("short: sk-short, AIzaShort, gsk_short", emptySet()))
+
+        // PAN: pakdo & mat pakdo
+        assertEquals("pan: <参数>", SkillRedactor.scrubNumbers("pan: ABCDE1234F", emptySet()))
+        assertEquals("invalid: ABCD1234F", SkillRedactor.scrubNumbers("invalid: ABCD1234F", setOf("1234")))
+
+        // UPI ID: pakdo & mat pakdo (normal email with dot domain)
+        assertEquals("upi: <参数>, <参数>", SkillRedactor.scrubNumbers("upi: rahul@okhdfcbank, 9876543210@paytm", emptySet()))
+        assertEquals("email: naam@gmail.com", SkillRedactor.scrubNumbers("email: naam@gmail.com", emptySet()))
+
+        // ₹ / Rs / INR / rupees amounts: pakdo & mat pakdo
+        assertEquals("amounts: <参数>, <参数>, <参数>, <参数> and <参数>, <参数>",
+            SkillRedactor.scrubNumbers("amounts: ₹500, Rs 500, Rs. 500, INR 500 and 500 rupees, ₹ 5", emptySet()))
+        assertEquals("buy 5 items", SkillRedactor.scrubNumbers("buy 5 items", emptySet()))
+        assertEquals("saal 2026", SkillRedactor.scrubNumbers("saal 2026", setOf("2026")))
+
+        val lits = SkillRedactor.literals("转 ₹500 给 rahul@okhdfcbank, PAN ABCDE1234F", emptyList())
+        assertTrue("₹500" in lits)
+        assertTrue("rahul@okhdfcbank" in lits)
+        assertTrue("ABCDE1234F" in lits)
+    }
 }
 
 class SkillValidateTest {

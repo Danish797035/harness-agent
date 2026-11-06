@@ -2,14 +2,14 @@ package com.meenai.mina.capsule
 
 import androidx.compose.ui.geometry.Rect
 import com.meenai.mina.cap.phone.a11y.HoldGesture
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
 /** 胶囊长按说话:松开时手指落在哪个圆上、长按和拖动怎么分、发出后胶囊上闪的那句。 */
 class CapsuleVoiceTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     private val cancel = Rect(100f, 200f, 162f, 262f)
     private val edit = Rect(300f, 200f, 362f, 262f)
@@ -65,9 +65,9 @@ class CapsuleVoiceTest {
     }
 
     @Test fun sentNoteSaysWhatHappenedWithTheFirstWords() {
-        assertEquals("已插话：要下午三点以后的，二等座…", CapsuleVoice.sent(CardInputKind.Steer, "要下午三点以后的，二等座靠窗"))
-        assertEquals("已回答：明天上午", CapsuleVoice.sent(CardInputKind.Answer, "明天上午"))
-        assertEquals("已发出：查一下天气", CapsuleVoice.sent(CardInputKind.Continue, "查一下天气"))
-        assertEquals("已发出：查一下天气", CapsuleVoice.sent(CardInputKind.Start, "查一下天气"))
+        assertEquals("Told the task: 要下午三点以后的，二等座…", CapsuleVoice.sent(CardInputKind.Steer, "要下午三点以后的，二等座靠窗"))
+        assertEquals("Answered: 明天上午", CapsuleVoice.sent(CardInputKind.Answer, "明天上午"))
+        assertEquals("Sent: 查一下天气", CapsuleVoice.sent(CardInputKind.Continue, "查一下天气"))
+        assertEquals("Sent: 查一下天气", CapsuleVoice.sent(CardInputKind.Start, "查一下天气"))
     }
 }

@@ -22,7 +22,20 @@ val extractTraceSchemas by tasks.registering(Sync::class) {
 }
 sourceSets.main { proto.srcDir(extractTraceSchemas) }
 protobuf {
-    protoc { artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}" }
+    protoc {
+        val isCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
+        val localProtoc = if (!isCi) {
+            listOf(
+                "/data/data/com.termux/files/usr/bin/protoc",
+                "/data/user/0/com.termux/files/usr/bin/protoc"
+            ).map { file(it) }.firstOrNull { it.canExecute() }
+        } else null
+        if (localProtoc != null) {
+            path = localProtoc.absolutePath
+        } else {
+            artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+        }
+    }
     generateProtoTasks {
         all().configureEach { builtins { named("java") { option("lite") } } }
     }
