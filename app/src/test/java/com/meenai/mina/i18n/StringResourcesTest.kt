@@ -18,18 +18,10 @@ class StringResourcesTest {
     }
 
     private val others = listOf(
-        Other("values-ja", Locale.JAPANESE, setOf("other")),
-        Other("values-ko", Locale.KOREAN, setOf("other")),
-        Other("values-es", Locale.forLanguageTag("es"), setOf("one", "many", "other")),
-        Other("values-pt", Locale.forLanguageTag("pt"), setOf("one", "many", "other")),
-        Other("values-ru", Locale.forLanguageTag("ru"), setOf("one", "few", "many", "other")),
-        // 印尼语的资源文件夹沿用安卓的旧语言代码 in
-        Other("values-in", Locale.forLanguageTag("id"), setOf("other")),
+        Other("values-hi", Locale.forLanguageTag("hi"), setOf("one", "other")),
     )
 
     private val en = ResFileTexts.english
-    private val zh = ResFileTexts.chinese
-    private val hant = ResFileTexts.traditional
 
     /** 标了 translatable="false" 的条目只在默认文件里。 */
     private val fixed: Set<String> = ResFileTexts.resFiles("values").flatMap { f ->
@@ -39,29 +31,21 @@ class StringResourcesTest {
 
     @Test
     fun everyStringHasBothLanguages() {
-        assertEquals(en.strings.keys - fixed, zh.strings.keys)
-        assertEquals(en.plurals.keys, zh.plurals.keys)
+        val hi = others.single().texts
+        assertEquals(en.strings.keys - fixed, hi.strings.keys)
+        assertEquals(en.plurals.keys, hi.plurals.keys)
         assertTrue(en.strings.size > 300)
     }
 
     @Test
     fun placeholdersMatch() {
-        // 日期两种语言取的字段不同(中文写月份数字,英文写月份名)
-        for (name in zh.strings.keys - setOf("date_month_day", "date_year_month_day")) assertEquals(name, args(en.strings.getValue(name)), args(zh.strings.getValue(name)))
-        for (name in zh.plurals.keys) {
-            val expected = args(zh.plurals.getValue(name).getValue("other"))
-            en.plurals.getValue(name).values.forEach { assertEquals(name, expected, args(it)) }
+        val hi = others.single().texts
+        for (name in hi.strings.keys - setOf("date_month_day", "date_year_month_day")) {
+            assertEquals(name, args(en.strings.getValue(name)), args(hi.strings.getValue(name)))
         }
-    }
-
-    @Test
-    fun traditionalMatchesSimplified() {
-        assertEquals(zh.strings.keys, hant.strings.keys)
-        assertEquals(zh.plurals.keys, hant.plurals.keys)
-        for (name in zh.strings.keys) assertEquals(name, args(zh.strings.getValue(name)), args(hant.strings.getValue(name)))
-        for (name in zh.plurals.keys) {
-            assertEquals(name, zh.plurals.getValue(name).keys, hant.plurals.getValue(name).keys)
-            zh.plurals.getValue(name).forEach { (q, v) -> assertEquals("$name/$q", args(v), args(hant.plurals.getValue(name).getValue(q))) }
+        for (name in hi.plurals.keys) {
+            val expected = args(hi.plurals.getValue(name).getValue("other"))
+            en.plurals.getValue(name).values.forEach { assertEquals(name, expected, args(it)) }
         }
     }
 
@@ -100,7 +84,7 @@ class StringResourcesTest {
         val byLanguage = others.associateBy { AppLanguage.modernCode(it.locale.language) }
         for (l in AppLanguage.entries) {
             val code = l.language ?: continue
-            if (code == "zh" || code == "en") continue
+            if (code == "en") continue
             val o = byLanguage[code]
             assertTrue("$l has no folder", o != null)
             assertEquals(l.toString(), code, AppLanguage.modernCode(Locale.forLanguageTag(o!!.texts.strings.getValue("ui_locale")).language))

@@ -1,6 +1,6 @@
 package com.meenai.mina.ui
 
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.task.TaskGate
 
 import com.meenai.mina.chat.ConversationStore
@@ -43,7 +43,7 @@ import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     @get:Rule val tmp = TemporaryFolder()
 
@@ -125,15 +125,15 @@ class ChatViewModelTest {
         emit(TaskState.Running(1, ""))
         var steps = vm.ui.value.exchanges.single().steps
         assertTrue(steps.isEmpty())
-        assertEquals("正在处理", liveLine(vm.ui.value.exchanges.single()))
+        assertEquals("Working", liveLine(vm.ui.value.exchanges.single()))
 
         // 选了工具还没做:不按工具名列一行,等实际做了再列
         emit(TaskState.Running(1, "我先打开设置", "phone_launch_app"))
         assertTrue(vm.ui.value.exchanges.single().steps.isEmpty())
         did(1, "act", "phone_launch_app", "com.chat", "place_changed")
         steps = vm.ui.value.exchanges.single().steps
-        assertEquals(StepRow(1, "打开 App · 聊天", "", StepState.Run), steps.single())
-        assertEquals("打开 App · 聊天", liveLine(vm.ui.value.exchanges.single()))
+        assertEquals(StepRow(1, "Open app · 聊天", "", StepState.Run), steps.single())
+        assertEquals("Open app · 聊天", liveLine(vm.ui.value.exchanges.single()))
 
         // 读取:不出现「看屏幕」;连着读同一处合成一行;不知道读的是哪里的不列
         emit(TaskState.Running(2, "我先打开设置"))
@@ -142,13 +142,13 @@ class ChatViewModelTest {
         did(2, "observe", "phone_diagnose", "com.chat", title = "会话列表")
         did(2, "observe", "phone_observe", null)
         steps = vm.ui.value.exchanges.single().steps
-        assertEquals(listOf("打开 App · 聊天", "看了聊天的会话列表"), steps.map { it.text })
+        assertEquals(listOf("Open app · 聊天", "Viewed 会话列表 in 聊天"), steps.map { it.text })
         assertEquals(listOf(StepState.Ok, StepState.Run), steps.map { it.state })
 
         emit(TaskState.WaitingTakeover("captcha", "出现滑块验证码"))
         val ex = vm.ui.value.exchanges.single()
         assertEquals(StepState.Wait, ex.steps.last().state)
-        assertEquals("需要你处理", liveLine(ex))
+        assertEquals("Needs you", liveLine(ex))
         assertEquals(ExchangeStatus.NeedsTakeover("captcha", "出现滑块验证码"), ex.status)
         assertEquals(ComposerMode.Busy, vm.ui.value.composer)
 
@@ -178,7 +178,7 @@ class ChatViewModelTest {
         emit(TaskState.Succeeded("电量 86%,正在充电。来源:设置 › 电池"))
         val ex = vm.ui.value.exchanges.single()
         assertEquals(ExchangeStatus.Done("电量 86%,正在充电。来源:设置 › 电池", null), ex.status)
-        assertEquals(listOf(StepRow(1, "看了聊天", "", StepState.Ok)), ex.steps)
+        assertEquals(listOf(StepRow(1, "Viewed 聊天", "", StepState.Ok)), ex.steps)
         assertEquals(ComposerMode.Idle, vm.ui.value.composer)
 
         assertEquals("没有依据段落" to null, splitEvidence("没有依据段落"))
@@ -199,8 +199,8 @@ class ChatViewModelTest {
         assertEquals(
             listOf(
                 // 用工具的界面说法,不带工具名
-                StepAction("点击", "聊天", "changed", false),
-                StepAction("输入文字", "com.other", "unknown_code", true),
+                StepAction("Tap", "聊天", "changed", false),
+                StepAction("Type text", "com.other", "unknown_code", true),
             ),
             ex.stepActions.getValue(1),
         )
@@ -208,8 +208,8 @@ class ChatViewModelTest {
         assertEquals(setOf(1), ex.stepActions.keys)
         // 点开后每件事一行:做了什么 · 对什么 · 结果;错误码不给人看,说「没成功」
         val lines = ex.stepActions.getValue(1).map(ChatCopy::actionLine)
-        assertEquals("点击 · 聊天 · ${tr(R.string.result_effective)}", lines[0])
-        assertEquals("输入文字 · com.other · ${tr(R.string.step_failed)}", lines[1])
+        assertEquals("Tap · 聊天 · ${tr(R.string.result_effective)}", lines[0])
+        assertEquals("Type text · com.other · ${tr(R.string.step_failed)}", lines[1])
         lines.forEach { assertFalse(it, it.contains("phone_") || it.contains("unknown_code")) }
     }
 
@@ -220,7 +220,7 @@ class ChatViewModelTest {
         emit(TaskState.Succeeded("余额 10 元", verified = false, note = "结果页受系统防截屏保护"))
         val ex = vm.ui.value.exchanges.single()
         assertEquals(ExchangeStatus.Done("余额 10 元", null, verified = false, note = "结果页受系统防截屏保护"), ex.status)
-        assertEquals("办完了,但没能核实:结果页受系统防截屏保护", (ex.status as ExchangeStatus.Done).unverifiedLine)
+        assertEquals("Done, but couldn’t verify: 结果页受系统防截屏保护", (ex.status as ExchangeStatus.Done).unverifiedLine)
         assertEquals(PipMode.Done, vm.ui.value.pip.mode)
 
         vm.send("再查", ok)
@@ -240,7 +240,7 @@ class ChatViewModelTest {
         screen.value = true
         runCurrent()
         var ex = vm.ui.value.exchanges.single()
-        assertEquals(StepRow(1, "打开 App · cn.railway", "", StepState.Run, "打开 12306"), ex.steps.single())
+        assertEquals(StepRow(1, "Open app · cn.railway", "", StepState.Run, "打开 12306"), ex.steps.single())
         assertEquals("打开 12306", liveLine(ex))
         assertTrue(vm.ui.value.operatingPhone)
 
@@ -248,7 +248,7 @@ class ChatViewModelTest {
         emit(TaskState.Running(2, ""))
         ex = vm.ui.value.exchanges.single()
         assertEquals(1, ex.steps.size)
-        assertEquals("正在处理", liveLine(ex))
+        assertEquals("Working", liveLine(ex))
 
         emit(TaskState.Running(2, "", "phone_tap", reason = "正在 12306 搜索上海到杭州的车次"))
         assertEquals("正在 12306 搜索上海到杭州的车次", liveLine(vm.ui.value.exchanges.single()))
@@ -264,10 +264,10 @@ class ChatViewModelTest {
         emit(TaskState.Succeeded("有 3 趟\n依据:12306 查询结果页"))
         ex = vm.ui.value.exchanges.single()
         assertEquals(80_000L, ex.elapsedMs)
-        assertEquals("做了 3 步 · 1 分 20 秒", stepsSummary(ex))
+        assertEquals("3 steps · 1 min 20 s", stepsSummary(ex))
         assertFalse(vm.ui.value.operatingPhone)
         // 不知道用时就只说步数
-        assertEquals("做了 3 步", stepsSummary(ex.copy(elapsedMs = null)))
+        assertEquals("3 steps", stepsSummary(ex.copy(elapsedMs = null)))
     }
 
     /** 顶栏副标题「正在操作 …」:最近一件有对象的事所在的 App(包名换成 App 名)。 */
@@ -280,7 +280,7 @@ class ChatViewModelTest {
         did(2, "act", "phone_wait", null)
         val ex = vm.ui.value.exchanges.single()
         assertEquals("聊天", vm.livePlace(ex))
-        assertEquals("正在操作聊天" to ChatCopy.Tone.Accent, ChatCopy.subtitle(ex, vm.livePlace(ex)))
+        assertEquals("Working in 聊天" to ChatCopy.Tone.Accent, ChatCopy.subtitle(ex, vm.livePlace(ex)))
     }
 
     // 随调用写的进度说明优先于调用里的用意
@@ -300,7 +300,7 @@ class ChatViewModelTest {
         var ex = vm.ui.value.exchanges.single()
         assertEquals("第一段", ex.draft)
         assertTrue(ex.steps.isEmpty())
-        assertEquals("正在处理", liveLine(ex))
+        assertEquals("Working", liveLine(ex))
 
         emit(TaskState.Running(1, "", preview = "第一段和第二段"))
         assertEquals("第一段和第二段", vm.ui.value.exchanges.single().draft)
@@ -320,7 +320,7 @@ class ChatViewModelTest {
         val done = vm.ui.value.exchanges.single().status as ExchangeStatus.Done
         assertEquals("咖啡豆 ¥79", done.answer)
         assertNull(done.evidence)
-        assertEquals("这几处没能确认:79", done.unverifiedLine)
+        assertEquals("Couldn’t confirm: 79", done.unverifiedLine)
     }
 
     @Test fun phoneHintOnlyWhileTheScreenIsOpen() = runTest {
@@ -357,8 +357,8 @@ class ChatViewModelTest {
             )),
         )
         val source = evidenceSource(events) { if (it == "com.chat") "聊天" else it }
-        assertEquals(EvidenceSource("www.12306.cn", listOf(1), listOf("第 1 步 · 聊天", "第 3 步 · www.12306.cn · 车次查询")), source)
-        assertEquals("来源 · www.12306.cn · 1 张截图", sourceLabel(source))
+        assertEquals(EvidenceSource("www.12306.cn", listOf(1), listOf("Step 1 · 聊天", "Step 3 · www.12306.cn · 车次查询")), source)
+        assertEquals("Source · www.12306.cn · 1 screenshot", sourceLabel(source))
     }
 
     @Test fun evidenceSourceIsTheLastSavedScreen() {
@@ -369,12 +369,12 @@ class ChatViewModelTest {
         )
         val source = evidenceSource(events) { if (it == "com.chat") "聊天" else it }
         assertEquals(EvidenceSource("www.12306.cn", listOf(2, 3)), source)
-        assertEquals("来源 · www.12306.cn · 2 张截图", sourceLabel(source))
+        assertEquals("Source · www.12306.cn · 2 screenshots", sourceLabel(source))
         assertEquals(EvidenceSource("聊天", listOf(1)), evidenceSource(events.take(1)) { if (it == "com.chat") "聊天" else it })
         // 没有截图(文件、纯对话的任务)、还没取到时只写「来源」
         assertEquals(EvidenceSource(null, emptyList()), evidenceSource(emptyList()))
-        assertEquals("来源", sourceLabel(EvidenceSource(null, emptyList())))
-        assertEquals("来源", sourceLabel(null))
+        assertEquals("Source", sourceLabel(EvidenceSource(null, emptyList())))
+        assertEquals("Source", sourceLabel(null))
     }
 
     @Test fun livePreviewVisibleOnlyWhileRunning() = runTest {
@@ -544,7 +544,7 @@ class ChatViewModelTest {
         runCurrent()
         val waiting = vm.ui.value.exchanges.single()
         assertEquals(ExchangeStatus.Working, waiting.status)
-        assertEquals("等前一个任务做完再开始", ChatCopy.progressLine(waiting))
+        assertEquals("Starts after the previous task finishes", ChatCopy.progressLine(waiting))
         busy.value = false
         runCurrent()
         assertEquals(listOf("start:下一个"), calls)
@@ -625,10 +625,10 @@ class ChatViewModelTest {
         val waiting = TaskState.WaitingConfirmation(ConfirmationRequest(IrrevAction.send, "张三", "明天见", null, "com.chat"))
         emit(waiting)
         val ex = vm.ui.value.exchanges.last()
-        assertEquals(ExchangeStatus.NeedsConfirmation("要你同意:发送", "在 聊天\n对象:张三\n内容:明天见", ConfirmationNotifier.requestKey(waiting)), ex.status)
+        assertEquals(ExchangeStatus.NeedsConfirmation("Needs your OK: Send", "In 聊天\nTo: 张三\nContent: 明天见", ConfirmationNotifier.requestKey(waiting)), ex.status)
         assertEquals(StepState.Wait, ex.steps.last().state)
         assertEquals(PipMode.NeedsYou, vm.ui.value.pip.mode)
-        assertEquals("等你同意", liveLine(ex))
+        assertEquals("Waiting for your OK", liveLine(ex))
         assertFalse(vm.ui.value.operatingPhone)
         assertEquals(ComposerMode.Busy, vm.ui.value.composer)
         // 回答后回到运行

@@ -10,21 +10,21 @@ class ApkIntegrityTest {
     @get:Rule val temp = TemporaryFolder()
 
     @Test fun acceptsOfficialApk() {
-        ApkIntegrity.requireOfficialUrl("https://github.com/wangzan101/Mina/releases/download/v0.2.0/Mina.apk")
+        ApkIntegrity.requireOfficialUrl("https://github.com/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk")
     }
 
     @Test fun rejectsUntrustedDownloads() {
         for (url in listOf(
-            "http://github.com/wangzan101/Mina/releases/download/v0.2.0/Mina.apk",
-            "https://github.com.evil.test/wangzan101/Mina/releases/download/v0.2.0/Mina.apk",
-            "https://github.com/other/Mina/releases/download/v0.2.0/Mina.apk",
-            "https://github.com/wangzan101/Mina/releases/download/../../other.apk",
-            "https://github.com/wangzan101/Mina/releases/download/%2e%2e/%2E%2e/%2e%2e/%2e%2e/other/x.apk",
-            "https://objects.githubusercontent.com/wangzan101/Mina/releases/download/v0.2.0/Mina.apk",
-            "https://github.com/wangzan101/Mina/releases/download/v0.2.0/Mina.zip",
-            "https://github.com/wangzan101/Mina/releases/tag/v0.2.0",
-            "https://user:pass@github.com/wangzan101/Mina/releases/download/v0.2.0/Mina.apk",
-            "https://github.com:8443/wangzan101/Mina/releases/download/v0.2.0/Mina.apk",
+            "http://github.com/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk",
+            "https://github.com.evil.test/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk",
+            "https://github.com/other/harness-agent/releases/download/v0.2.0/Harness.apk",
+            "https://github.com/Danish797035/harness-agent/releases/download/../../other.apk",
+            "https://github.com/Danish797035/harness-agent/releases/download/%2e%2e/%2E%2e/%2e%2e/%2e%2e/other/x.apk",
+            "https://objects.githubusercontent.com/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk",
+            "https://github.com/Danish797035/harness-agent/releases/download/v0.2.0/Harness.zip",
+            "https://github.com/Danish797035/harness-agent/releases/tag/v0.2.0",
+            "https://user:pass@github.com/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk",
+            "https://github.com:8443/Danish797035/harness-agent/releases/download/v0.2.0/Harness.apk",
         )) rejects { ApkIntegrity.requireOfficialUrl(url) }
     }
 

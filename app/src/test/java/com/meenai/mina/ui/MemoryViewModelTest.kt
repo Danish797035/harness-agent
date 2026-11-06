@@ -1,6 +1,6 @@
 package com.meenai.mina.ui
 
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.memory.MemoryKind
 import com.meenai.mina.core.memory.MemorySource
 import com.meenai.mina.settings.MemorySettings
@@ -22,7 +22,7 @@ import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemoryViewModelTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     @get:Rule val tmp = TemporaryFolder()
     // 来历一行按本机时区显示日期:取本机时区那天的中午,在哪个时区跑都是 10 月 23 日
@@ -49,8 +49,8 @@ class MemoryViewModelTest {
             vm.ui.value.rows.map { it.content }.toSet(),
         )
         assertEquals(MemoryKind.fact, vm.ui.value.rows.first { it.content == "用户住在张江" }.kind)
-        assertEquals("你手写的", vm.ui.value.rows.first { it.content == "用户住在张江" }.source)
-        assertEquals("你在 10 月 23 日说:『以后点外卖都不要香菜』", vm.ui.value.rows.first { it.kind == MemoryKind.preference }.source)
+        assertEquals("Written by you", vm.ui.value.rows.first { it.content == "用户住在张江" }.source)
+        assertEquals("You said on Oct 23: “以后点外卖都不要香菜”", vm.ui.value.rows.first { it.kind == MemoryKind.preference }.source)
     }
 
     @Test fun pendingCollectsProceduresAndCounts() = runTest {
@@ -91,12 +91,12 @@ class MemoryViewModelTest {
     @Test fun manualAddSensitiveShowsMessage() = runTest {
         val vm = vm()
         vm.add(MemoryKind.fact, "我的支付密码是123456", emptyList()); runCurrent()
-        assertEquals("这类信息我不会记", vm.ui.value.message)
+        assertEquals("I don’t remember this kind of information", vm.ui.value.message)
         assertEquals(3, vm.ui.value.rows.size)
         vm.dismissMessage()
         vm.add(MemoryKind.fact, "用户的妈妈叫老妈", emptyList()); runCurrent()
         assertEquals(4, vm.ui.value.rows.size)
-        assertEquals("你手写的", vm.ui.value.rows.first { it.content == "用户的妈妈叫老妈" }.source)
+        assertEquals("Written by you", vm.ui.value.rows.first { it.content == "用户的妈妈叫老妈" }.source)
     }
 
     @Test fun clearAllNeedsTwoConfirms() = runTest {
@@ -142,13 +142,13 @@ class MemoryViewModelTest {
         assertEquals(listOf("d1"), vm.ui.value.skills.drafts.map { it.id })
         // 改过的全文同样过校验:缺小节、带敏感信息、提到没有的工具都不收
         vm.approveSkill("d1", skillMd("wechat-msg", "## 步骤\n1. 点搜索框")); runCurrent()
-        assertTrue(vm.ui.value.message!!.contains("五个小节"))
+        assertTrue(vm.ui.value.message!!.contains("five sections"))
         vm.dismissMessage()
         vm.approveSkill("d1", fullMd("wechat-msg", "支付密码是123456")); runCurrent()
-        assertEquals("这类信息我不会记", vm.ui.value.message)
+        assertEquals("I don’t remember this kind of information", vm.ui.value.message)
         vm.dismissMessage()
         vm.approveSkill("d1", fullMd("wechat-msg", "用 `open_chat` 打开")); runCurrent()
-        assertEquals("里面提到了 Mina 没有的工具", vm.ui.value.message)
+        assertEquals("It mentions tools Harness Agent doesn’t have", vm.ui.value.message)
         assertEquals(1, vm.ui.value.skills.drafts.size)
         vm.approveSkill("d1", fullMd("renamed", "1. 用 `phone_tap` 点搜索框")); runCurrent()
         assertTrue(vm.ui.value.skills.drafts.isEmpty())
@@ -172,7 +172,7 @@ class MemoryViewModelTest {
         val vm = skillsVm(skills)
         val row = vm.ui.value.skills.installed.single()
         assertTrue(row.suspended)
-        assertEquals(listOf("没办成", "核查通过", "没能核实"), row.recent)
+        assertEquals(listOf("Didn’t work out", "Check passed", "Couldn’t verify"), row.recent)
         vm.restoreSkill("wechat-msg"); runCurrent()
         assertEquals(com.meenai.mina.core.skills.SkillStatus.active, skills.get("wechat-msg")!!.status)
         assertTrue(skills.get("wechat-msg")!!.outcomes.isEmpty())

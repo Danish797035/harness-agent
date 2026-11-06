@@ -370,7 +370,7 @@ class AgentLoopTest {
 
     @Test fun authErrorStopsWithReason() = runTest {
         val r = loop(FakeModel(ModelError.Auth())).run("t")
-        assertTrue(r is TaskState.Failed && "API Key" in r.reason && r.kind == FailKind.Model)
+        assertTrue(r is TaskState.Failed && "API key" in r.reason && r.kind == FailKind.Model)
     }
 
     @Test fun otherFatalModelErrorsFailWithoutRetry() = runTest {
@@ -437,8 +437,8 @@ class AgentLoopTest {
 
     @Test fun unexpectedModelExceptionFails() = runTest {
         val l = loop(FakeModel(IllegalStateException("boom")))
-        assertEquals(TaskState.Failed("模型调用异常:boom", FailKind.Model), l.run("t"))
-        assertEquals(TaskState.Failed("模型调用异常:boom", FailKind.Model), l.state.value)
+        assertEquals(TaskState.Failed("Model call error: boom", FailKind.Model), l.run("t"))
+        assertEquals(TaskState.Failed("Model call error: boom", FailKind.Model), l.state.value)
     }
 
     @Test fun rateLimitWaitIsCapped() = runTest {

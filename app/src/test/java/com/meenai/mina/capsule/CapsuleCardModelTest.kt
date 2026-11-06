@@ -1,7 +1,7 @@
 package com.meenai.mina.capsule
 
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.cap.web.KeptPage
 import com.meenai.mina.confirm.ConfirmationNotifier
 import com.meenai.mina.core.agent.FailKind
@@ -19,7 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CapsuleCardModelTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     private fun card(
         key: String, state: TaskState, kind: CapsuleKind = CapsuleKind.Running, line: String = "", ahead: Int = 0, behind: Int = 0,
@@ -123,8 +123,8 @@ class CapsuleCardModelTest {
         val s = TaskState.WaitingTakeover("payment", "请输入支付密码", item = "牙膏", amount = "¥19.9", address = "家")
         val first = CapsuleCards.content(card("a", s, CapsuleKind.NeedTakeover, "需要你：付款", behind = 2)) as CardContent.Takeover
         assertEquals("需要你：付款", first.need)
-        assertEquals("请输入支付密码\n商品:牙膏\n金额:¥19.9\n地址:家", first.body)
-        assertEquals("处理好这件后，还有 2 件等你", first.queueLine)
+        assertEquals("请输入支付密码\nItem: 牙膏\nAmount: ¥19.9\nAddress: 家", first.body)
+        assertEquals("After this, 2 more are waiting for you", first.queueLine)
         assertTrue(first.canTakeOver)
         val queued = CapsuleCards.content(card("b", s, CapsuleKind.NeedTakeover, ahead = 1)) as CardContent.Takeover
         assertEquals(CapsuleCards.QUEUED_AHEAD, queued.queueLine)
@@ -139,14 +139,14 @@ class CapsuleCardModelTest {
         // 还没有这一问一答时也能同意:编号和对话页、通知用的同一个
         val raw = CapsuleCards.content(card("a", s, CapsuleKind.NeedConfirm)) as CardContent.Confirm
         assertEquals(ConfirmationNotifier.requestKey(s), raw.key)
-        assertTrue(raw.body.contains("金额:¥19.9"))
+        assertTrue(raw.body.contains("Amount: ¥19.9"))
     }
 
     @Test fun questionHeldAndResults() {
         assertEquals(CardContent.Question("要哪个？", listOf("大", "小")), CapsuleCards.content(card("a", TaskState.WaitingInput(" 要哪个？ ", listOf("大", "", "小")))))
         assertEquals(CardContent.Question("几点？", emptyList()), CapsuleCards.content(card("a", TaskState.WaitingInput("几点？"))))
         assertEquals(CardContent.Held("排队中", true), CapsuleCards.content(card("a", TaskState.Held(GateReason("q", "排队中", resumable = true)))))
-        assertEquals(CardContent.Held("先等等", false), CapsuleCards.content(card("a", TaskState.Held(GateReason("q")))))
+        assertEquals(CardContent.Held("On hold", false), CapsuleCards.content(card("a", TaskState.Held(GateReason("q")))))
         assertEquals(CardContent.Result(CapsuleKind.Done), CapsuleCards.content(card("a", TaskState.Succeeded("下单了"))))
         assertEquals(CardContent.Result(CapsuleKind.Failed), CapsuleCards.content(card("a", TaskState.Failed("没找到", FailKind.GaveUp))))
         assertEquals(CardContent.Result(CapsuleKind.Cancelled), CapsuleCards.content(card("a", TaskState.Cancelled)))

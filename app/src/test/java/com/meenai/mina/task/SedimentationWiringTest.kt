@@ -1,7 +1,7 @@
 package com.meenai.mina.task
 
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.agent.FailKind
 import com.meenai.mina.core.agent.RunOutcome
 import com.meenai.mina.core.agent.TaskState
@@ -23,7 +23,7 @@ import com.meenai.mina.core.assembly.knownTools
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SedimentationWiringTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     private val catalog = GuideCatalog.loadBundled()
     private val tools = setOf("phone_launch_app", "phone_observe", "phone_tap", "phone_type_text", "hand_to_user", "finish")
@@ -80,7 +80,7 @@ class SedimentationWiringTest {
         val on = MapSkills()
         val notes = runBlocking { learning(on, learn = true).learn(after(events())) }
         assertEquals(listOf("draft-1"), on.drafts.keys.toList())
-        assertEquals("Mina 学会了一项技能:给指定联系人发一条微信消息", notes.skillNotes.single().text)
+        assertEquals("Harness Agent learned a skill: 给指定联系人发一条微信消息", notes.skillNotes.single().text)
         assertEquals("draft-1", notes.skillNotes.single().draftId)
     }
 

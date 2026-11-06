@@ -1,7 +1,7 @@
 package com.meenai.mina.cap.sandbox
 
 import org.junit.Rule
-import com.meenai.mina.i18n.ChineseTexts
+import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.core.workspace.SandboxTree
 import com.meenai.mina.core.cap.sandbox.RootfsExtractor
 import com.meenai.mina.core.cap.sandbox.SandboxStatus
@@ -25,7 +25,7 @@ import java.security.MessageDigest
 
 /** 自带的运行环境换成用宿主 tar 现做、再用 xz 压的小包;不联网。 */
 class RootfsInstallerTest {
-    @get:Rule val texts = ChineseTexts()
+    @get:Rule val texts = EnglishTexts()
 
     private val tmp: File = Files.createTempDirectory("rootfs-installer").toFile()
     private val dirs = SandboxDirs(File(tmp, "files/sandbox"), File(tmp, "cache/proot-tmp"), File(tmp, "lib"), JVM_GATE, SandboxTree())
@@ -143,7 +143,7 @@ class RootfsInstallerTest {
         expectFailure { installer(free = 10L shl 20).install { _, _ -> } }
         assertEquals(0, opens)
         assertEquals(null, state.completedStep())
-        assertTrue((state.status.value as SandboxStatus.Broken).reason.contains("可用空间不足"))
+        assertTrue((state.status.value as SandboxStatus.Broken).reason.contains("Not enough space"))
     }
 
     @Test

@@ -24,7 +24,7 @@ pipx install 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tool
 mina --version
 ```
 
-The pipx package is `mina-phone-cli` and the command is `mina`. The CLI has its own version number, separate from the APK's. With a repository checkout you can also run `pipx install ./tools/mina` from the repository root, or skip installing and run `python3 tools/mina/scripts/mina_cli.py` directly (`py -3` on Windows).
+The pipx package is `mina-phone-cli` and the command is `mina`. The CLI has its own version number, separate from the APK's. With a repository checkout you can also run `pipx install ./tools/harness` from the repository root, or skip installing and run `python3 tools/harness/scripts/harness_cli.py` directly (`py -3` on Windows).
 
 ## CLI: update, roll back and remove
 
@@ -42,10 +42,10 @@ pipx uninstall mina-phone-cli
 
 ## Skill: install
 
-The Skill is the repository's `tools/mina` folder: `SKILL.md` tells the agent how to use it, and `scripts/mina_cli.py` is the bundled CLI, which needs only Python 3.10+ (plus platform-tools for ADB connections).
+The Skill is the repository's `tools/harness` folder: `SKILL.md` tells the agent how to use it, and `scripts/harness_cli.py` is the bundled CLI, which needs only Python 3.10+ (plus platform-tools for ADB connections).
 
 1. From the [latest release](https://github.com/wangzan101/Mina/releases/latest), download **Source code (zip)** and extract it.
-2. Copy the **whole** `tools/mina` folder into your agent's skills directory (see that agent's own documentation for where it is). The result should be `<skills-directory>/mina/SKILL.md`, without an extra nested `mina` folder.
+2. Copy the **whole** `tools/harness` folder into your agent's skills directory (see that agent's own documentation for where it is). The result should be `<skills-directory>/mina/SKILL.md`, without an extra nested `mina` folder.
 3. Check that the bundled script runs:
 
    ```bash
@@ -58,7 +58,7 @@ If a `mina` command is already installed on the computer, the Skill uses it firs
 
 ## Skill: update, roll back and remove
 
-- **Update or roll back**: move the old `mina` folder out of the skills directory as a backup, then copy the whole `tools/mina` folder of the target version. Do not copy over the old folder.
+- **Update or roll back**: move the old `mina` folder out of the skills directory as a backup, then copy the whole `tools/harness` folder of the target version. Do not copy over the old folder.
 - **Remove**: delete only the `mina` folder in the skills directory.
 
 Start a new agent session after any change.

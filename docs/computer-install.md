@@ -24,7 +24,7 @@ pipx install 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tool
 mina --version
 ```
 
-pipx 里的包名是 `mina-phone-cli`，命令是 `mina`。CLI 有自己的版本号，和 APK 版本不同。已有仓库检出时，也可以在仓库根目录 `pipx install ./tools/mina`，或者不安装、直接运行 `python3 tools/mina/scripts/mina_cli.py`（Windows 用 `py -3`）。
+pipx 里的包名是 `mina-phone-cli`，命令是 `mina`。CLI 有自己的版本号，和 APK 版本不同。已有仓库检出时，也可以在仓库根目录 `pipx install ./tools/harness`，或者不安装、直接运行 `python3 tools/harness/scripts/harness_cli.py`（Windows 用 `py -3`）。
 
 ## CLI：升级、回退和卸载
 
@@ -42,10 +42,10 @@ pipx uninstall mina-phone-cli
 
 ## Skill：安装
 
-Skill 就是仓库里的 `tools/mina` 文件夹：`SKILL.md` 告诉 Agent 怎么用，`scripts/mina_cli.py` 是自带的 CLI，只依赖 Python 3.10+（ADB 连接另需 platform-tools）。
+Skill 就是仓库里的 `tools/harness` 文件夹：`SKILL.md` 告诉 Agent 怎么用，`scripts/harness_cli.py` 是自带的 CLI，只依赖 Python 3.10+（ADB 连接另需 platform-tools）。
 
 1. 在 [最新 release](https://github.com/wangzan101/Mina/releases/latest) 下载 **Source code (zip)** 并解压。
-2. 把其中**整个** `tools/mina` 文件夹复制到你的 Agent 的技能目录（位置见该 Agent 自己的说明）。结果应该是 `<技能目录>/mina/SKILL.md`，不要多嵌套一层 `mina`。
+2. 把其中**整个** `tools/harness` 文件夹复制到你的 Agent 的技能目录（位置见该 Agent 自己的说明）。结果应该是 `<技能目录>/mina/SKILL.md`，不要多嵌套一层 `mina`。
 3. 检查自带脚本能运行：
 
    ```bash
@@ -58,7 +58,7 @@ Skill 就是仓库里的 `tools/mina` 文件夹：`SKILL.md` 告诉 Agent 怎么
 
 ## Skill：升级、回退和卸载
 
-- **升级或回退**：把旧的 `mina` 文件夹移到技能目录之外备份，再复制目标版本的整个 `tools/mina` 文件夹，不要在旧文件夹上合并复制。
+- **升级或回退**：把旧的 `mina` 文件夹移到技能目录之外备份，再复制目标版本的整个 `tools/harness` 文件夹，不要在旧文件夹上合并复制。
 - **卸载**：只删除技能目录里的 `mina` 文件夹。
 
 改完都要重开 Agent 会话。
