@@ -78,4 +78,47 @@ class RedactorTest {
         val c = scriptCode("const a = 'it\\'s hunter2'; const b = \"say \\\"hi\\\"\";")
         assertEquals("const a = '***'; const b = \"***\";", c)
     }
+
+    @Test fun indianDataAndGroqKeyMasked() {
+        // gsk_ (Groq) key: pakdo & mat pakdo
+        val groq = "gsk_" + "1234567890abcdef1234567890abcdef"
+        assertEquals("groq=*** ok", Redactor.text("groq=$groq ok"))
+        assertEquals("gsk_short", Redactor.text("gsk_short"))
+
+        // Indian mobile: pakdo (+91, 0, bina prefix, space/dash) & mat pakdo
+        assertEquals("call ***", Redactor.text("call +919876543210"))
+        assertEquals("call ***", Redactor.text("call +91 9876543210"))
+        assertEquals("call ***", Redactor.text("call +91-9876543210"))
+        assertEquals("call ***", Redactor.text("call 09876543210"))
+        assertEquals("call ***", Redactor.text("call 9876543210"))
+        assertEquals("call ***", Redactor.text("call 98765 43210"))
+        assertEquals("saal 2026", Redactor.text("saal 2026"))
+        assertEquals("order 12345", Redactor.text("order 12345"))
+        assertEquals("id 5432167890", Redactor.text("id 5432167890"))
+
+        // Aadhaar: pakdo (12 digit, 4-4-4 space/dash) & mat pakdo
+        assertEquals("aadhaar: ***", Redactor.text("aadhaar: 123456789012"))
+        assertEquals("aadhaar: ***", Redactor.text("aadhaar: 1234 5678 9012"))
+        assertEquals("aadhaar: ***", Redactor.text("aadhaar: 1234-5678-9012"))
+        assertEquals("year 2026", Redactor.text("year 2026"))
+        assertEquals("partial 1234 5678", Redactor.text("partial 1234 5678"))
+
+        // PAN: pakdo (ABCDE1234F) & mat pakdo
+        assertEquals("pan: ***", Redactor.text("pan: ABCDE1234F"))
+        assertEquals("pan: ABCDE12345", Redactor.text("pan: ABCDE12345"))
+        assertEquals("pan: ABCD1234F", Redactor.text("pan: ABCD1234F"))
+
+        // UPI ID: pakdo (naam@bank) & mat pakdo (normal email with dot domain)
+        assertEquals("pay ***", Redactor.text("pay rahul@okhdfcbank"))
+        assertEquals("pay ***", Redactor.text("pay 9876543210@paytm"))
+        assertEquals("email naam@gmail.com", Redactor.text("email naam@gmail.com"))
+        assertEquals("email user@example.co.in", Redactor.text("email user@example.co.in"))
+
+        // OTP English keywords: otp, one time password, verification code (in evidence)
+        assertEquals("Your otp is ***", Redactor.evidence("Your otp is 482913"))
+        assertEquals("Your one time password is ***", Redactor.evidence("Your one time password is 482913"))
+        assertEquals("Your verification code is ***", Redactor.evidence("Your verification code is 482913"))
+        assertEquals("meeting in 2026", Redactor.evidence("meeting in 2026"))
+        assertEquals("count 1234 items", Redactor.evidence("count 1234 items"))
+    }
 }

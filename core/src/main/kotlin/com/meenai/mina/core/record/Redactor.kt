@@ -20,6 +20,11 @@ object Redactor {
     /** Google 新格式的认证 Key:`AQ.` 开头,后面一长串 base64url 字符。 */
     private val GOOGLE_AUTH_KEY = Regex("""\bAQ\.[0-9A-Za-z_\-]{20,}""")
     private val GITHUB_TOKEN = Regex("""\bgh[pousr]_[A-Za-z0-9]{20,}""")
+    private val GROQ_KEY = Regex("""\bgsk_[A-Za-z0-9_\-]{16,}""")
+    private val PAN = Regex("""\b[A-Z]{5}[0-9]{4}[A-Z]\b""")
+    private val UPI = Regex("""\b[a-zA-Z0-9._\-]+@[a-zA-Z0-9_\-]+(?!\.[a-zA-Z])\b""")
+    private val AADHAAR = Regex("""(?<!\d)(?:\d{12}|(?<!\d[\s\-]|\d)\d{4}[\s\-]\d{4}[\s\-]\d{4}(?![\s\-]?\d))(?!\d)""")
+    private val INDIAN_MOBILE = Regex("""(?<![\w+])(?:\+91[\s\-]*|0[\s\-]*)?[6-9](?:\d{9}|\d{4}[\s\-]\d{5})(?!\d)""")
 
     /** [secretField]:端口报告这次输入的目标是密码框。 */
     /** [verb]:调用的工具做的动作(不认识的工具为 null)。 */
@@ -94,7 +99,7 @@ object Redactor {
     private val MEMORY_ARGS = setOf("content", "quote", "keywords")
 
     /** 一次性码一类的词。 */
-    private val CODE_WORD = Regex("""验证|校验码|动态码|动态密码|确认码|安全码|短信|口令|(?i:\b(?:code|otp|passcode|pin|2fa)\b)""")
+    private val CODE_WORD = Regex("""验证|校验码|动态码|动态密码|确认码|安全码|短信|口令|(?i:\b(?:code|otp|passcode|pin|2fa|one[- ]time password|verification code)\b)""")
     /** 4–8 位数字,中间可以隔单个空格或连字符(「4 8 2 9 1 3」「482-913」)。 */
     private val CODE_DIGITS = Regex(
         """(?<![\d.¥$€£])(?<!\d,)(?<![¥$€£] )\d(?:[ \-]?\d){3,7}(?!\d)(?!\.\d)(?!,\d{3}(?!\d))""" +
@@ -120,7 +125,7 @@ object Redactor {
 
     fun text(s: String): String {
         var out = s
-        for (re in listOf(SK_KEY, GOOGLE_KEY, GOOGLE_AUTH_KEY, GITHUB_TOKEN)) out = re.replace(out, MASK)
+        for (re in listOf(SK_KEY, GOOGLE_KEY, GOOGLE_AUTH_KEY, GITHUB_TOKEN, GROQ_KEY, UPI, PAN, INDIAN_MOBILE, AADHAAR)) out = re.replace(out, MASK)
         return BEARER.replace(out, "Bearer $MASK")
     }
 

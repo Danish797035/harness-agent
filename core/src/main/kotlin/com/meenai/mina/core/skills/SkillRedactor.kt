@@ -12,7 +12,17 @@ object SkillRedactor {
 
     private val QUOTED = listOf("「", "」", "『", "』", "“", "”", "\"", "\"", "‘", "’", "《", "》")
         .chunked(2).map { (open, close) -> Regex(Regex.escape(open) + "([^" + Regex.escape(close) + "\\n]+)" + Regex.escape(close)) }
-    private val AMOUNT = Regex("[¥$]\\s*\\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?\\s*(?:元|块钱|块|万元|万|美元)")
+    private val SK_KEY = Regex("""\bsk-[A-Za-z0-9_\-]{16,}""")
+    private val GOOGLE_KEY = Regex("""\bAIza[0-9A-Za-z_\-]{30,}""")
+    private val GROQ_KEY = Regex("""\bgsk_[A-Za-z0-9_\-]{16,}""")
+    private val PAN = Regex("""\b[A-Z]{5}[0-9]{4}[A-Z]\b""")
+    private val UPI = Regex("""\b[a-zA-Z0-9._\-]+@[a-zA-Z0-9_\-]+(?!\.[a-zA-Z])\b""")
+    private val SECRETS = listOf(SK_KEY, GOOGLE_KEY, GROQ_KEY, PAN, UPI)
+
+    private val AMOUNT = Regex(
+        """(?:[¥$₹]|(?i:\b(?:Rs\b\.?|INR|rupees?)))\s*\d+(?:\.\d+)?""" +
+            """|\d+(?:\.\d+)?\s*(?:元|块钱|块|万元|万|美元|(?i:rupees?|Rs\.?|INR)|[¥$₹])(?!\w)"""
+    )
     private val DIGITS = Regex("\\d{2,}")
     private val ONLY_DIGITS = Regex("\\d+")
     private val PIECE_SPLIT = Regex("[\\s,.:;!?、。·]+")
@@ -57,13 +67,20 @@ object SkillRedactor {
         val frontEnd = if (lines.firstOrNull()?.trimEnd() == "---") (1 until lines.size).firstOrNull { lines[it].trimEnd() == "---" } ?: -1 else -1
         return lines.mapIndexed { i, line ->
             if (i in 1 until frontEnd && KEEP_LINES.containsMatchIn(line)) line
-            else DIGITS.replace(AMOUNT.replace(line) { m -> if (m.value.filter(Char::isDigit) in keepDigits) m.value else PLACEHOLDER }) { m ->
-                if (m.value in keepDigits) m.value else PLACEHOLDER
+            else {
+                var l = line
+                for (re in SECRETS) l = re.replace(l, PLACEHOLDER)
+                DIGITS.replace(AMOUNT.replace(l) { m -> if (m.value.filter(Char::isDigit) in keepDigits) m.value else PLACEHOLDER }) { m ->
+                    if (m.value in keepDigits) m.value else PLACEHOLDER
+                }
             }
         }.joinToString("\n")
     }
 
-    private fun numbers(t: String) = AMOUNT.findAll(t).map { it.value.trim() } + DIGITS.findAll(t).map { it.value }
+    private fun numbers(t: String) =
+        SECRETS.flatMap { re -> re.findAll(t).map { it.value.trim() } } +
+            AMOUNT.findAll(t).map { it.value.trim() } +
+            DIGITS.findAll(t).map { it.value }
 
     // 一个字的值换掉会把正文搅乱(「妈」「号」);纯数字不受此限
     private fun keep(values: Iterable<String>) =
