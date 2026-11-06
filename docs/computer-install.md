@@ -49,7 +49,7 @@ Skill 就是仓库里的 `tools/harness` 文件夹：`SKILL.md` 告诉 Agent 怎
 3. 检查自带脚本能运行：
 
    ```bash
-   python3 <技能目录>/mina/scripts/mina_cli.py --version   # Windows 用 py -3 代替 python3
+   python3 <技能目录>/mina/scripts/harness_cli.py --version   # Windows 用 py -3 代替 python3
    ```
 
 4. 重开 Agent 会话，确认它能看到名为 `mina` 的 Skill。
@@ -65,7 +65,7 @@ Skill 就是仓库里的 `tools/harness` 文件夹：`SKILL.md` 告诉 Agent 怎
 
 ## 装好之后：连接检查
 
-只装了 Skill 时，下面的 `mina` 换成 `python3 <技能目录>/mina/scripts/mina_cli.py`（Windows 用 `py -3`）。
+只装了 Skill 时，下面的 `mina` 换成 `python3 <技能目录>/mina/scripts/harness_cli.py`（Windows 用 `py -3`）。
 
 经 USB 或已连接的无线 ADB：
 
