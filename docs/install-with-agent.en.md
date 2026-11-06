@@ -1,7 +1,5 @@
 # Installing Harness Agent with an AI agent on your computer
 
-[简体中文](install-with-agent.md) | English
-
 This document is written for **an AI agent on your computer that can run commands**. With the phone connected over USB, the agent follows the steps below and uses adb to install and set up Harness Agent. People can follow it too: every command can be copied as is.
 
 This guide starts with the phone APK. If the phone is already set up and you only need computer access, use the [CLI / Skill installation guide](computer-install.en.md) or [MCP guide](mcp.en.md) for your chosen entry point; do not repeat phone installation and permission setup. Step 10 below is also only for users who request computer access.

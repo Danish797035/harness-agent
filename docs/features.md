@@ -91,10 +91,10 @@
 手机用数据线连上电脑，在手机上打开 USB 调试（开发者选项里别的开关不要动，除非 AI 助手请你打开；有的会清除手机数据），然后把下面这句话发给电脑上能执行命令的 AI 助手：
 
 ```
-请按 https://github.com/Danish797035/harness-agent/blob/main/docs/install-with-agent.md 的步骤，帮我把 Harness Agent 安装到通过 USB 连着的安卓手机上。
+请按 https://github.com/Danish797035/harness-agent/blob/main/docs/install-with-agent.en.md 的步骤，帮我把 Harness Agent 安装到通过 USB 连着的安卓手机上。
 ```
 
-它会检查手机、下载安装、打开需要的权限，需要你在手机上点的时候会停下来告诉你。API Key 由你自己在 Harness Agent 里填，不经过它。如果你也要求电脑访问，AI 助手会按你选择的接入方式继续配置。步骤见[用电脑上的 AI 助手安装](install-with-agent.md)。
+它会检查手机、下载安装、打开需要的权限，需要你在手机上点的时候会停下来告诉你。API Key 由你自己在 Harness Agent 里填，不经过它。如果你也要求电脑访问，AI 助手会按你选择的接入方式继续配置。步骤见[用电脑上的 AI 助手安装](install-with-agent.en.md)。
 
 ## 系统要求
 
@@ -106,7 +106,7 @@
 | Linux 沙箱 | 仅 arm64 设备；其他设备照常安装，沙箱显示「此设备不支持」 |
 | 模型 | 支持工具调用的模型，可通过服务商 API、本地服务或账号登录配置，见[模型与登录](models.md) |
 
-操作手机 App 要先在「设置手机操作」向导里配对一次无线调试（也可以用电脑经 USB 启动手机助手），每一步见[手机操作设置指南](setup-guide.md)。无障碍不用手动去开：配对成功后 Harness Agent 会自己把它打开；从 GitHub 下载安装的 App，手动打开无障碍时常被系统拦下（提示「受限制的设置」），让 Harness Agent 自己开能省掉这个麻烦。
+操作手机 App 要先在「设置手机操作」向导里配对一次无线调试（也可以用电脑经 USB 启动手机助手），每一步见[手机操作设置指南](setup-guide.en.md)。无障碍不用手动去开：配对成功后 Harness Agent 会自己把它打开；从 GitHub 下载安装的 App，手动打开无障碍时常被系统拦下（提示「受限制的设置」），让 Harness Agent 自己开能省掉这个麻烦。
 
 ## 试一试
 
@@ -119,4 +119,4 @@
 
 ## 常见问题
 
-常见问题单独放在了[常见问题](faq.md)里。手机操作方面的问题，见[手机操作设置指南的「遇到问题」](setup-guide.md#遇到问题)。
+常见问题单独放在了[常见问题](faq.md)里。手机操作方面的问题，见[手机操作设置指南的「遇到问题」](setup-guide.en.md#troubleshooting)。

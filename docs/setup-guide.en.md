@@ -1,7 +1,5 @@
 # Setting up phone control, step by step
 
-[简体中文](setup-guide.md) | English
-
 This guide walks you through "Set up phone control" in Harness Agent. No technical knowledge needed; just follow along. It takes about 3 to 5 minutes.
 
 ## Before you start
