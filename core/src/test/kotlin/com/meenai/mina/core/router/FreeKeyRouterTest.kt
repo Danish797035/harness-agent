@@ -27,7 +27,7 @@ class FreeKeyRouterTest {
         name: String,
         context: Int = 64_000,
         responder: suspend (system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) -> ModelReply,
-    ) = MockChatModel(name, Capabilities(true, true, context, false, PromptCaching.Implicit), responder)
+    ) = MockChatModel(name, Capabilities(toolCalls = true, vision = true, contextTokens = context, reasoning = false, promptCaching = PromptCaching.Implicit), responder)
 
     private val userMsg = listOf(Message(Role.User, listOf(Part.Text("do task")), Author.User))
     private val simpleReply = ModelReply(listOf(Part.Text("done")), StopReason.EndTurn, null)
@@ -139,7 +139,7 @@ class FreeKeyRouterTest {
     @Test
     fun skipsProviderCompletelyOn401AuthError() = runTest {
         val model1 = mockModel("m1_p1") { _, _, _, _ -> throw ModelError.Auth() }
-        val model2 = mockModel("m2_p1") { _, _, _, _ -> fail("Should not call second model from bad provider") }
+        val model2 = mockModel("m2_p1") { _, _, _, _ -> fail("Should not call second model from bad provider"); simpleReply }
         val model3 = mockModel("m3_p2") { _, _, _, onText -> onText("p2 ok"); simpleReply }
 
         val router = FreeKeyRouter(
@@ -162,7 +162,7 @@ class FreeKeyRouterTest {
     @Test
     fun doesNotSwitchOnContentRefusal() = runTest {
         val model1 = mockModel("m1") { _, _, _, _ -> throw ModelError.ContentRefused() }
-        val model2 = mockModel("m2") { _, _, _, _ -> fail("Should not switch on safety refusal") }
+        val model2 = mockModel("m2") { _, _, _, _ -> fail("Should not switch on safety refusal"); simpleReply }
 
         val router = FreeKeyRouter(
             listOf(
@@ -276,7 +276,7 @@ class FreeKeyRouterTest {
 
 class MockChatModel(
     override val name: String,
-    override val capabilities: Capabilities = Capabilities(true, true, 64_000, false, PromptCaching.Implicit),
+    override val capabilities: Capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 64_000, reasoning = false, promptCaching = PromptCaching.Implicit),
     var responder: suspend (system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) -> ModelReply,
 ) : StreamingChatModel {
     var calls = 0
