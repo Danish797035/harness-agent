@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Harness Agent</string>
     <string name="a11y_service_description">यह सिस्टम अनुमति Harness Agent को किसी भी स्क्रीन पर मौजूद चीज़ों को पढ़ने और संचालित करने की सुविधा देती है। Harness Agent इसका उपयोग केवल अपनी वर्चुअल स्क्रीन पर आपके द्वारा दिए गए कार्यों को करने के लिए करती है, और आपकी मुख्य स्क्रीन पर तभी कार्य करती है जब आप उसे वहां कोई कार्य सौंपते हैं।</string>
     <string name="channel_attention">आपकी जरूरत है</string>
     <string name="takeover_title">आपकी जरूरत है</string>

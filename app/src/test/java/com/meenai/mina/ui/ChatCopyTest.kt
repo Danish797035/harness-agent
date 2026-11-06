@@ -14,8 +14,8 @@ class ChatCopyTest {
     @get:Rule val texts = EnglishTexts()
 
     @Test fun sixDistinctNonBlankExamples() {
-        assertEquals(6, ChatCopy.examples.size)
-        assertEquals(6, ChatCopy.examples.map { it.text }.filter { it.isNotBlank() }.toSet().size)
+        assertEquals(8, ChatCopy.examples.size)
+        assertEquals(8, ChatCopy.examples.map { it.text }.filter { it.isNotBlank() }.toSet().size)
     }
 
     @Test fun titleIsTheFirstLineOfTheFirstMessage() {

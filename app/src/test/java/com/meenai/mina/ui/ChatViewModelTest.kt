@@ -1401,14 +1401,14 @@ class ChatViewModelTest {
         // 模型下一步之前拿到了这句话
         steerFlow.value = listOf(SteerNote(steerIds.single(), "改成后天", SteerState.Joined))
         runCurrent()
-        assertEquals("已加入当前任务", steerLabel(vm.ui.value.exchanges.single().steers.single().state))
+        assertEquals("Added to the current task", steerLabel(vm.ui.value.exchanges.single().steers.single().state))
 
         // 又说一句,任务就收尾了:这句没交到任务手里,作为下一件事
         assertTrue(vm.send("顺便订午饭", ok))
         emit(TaskState.Succeeded("订好了"))
         ex = vm.ui.value.exchanges.single()
         assertEquals(listOf(SteerState.Joined, SteerState.Next), ex.steers.map { it.state })
-        assertEquals("将作为下一件事", steerLabel(ex.steers.last().state))
+        assertEquals("Queued as the next task", steerLabel(ex.steers.last().state))
         assertEquals(1, vm.ui.value.exchanges.size)
     }
 
@@ -1440,7 +1440,7 @@ class ChatViewModelTest {
         runCurrent()
         val note = vm.ui.value.exchanges.single().steers.single()
         assertEquals(SteerState.Received, note.state)
-        assertEquals("已收到，下一步处理", steerLabel(note.state))
+        assertEquals("Got it — next step", steerLabel(note.state))
         emit(TaskState.Succeeded("订好了"))
         assertEquals(SteerState.Next, vm.ui.value.exchanges.single().steers.single().state)
     }
@@ -1475,8 +1475,8 @@ class ChatViewModelTest {
         emit(TaskState.Running(1, "", "phone_tap"))
         did(1, "act", "phone_tap", "com.chat", "ref_expired", failed = true)
         val row = vm.ui.value.exchanges.single().steps.single()
-        assertEquals("点击 · 聊天", row.title)
-        assertEquals("没成功", row.subtitle)
+        assertEquals("Tap · 聊天", row.title)
+        assertEquals("Failed", row.subtitle)
         assertFalse(row.toString().contains("ref_expired"))
     }
 
@@ -1504,7 +1504,7 @@ class ChatViewModelTest {
         vm.cancel()
         assertEquals("cancel", calls.last())
         assertEquals(SteerState.Cancelled, vm.ui.value.exchanges.single().steers.single().state)
-        assertEquals("已取消", steerLabel(SteerState.Cancelled))
+        assertEquals("Cancelled", steerLabel(SteerState.Cancelled))
         emit(TaskState.Cancelled)
         assertEquals(SteerState.Cancelled, vm.ui.value.exchanges.single().steers.single().state)
 
@@ -1601,7 +1601,7 @@ class ChatViewModelTest {
         vm.openConversation(id)
         val ex = vm.ui.value.exchanges.single()
         assertEquals(listOf("要大一点的"), ex.steers.map { it.text })
-        assertEquals("已加入当前任务", steerLabel(ex.steers.single().state))
+        assertEquals("Added to the current task", steerLabel(ex.steers.single().state))
     }
 
     // 插话打断的那段回复也随那一轮存下,重开时还挂在那句插话上;没打断的那句没有
@@ -1813,7 +1813,7 @@ class ChatViewModelTest {
             state.value = shown.value!!.second
             runCurrent()
             did(1, "act", "phone_launch_app", "com.chat")
-            assertEquals(listOf("打开 App · 聊天"), vm.ui.value.exchanges.last().steps.map { it.text })
+            assertEquals(listOf("Open app · 聊天"), vm.ui.value.exchanges.last().steps.map { it.text })
             // 回到前台再接一次:不另起一条
             vm.refresh()
             assertEquals(2, vm.ui.value.exchanges.size)
@@ -1872,7 +1872,7 @@ class ChatViewModelTest {
         emit(TaskState.Running(2, "打开聊天", tool = "phone_launch_app", progress = com.meenai.mina.core.agent.RunProgress.WaitingForApp("聊天")))
         val ex = vm.ui.value.exchanges.single()
         assertEquals(ExchangeStatus.Working, ex.status)
-        assertEquals("等另一个任务用完聊天", ex.line)
+        assertEquals("Waiting for another task to finish with 聊天", ex.line)
         assertEquals(ComposerMode.Busy, vm.ui.value.composer)
     }
 
