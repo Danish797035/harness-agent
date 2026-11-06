@@ -2,25 +2,25 @@
 
 [简体中文](computer-install.md) · [Connection and task commands](cli.en.md) · [MCP configuration](mcp.en.md)
 
-The starting point for using Mina from a computer is [Use Mina from a computer](computer.en.md): pick CLI + Skill or MCP there, and USB or Wi-Fi / VPN. This page only covers installing, updating and removing the CLI and the Skill; if you use an MCP client, skip it and follow the [MCP guide](mcp.en.md).
+The starting point for using Harness Agent from a computer is [Use Harness Agent from a computer](computer.en.md): pick CLI + Skill or MCP there, and USB or Wi-Fi / VPN. This page only covers installing, updating and removing the CLI and the Skill; if you use an MCP client, skip it and follow the [MCP guide](mcp.en.md).
 
 Agents wanting a fixed shortest path: see the [agent quick path](agent-quickstart.en.md).
 
 ## Before you start
 
-- To let a computer agent that can run commands and supports Skills use Mina, install the [Skill](#skill-install). It includes its own CLI script, so no separate CLI install is needed.
+- To let a computer agent that can run commands and supports Skills use Harness Agent, install the [Skill](#skill-install). It includes its own CLI script, so no separate CLI install is needed.
 - To submit tasks from a terminal or script, install the [CLI](#cli-install), which gives you the `mina` command.
 
-On the phone: install the APK ([Releases](https://github.com/wangzan101/Mina/releases/latest)), open Mina once and add a model. **If Mina only needs to chat, browse the web and work with files, you can skip accessibility and the phone helper, and Android 11 works**; only phone app control needs the phone-control setup in the [setup guide](setup-guide.en.md) (Android 12+). Installing or updating the computer tools does not install or update the APK on the phone.
+On the phone: install the APK ([Releases](https://github.com/Danish797035/harness-agent/releases/latest)), open Harness Agent once and add a model. **If Harness Agent only needs to chat, browse the web and work with files, you can skip accessibility and the phone helper, and Android 11 works**; only phone app control needs the phone-control setup in the [setup guide](setup-guide.en.md) (Android 12+). Installing or updating the computer tools does not install or update the APK on the phone.
 
-Below, `<tag>` means the version tag of the [latest release](https://github.com/wangzan101/Mina/releases/latest) (the `v0.1.x` in its title). Keep the computer tools and the phone APK on the same version where you can.
+Below, `<tag>` means the version tag of the [latest release](https://github.com/Danish797035/harness-agent/releases/latest) (the `v0.1.x` in its title). Keep the computer tools and the phone APK on the same version where you can.
 
 ## CLI: install
 
 Requires Python 3.10+, Git and pipx; ADB connections also need Android platform-tools. Install:
 
 ```bash
-pipx install 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tools/mina'
+pipx install 'git+https://github.com/Danish797035/harness-agent.git@<tag>#subdirectory=tools/harness'
 mina --version
 ```
 
@@ -31,7 +31,7 @@ The pipx package is `mina-phone-cli` and the command is `mina`. The CLI has its 
 To update, use the new `<tag>`; to roll back, use the previous one; `--force` replaces the installed copy:
 
 ```bash
-pipx install --force 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tools/mina'
+pipx install --force 'git+https://github.com/Danish797035/harness-agent.git@<tag>#subdirectory=tools/harness'
 ```
 
 `pipx upgrade` does not move to another tag; use the command above to change versions. To remove:
@@ -44,7 +44,7 @@ pipx uninstall mina-phone-cli
 
 The Skill is the repository's `tools/harness` folder: `SKILL.md` tells the agent how to use it, and `scripts/harness_cli.py` is the bundled CLI, which needs only Python 3.10+ (plus platform-tools for ADB connections).
 
-1. From the [latest release](https://github.com/wangzan101/Mina/releases/latest), download **Source code (zip)** and extract it.
+1. From the [latest release](https://github.com/Danish797035/harness-agent/releases/latest), download **Source code (zip)** and extract it.
 2. Copy the **whole** `tools/harness` folder into your agent's skills directory (see that agent's own documentation for where it is). The result should be `<skills-directory>/mina/SKILL.md`, without an extra nested `mina` folder.
 3. Check that the bundled script runs:
 
@@ -88,8 +88,8 @@ mina --url http://PHONE:8765 --token-file /path/to/private-token-file doctor --j
 | `incompatible_api` | The APK on the phone is too old to include task API v1; update it. |
 | `stale_connection` | The phone has rebooted; run `connect` again. |
 | `device_selection` | More than one phone is online; find the serial with `mina devices` and add `--device SERIAL`. |
-| `connection_info` | Mina's connection information could not be read (the phone is locked, Mina hasn't been opened yet, and so on): unlock the phone, open Mina once, then run `connect` again. |
-| `adb` / `adb_unavailable` | Make sure adb is on PATH and the phone shows as `device` in `adb devices`, open Mina once on the phone, then run `connect` again. |
+| `connection_info` | Harness Agent's connection information could not be read (the phone is locked, Harness Agent hasn't been opened yet, and so on): unlock the phone, open Harness Agent once, then run `connect` again. |
+| `adb` / `adb_unavailable` | Make sure adb is on PATH and the phone shows as `device` in `adb devices`, open Harness Agent once on the phone, then run `connect` again. |
 | The agent does not see the Skill | Check for an extra nested folder and that `scripts/` was copied too, then start a new session. |
 
 Removing the computer tools does not delete phone data or turn off computer access on the phone. To stop remote access, turn off the relevant switch in Settings › Connect a computer on the phone.

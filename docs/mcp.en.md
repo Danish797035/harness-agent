@@ -1,27 +1,27 @@
-# Computer access (MCP): let AI tools on your computer hand tasks to Mina
+# Computer access (MCP): let AI tools on your computer hand tasks to Harness Agent
 
 [简体中文](mcp.md) | English
 
-> Using Mina from a computer? Start with [Use Mina from a computer](computer.en.md): how to choose between CLI + Skill and MCP, and how to connect. For terminal or Skill-based use, see [CLI and Skill](cli.en.md).
+> Using Harness Agent from a computer? Start with [Use Harness Agent from a computer](computer.en.md): how to choose between CLI + Skill and MCP, and how to connect. For terminal or Skill-based use, see [CLI and Skill](cli.en.md).
 
-With "Computer access" on, Mina is an MCP server: an AI tool on your computer that speaks MCP (an MCP client) can hand Mina a job, and Mina does it on the phone its own way (operating apps, using the built-in browser, working with files), then hands back the result. The computer says what to get done; Mina on the phone decides how.
+With "Computer access" on, Harness Agent is an MCP server: an AI tool on your computer that speaks MCP (an MCP client) can hand Harness Agent a job, and Harness Agent does it on the phone its own way (operating apps, using the built-in browser, working with files), then hands back the result. The computer says what to get done; Harness Agent on the phone decides how.
 
 There are two ways to connect. Each has its own switch and token, and both can be on at once:
 
 - **Over USB (recommended)**: with the phone on a cable and USB debugging on, one command on the computer turns it on, without touching the phone. It listens on the phone itself only, so it can't be reached over Wi-Fi.
-- **Over Wi-Fi or a private network**: turned on in the phone's settings, off by default. When the computer and the phone are on the same Wi-Fi, or in the same private VPN network (a virtual LAN made by a mesh networking tool), they can connect without any port forwarding on your router. This is also how you use Mina remotely.
+- **Over Wi-Fi or a private network**: turned on in the phone's settings, off by default. When the computer and the phone are on the same Wi-Fi, or in the same private VPN network (a virtual LAN made by a mesh networking tool), they can connect without any port forwarding on your router. This is also how you use Harness Agent remotely.
 
 ## Connecting over USB (recommended)
 
-You need adb on the computer, the phone listed in `adb devices`, and Mina opened at least once (that's when it writes the script onto the phone).
+You need adb on the computer, the phone listed in `adb devices`, and Harness Agent opened at least once (that's when it writes the script onto the phone).
 
 1. On the computer, run:
 
    ```
-   adb shell sh /sdcard/Android/data/com.meenai.mina/files/connect-computer.sh
+   adb shell sh /sdcard/Android/data/com.danish.harnessagent/files/connect-computer.sh
    ```
 
-   It first starts Mina's phone helper (the same as "Start from a computer"; skipped if it's already running), then turns USB mode on, and finally prints the connection info, like this:
+   It first starts Harness Agent's phone helper (the same as "Start from a computer"; skipped if it's already running), then turns USB mode on, and finally prints the connection info, like this:
 
    ```json
    {
@@ -48,12 +48,12 @@ You need adb on the computer, the phone listed in `adb devices`, and Mina opened
 To see the connection info again later:
 
 ```
-adb shell cat /sdcard/Android/data/com.meenai.mina/files/mcp-usb.json
+adb shell cat /sdcard/Android/data/com.danish.harnessagent/files/mcp-usb.json
 ```
 
 Once it's on:
 
-- A "Computer access is on" notification stays in the shade, and it stays on while Mina is in the background. On the phone, Settings › Connect a computer initially shows "Waiting for a computer"; only after a request arrives does it show "Request received from a computer" and the request time.
+- A "Computer access is on" notification stays in the shade, and it stays on while Harness Agent is in the background. On the phone, Settings › Connect a computer initially shows "Waiting for a computer"; only after a request arrives does it show "Request received from a computer" and the request time.
 - **After you unplug and replug the cable** (or adb on the computer restarts), run `adb forward tcp:8765 tcp:8765` again. The token stays the same.
 - Running the command in step 1 again while it's on keeps the token, so clients you already set up keep working.
 - **It turns off when the phone restarts.** Run the command in step 1 again; the token is new then, so update it in your client config.
@@ -61,7 +61,7 @@ Once it's on:
 To turn it off (any of these; the old token stops working at once and the connection info file is deleted; the next time you turn it on you get a new token):
 
 ```
-adb shell sh /sdcard/Android/data/com.meenai.mina/files/connect-computer.sh off
+adb shell sh /sdcard/Android/data/com.danish.harnessagent/files/connect-computer.sh off
 ```
 
 Or switch off "Connect through USB" in Settings › Connect a computer › Advanced settings on the phone, or tap "Turn off" on the notification (which also turns off the Wi-Fi mode if it's on).
@@ -69,17 +69,17 @@ Or switch off "Connect through USB" in Settings › Connect a computer › Advan
 What the script does can also be done with plain commands (after turning it on, the connection info file takes a second or two to appear):
 
 ```
-adb shell am start-foreground-service -n com.meenai.mina/.mcp.McpService -a com.meenai.mina.mcp.USB_ON
-adb shell cat /sdcard/Android/data/com.meenai.mina/files/mcp-usb.json
-adb shell am start-foreground-service -n com.meenai.mina/.mcp.McpService -a com.meenai.mina.mcp.USB_OFF
+adb shell am start-foreground-service -n com.danish.harnessagent/com.meenai.mina.mcp.McpService -a com.meenai.mina.mcp.USB_ON
+adb shell cat /sdcard/Android/data/com.danish.harnessagent/files/mcp-usb.json
+adb shell am start-foreground-service -n com.danish.harnessagent/com.meenai.mina.mcp.USB_OFF
 ```
 
 ## Connecting over Wi-Fi or a private network
 
 ### Turning it on
 
-1. In Mina, open Settings › Connect a computer, select "MCP" › "Wi-Fi / VPN", then tap "Enable network access". Network access is off by default; selecting a guide does not enable it.
-2. While it is on, a "Computer access is on" notification stays in the shade to show Mina is listening in the background; its "Turn off" button switches it off right there.
+1. In Harness Agent, open Settings › Connect a computer, select "MCP" › "Wi-Fi / VPN", then tap "Enable network access". Network access is off by default; selecting a guide does not enable it.
+2. While it is on, a "Computer access is on" notification stays in the shade to show Harness Agent is listening in the background; its "Turn off" button switches it off right there.
 3. Select an address reachable from the computer, then tap "Copy config" and add it to your MCP client. The copied config contains the address and token. "Preview" is collapsed by default and only displays a token placeholder when expanded.
 4. Connect or refresh tools in the client, then check that the page shows "Request received from a computer" and the request time.
 
@@ -91,14 +91,14 @@ The token is stored encrypted on the phone, the same way as provider API keys. T
 
 - **Same Wi-Fi**: use the Wi-Fi address from the list (usually `192.168.*.*` or `10.*.*.*`).
 - **Private VPN network**: once the phone and the computer are in the same network, use that network's address from the list (these networks often use the `100.64.*.*` to `100.127.*.*` range).
-- When the phone is on mobile data, or the other side has a public address, Mina refuses the connection.
+- When the phone is on mobile data, or the other side has a public address, Harness Agent refuses the connection.
 
 In your MCP client, add a server of type "HTTP" (also called Streamable HTTP), enter the address, and add the header `Authorization: Bearer <token>`. Each client words its config file a little differently; most look like this:
 
 ```json
 {
   "mcpServers": {
-    "mina": {
+    "harness-agent": {
       "type": "http",
       "url": "http://192.168.1.23:8765/mcp",
       "headers": { "Authorization": "Bearer <token>" }
@@ -125,10 +125,10 @@ For public remote access, deploy the optional self-hosted gateway. Pair and expl
 
 | Tool | Arguments | What it does |
 | --- | --- | --- |
-| `mina_run_task` | `goal` (required), `conversation` (optional) | Hands Mina a job and returns a `task_id` right away. The task is recorded in a conversation you can see in the app. To follow up on an earlier job, pass the `conversation` that task returned. |
+| `mina_run_task` | `goal` (required), `conversation` (optional) | Hands Harness Agent a job and returns a `task_id` right away. The task is recorded in a conversation you can see in the app. To follow up on an earlier job, pass the `conversation` that task returned. |
 | `mina_task_status` | `task_id` | The task's state now: status, latest progress, what it is waiting for, and the answer when done. |
-| `mina_wait_task` | `task_id`, `timeout_s` (optional, default 30, at most 50) | Waits until the status changes (for example Mina starts waiting for an answer, or finishes) or time runs out, then returns the state. Progress notes alone don't count, so it doesn't return on every step. |
-| `mina_answer` | `task_id`, `text` | Answers the question Mina asked in this task. |
+| `mina_wait_task` | `task_id`, `timeout_s` (optional, default 30, at most 50) | Waits until the status changes (for example Harness Agent starts waiting for an answer, or finishes) or time runs out, then returns the state. Progress notes alone don't count, so it doesn't return on every step. |
+| `mina_answer` | `task_id`, `text` | Answers the question Harness Agent asked in this task. |
 | `mina_steer_task` | `task_id`, `text` | Adds instructions to a running task (up to 4000 characters), keeping its ID and context. Returns accepted and message_id, not proof of execution. |
 | `mina_cancel_task` | `task_id` | Stops the task. |
 | `mina_list_tasks` | `limit` (optional, default 10) | The most recent tasks handed over from computers, newest first. |
@@ -139,7 +139,7 @@ Statuses:
 - `running`: in progress, with the latest progress note.
 - `queued`: not started yet, waiting behind other tasks (the limit on tasks running at once is reached, or this conversation already has a task running); it starts by itself when its turn comes. Wait or cancel.
 - `paused`: waiting for a condition, such as the phone being unlocked (it carries on by itself afterwards).
-- `waiting_for_answer`: Mina asked a question; answer with `mina_answer` (answering on the phone works too). If nobody answers for a long time, Mina carries on as if there were no answer.
+- `waiting_for_answer`: Harness Agent asked a question; answer with `mina_answer` (answering on the phone works too). If nobody answers for a long time, Harness Agent carries on as if there were no answer.
 - `waiting_on_phone`: this step can only be handled by a person on the phone, such as a step handed over for you to do yourself. The computer can't answer it; wait or cancel. The phone shows its usual notification.
 - `done`: finished, with the answer; `verified` says whether the answer was checked.
 - `failed`: not done, with the reason.
@@ -171,7 +171,7 @@ Other statuses include `disabled`, `helper_unavailable`, `credential_required`, 
 
 - **Off by default**; it listens only while on and stops at once when turned off.
 - **USB mode listens on the phone itself (127.0.0.1) only**; it can't be reached over Wi-Fi or any other network, and the computer comes in through adb's port forwarding. Other apps on the phone can reach that port too, so the token is still required, and the USB token is only accepted from the phone itself.
-- **Only the computer can turn USB mode on and get its token**: Mina's service only accepts callers holding the `INTERACT_ACROSS_USERS_FULL` permission. The adb shell has it; ordinary apps can't get it (and adb can't grant it to other apps). The token is written in Mina's external files folder (`/sdcard/Android/data/com.meenai.mina/files/mcp-usb.json`); since Android 11 other apps can't read that folder, only Mina and the adb shell can.
+- **Only the computer can turn USB mode on and get its token**: Harness Agent's service only accepts callers holding the `INTERACT_ACROSS_USERS_FULL` permission. The adb shell has it; ordinary apps can't get it (and adb can't grant it to other apps). The token is written in Harness Agent's external files folder (`/sdcard/Android/data/com.danish.harnessagent/files/mcp-usb.json`); since Android 11 other apps can't read that folder, only Harness Agent and the adb shell can.
 - **Every request needs the token.** The token is 32 random bytes and is compared in constant time; 5 wrong tries from one address within a minute lock that address out for a minute.
 - **No browser requests**: anything carrying an `Origin` header is refused, so web pages can't reach the port through your browser.
 - **Private networks only**: both ends must be on a LAN, a private VPN network, or the phone itself; connections from public addresses are dropped immediately.
@@ -184,10 +184,10 @@ Other statuses include `disabled`, `helper_unavailable`, `credential_required`, 
 
 - **No address in the list**: the phone isn't on Wi-Fi or a private VPN network.
 - **Status says "Couldn't start"**: another app may be using the port; turn the switch off and on again.
-- **The USB script says the file doesn't exist**: open Mina once, wait a few seconds, and try again. If it's still missing, the Mina on the phone doesn't have this feature yet.
+- **The USB script says the file doesn't exist**: open Harness Agent once, wait a few seconds, and try again. If it's still missing, the Harness Agent on the phone doesn't have this feature yet.
 - **Can't connect over USB** (`curl` reports connection refused or reset): run `adb forward tcp:8765 tcp:8765` again; if the phone restarted, run the command that turns it on again first.
-- **Port 8765 is already used on the computer** (the forward fails with `cannot bind`, or you get a response that isn't from Mina): pick another free port on the computer, e.g. `adb forward tcp:18765 tcp:8765`, and use `http://127.0.0.1:18765/mcp` in the config. Nothing changes on the phone.
+- **Port 8765 is already used on the computer** (the forward fails with `cannot bind`, or you get a response that isn't from Harness Agent): pick another free port on the computer, e.g. `adb forward tcp:18765 tcp:8765`, and use `http://127.0.0.1:18765/mcp` in the config. Nothing changes on the phone.
 - **HTTP 429**: too many wrong tokens from one address; wait a minute. Over USB, everything on the phone that connects to the local port counts as the same address.
 - **The computer can't connect**: make sure both are on the same network; some Wi-Fi networks (guest networks, for example) block devices from reaching each other.
-- **The task never starts** (the call fails right away, or the task turns `failed` after two minutes): open Mina on the phone and try again. Android sometimes stops a background app from starting work on its own; once you've opened Mina it works.
-- **The task stays `paused`**: the phone is most likely locked. Mina needs the phone unlocked to work.
+- **The task never starts** (the call fails right away, or the task turns `failed` after two minutes): open Harness Agent on the phone and try again. Android sometimes stops a background app from starting work on its own; once you've opened Harness Agent it works.
+- **The task stays `paused`**: the phone is most likely locked. Harness Agent needs the phone unlocked to work.

@@ -2,16 +2,16 @@
 
 [简体中文](agent-quickstart.md) | English
 
-For AI agents on a computer: follow these fixed steps to install Mina and connect the phone, without weighing options. Full details: [Install](computer-install.en.md) and [CLI](cli.en.md).
+For AI agents on a computer: follow these fixed steps to install Harness Agent and connect the phone, without weighing options. Full details: [Install](computer-install.en.md) and [CLI](cli.en.md).
 
 ## 1. Resolve the latest release tag
 
 ```sh
-curl -s https://api.github.com/repos/wangzan101/Mina/releases/latest   # read tag_name
+curl -s https://api.github.com/repos/Danish797035/harness-agent/releases/latest   # read tag_name
 ```
 
 ```powershell
-(Invoke-RestMethod https://api.github.com/repos/wangzan101/Mina/releases/latest).tag_name
+(Invoke-RestMethod https://api.github.com/repos/Danish797035/harness-agent/releases/latest).tag_name
 ```
 
 Below, `<tag>` is that value (e.g. `v0.1.31`) and `<ver>` is the version without the `v` (e.g. `0.1.31`).
@@ -19,7 +19,7 @@ Below, `<tag>` is that value (e.g. `v0.1.31`) and `<ver>` is the version without
 ## 2. CLI or Skill
 
 - Agent supports skills: **install the Skill by default**; it bundles the CLI script.
-- Otherwise install the CLI: `pipx install 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tools/mina'`.
+- Otherwise install the CLI: `pipx install 'git+https://github.com/Danish797035/harness-agent.git@<tag>#subdirectory=tools/harness'`.
 
 ## 3. Install the Skill
 
@@ -28,19 +28,19 @@ Below, `<tag>` is that value (e.g. `v0.1.31`) and `<ver>` is the version without
 POSIX:
 
 ```sh
-curl -L -o mina.zip https://github.com/wangzan101/Mina/archive/refs/tags/<tag>.zip
+curl -L -o mina.zip https://github.com/Danish797035/harness-agent/archive/refs/tags/<tag>.zip
 unzip -q mina.zip -d mina-src
-mkdir -p <skills-directory> && cp -R mina-src/Mina-<ver>/tools/mina <skills-directory>/mina
+mkdir -p <skills-directory> && cp -R mina-src/harness-agent-<ver>/tools/harness <skills-directory>/mina
 python3 <skills-directory>/mina/scripts/mina_cli.py --version
 ```
 
 Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest https://github.com/wangzan101/Mina/archive/refs/tags/<tag>.zip -OutFile mina.zip
+Invoke-WebRequest https://github.com/Danish797035/harness-agent/archive/refs/tags/<tag>.zip -OutFile mina.zip
 Expand-Archive mina.zip -DestinationPath mina-src
 New-Item -ItemType Directory -Force "<skills-directory>" | Out-Null
-Copy-Item -Recurse mina-src\Mina-<ver>\tools\mina "<skills-directory>\mina"
+Copy-Item -Recurse mina-src\harness-agent-<ver>\tools\harness "<skills-directory>\mina"
 py -3 "<skills-directory>\mina\scripts\mina_cli.py" --version
 ```
 
@@ -61,7 +61,7 @@ Use the connection method the user picked on the phone (Settings › Connect a c
    mina --url http://PHONE:8765 --token-file /path/to/token doctor --json
    ```
 
-State `unauthorized`: ask the user to allow USB debugging on the phone. `offline`: ask them to replug the cable. Connection information unreadable (`connection_info`): ask them to unlock the phone and open Mina once, then run `connect` again.
+State `unauthorized`: ask the user to allow USB debugging on the phone. `offline`: ask them to replug the cable. Connection information unreadable (`connection_info`): ask them to unlock the phone and open Harness Agent once, then run `connect` again.
 
 ## Notes
 

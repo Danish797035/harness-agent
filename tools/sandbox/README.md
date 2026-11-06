@@ -59,11 +59,11 @@ tools/sandbox/build-native.sh --check   # 只重编并与仓库里的产物比�
 
 ## 发布 APK 时一起发布源码包
 
-每次发布 APK,都要把 `sources.lock` 列出的源码包、`patches/`、编译脚本和许可证打包成 `mina-<版本>-gpl-sources.tar.gz`,和 APK 放在同一个发布页。在仓库根目录运行:
+每次发布 APK,都要把 `sources.lock` 列出的源码包、`patches/`、编译脚本和许可证打包成 `harness-agent-<版本>-gpl-sources.tar.gz`,和 APK 放在同一个发布页。在仓库根目录运行:
 
 ```bash
 VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
-NAME=mina-$VERSION-gpl-sources
+NAME=harness-agent-$VERSION-gpl-sources
 OUT=build/gpl-sources/$NAME
 rm -rf "$OUT" && mkdir -p "$OUT"
 while read -r name version url sum; do
@@ -80,5 +80,5 @@ cp -R tools/sandbox/runtime "$OUT/runtime/lock"
 COPYFILE_DISABLE=1 tar -czf "build/gpl-sources/$NAME.tar.gz" -C build/gpl-sources "$NAME"
 ```
 
-运行后得到 `build/gpl-sources/mina-<版本>-gpl-sources.tar.gz`。上传前用 `tar -tzf` 看一眼,确认里面有两个源码包、`patches/`,
+运行后得到 `build/gpl-sources/harness-agent-<版本>-gpl-sources.tar.gz`。上传前用 `tar -tzf` 看一眼,确认里面有两个源码包、`patches/`,
 以及 `runtime/` 下每个 GPL/LGPL/MPL 软件包的目录和 `runtime/SOURCES.txt`(gcc 等源码较大,整包约数百 MB)。

@@ -2,16 +2,16 @@
 
 简体中文 | [English](agent-quickstart.en.md)
 
-给电脑上的 AI Agent：按下面的固定步骤安装 Mina 并连接手机，不用自己权衡方案。完整说明见[安装](computer-install.md)和[CLI](cli.md)。
+给电脑上的 AI Agent：按下面的固定步骤安装 Harness Agent 并连接手机，不用自己权衡方案。完整说明见[安装](computer-install.md)和[CLI](cli.md)。
 
 ## 1. 解析最新版本 tag
 
 ```sh
-curl -s https://api.github.com/repos/wangzan101/Mina/releases/latest   # 取 tag_name
+curl -s https://api.github.com/repos/Danish797035/harness-agent/releases/latest   # 取 tag_name
 ```
 
 ```powershell
-(Invoke-RestMethod https://api.github.com/repos/wangzan101/Mina/releases/latest).tag_name
+(Invoke-RestMethod https://api.github.com/repos/Danish797035/harness-agent/releases/latest).tag_name
 ```
 
 下文 `<tag>` 即该值（如 `v0.1.31`），`<ver>` 是去掉 `v` 的版本号（如 `0.1.31`）。
@@ -19,7 +19,7 @@ curl -s https://api.github.com/repos/wangzan101/Mina/releases/latest   # 取 tag
 ## 2. 选 CLI 还是 Skill
 
 - Agent 支持 Skill：**默认装 Skill**，它自带 CLI 脚本。
-- 否则装 CLI：`pipx install 'git+https://github.com/wangzan101/Mina.git@<tag>#subdirectory=tools/mina'`。
+- 否则装 CLI：`pipx install 'git+https://github.com/Danish797035/harness-agent.git@<tag>#subdirectory=tools/harness'`。
 
 ## 3. 安装 Skill
 
@@ -28,19 +28,19 @@ curl -s https://api.github.com/repos/wangzan101/Mina/releases/latest   # 取 tag
 POSIX：
 
 ```sh
-curl -L -o mina.zip https://github.com/wangzan101/Mina/archive/refs/tags/<tag>.zip
+curl -L -o mina.zip https://github.com/Danish797035/harness-agent/archive/refs/tags/<tag>.zip
 unzip -q mina.zip -d mina-src
-mkdir -p <技能目录> && cp -R mina-src/Mina-<ver>/tools/mina <技能目录>/mina
+mkdir -p <技能目录> && cp -R mina-src/harness-agent-<ver>/tools/harness <技能目录>/mina
 python3 <技能目录>/mina/scripts/mina_cli.py --version
 ```
 
 Windows PowerShell：
 
 ```powershell
-Invoke-WebRequest https://github.com/wangzan101/Mina/archive/refs/tags/<tag>.zip -OutFile mina.zip
+Invoke-WebRequest https://github.com/Danish797035/harness-agent/archive/refs/tags/<tag>.zip -OutFile mina.zip
 Expand-Archive mina.zip -DestinationPath mina-src
 New-Item -ItemType Directory -Force "<技能目录>" | Out-Null
-Copy-Item -Recurse mina-src\Mina-<ver>\tools\mina "<技能目录>\mina"
+Copy-Item -Recurse mina-src\harness-agent-<ver>\tools\harness "<技能目录>\mina"
 py -3 "<技能目录>\mina\scripts\mina_cli.py" --version
 ```
 
@@ -61,7 +61,7 @@ py -3 "<技能目录>\mina\scripts\mina_cli.py" --version
    mina --url http://PHONE:8765 --token-file /path/to/token doctor --json
    ```
 
-状态 `unauthorized`：让用户在手机上允许 USB 调试。`offline`：让用户重新插拔数据线。读不到连接信息（`connection_info`）：让用户解锁手机、打开一次 Mina，再运行 `connect`。
+状态 `unauthorized`：让用户在手机上允许 USB 调试。`offline`：让用户重新插拔数据线。读不到连接信息（`connection_info`）：让用户解锁手机、打开一次 Harness Agent，再运行 `connect`。
 
 ## 注意
 

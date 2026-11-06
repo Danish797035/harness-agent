@@ -17,17 +17,6 @@
     <string name="about_feedback_sheet_sub">कोई समस्या मिली या कोई विचार है? जहां भी आपको उपयुक्त लगे, लेखक को बताएं।</string>
     <string name="about_feedback_github">GitHub पर एक समस्या खोलें</string>
     <string name="about_feedback_github_sub">बग की रिपोर्ट करें या सुविधाओं का अनुरोध करें और प्रगति का अनुसरण करें</string>
-    <string name="about_feedback_group">व्हाट्सएप समुदाय</string>
-    <string name="about_group">डेवलपर से संपर्क करें</string>
-    <string name="about_group_sub">व्हाट्सएप समुदाय और प्रतिक्रिया</string>
-    <string name="about_group_sheet_title">डेवलपर से संपर्क करें</string>
-    <string name="about_group_sheet_sub">मीनएआई व्हाट्सएप समुदाय में शामिल होने के लिए क्यूआर स्कैन करें, या नीचे दिए गए बटन पर टैप करें।</string>
-    <string name="about_group_hint">सहेजने के लिए देर तक दबाएँ · या अपने फ़ोन कैमरे से स्कैन करें</string>
-    <string name="about_group_no_wechat">व्हाट्सएप पर नहीं?</string>
-    <string name="about_group_join_x">व्हाट्सएप समुदाय से जुड़ें</string>
-    <string name="about_save_qr">QR कोड सहेजें</string>
-    <string name="about_qr_saved">QR कोड फ़ोटो में सहेजा गया</string>
-    <string name="about_qr_save_failed">सहेजा नहीं जा सका. इसके बजाय एक स्क्रीनशॉट लें.</string>
     <string name="about_follow">लेखक का अनुसरण करें</string>
     <string name="about_follow_sub">%1$s · नई सुविधाओं के बारे में सबसे पहले सुनने वाला</string>
     <string name="about_follow_x">एक्स (ट्विटर)</string>
@@ -38,7 +27,7 @@
     <string name="about_guide_sub">शुरू करना; बिना कोडिंग के भी ऐप का ज्ञान जोड़ें</string>
     <string name="about_data_note">Harness Agent आप जो भेजते हैं - संदेश, स्क्रीन सामग्री और स्क्रीनशॉट - केवल आपके द्वारा सेट किए गए मॉडल प्रदाता को जाता है। Harness Agent के पास अपना कोई सर्वर नहीं है और वह आपका कोई भी डेटा एकत्र नहीं करता है; अपडेट की जाँच केवल GitHub से संपर्क करती है।</string>
     <string name="about_license_link">अपाचे-2.0 लाइसेंस</string>
-    <string name="about_author">मीनएआई द्वारा निर्मित · मिका पर निर्मित</string>
+    <string name="about_author">Made by D Harness</string>
     <string name="about_license_title">अपाचे-2.0 लाइसेंस</string>
     <string name="about_update_download">GitHub से डाउनलोड करें</string>
     <string name="about_update_download_in_app">अद्यतन डाउनलोड करें</string>

@@ -2,7 +2,7 @@
 
 [简体中文](models.md) | English
 
-Mina doesn't come with a model; it uses a model provider you choose. Enter an API key, or sign in with an account. The main model must support tool calling.
+Harness Agent doesn't come with a model; it uses a model provider you choose. Enter an API key, or sign in with an account. The main model must support tool calling.
 
 ## Add a model
 
@@ -14,19 +14,19 @@ Open "Models" (模型) in Settings (the app also walks you through this on first
 
 The first three roles: the **main model** (does the work; must support tool calling), the **vision model** (describes the UI and locates things in screenshots; off by default on a fresh install, or choose "use main model"), and the **light model** (small jobs like judging outcomes, extracting memories and understanding intent; defaults to the main model). For exactly what "Test and save" tries and where the capability tags on the model list come from, see [model configuration details](../.github/CONTRIBUTING.md#model-configuration-details) in the contributing guide.
 
-Whether a model can see images: if the provider's model list says, Mina goes by that; if it doesn't (many relays and self-hosted services don't), the preset's initial value applies, and a custom provider is assumed not to see. Tap a model on the provider's page and the sheet has a "Can see images" switch: what you set wins, even over the list. When the main model can see, screenshots go straight to it instead of costing a separate vision call. Picking the main model itself as the vision model (or choosing "use main model") also counts as saying the main model can see; switching away undoes it.
+Whether a model can see images: if the provider's model list says, Harness Agent goes by that; if it doesn't (many relays and self-hosted services don't), the preset's initial value applies, and a custom provider is assumed not to see. Tap a model on the provider's page and the sheet has a "Can see images" switch: what you set wins, even over the list. When the main model can see, screenshots go straight to it instead of costing a separate vision call. Picking the main model itself as the vision model (or choosing "use main model") also counts as saying the main model can see; switching away undoes it.
 
 ## Speech to text
 
-The fourth role, used when you hold to talk; pick it under Settings › Models › Speech to text. By default it uses the phone's built-in speech recognition, which shows words as you speak and costs nothing. If the phone has none, or it is not accurate enough, pick a provider's speech model: it transcribes after you finish speaking and uses your quota. The list only shows models whose names look like speech models; for anything else, type the model name in by hand under that provider. Picking runs a short test transcription of silence and only selects the model if it works; otherwise you see why right away. If the phone's recognizer never responds when you hold to talk, Mina tells you and points you here; it never switches to a paid model by itself.
+The fourth role, used when you hold to talk; pick it under Settings › Models › Speech to text. By default it uses the phone's built-in speech recognition, which shows words as you speak and costs nothing. If the phone has none, or it is not accurate enough, pick a provider's speech model: it transcribes after you finish speaking and uses your quota. The list only shows models whose names look like speech models; for anything else, type the model name in by hand under that provider. Picking runs a short test transcription of silence and only selects the model if it works; otherwise you see why right away. If the phone's recognizer never responds when you hold to talk, Harness Agent tells you and points you here; it never switches to a paid model by itself.
 
 ## Sign in with an account (no key needed)
 
-At the top of "Add provider" is the group "Sign in with an account · no key needed". Tap one to read what happens, sign in in the browser, and come back to Mina to see the account and its models; you can set one as the main model right there.
+At the top of "Add provider" is the group "Sign in with an account · no key needed". Tap one to read what happens, sign in in the browser, and come back to Harness Agent to see the account and its models; you can set one as the main model right there.
 
 - **ChatGPT** (Plus or Pro, uses your plan's usage): tap "Continue with ChatGPT" and sign in in the browser.
-- **xAI / Grok** (SuperGrok or X Premium+ subscription): the browser opens xAI's confirmation page; check that it shows the same short code as your phone, then approve. This sign-in borrows the public sign-in entry of xAI's official command-line tool; xAI did not set it up for Mina and may restrict this use. Some subscription tiers still can't make calls after signing in (403); use an xAI API key in that case.
-- **OpenRouter**: OpenRouter's official authorization for third-party apps. Once you approve, OpenRouter gives Mina a key of your own (named "Mina"), paid from your OpenRouter balance; to stop, delete it on OpenRouter's Keys page.
+- **xAI / Grok** (SuperGrok or X Premium+ subscription): the browser opens xAI's confirmation page; check that it shows the same short code as your phone, then approve. This sign-in borrows the public sign-in entry of xAI's official command-line tool; xAI did not set it up for Harness Agent and may restrict this use. Some subscription tiers still can't make calls after signing in (403); use an xAI API key in that case.
+- **OpenRouter**: OpenRouter's official authorization for third-party apps. Once you approve, OpenRouter gives Harness Agent a key of your own (named "Harness Agent"), paid from your OpenRouter balance; to stop, delete it on OpenRouter's Keys page.
 
 Signing out only clears the sign-in on this phone.
 
@@ -50,6 +50,6 @@ If you need a proxy to reach a model service but don't want a system-wide VPN, e
 
 - Goes through the proxy: model requests (chat, speech to text, connection tests), model lists, token exchange when you sign in with an account, in-app update downloads, the in-app browser, and commands in Files & computing environment (while network access is on there).
 - Always direct: addresses on this phone or your LAN (localhost, 127.x, 10.x, 172.16–31.x, 192.168.x, 100.64–127.x, names ending in `.local` or `.lan`, and single-word machine names), so local models such as Ollama or LM Studio keep working.
-- If the proxy can't be reached or rejects the user name or password, Mina says so instead of blaming your key or model.
-- `https://` proxies (an encrypted connection to the proxy itself) are only used by commands in Files & computing environment; Mina's own connections stay direct. Use `http://` or `socks5://` to cover everything.
+- If the proxy can't be reached or rejects the user name or password, Harness Agent says so instead of blaming your key or model.
+- `https://` proxies (an encrypted connection to the proxy itself) are only used by commands in Files & computing environment; Harness Agent's own connections stay direct. Use `http://` or `socks5://` to cover everything.
 - The in-app browser uses the proxy only if the phone's WebView supports a per-app proxy, and it can't use a SOCKS proxy that needs a login. In those cases the settings row says the browser connects directly.
