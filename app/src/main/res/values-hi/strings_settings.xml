@@ -3,8 +3,6 @@
     <string name="language_title">भाषा</string>
     <string name="language_system">सिस्टम का पालन करें</string>
     <string name="language_system_detail">जब Harness Agent के पास आपके सिस्टम की भाषा होती है तो उसका उपयोग करता है, अन्यथा अंग्रेजी का</string>
-    <string name="language_english" translatable="false">English</string>
-    <string name="language_hindi" translatable="false">Hinglish</string>
     <string name="settings_basic">बुनियादी</string>
     <string name="settings_model">नमूना</string>
     <string name="settings_not_set">सेट नहीं</string>
