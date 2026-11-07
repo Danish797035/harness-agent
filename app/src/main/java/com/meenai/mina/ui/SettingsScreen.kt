@@ -60,7 +60,7 @@ import com.meenai.mina.core.usage.UsageQuery
 import com.meenai.mina.core.usage.UsageRange
 import com.meenai.mina.i18n.AppLanguage
 import com.meenai.mina.ui.router.RouterStatus
-import com.meenai.mina.ui.router.FakeRouterStatus
+import com.meenai.mina.ui.router.LocalRouterStatus
 import com.meenai.mina.ui.router.RouterUsageCard
 import com.meenai.mina.ui.router.ProviderUsage as RouterProviderUsage
 import kotlinx.coroutines.Dispatchers
@@ -92,7 +92,7 @@ fun SettingsScreen(
     /** 查到的新版本号;有它时「关于 Mina」一行写「x 可更新」带红点。 */
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
-    routerStatus: RouterStatus = remember { FakeRouterStatus() },
+    routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
     val configs by store.configs.collectAsState()
     val roles by store.roles.collectAsState()
@@ -359,13 +359,11 @@ fun SettingsContent(
             }
         }
 
-        if (routerUsages.isNotEmpty()) {
-            RouterUsageCard(
-                usages = routerUsages,
-                showSwitchNotice = showSwitchNotice,
-                onToggleSwitchNotice = onToggleSwitchNotice,
-            )
-        }
+        RouterUsageCard(
+            usages = routerUsages,
+            showSwitchNotice = showSwitchNotice,
+            onToggleSwitchNotice = onToggleSwitchNotice,
+        )
 
         val privacyRows = onOpenMemory != null || webSitesCount != null
         if (privacyRows) {

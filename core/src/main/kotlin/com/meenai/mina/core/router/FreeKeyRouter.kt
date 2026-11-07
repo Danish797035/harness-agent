@@ -68,7 +68,7 @@ typealias AllLimitsExhaustedException = ModelError.AllLimitsExhausted
  * 8. StateFlow<RouterStatus> exposed for live UI tracking.
  */
 class FreeKeyRouter(
-    val candidates: List<RouterCandidate>,
+    var candidates: List<RouterCandidate>,
     val cooldownStore: ModelCooldownStore = ModelCooldownStore(),
     val healthTracker: ModelHealthTracker = ModelHealthTracker(),
     val difficultyRouter: DifficultyRouter? = null,
@@ -199,6 +199,19 @@ class FreeKeyRouter(
 
     fun unpinModel() {
         pinnedModelId = null
+    }
+
+    fun updateCandidates(newCandidates: List<RouterCandidate>) {
+        candidates = newCandidates
+        val active = activeCandidate
+        if (active != null && newCandidates.none { it.id == active.id }) {
+            activeCandidate = null
+        }
+        updateStatus(
+            model = activeCandidate?.id,
+            provider = activeCandidate?.provider,
+            reason = "Candidates updated",
+        )
     }
 
     /**

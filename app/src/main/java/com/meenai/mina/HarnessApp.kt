@@ -216,9 +216,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             deviceAbis = android.os.Build.SUPPORTED_ABIS.toList())
     }
 
+    val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {
+        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers)
+    }
+
     /** 路由状态(Free Key Router UI)。 */
     val routerStatus: com.meenai.mina.ui.router.RouterStatus by lazy {
-        com.meenai.mina.ui.router.FakeRouterStatus()
+        com.meenai.mina.ui.router.RealRouterStatus(freeKeyRouter, scope)
     }
 
     /** 浮在别的 App 上的悬浮胶囊。 */
@@ -318,6 +322,11 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         ).start()
         // 上次异常退出时留下的改动(App 被静音)在这里恢复
         scope.launch { taskRecovery.recover() }
+        scope.launch {
+            providers.providers.collect {
+                freeKeyRouter.updateCandidates(com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers))
+            }
+        }
         // 上次进程被杀时没结束的运行:现在就标为中断并告知,不等任务服务起来
         runRecovery.recover().let { if (it.isNotEmpty()) Log.w("MinaTask", "${it.size} runs interrupted by process restart") }
         scope.launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@HarnessApp) } }
