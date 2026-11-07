@@ -8,6 +8,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -132,7 +133,7 @@ class RouterUiTest {
         }
         val throttled = source.throttleLatest(500L)
         val results = mutableListOf<Int>()
-        val job = kotlinx.coroutines.launch {
+        val job = launch {
             throttled.collect { results.add(it) }
         }
         advanceTimeBy(600L)
