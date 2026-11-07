@@ -1,1 +1,1 @@
-Search what the user has told Mina to remember (facts, preferences, approved ways of doing things). Returns up to 8 {id, kind, content}. Try other words if the first query finds nothing.
+Search what the user has told Harness Agent to remember (facts, preferences, approved ways of doing things). Returns up to 8 {id, kind, content}. Try other words if the first query finds nothing.

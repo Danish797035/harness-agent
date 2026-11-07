@@ -53,7 +53,7 @@ class RemoteTaskHub(
             launch(id, goal, conversation ?: RemoteTaskService.newConversation(), Attendance.Reachable)
         } catch (e: Exception) {
             Log.w(TAG, "could not start MCP task", e)
-            return StartOutcome.Refused("Mina could not start the task on the phone (${e.message ?: e::class.simpleName}). Open Mina on the phone and try again.")
+            return StartOutcome.Refused("Harness Agent could not start the task on the phone (${e.message ?: e::class.simpleName}). Open Harness Agent on the phone and try again.")
         }
         return StartOutcome.Started(remote(record))
     }

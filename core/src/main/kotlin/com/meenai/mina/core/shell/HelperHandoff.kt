@@ -77,23 +77,23 @@ object HelperHandoff {
         val again = usbCommand(scriptPath)
         return """
             |#!/system/bin/sh
-            |# Written by Mina. Starts Mina's phone helper from a computer: $again
+            |# Written by Harness Agent. Starts Harness Agent's phone helper from a computer: $again
             |if [ "${'$'}(id -u)" != "$SHELL_UID" ]; then
             |  echo "Run this from a computer over USB: $again"
             |  exit 1
             |fi
             |if [ ! -f ${quote(apkPath)} ]; then
-            |  echo "Mina was updated or reinstalled. Open Mina once, then run this command again."
+            |  echo "Harness Agent was updated or reinstalled. Open Harness Agent once, then run this command again."
             |  exit 1
             |fi
             |n=${quote(nonce)}
             |(echo "${'$'}n" | CLASSPATH=${quote(apkPath)} nohup setsid app_process /system/bin --nice-name=$name $HELPER_CLASS ${quote(packageName)} $appUid ${quote(certPin)} >/dev/null 2>&1 &)
             |sleep 2
             |if pidof $name >/dev/null 2>&1; then
-            |  echo "Mina helper starting... Open Mina to confirm phone control is ready."
+            |  echo "Harness Agent helper starting... Open Harness Agent to confirm phone control is ready."
             |  echo "It keeps running after you unplug the cable. After a phone restart, run this command again."
             |else
-            |  echo "Mina helper did not start. Open Mina once, then run this command again."
+            |  echo "Harness Agent helper did not start. Open Harness Agent once, then run this command again."
             |  exit 1
             |fi
             |""".trimMargin()
@@ -120,11 +120,11 @@ object HelperHandoff {
         val name = quote(processName(packageName))
         return """
             |#!/system/bin/sh
-            |# Written by Mina. The phone helper is connected, so this file holds no start code.
+            |# Written by Harness Agent. The phone helper is connected, so this file holds no start code.
             |if pidof $name >/dev/null 2>&1; then
-            |  echo "Mina helper is already running. Nothing to do."
+            |  echo "Harness Agent helper is already running. Nothing to do."
             |else
-            |  echo "Mina helper is not running. Open Mina once, then run this command again: ${usbCommand(scriptPath)}"
+            |  echo "Harness Agent helper is not running. Open Harness Agent once, then run this command again: ${usbCommand(scriptPath)}"
             |  exit 1
             |fi
             |""".trimMargin()

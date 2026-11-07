@@ -66,7 +66,7 @@ internal fun userReason(e: ModelError): String = when (e) {
     is ModelError.ModelNotAvailable ->
         "Model “${e.model.ifEmpty { "the current model" }}” is not available for this account (not enabled or no permission). Switch models in Settings › Models, or enable it in the provider's console."
     is ModelError.ToolsUnsupported ->
-        "Model “${e.model.ifEmpty { "the current model" }}” does not support tool calls, and Mina needs tools to work. Switch to a model that supports tool calls in Settings › Models."
+        "Model “${e.model.ifEmpty { "the current model" }}” does not support tool calls, and Harness Agent needs tools to work. Switch to a model that supports tool calls in Settings › Models."
     is ModelError.ContextTooLong -> "The conversation exceeds the model's context length. Switch to a model with a longer context, or break the task into smaller parts."
     is ModelError.ContentRefused -> "The model refused this content. Adjust the task description or switch models."
     is ModelError.RateLimited -> "The model service is rate limiting; it was still too frequent after retries. Try again later, or check the account's rate limits."

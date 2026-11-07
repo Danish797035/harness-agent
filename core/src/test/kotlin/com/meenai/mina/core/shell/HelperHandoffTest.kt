@@ -215,7 +215,7 @@ class HelperHandoffTest {
         // 等 setsid 生效再返回,并说清结果和怎么确认
         assertTrue(script.contains("\nsleep 2\n"))
         assertTrue(script.contains("if pidof 'com.meenai.mina:helper' >/dev/null 2>&1; then"))
-        assertTrue(script.contains("Mina helper starting... Open Mina to confirm"))
+        assertTrue(script.contains("Harness Agent helper starting... Open Harness Agent to confirm"))
         assertTrue(script.contains("adb shell sh /sdcard/Android/data/com.meenai.mina/files/usb-start.sh"))
         assertTrue(script.endsWith("fi\n"))
     }
