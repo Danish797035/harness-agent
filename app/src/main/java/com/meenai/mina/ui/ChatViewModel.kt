@@ -139,6 +139,23 @@ sealed interface ExchangeStatus {
     data class Cancelled(val summary: String? = null, val summarizing: Boolean = false) : ExchangeStatus
 }
 
+fun localizeVerificationNote(note: String): String = when {
+    note.startsWith("未确认:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("未确认:").trim()
+    note.startsWith("Unconfirmed:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("Unconfirmed:").trim()
+    note == "结果页受系统防截屏保护,看不到画面,没法核实" -> tr(R.string.unverified_protected)
+    note == "核查超时" -> tr(R.string.unverified_timeout)
+    note == "核查器的回复无法解析" -> tr(R.string.unverified_unparsed)
+    note.startsWith("核查器出错:") -> tr(R.string.unverified_error_prefix) + " " + note.removePrefix("核查器出错:").trim()
+    note == "回答的依据在读到的界面、网页或命令输出里都找不到" -> tr(R.string.unverified_not_in_reads)
+    note == "核查器没有逐条核对每一条标准" -> tr(R.string.unverified_not_every_criterion)
+    note == "核查器认为没有做成,但没有指出哪条标准没满足" -> tr(R.string.unverified_fail_without_reason)
+    note == "这是接着上文的追问,没能列出具体标准,核查判不准" -> tr(R.string.unverified_follow_up_unclear)
+    note == "本次任务没有打开 App,也没有读到任何材料" -> tr(R.string.unverified_nothing_read)
+    note == "回答依据的是屏上被截断的文字(以…结尾),只看到了一部分,没能完整核实" -> tr(R.string.unverified_truncated)
+    note == "正在核实结果" -> tr(R.string.unverified_verifying)
+    else -> note
+}
+
 /**
  * 一问一答:用户的一句话、执行过程、此刻的状态或结果。[live] 表示是这次打开 App 后跑的任务(带步骤)。
  * [runId] 是任务结束后可以查看的运行记录;在跑或没有记录时为 null。
@@ -1168,22 +1185,7 @@ class ChatViewModel(
     companion object {
         const val DONE_LINGER_MS = 3_000L
 
-        fun localizeVerificationNote(note: String): String = when {
-            note.startsWith("未确认:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("未确认:").trim()
-            note.startsWith("Unconfirmed:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("Unconfirmed:").trim()
-            note == "结果页受系统防截屏保护,看不到画面,没法核实" -> tr(R.string.unverified_protected)
-            note == "核查超时" -> tr(R.string.unverified_timeout)
-            note == "核查器的回复无法解析" -> tr(R.string.unverified_unparsed)
-            note.startsWith("核查器出错:") -> tr(R.string.unverified_error_prefix) + " " + note.removePrefix("核查器出错:").trim()
-            note == "回答的依据在读到的界面、网页或命令输出里都找不到" -> tr(R.string.unverified_not_in_reads)
-            note == "核查器没有逐条核对每一条标准" -> tr(R.string.unverified_not_every_criterion)
-            note == "核查器认为没有做成,但没有指出哪条标准没满足" -> tr(R.string.unverified_fail_without_reason)
-            note == "这是接着上文的追问,没能列出具体标准,核查判不准" -> tr(R.string.unverified_follow_up_unclear)
-            note == "本次任务没有打开 App,也没有读到任何材料" -> tr(R.string.unverified_nothing_read)
-            note == "回答依据的是屏上被截断的文字(以…结尾),只看到了一部分,没能完整核实" -> tr(R.string.unverified_truncated)
-            note == "正在核实结果" -> tr(R.string.unverified_verifying)
-            else -> note
-        }
+        fun localizeVerificationNote(note: String): String = com.meenai.mina.ui.localizeVerificationNote(note)
 
 
         private fun TaskState.active() = when (this) {
