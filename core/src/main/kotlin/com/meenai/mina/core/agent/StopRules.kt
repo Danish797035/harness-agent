@@ -87,6 +87,8 @@ internal fun userReason(e: ModelError): String = when (e) {
     is ModelError.SignInExpired -> "The ${e.account} sign-in has expired. Sign in with ${e.account} again in Settings › Models."
     is ModelError.AccountPlanNotAllowed ->
         "Your ${e.account} plan cannot use this API (HTTP 403).${if (e.detail.isEmpty()) "" else " The server says: ${quoted(e.detail)}."} You can use ${e.account}'s API key instead, or switch models in Settings › Models."
+    is ModelError.FirstTokenTimeout -> "The model service did not send the first token in time (timeout). Try again later."
+    is ModelError.AllLimitsExhausted -> e.message ?: "All free limits exhausted, please try again later."
 }
 
 /** 引在句中的服务端原话:去掉末尾一个句号(原话自带的),由引它的句子补上自己的「。」;省略号(截短的「…」、「...」)不动。 */

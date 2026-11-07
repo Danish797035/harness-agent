@@ -56,4 +56,6 @@ sealed class ModelError(message: String, cause: Throwable? = null) : Exception(m
         ModelError("Your ${account} plan cannot use this API")
     class BadResponse(detail: String = "", cause: Throwable? = null) :
         ModelError(if (detail.isEmpty()) "The model returned unparseable content" else "The model returned unparseable content: $detail", cause)
+    class FirstTokenTimeout(message: String = "First token timeout exceeded 30 seconds") : ModelError(message)
+    class AllLimitsExhausted(message: String, val waitMinutes: Int) : ModelError(message)
 }
