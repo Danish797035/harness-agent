@@ -139,7 +139,7 @@ class FreeKeyRouterTest {
     @Test
     fun skipsProviderCompletelyOn401AuthError() = runTest {
         val model1 = mockModel("m1_p1") { _, _, _, _ -> throw ModelError.Auth() }
-        val model2 = mockModel("m2_p1") { _, _, _, _ -> fail("Should not call second model from bad provider"); simpleReply }
+        val model2 = mockModel("m2_p1") { _, _, _, _ -> throw AssertionError("Should not call second model from bad provider") }
         val model3 = mockModel("m3_p2") { _, _, _, onText -> onText("p2 ok"); simpleReply }
 
         val router = FreeKeyRouter(
@@ -162,7 +162,7 @@ class FreeKeyRouterTest {
     @Test
     fun doesNotSwitchOnContentRefusal() = runTest {
         val model1 = mockModel("m1") { _, _, _, _ -> throw ModelError.ContentRefused() }
-        val model2 = mockModel("m2") { _, _, _, _ -> fail("Should not switch on safety refusal"); simpleReply }
+        val model2 = mockModel("m2") { _, _, _, _ -> throw AssertionError("Should not switch on safety refusal") }
 
         val router = FreeKeyRouter(
             listOf(
@@ -257,20 +257,19 @@ class FreeKeyRouterTest {
             RouterCandidate("chaos_m$i", "chaos_p$i", m, curatedRank = 5 - i)
         }
 
-        var simulatedTime = 100_000L
+        var clock = 0L
         val router = FreeKeyRouter(
             candidates,
-            maxSwitchesPerTask = 25,
-            now = { simulatedTime },
-            delayMs = { simulatedTime += maxOf(it, 1_000L) },
+            maxSwitchesPerTask = 15,
+            now = { clock },
+            delayMs = { clock += it },
+            maxInlineWaitMs = 120_000L,
         )
 
         val conversation = mutableListOf<Message>()
         conversation.add(Message(Role.User, listOf(Part.Text("Execute complex 20-step workflow")), Author.User))
 
         for (step in 1..20) {
-            router.resetTask() // each step starts with fresh switch budget
-            simulatedTime += 2_000L // time passes between steps
             val reply = router.completeStreaming("system prompt", conversation, emptyList()) {}
             assertNotNull(reply)
             conversation.add(Message(Role.Assistant, reply.parts, Author.Mina))

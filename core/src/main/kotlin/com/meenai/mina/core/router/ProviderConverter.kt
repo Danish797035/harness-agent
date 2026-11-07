@@ -43,53 +43,28 @@ object ProviderConverter {
      */
     fun normalizeToolCallIds(messages: List<Message>): List<Message> {
         val idMapping = mutableMapOf<String, String>()
-        val unassignedGeneratedIds = mutableListOf<String>()
+        val pendingBlank = ArrayDeque<String>()
         var toolCallSeq = 0
-
-        val mapped = messages.mapIndexed { msgIdx, msg ->
-            if (msg.role == Role.Assistant) {
-                var callIdx = 0
-                val newParts = msg.parts.map { part ->
-                    if (part is Part.ToolCall) {
-                        val stableId = if (part.id.isNotBlank() && !part.id.startsWith("transient-")) {
-                            part.id
-                        } else {
-                            "call_${msgIdx}_${callIdx}_${part.name}_${toolCallSeq++}"
-                        }
-                        if (part.id.isNotBlank()) {
-                            idMapping[part.id] = stableId
-                        } else {
-                            unassignedGeneratedIds.add(stableId)
-                        }
+        return messages.mapIndexed { msgIdx, msg ->
+            var callIdx = 0
+            val newParts = msg.parts.map { part ->
+                when {
+                    msg.role == Role.Assistant && part is Part.ToolCall -> {
+                        val keep = part.id.isNotBlank() && !part.id.startsWith("transient-")
+                        val stableId = if (keep) part.id else "call_${msgIdx}_${callIdx}_${part.name}_${toolCallSeq++}"
+                        if (part.id.isNotBlank()) idMapping[part.id] = stableId else pendingBlank.addLast(stableId)
                         callIdx++
                         part.copy(id = stableId)
-                    } else part
+                    }
+                    part is Part.ToolResult -> {
+                        val mappedId = if (part.callId.isBlank()) pendingBlank.removeFirstOrNull() ?: part.callId
+                            else idMapping[part.callId] ?: part.callId
+                        part.copy(callId = mappedId)
+                    }
+                    else -> part
                 }
-                msg.copy(parts = newParts)
-            } else msg
-        }
-
-        if (idMapping.isEmpty() && unassignedGeneratedIds.isEmpty()) return mapped
-
-        val remainingUnassigned = unassignedGeneratedIds.toMutableList()
-
-        return mapped.map { msg ->
-            if (msg.role == Role.Tool || msg.parts.any { it is Part.ToolResult }) {
-                val newParts = msg.parts.map { part ->
-                    if (part is Part.ToolResult) {
-                        when {
-                            part.callId.isNotBlank() && idMapping.containsKey(part.callId) -> {
-                                part.copy(callId = idMapping[part.callId] ?: part.callId)
-                            }
-                            part.callId.isBlank() && remainingUnassigned.isNotEmpty() -> {
-                                part.copy(callId = remainingUnassigned.removeAt(0))
-                            }
-                            else -> part
-                        }
-                    } else part
-                }
-                msg.copy(parts = newParts)
-            } else msg
+            }
+            msg.copy(parts = newParts)
         }
     }
 

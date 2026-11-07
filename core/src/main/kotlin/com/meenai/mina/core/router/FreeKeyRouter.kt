@@ -46,6 +46,8 @@ class FreeKeyRouter(
     val switchBackoffMs: Long = 500L,
     val now: () -> Long = System::currentTimeMillis,
     val delayMs: suspend (Long) -> Unit = { delay(it) },
+    /** When every candidate is cooling down, wait inline (user just sees loading) if the shortest cooldown is at most this long. */
+    val maxInlineWaitMs: Long = 15_000L,
     val onModelSwitched: ((oldModel: String?, newModel: String, reason: String) -> Unit)? = null,
 ) : StreamingChatModel {
 
@@ -107,7 +109,14 @@ class FreeKeyRouter(
 
             // Ensure active candidate
             if (activeCandidate == null || !cooldownStore.isAvailable(activeCandidate!!.id, activeCandidate!!.provider, now())) {
-                val next = pickBestCandidate(isNewTask = (switchCountInTask == 0))
+                var next = pickBestCandidate(isNewTask = (switchCountInTask == 0))
+                if (next == null) {
+                    val shortestWait = shortestCooldownMs()
+                    if (shortestWait in 1..maxInlineWaitMs) {
+                        delayMs(shortestWait)
+                        next = pickBestCandidate(isNewTask = (switchCountInTask == 0))
+                    }
+                }
                 if (next == null) {
                     val waitMin = calculateWaitMinutes()
                     throw AllLimitsExhaustedException("Sab free limits khatam, $waitMin minute baad try karo", waitMin)
@@ -160,7 +169,7 @@ class FreeKeyRouter(
                             if (!schemaFixAttempted) {
                                 schemaFixAttempted = true
                                 preparedTools = preparedTools.map {
-                                    it.copy(parametersJsonSchema = SchemaSanitizer.sanitizeGeneral(it.parametersJsonSchema))
+                                    it.copy(parametersJsonSchema = SchemaSanitizer.sanitizeForGemini(it.parametersJsonSchema))
                                 }
                                 continue // retry once on same candidate with sanitized schema
                             } else {
@@ -269,6 +278,12 @@ class FreeKeyRouter(
             )
             .firstOrNull()
     }
+
+    private fun shortestCooldownMs(): Long =
+        candidates.filter { !cooldownStore.isKeyBad(it.provider) }
+            .map { cooldownStore.getRemainingCooldownMs(it.id, now()) }
+            .filter { it > 0L }
+            .minOrNull() ?: 0L
 
     private fun calculateWaitMinutes(): Int {
         val minWaitMs = candidates
