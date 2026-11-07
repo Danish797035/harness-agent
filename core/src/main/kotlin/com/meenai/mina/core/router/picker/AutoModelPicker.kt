@@ -156,25 +156,38 @@ class AutoModelPicker(
      * Main role: sabse heavy (flagship, reasoning, large capacity).
      */
     private fun rankMainRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        return candidates.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
+        val comparator = Comparator<ModelCandidate> { a, b ->
+            val aHeavy = a.parameterSizeB >= 20.0
+            val bHeavy = b.parameterSizeB >= 20.0
+            if (aHeavy != bHeavy) {
+                return@Comparator if (aHeavy) -1 else 1
+            }
+
+            val rankDiff = a.tierRank.compareTo(b.tierRank)
+            if (rankDiff != 0) return@Comparator rankDiff
+
+            val sizeDiff = b.parameterSizeB.compareTo(a.parameterSizeB)
+            if (sizeDiff != 0) return@Comparator sizeDiff
+
+            val ctxDiff = b.contextTokens.compareTo(a.contextTokens)
+            if (ctxDiff != 0) return@Comparator ctxDiff
+
+            val dateDiff = b.releaseDateEpoch.compareTo(a.releaseDateEpoch)
+            if (dateDiff != 0) return@Comparator dateDiff
+
+            a.id.compareTo(b.id)
+        }
+        return candidates.sortedWith(comparator)
     }
 
     /**
      * Light role: tez (fast, lightweight, low-latency).
-     * Prefers models in the <= 14B range or marked flash/small/mini, ordered by quality.
+     * Prefers models in the <= 10B range or marked small/mini/lite, ordered by quality.
      */
     private fun rankLightRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
         val lightModels = candidates.filter { isLightModel(it) }
-        return if (lightModels.isNotEmpty()) {
-            lightModels.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
-        } else {
-            // Fallback if no specific light model exists: sort ascending by parameter size
-            candidates.sortedWith(
-                compareBy<ModelCandidate> { it.parameterSizeB }
-                    .thenBy { it.tierRank }
-                    .thenByDescending { it.contextTokens }
-            )
-        }
+        val pool = if (lightModels.isNotEmpty()) lightModels else candidates
+        return pool.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
     }
 
     /**
@@ -185,13 +198,12 @@ class AutoModelPicker(
     }
 
     private fun isLightModel(candidate: ModelCandidate): Boolean {
-        if (candidate.parameterSizeB in 0.1..14.0) return true
+        if (candidate.parameterSizeB in 0.1..10.0) return true
         val lowerId = candidate.id.lowercase()
-        return lowerId.contains("flash") ||
-            lowerId.contains("mini") ||
+        return lowerId.contains("mini") ||
             lowerId.contains("small") ||
             lowerId.contains("lite") ||
-            lowerId.contains("turbo") ||
+            lowerId.contains("nano") ||
             lowerId.contains("8b") ||
             lowerId.contains("7b") ||
             lowerId.contains("3b") ||

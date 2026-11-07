@@ -157,12 +157,12 @@ class AutoModelPickerTest {
         val candidates = parser.parse(sampleOpenRouterJson)
         val picker = AutoModelPicker(apiClient = { sampleOpenRouterJson })
 
-        // Main role picks the heaviest / top frontier model
+        // Main role picks the heaviest / top frontier model (sabse heavy)
         val mainModel = picker.pickFromCandidates(candidates, ModelRole.Main)
         assertNotNull(mainModel)
-        assertEquals("google/gemini-2.0-flash-exp:free", mainModel!!.id)
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", mainModel!!.id)
 
-        // Light role picks the fast / lightweight model (e.g. 8B)
+        // Light role picks the fast / lightweight model (tez)
         val lightModel = picker.pickFromCandidates(candidates, ModelRole.Light)
         assertNotNull(lightModel)
         assertEquals("meta-llama/llama-3.1-8b-instruct:free", lightModel!!.id)
@@ -300,17 +300,17 @@ class AutoModelPickerTest {
         val parser = OpenRouterModelParser()
         val candidates = parser.parse(sampleOpenRouterJson)
 
-        // Normally, google/gemini-2.0-flash-exp:free is #1 for Main role
+        // Normally, meta-llama/llama-3.3-70b-instruct:free is #1 for Main role (sabse heavy)
         val healthyPicker = AutoModelPicker(
             apiClient = { sampleOpenRouterJson },
             healthSource = HealthSource.DEFAULT,
         )
         val defaultPick = healthyPicker.pickFromCandidates(candidates, ModelRole.Main)
-        assertEquals("google/gemini-2.0-flash-exp:free", defaultPick!!.id)
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", defaultPick!!.id)
 
-        // If gemini has health score 0.0 (unhealthy / down), picker falls back to next healthy model
+        // If llama-3.3-70b has health score 0.0 (unhealthy / down), picker falls back to next healthy model
         val customHealth = HealthSource { modelId ->
-            if (modelId == "google/gemini-2.0-flash-exp:free") 0.0 else 1.0
+            if (modelId == "meta-llama/llama-3.3-70b-instruct:free") 0.0 else 1.0
         }
         val degradedPick = healthyPicker.pickFromCandidates(
             candidates = candidates,
@@ -318,6 +318,6 @@ class AutoModelPickerTest {
             activeHealthSource = customHealth,
         )
         assertNotNull(degradedPick)
-        assertEquals("meta-llama/llama-3.3-70b-instruct:free", degradedPick!!.id)
+        assertEquals("google/gemini-2.0-flash-exp:free", degradedPick!!.id)
     }
 }

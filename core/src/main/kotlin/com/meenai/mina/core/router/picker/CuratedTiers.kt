@@ -14,31 +14,28 @@ object CuratedTiers {
      * Curated list of top models, ordered from strongest first.
      */
     val CURATED_TIER_LIST: List<String> = listOf(
-        // Tier 1: Frontier reasoning & heavy models
-        "google/gemini-2.0-flash-thinking-exp",
-        "google/gemini-2.0-pro-exp-02-05",
+        // Tier 1: Heavy frontier reasoning & large models (Main role)
         "deepseek/deepseek-r1",
-        "google/gemini-2.0-flash-exp",
-        "google/gemini-2.0-flash",
-        "deepseek/deepseek-chat",
+        "google/gemini-2.0-pro-exp-02-05",
         "meta-llama/llama-3.3-70b-instruct",
-
-        // Tier 2: Strong coding & large models
-        "qwen/qwen-2.5-coder-32b-instruct",
         "qwen/qwen-2.5-72b-instruct",
+        "deepseek/deepseek-chat",
         "meta-llama/llama-3.1-70b-instruct",
-        "deepseek/deepseek-r1-distill-llama-70b",
+        "qwen/qwen-2.5-coder-32b-instruct",
         "mistralai/mistral-small-24b-instruct-2501",
         "mistralai/mistral-small-24b-instruct",
 
-        // Tier 3: High-quality vision & mid-range models
+        // Tier 2: Multimodal vision models (Vision role)
+        "google/gemini-2.0-flash-thinking-exp",
+        "google/gemini-2.0-flash-exp",
+        "google/gemini-2.0-flash",
         "meta-llama/llama-3.2-11b-vision-instruct",
-        "google/gemini-flash-1.5",
-        "google/gemini-1.5-flash",
         "google/gemini-1.5-pro",
+        "google/gemini-1.5-flash",
+        "google/gemini-flash-1.5",
         "qwen/qwen-2.5-14b-instruct",
 
-        // Tier 4: Fast / compact models
+        // Tier 3: Compact & fast lightweight models (Light role)
         "meta-llama/llama-3.1-8b-instruct",
         "meta-llama/llama-3-8b-instruct",
         "google/gemini-flash-1.5-8b",
@@ -102,9 +99,10 @@ object CuratedTiers {
             "qwen-2.5-72b" in lower -> 72.0
             "qwen-2.5-32b" in lower || "coder-32b" in lower -> 32.0
             "mistral-small" in lower -> 24.0
-            "gemini-2" in lower -> 70.0
-            "gemini-1.5-pro" in lower -> 70.0
+            "gemini-2.0-pro" in lower || "gemini-pro" in lower -> 70.0
+            "gemini-2" in lower && "flash" in lower -> 14.0
             "gemini-1.5-flash" in lower || "gemini-flash" in lower -> 8.0
+            "gemini-1.5-pro" in lower -> 70.0
             "llama-3.1-8b" in lower || "llama-3-8b" in lower -> 8.0
             "mistral-7b" in lower -> 7.0
             "llama-3.2-3b" in lower -> 3.0
