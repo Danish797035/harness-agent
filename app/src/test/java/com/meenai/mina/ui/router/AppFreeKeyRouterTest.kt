@@ -1,24 +1,26 @@
 package com.meenai.mina.ui.router
 
+import com.meenai.mina.core.model.Author
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.Message
-import com.meenai.mina.core.model.ModelEndpoint
+import com.meenai.mina.core.model.ModelAccessErrors
 import com.meenai.mina.core.model.ModelError
 import com.meenai.mina.core.model.ModelReply
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.router.FreeKeyRouter
-import com.meenai.mina.core.router.ModelCandidate
 import com.meenai.mina.core.router.RouterAction
+import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterErrorClassifier
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.settings.AesGcmKeyCipher
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
-import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -205,21 +207,20 @@ class AppFreeKeyRouterTest {
     @Test
     fun keyProviderKeBaadSaveHo_tabBhiCandidatesBanteHain() {
         val store = createTestStore()
-        val provider = Provider(
-            id = "p-modelscope",
+        val p = store.connect(
             name = "ModelScope",
-            baseUrl = "https://api-inference.modelscope.cn/v1",
             kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://api-inference.modelscope.cn/v1",
+            apiKey = null,
             models = listOf(ListedModel("Qwen/Qwen2.5-72B-Instruct")),
         )
-        store.saveProvider(provider)
 
         // Key na hone par candidates khaali
         val candidatesBefore = AppFreeKeyRouter.createCandidates(store)
         assertTrue("Key na hone par candidates khaali hone chahiye", candidatesBefore.isEmpty())
 
-        // Ab key save karo
-        store.setKey("p-modelscope", "ms-valid-key")
+        // Ab key update karo
+        store.updateProviderKey(p.id, "ms-valid-key")
 
         // Key save hone ke baad candidates banne chahiye
         val candidatesAfter = AppFreeKeyRouter.createCandidates(store)
@@ -229,43 +230,50 @@ class AppFreeKeyRouterTest {
 
     @Test
     fun modelScopeNoProviderSupported_aglaModelNoCrash() = runTest {
-        val c1 = ModelCandidate(
+        val errorMsg = "Model deepseek-ai/DeepSeek-V4-Pro has no provider supported"
+        val model1 = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 32_000, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                throw ModelError.ModelNotAvailable("deepseek-ai/DeepSeek-V4-Pro", errorMsg)
+            }
+        }
+        val model2 = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 32_000, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                return ModelReply(listOf(Part.Text("success from qwen")), StopReason.EndTurn, null)
+            }
+        }
+
+        val c1 = RouterCandidate(
             id = "deepseek-ai/DeepSeek-V4-Pro",
             provider = "modelscope",
-            isFree = true,
-            isBackup = true,
-            tier = 3,
-            contextWindow = 32_000,
+            model = model1,
+            curatedRank = 10,
         )
-        val c2 = ModelCandidate(
+        val c2 = RouterCandidate(
             id = "Qwen/Qwen2.5-72B-Instruct",
             provider = "modelscope",
-            isFree = true,
-            isBackup = true,
-            tier = 2,
-            contextWindow = 32_000,
+            model = model2,
+            curatedRank = 5,
         )
 
-        val router = FreeKeyRouter(listOf(c1, c2))
-        assertEquals("deepseek-ai/DeepSeek-V4-Pro", router.pickBestCandidate(ModelRole.Main)?.id)
+        val router = FreeKeyRouter(listOf(c1, c2), delayMs = {})
+        val userMsg = listOf(Message(Role.User, listOf(Part.Text("test query")), Author.User))
 
-        // HTTP 400 "Model deepseek-ai/DeepSeek-V4-Pro has no provider supported"
-        val errorMsg = "Model deepseek-ai/DeepSeek-V4-Pro has no provider supported"
-        val action = RouterErrorClassifier.classify(400, errorMsg)
-        assertEquals(RouterAction.SWITCH, action)
+        // completeStreaming catches 400 not available, marks unsupported, and seamlessly switches to c2
+        var replyText = ""
+        val reply = router.completeStreaming("sys", userMsg, emptyList()) {
+            replyText = it
+        }
 
-        val modelError = com.meenai.mina.core.model.ModelAccessErrors.of(400, errorMsg)
-        assertTrue(modelError is ModelError.ModelNotAvailable)
-
-        // Record failure in router
-        router.recordResult(c1, false, action = action, isNotAvailable = true)
-
-        // Model must be marked unsupported and not available
+        assertEquals("Qwen/Qwen2.5-72B-Instruct", router.activeCandidate?.id)
         assertTrue(router.cooldownStore.isUnsupported("deepseek-ai/DeepSeek-V4-Pro"))
 
-        // Agla pick bina crash ke Qwen/Qwen2.5-72B-Instruct dega
-        val nextCandidate = router.pickBestCandidate(ModelRole.Main)
-        assertEquals("Qwen/Qwen2.5-72B-Instruct", nextCandidate?.id)
+        // Also verify ModelAccessErrors.of and RouterErrorClassifier.classify
+        val modelError = ModelAccessErrors.of(400, errorMsg, "deepseek-ai/DeepSeek-V4-Pro")
+        assertTrue(modelError is ModelError.ModelNotAvailable)
+        val action = RouterErrorClassifier.classify(modelError!!, status = 400, body = errorMsg)
+        assertEquals(RouterAction.SWITCH, action)
     }
 
     @Test
@@ -294,46 +302,40 @@ class AppFreeKeyRouterTest {
     fun threeProvidersSaved_providerQuotasMeinTeeno_harModelKiLine() {
         val store = createTestStore()
         // OpenRouter
-        val pOr = Provider(
-            id = "p-openrouter",
+        store.connect(
             name = "OpenRouter",
-            baseUrl = "https://openrouter.ai/api/v1",
             kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test",
             models = listOf(
                 ListedModel("google/gemini-2.0-flash-exp:free"),
                 ListedModel("meta-llama/llama-3.3-70b-instruct:free"),
             ),
         )
-        store.saveProvider(pOr)
-        store.setKey("p-openrouter", "sk-or-test")
 
         // Z.ai
-        val pZai = Provider(
-            id = "p-zai",
+        store.connect(
             name = "Z.ai",
-            baseUrl = "https://api.z.ai/v1",
             kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://api.z.ai/v1",
+            apiKey = "sk-zai-test",
             models = listOf(
                 ListedModel("glm-4.7-flash"),
                 ListedModel("glm-4.6v-flash"),
             ),
         )
-        store.saveProvider(pZai)
-        store.setKey("p-zai", "sk-zai-test")
 
         // ModelScope
-        val pMs = Provider(
-            id = "p-modelscope",
+        store.connect(
             name = "ModelScope",
-            baseUrl = "https://api-inference.modelscope.cn/v1",
             kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://api-inference.modelscope.cn/v1",
+            apiKey = "sk-ms-test",
             models = listOf(
                 ListedModel("Qwen/Qwen2.5-72B-Instruct"),
                 ListedModel("Qwen/Qwen2.5-7B-Instruct"),
             ),
         )
-        store.saveProvider(pMs)
-        store.setKey("p-modelscope", "sk-ms-test")
 
         val candidates = AppFreeKeyRouter.createCandidates(store)
         val router = FreeKeyRouter(candidates)
@@ -369,15 +371,13 @@ class AppFreeKeyRouterTest {
     @Test
     fun limitNaMile_estimateLabel_fakeOpenRouterKey_sahiUsedAurLimit() = runTest {
         val store = createTestStore()
-        val pOr = Provider(
-            id = "p-openrouter",
+        store.connect(
             name = "OpenRouter",
-            baseUrl = "https://openrouter.ai/api/v1",
             kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test",
             models = listOf(ListedModel("google/gemini-2.0-flash-exp:free")),
         )
-        store.saveProvider(pOr)
-        store.setKey("p-openrouter", "sk-or-test")
 
         val fakeClient = object : OpenRouterKeyClient {
             override suspend fun getKeyInfo(apiKey: String): OpenRouterKeyInfo {
