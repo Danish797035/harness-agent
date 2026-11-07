@@ -226,6 +226,7 @@ class FreeKeyRouter(
     ): ModelReply {
         var lastError: Throwable? = null
         val hasImages = messages.any { m -> m.parts.any { it is Part.Image } }
+        var previousCandidate: RouterCandidate? = activeCandidate
 
         while (true) {
             if (switchCountInTask >= maxSwitchesPerTask) {
@@ -252,7 +253,7 @@ class FreeKeyRouter(
                     updateStatus(reason = msg)
                     throw AllLimitsExhaustedException(msg, waitMin)
                 }
-                val prev = activeCandidate?.id
+                val prev = previousCandidate?.id
                 activeCandidate = next
                 if (prev != null && prev != next.id) {
                     val reason = "Switching candidate"
@@ -264,6 +265,7 @@ class FreeKeyRouter(
                         switchEvent = RouterSwitchEvent(prev, next.id, next.provider, reason, now()),
                     )
                 }
+                previousCandidate = next
             }
 
             val currentCandidate = activeCandidate!!
@@ -322,7 +324,7 @@ class FreeKeyRouter(
                                 // Already retried with sanitized schema, switch candidate
                                 cooldownStore.markCooldown(currentCandidate.id, ModelCooldownStore.DEFAULT_COOLDOWN_MS, now())
                                 onText("") // discard partial output
-                                val oldId = currentCandidate.id
+                                previousCandidate = currentCandidate
                                 activeCandidate = null
                                 switchCountInTask++
                                 if (switchCountInTask >= maxSwitchesPerTask) {
@@ -338,7 +340,7 @@ class FreeKeyRouter(
                         RouterAction.KEY_BAD -> {
                             cooldownStore.markBadKey(currentCandidate.provider)
                             onText("") // discard partial output
-                            val oldId = currentCandidate.id
+                            previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= maxSwitchesPerTask) {
@@ -353,7 +355,7 @@ class FreeKeyRouter(
                         RouterAction.CONTEXT -> {
                             cooldownStore.markCooldown(currentCandidate.id, 10_000L, now())
                             onText("") // discard partial output
-                            val oldId = currentCandidate.id
+                            previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= maxSwitchesPerTask) {
@@ -376,7 +378,7 @@ class FreeKeyRouter(
                                 cooldownStore.markCooldown(currentCandidate.id, retryAfter, now())
                             }
                             onText("") // discard partial output
-                            val oldId = currentCandidate.id
+                            previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= maxSwitchesPerTask) {
