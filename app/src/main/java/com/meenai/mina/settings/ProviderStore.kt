@@ -306,6 +306,10 @@ class ProviderStore(
     /** 三个用途各选了什么;指向的配置都在 [configs] 里。 */
     val roles: StateFlow<RoleChoices> = _roles.asStateFlow()
 
+    private val _keysRevision = MutableStateFlow(0L)
+    /** Key 发生保存或变动时的版本计数，用于触发候选模型重新计算。 */
+    val keysRevision: StateFlow<Long> = _keysRevision.asStateFlow()
+
     /** 服务商 id → 加密后的 Key。 */
     private var keys: Map<String, String> = emptyMap()
 
@@ -368,6 +372,7 @@ class ProviderStore(
         untested: Boolean = false,
     ): Provider {
         val found = findOrAddProvider(name, kind, baseUrl, signIn)
+        if (apiKey != null) setKey(found.id, apiKey)
         // 跳过测试时没有列表可存:这家之前列过的留着,不要用空表把已有的列表盖掉
         val listed = if (untested && models.isEmpty()) found.models ?: models else models
         val p = found.copy(
@@ -377,7 +382,6 @@ class ProviderStore(
             savedUntested = untested && verified.isEmpty() && found.verifiedModels.isEmpty() && listed.isEmpty(),
         )
         _providers.value = _providers.value.map { if (it.id == p.id) p else it }
-        if (apiKey != null) setKey(p.id, apiKey)
         writeConfig()
         return p
     }
@@ -813,6 +817,7 @@ class ProviderStore(
     private fun setKey(providerId: String, apiKey: String) {
         keys = if (apiKey.isEmpty()) keys - providerId else keys + (providerId to encode(cipher.encrypt(apiKey.toByteArray())))
         writeAtomically(keyFile, keysJson())
+        _keysRevision.value++
     }
 
     /** 删掉没有用途在用的模型配置。Key 存在服务商上,不受影响。 */

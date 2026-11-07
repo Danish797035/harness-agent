@@ -57,6 +57,14 @@ object RouterErrorClassifier {
         if (throwable is ModelError.ContentRefused) return RouterAction.STOP
         if (SAFETY_KEYWORDS.any { lowerBody.contains(it) }) return RouterAction.STOP
 
+        // Model not available / not supported / not found -> SWITCH (not key bad)
+        if (throwable is ModelError.ModelNotAvailable || throwable is ModelError.ModelNotFound ||
+            lowerBody.contains("no provider supported") || lowerBody.contains("has no provider supported") ||
+            lowerBody.contains("provider not supported")
+        ) {
+            return RouterAction.SWITCH
+        }
+
         // 2. Auth / Invalid Key -> KEY_BAD
         if (throwable is ModelError.Auth || throwable is ModelError.AccountPlanNotAllowed) {
             return RouterAction.KEY_BAD

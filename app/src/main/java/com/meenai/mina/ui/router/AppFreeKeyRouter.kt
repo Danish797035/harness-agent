@@ -6,9 +6,12 @@ import com.meenai.mina.core.model.OpenAiCompatModel
 import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.RouterCandidate
+import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.preset.ModelScopePreset
 import com.meenai.mina.core.router.preset.ZaiPreset
+import com.meenai.mina.settings.Provider
+import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
 import okhttp3.OkHttpClient
 
@@ -21,6 +24,13 @@ object AppFreeKeyRouter {
     const val OPENROUTER_PROVIDER = "openrouter"
     const val OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+    private val MODEL_SCOPE_NON_CHAT = listOf(
+        "embedding", "embeddings", "rerank", "reranker", "bge",
+        "image", "images", "flux", "stable-diffusion", "diffusers",
+        "video", "audio", "tts", "stt", "asr", "whisper", "speech", "voice",
+        "moderation", "guard", "reward", "discriminator"
+    )
+
     /**
      * Resolves API keys and creates candidate models from user settings.
      */
@@ -31,9 +41,8 @@ object AppFreeKeyRouter {
         val openRouterKey = resolveOpenRouterKey(store)
         val zaiKey = resolveZaiKey(store)
         val modelScopeKey = resolveModelScopeKey(store)
-        val openRouterProvider = store.providers.value.firstOrNull {
-            it.name.contains("OpenRouter", ignoreCase = true) || it.baseUrl.contains("openrouter.ai", ignoreCase = true)
-        }
+        val openRouterProvider = store.providers.value.firstOrNull { isOpenRouterProvider(it) }
+        val modelScopeProvider = store.providers.value.firstOrNull { isModelScopeProvider(it) }
 
         return createCandidates(
             openRouterKey = openRouterKey,
@@ -41,6 +50,7 @@ object AppFreeKeyRouter {
             modelScopeKey = modelScopeKey,
             http = http,
             openRouterModels = openRouterProvider?.models,
+            modelScopeModels = modelScopeProvider?.models,
         )
     }
 
@@ -53,6 +63,7 @@ object AppFreeKeyRouter {
         modelScopeKey: String? = null,
         http: OkHttpClient = OkHttpClient(),
         openRouterModels: List<ListedModel>? = null,
+        modelScopeModels: List<ListedModel>? = null,
     ): List<RouterCandidate> {
         val list = mutableListOf<RouterCandidate>()
 
@@ -65,7 +76,7 @@ object AppFreeKeyRouter {
         }
 
         if (!modelScopeKey.isNullOrBlank()) {
-            list.addAll(createModelScopeCandidates(modelScopeKey.trim(), http))
+            list.addAll(createModelScopeCandidates(modelScopeKey.trim(), http, modelScopeModels))
         }
 
         return list
@@ -82,21 +93,55 @@ object AppFreeKeyRouter {
         return FreeKeyRouter(candidates = candidates)
     }
 
-    fun resolveOpenRouterKey(store: ProviderStore): String? =
-        resolveKey(store, providerName = "OpenRouter", urlSubstring = "openrouter.ai")
+    fun isOpenRouterProvider(p: Provider): Boolean {
+        if (p.signIn == ProviderStore.OPENROUTER_SIGN_IN) return true
+        if (p.name.contains("OpenRouter", ignoreCase = true)) return true
+        if (p.baseUrl.contains("openrouter.ai", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("OpenRouter", ignoreCase = true)
+    }
 
-    fun resolveZaiKey(store: ProviderStore): String? =
-        resolveKey(store, providerName = "Z.ai", urlSubstring = "api.z.ai")
+    fun isZaiProvider(p: Provider): Boolean {
+        if (p.name.contains("Z.ai", ignoreCase = true)) return true
+        if (p.name.contains("智谱", ignoreCase = true) ||
+            p.name.contains("Zhipu", ignoreCase = true) ||
+            p.name.contains("BigModel", ignoreCase = true) ||
+            p.name.contains("GLM", ignoreCase = true)
+        ) return true
+        if (p.baseUrl.contains("api.z.ai", ignoreCase = true) ||
+            p.baseUrl.contains("bigmodel.cn", ignoreCase = true)
+        ) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("Z.ai", ignoreCase = true)
+    }
 
-    fun resolveModelScopeKey(store: ProviderStore): String? =
-        resolveKey(store, providerName = "ModelScope", urlSubstring = "modelscope.ai")
+    fun isModelScopeProvider(p: Provider): Boolean {
+        if (p.name.contains("ModelScope", ignoreCase = true)) return true
+        if (p.name.contains("魔搭", ignoreCase = true)) return true
+        if (p.baseUrl.contains("modelscope.ai", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("ModelScope", ignoreCase = true)
+    }
 
-    private fun resolveKey(store: ProviderStore, providerName: String, urlSubstring: String): String? {
-        val p = store.providers.value.firstOrNull {
-            it.name.contains(providerName, ignoreCase = true) ||
-                it.baseUrl.contains(urlSubstring, ignoreCase = true)
-        } ?: return null
+    fun resolveOpenRouterKey(store: ProviderStore): String? {
+        val p = store.providers.value.firstOrNull { isOpenRouterProvider(it) } ?: return null
         return store.providerKey(p.id)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun resolveZaiKey(store: ProviderStore): String? {
+        val p = store.providers.value.firstOrNull { isZaiProvider(it) } ?: return null
+        return store.providerKey(p.id)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun resolveModelScopeKey(store: ProviderStore): String? {
+        val p = store.providers.value.firstOrNull { isModelScopeProvider(it) } ?: return null
+        return store.providerKey(p.id)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun isModelScopeChatModel(m: ListedModel): Boolean {
+        if (m.chat == false) return false
+        val lower = m.id.lowercase()
+        return MODEL_SCOPE_NON_CHAT.none { lower.contains(it) }
     }
 
     private fun createOpenRouterCandidates(
@@ -106,7 +151,7 @@ object AppFreeKeyRouter {
     ): List<RouterCandidate> {
         val freeListed = listedModels?.filter { it.id.endsWith(":free") }.orEmpty()
         if (freeListed.isNotEmpty()) {
-            return freeListed.map { listed ->
+            return freeListed.sortedByDescending { CuratedTiers.computeTierRank(it.id) }.map { listed ->
                 val caps = Capabilities(
                     toolCalls = listed.toolCalls ?: true,
                     vision = listed.vision == true,
@@ -130,7 +175,7 @@ object AppFreeKeyRouter {
                     id = listed.id,
                     provider = OPENROUTER_PROVIDER,
                     model = model,
-                    curatedRank = 75,
+                    curatedRank = CuratedTiers.computeTierRank(listed.id),
                     isFree = true,
                     isBackup = false,
                     roles = roles,
@@ -138,7 +183,7 @@ object AppFreeKeyRouter {
             }
         }
 
-        // Curated default free OpenRouter models
+        // Curated default free OpenRouter models (fallback only if no live free models)
         val flashModel = OpenAiCompatModel(
             baseUrl = OPENROUTER_BASE_URL,
             apiKey = apiKey,
@@ -211,7 +256,52 @@ object AppFreeKeyRouter {
     private fun createModelScopeCandidates(
         apiKey: String,
         http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
     ): List<RouterCandidate> {
+        val chatModels = listedModels?.filter { isModelScopeChatModel(it) }.orEmpty()
+        if (chatModels.isNotEmpty()) {
+            return chatModels.sortedByDescending { CuratedTiers.computeTierRank(it.id) }.map { listed ->
+                val lowerId = listed.id.lowercase()
+                val supportsImages = listed.vision == true ||
+                    lowerId.contains("vl") || lowerId.contains("vision") || lowerId.contains("omni")
+                val paramSize = CuratedTiers.extractParameterSizeB(listed.id)
+                val rank = CuratedTiers.computeTierRank(listed.id)
+
+                val caps = Capabilities(
+                    toolCalls = listed.toolCalls ?: true,
+                    vision = supportsImages,
+                    contextTokens = listed.contextTokens ?: 32_000,
+                    reasoning = listed.reasoning ?: false,
+                    promptCaching = PromptCaching.Implicit,
+                )
+                val model = OpenAiCompatModel(
+                    baseUrl = ModelScopePreset.BASE_URL,
+                    apiKey = apiKey,
+                    model = listed.id,
+                    capabilities = caps,
+                    http = http,
+                )
+                val roles = buildSet {
+                    if (supportsImages) add(ModelRole.Vision)
+                    if (paramSize in 0.1..10.0 || ((listed.contextTokens ?: 0) <= 32_000 && paramSize < 14.0)) {
+                        add(ModelRole.Light)
+                    } else {
+                        add(ModelRole.Main)
+                    }
+                }
+                RouterCandidate(
+                    id = listed.id,
+                    provider = ModelScopePreset.PROVIDER_ID,
+                    model = model,
+                    curatedRank = rank,
+                    isFree = true,
+                    isBackup = true, // ModelScope is lowest-priority backup
+                    roles = roles,
+                )
+            }
+        }
+
+        // Hardcoded fallback list if no dynamic models provided
         val qwen72b = OpenAiCompatModel(
             baseUrl = ModelScopePreset.BASE_URL,
             apiKey = apiKey,
@@ -241,7 +331,7 @@ object AppFreeKeyRouter {
                 model = qwen72b,
                 curatedRank = 75,
                 isFree = true,
-                isBackup = true, // ModelScope is lowest-priority backup
+                isBackup = true,
                 roles = setOf(ModelRole.Main),
             ),
             RouterCandidate(

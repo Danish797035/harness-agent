@@ -27,6 +27,7 @@ class ModelCooldownStore(
     private val cooldowns = ConcurrentHashMap<String, Long>()
     private val badKeys = ConcurrentHashMap.newKeySet<String>()
     private val knownQuotaRemaining = ConcurrentHashMap<String, Int>()
+    private val unsupportedModels = ConcurrentHashMap.newKeySet<String>()
 
     fun markCooldown(modelId: String, durationMs: Long, nowMs: Long = System.currentTimeMillis()) {
         val expiry = nowMs + durationMs.coerceAtLeast(1_000L)
@@ -54,6 +55,13 @@ class ModelCooldownStore(
 
     fun isKeyBad(provider: String): Boolean = badKeys.contains(provider.lowercase())
 
+    fun markUnsupported(modelId: String, nowMs: Long = System.currentTimeMillis()) {
+        unsupportedModels.add(modelId.lowercase())
+        markCooldown(modelId, 24 * 3600 * 1000L, nowMs)
+    }
+
+    fun isUnsupported(modelId: String): Boolean = unsupportedModels.contains(modelId.lowercase())
+
     fun updateQuotaRemaining(modelId: String, remaining: Int) {
         knownQuotaRemaining[modelId] = remaining
         notifyChanged()
@@ -66,6 +74,7 @@ class ModelCooldownStore(
         isNewTask: Boolean = false,
     ): Boolean {
         if (isKeyBad(provider)) return false
+        if (isUnsupported(modelId)) return false
         val expiry = cooldowns[modelId]
         if (expiry != null && nowMs < expiry) return false
         // Proactive avoidance: if starting a new task and fewer than 2 requests remain, avoid this model

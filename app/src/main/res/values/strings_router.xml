@@ -22,4 +22,12 @@
     <string name="router_model_used_note">Completed with %1$s</string>
     <string name="router_switch_toast_format">%1$s limit reached, switched to %2$s</string>
     <string name="timeline_router_model">Model</string>
+    <string name="router_status_ready">Ready</string>
+    <string name="router_status_cooldown">Cooldown %1$d min</string>
+    <string name="router_status_unsupported">Unsupported</string>
+    <string name="router_status_bad_key">Bad key</string>
+    <string name="router_estimate">estimate</string>
+    <string name="router_concurrency">Concurrency: %1$d</string>
+    <string name="router_magicube_cost">~%1$s Magicube/call</string>
+    <string name="router_magicube_total">Today: ~%1$s Magicube</string>
 </resources>

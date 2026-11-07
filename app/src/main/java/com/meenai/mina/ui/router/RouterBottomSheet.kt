@@ -2,6 +2,7 @@ package com.meenai.mina.ui.router
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,12 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -41,7 +46,7 @@ import com.meenai.mina.ui.theme.MinaType
  * Bottom sheet opened upon tapping the router chip:
  * - Current model & why chosen ("abhi ka model, kyun chuna")
  * - Each provider's today quota & cooldown ("har provider ka aaj ka quota, cooldown kab tak")
- * - "Pin this model" button
+ * - "Pin this model" button (disabled when no candidates available)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,9 +56,14 @@ fun RouterBottomSheet(
     onPinClick: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val colors = MinaTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) {
+        onRefresh?.invoke()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -66,6 +76,7 @@ fun RouterBottomSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text(
@@ -84,7 +95,7 @@ fun RouterBottomSheet(
                         color = colors.ink3,
                     )
                     Text(
-                        text = "${activeModel.name} · ${activeModel.provider}",
+                        text = if (activeModel.provider.isNotBlank()) "${activeModel.name} · ${activeModel.provider}" else activeModel.name,
                         style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.ink,
                         modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -108,11 +119,18 @@ fun RouterBottomSheet(
 
             Spacer(Modifier.height(14.dp))
 
-            // Providers Quota & Cooldown
+            // Providers Quota & Limits
             GroupLabel(stringResource(R.string.router_provider_quotas))
             GroupCard {
                 usages.forEachIndexed { index, usage ->
-                    ProviderUsageRow(usage = usage, isFirst = index == 0)
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = colors.hair,
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                        )
+                    }
+                    ProviderUsageBlock(usage = usage, isFirst = index == 0)
                 }
             }
 
@@ -130,6 +148,7 @@ fun RouterBottomSheet(
                 onClick = onPinClick,
                 kind = if (activeModel.isPinned) ButtonKind.Tonal else ButtonKind.Primary,
                 size = ButtonSize.Large,
+                enabled = activeModel.canPin,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("pin-model-button"),
@@ -141,9 +160,154 @@ fun RouterBottomSheet(
 }
 
 @Composable
-private fun ProviderUsageRow(
+fun ProviderUsageBlock(
     usage: ProviderUsage,
     isFirst: Boolean,
+) {
+    val colors = MinaTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        // Provider Header Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = usage.provider,
+                    style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
+                    color = colors.ink,
+                )
+                if (usage.isBadKey) {
+                    Text(
+                        text = " · ${stringResource(R.string.router_status_bad_key)}",
+                        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                        color = colors.bad,
+                    )
+                }
+            }
+
+            val metaTexts = mutableListOf<String>()
+            if (usage.concurrency != null) {
+                metaTexts.add(stringResource(R.string.router_concurrency, usage.concurrency))
+            }
+            if (usage.totalCostToday != null) {
+                val formattedCost = if (usage.totalCostToday % 1.0 == 0.0) {
+                    usage.totalCostToday.toInt().toString()
+                } else {
+                    String.format(java.util.Locale.US, "%.1f", usage.totalCostToday)
+                }
+                metaTexts.add(stringResource(R.string.router_magicube_total, formattedCost))
+            }
+            if (metaTexts.isNotEmpty()) {
+                Text(
+                    text = metaTexts.joinToString(" · "),
+                    style = MinaType.Hint,
+                    color = colors.ink3,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        if (usage.models.isNotEmpty()) {
+            usage.models.forEachIndexed { index, model ->
+                if (index > 0) {
+                    HorizontalDivider(
+                        color = colors.hair,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                }
+                ModelQuotaRow(model = model)
+            }
+        } else {
+            LegacyProviderUsageRow(usage = usage)
+        }
+    }
+}
+
+@Composable
+fun ModelQuotaRow(
+    model: ModelQuotaLine,
+) {
+    val colors = MinaTheme.colors
+    val estimateLabel = stringResource(R.string.router_estimate)
+
+    val requestsText = if (model.limit != null) {
+        "${model.todayRequests}/${model.limit}"
+    } else if (model.isEstimate) {
+        "${model.todayRequests} ($estimateLabel)"
+    } else {
+        "${model.todayRequests}"
+    }
+
+    val subtitle = if (model.costPerCall != null) {
+        val formattedCost = if (model.costPerCall % 1.0 == 0.0) {
+            model.costPerCall.toInt().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.1f", model.costPerCall)
+        }
+        "$requestsText · " + stringResource(R.string.router_magicube_cost, formattedCost)
+    } else {
+        requestsText
+    }
+
+    val (statusText, statusColor) = when (model.status) {
+        ModelStatusKind.Ready -> stringResource(R.string.router_status_ready) to colors.ok
+        ModelStatusKind.Cooldown -> stringResource(R.string.router_status_cooldown, model.cooldownMinutes) to colors.warn
+        ModelStatusKind.Unsupported -> stringResource(R.string.router_status_unsupported) to colors.ink3
+        ModelStatusKind.BadKey -> stringResource(R.string.router_status_bad_key) to colors.bad
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = model.modelName.ifBlank { model.modelId },
+                style = MinaType.Body.copy(fontSize = 14.sp),
+                color = colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MinaType.Hint.copy(fontSize = 12.sp),
+                color = colors.ink3,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .clip(MinaShapes.Pill)
+                .background(statusColor.copy(alpha = 0.12f))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = statusText,
+                style = MinaType.Caption.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                ),
+                color = statusColor,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LegacyProviderUsageRow(
+    usage: ProviderUsage,
 ) {
     val colors = MinaTheme.colors
     val now = remember { System.currentTimeMillis() }
@@ -155,24 +319,15 @@ private fun ProviderUsageRow(
     }
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = usage.provider,
-                style = MinaType.Body.copy(fontWeight = FontWeight.Medium),
-                color = colors.ink,
-            )
-            Text(
-                text = stringResource(R.string.router_quota_format, usage.remainingQuota, usage.totalQuota),
-                style = MinaType.Hint,
-                color = colors.ink3,
-            )
-        }
+        Text(
+            text = stringResource(R.string.router_quota_format, usage.remainingQuota, usage.totalQuota),
+            style = MinaType.Hint,
+            color = colors.ink3,
+        )
 
         val cooldownText = if (isCooldown) {
             stringResource(R.string.router_cooldown_active, "${cooldownSeconds}s")

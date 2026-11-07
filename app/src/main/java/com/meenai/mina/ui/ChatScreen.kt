@@ -355,7 +355,10 @@ fun ChatScreen(
             )
             RouterChip(
                 activeModel = activeModel,
-                onClick = { sheetOpen = true },
+                onClick = {
+                    routerStatus.refresh()
+                    sheetOpen = true
+                },
                 modifier = Modifier.padding(bottom = 6.dp),
             )
         }
@@ -445,6 +448,7 @@ fun ChatScreen(
                     routerStatus.pinModel(activeModel.id)
                 },
                 onDismiss = { sheetOpen = false },
+                onRefresh = { routerStatus.refresh() },
             )
         }
 

@@ -635,8 +635,11 @@ class ModelSetupViewModel(
                 ProbeOutcome.Passed -> return ListProbe.Done(model, rejected)
                 is ProbeOutcome.NoToolCall -> rejected += Rejected(model, tr(R.string.model_reason_no_tools), notAvailable = false)
                 is ProbeOutcome.Failed -> when {
-                    o.modelReason != null -> {
-                        rejected += Rejected(model, o.modelReason, o.notAvailable, o.serverSide)
+                    o.modelReason != null || o.notAvailable ||
+                        o.message.contains("no provider supported", ignoreCase = true) ||
+                        o.message.contains("provider not supported", ignoreCase = true) -> {
+                        val reason = o.modelReason ?: tr(R.string.model_reason_not_available, o.message)
+                        rejected += Rejected(model, reason, notAvailable = true, serverSide = o.serverSide)
                         if (o.serverSide && firstServerError == null) firstServerError = o.message
                     }
                     // 前面只有 5xx 时 Key 还没证明是对的:再碰到 Key、网络、地址、超时这类,照旧不存

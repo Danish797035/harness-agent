@@ -305,6 +305,7 @@ class FreeKeyRouter(
                     val latency = now() - beganTime
                     healthTracker.recordSuccess(currentCandidate.id, latency)
                     difficultyRouter?.recordSuccess()
+                    RouterUsageTracker.recordCall(currentCandidate.id, currentCandidate.provider, now())
                     updateStatus(
                         model = currentCandidate.id,
                         provider = currentCandidate.provider,
@@ -384,8 +385,13 @@ class FreeKeyRouter(
                             val isQuota = (e is ModelError.QuotaExceeded) ||
                                 (e.message?.contains("insufficient_quota", ignoreCase = true) == true) ||
                                 (e.message?.contains("quota", ignoreCase = true) == true)
+                            val isNotAvailable = (e is ModelError.ModelNotAvailable) || (e is ModelError.ModelNotFound) ||
+                                (e.message?.contains("no provider supported", ignoreCase = true) == true) ||
+                                (e.message?.contains("provider not supported", ignoreCase = true) == true)
                             if (isQuota) {
                                 cooldownStore.markDailyQuotaExhausted(currentCandidate.id, currentCandidate.provider, now())
+                            } else if (isNotAvailable) {
+                                cooldownStore.markUnsupported(currentCandidate.id, now())
                             } else {
                                 val retryAfter = (e as? ModelError.RateLimited)?.retryAfterMs ?: ModelCooldownStore.DEFAULT_COOLDOWN_MS
                                 cooldownStore.markCooldown(currentCandidate.id, retryAfter, now())

@@ -220,9 +220,19 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers)
     }
 
-    /** 路由状态(Free Key Router UI)。 */
     val routerStatus: com.meenai.mina.ui.router.RouterStatus by lazy {
-        com.meenai.mina.ui.router.RealRouterStatus(freeKeyRouter, scope)
+        com.meenai.mina.ui.router.RealRouterStatus(
+            router = freeKeyRouter,
+            scope = scope,
+            store = providers,
+            getFallbackModel = {
+                val cfg = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)
+                if (cfg != null) {
+                    val pName = providers.provider(cfg.providerId)?.name ?: cfg.name
+                    cfg.model to pName
+                } else null
+            },
+        )
     }
 
     /** 浮在别的 App 上的悬浮胶囊。 */
@@ -323,7 +333,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         // 上次异常退出时留下的改动(App 被静音)在这里恢复
         scope.launch { taskRecovery.recover() }
         scope.launch {
-            providers.providers.collect {
+            kotlinx.coroutines.flow.combine(providers.providers, providers.keysRevision) { list, _ -> list }.collect {
                 freeKeyRouter.updateCandidates(com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers))
             }
         }

@@ -1,7 +1,12 @@
 package com.meenai.mina.ui.router
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.router.FreeKeyRouter
+import com.meenai.mina.core.router.RouterUsageTracker
+import com.meenai.mina.core.router.picker.CuratedTiers
+import com.meenai.mina.core.router.preset.ZaiPreset
+import com.meenai.mina.settings.ProviderStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +22,16 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import kotlin.math.ceil
 
 /**
  * Currently active model metadata for Router UI.
@@ -25,24 +40,126 @@ data class ActiveModel(
     val id: String = "gemini-flash",
     val name: String = "Gemini Flash",
     val provider: String = "Gemini",
+    val usedToday: Int = 0,
+    val limit: Int? = null,
+    val isEstimate: Boolean = false,
     val quotaRemaining: Int = 38,
     val quotaTotal: Int = 50,
     val reason: String = "Lowest latency and high quota remaining",
     val isPinned: Boolean = false,
+    val canPin: Boolean = true,
     val cooldownUntilMs: Long = 0L,
 )
 
+enum class ModelStatusKind {
+    Ready,
+    Cooldown,
+    Unsupported,
+    BadKey;
+
+    fun label(cooldownMin: Int = 0): String = when (this) {
+        Ready -> "Ready"
+        Cooldown -> "Cooldown $cooldownMin min"
+        Unsupported -> "Unsupported"
+        BadKey -> "Bad key"
+    }
+}
+
 /**
- * Per-provider usage statistics and cooldown state.
+ * Per-model quota, usage line and status.
+ */
+data class ModelQuotaLine(
+    val modelId: String,
+    val modelName: String,
+    val todayRequests: Int,
+    val limit: Int? = null,
+    val isEstimate: Boolean = false,
+    val status: ModelStatusKind = ModelStatusKind.Ready,
+    val cooldownMinutes: Int = 0,
+    val costPerCall: Double? = null,
+    val costInfo: String? = null,
+)
+
+/**
+ * Per-provider usage statistics, models list and cooldown state.
  */
 data class ProviderUsage(
     val provider: String,
-    val todayCount: Int,
-    val remainingQuota: Int,
-    val totalQuota: Int,
+    val providerId: String = "",
+    val isBadKey: Boolean = false,
+    val concurrency: Int? = null,
+    val totalCostToday: Double? = null,
+    val models: List<ModelQuotaLine> = emptyList(),
+    // Backward compatibility fields
+    val todayCount: Int = 0,
+    val remainingQuota: Int = 50,
+    val totalQuota: Int = 50,
     val lastError: String? = null,
     val cooldownUntilMs: Long = 0L,
 )
+
+data class OpenRouterKeyInfo(
+    val usage: Int,
+    val limit: Int?,
+    val isFreeTier: Boolean,
+)
+
+interface OpenRouterKeyClient {
+    suspend fun getKeyInfo(apiKey: String): OpenRouterKeyInfo?
+}
+
+class HttpOpenRouterKeyClient(
+    val http: OkHttpClient = OkHttpClient(),
+) : OpenRouterKeyClient {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    override suspend fun getKeyInfo(apiKey: String): OpenRouterKeyInfo? = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder()
+                .url("https://openrouter.ai/api/v1/key")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            http.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val body = response.body?.string().orEmpty()
+                parseKeyJson(body, response)
+            }
+        }.getOrNull()
+    }
+
+    fun parseKeyJson(body: String, response: Response? = null): OpenRouterKeyInfo? {
+        return runCatching {
+            val root = json.parseToJsonElement(body).jsonObject
+            val data = root["data"]?.jsonObject
+            val usage = data?.get("usage")?.jsonPrimitive?.doubleOrNull?.toInt() ?: 0
+            val limitDouble = data?.get("limit")?.jsonPrimitive?.doubleOrNull
+            val limit = limitDouble?.toInt()
+            val isFreeTier = data?.get("is_free_tier")?.jsonPrimitive?.booleanOrNull ?: false
+
+            val headerLimit = response?.header("x-ratelimit-limit-requests")?.toIntOrNull()
+                ?: response?.header("x-ratelimit-limit")?.toIntOrNull()
+
+            OpenRouterKeyInfo(
+                usage = usage,
+                limit = headerLimit ?: limit,
+                isFreeTier = isFreeTier,
+            )
+        }.getOrNull()
+    }
+}
+
+fun modelScopeMagicubeCost(modelId: String): Double {
+    val lower = modelId.lowercase()
+    val paramSize = CuratedTiers.extractParameterSizeB(modelId)
+    return when {
+        paramSize in 0.1..10.0 || lower.contains("7b") || lower.contains("8b") || lower.contains("flash") -> 0.5
+        paramSize in 10.1..35.0 || lower.contains("14b") || lower.contains("32b") -> 1.0
+        paramSize > 35.0 || lower.contains("72b") || lower.contains("deepseek") || lower.contains("70b") -> 2.0
+        else -> 1.0
+    }
+}
 
 /**
  * Model switch event emitted when switching to another provider/model.
@@ -73,6 +190,7 @@ interface RouterStatus {
     val usage: StateFlow<List<ProviderUsage>>
     val events: Flow<SwitchEvent>
     fun pinModel(modelId: String?)
+    fun refresh()
 }
 
 /**
@@ -81,7 +199,13 @@ interface RouterStatus {
 class RealRouterStatus(
     val router: FreeKeyRouter,
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    val store: ProviderStore? = null,
+    val getFallbackModel: (() -> Pair<String, String>?)? = null,
+    var openRouterKeyClient: OpenRouterKeyClient = HttpOpenRouterKeyClient(),
 ) : RouterStatus {
+
+    private var cachedOpenRouterKeyInfo: OpenRouterKeyInfo? = null
+
     private val _current = MutableStateFlow(computeActiveModel())
     override val current: StateFlow<ActiveModel> = _current.asStateFlow()
 
@@ -119,14 +243,45 @@ class RealRouterStatus(
                 }
             }
         }
+        if (store != null) {
+            scope.launch {
+                store.providers.collect {
+                    _current.value = computeActiveModel()
+                    _usage.value = computeUsage()
+                }
+            }
+        }
     }
 
-    fun refresh() {
+    override fun refresh() {
+        _current.value = computeActiveModel()
+        _usage.value = computeUsage()
+        refreshOpenRouterKeyAsync()
+    }
+
+    fun refreshOpenRouterKeyAsync() {
+        val s = store ?: return
+        val orKey = AppFreeKeyRouter.resolveOpenRouterKey(s) ?: return
+        scope.launch {
+            val info = openRouterKeyClient.getKeyInfo(orKey)
+            if (info != null) {
+                cachedOpenRouterKeyInfo = info
+                _current.value = computeActiveModel()
+                _usage.value = computeUsage()
+            }
+        }
+    }
+
+    fun setOpenRouterKeyInfo(info: OpenRouterKeyInfo) {
+        cachedOpenRouterKeyInfo = info
         _current.value = computeActiveModel()
         _usage.value = computeUsage()
     }
 
     override fun pinModel(modelId: String?) {
+        if (router.candidates.isEmpty()) {
+            return
+        }
         if (modelId.isNullOrBlank()) {
             router.unpinModel()
         } else {
@@ -139,14 +294,41 @@ class RealRouterStatus(
         val status = router.status.value
         val active = router.activeCandidate ?: router.candidates.firstOrNull()
         if (active == null) {
+            val fallback = getFallbackModel?.invoke()
+                ?: store?.configFor(ModelRole.Main)?.let { cfg ->
+                    val p = store.provider(cfg.providerId)
+                    cfg.model to (p?.name ?: cfg.name)
+                }
+            if (fallback != null) {
+                val (modelId, providerName) = fallback
+                val used = RouterUsageTracker.getTodayCalls(modelId)
+                return ActiveModel(
+                    id = modelId,
+                    name = formatModelName(modelId),
+                    provider = formatProvider(providerName),
+                    usedToday = used,
+                    limit = null,
+                    isEstimate = true,
+                    quotaRemaining = 0,
+                    quotaTotal = 0,
+                    reason = status.reason ?: "Configured main model",
+                    isPinned = false,
+                    canPin = false,
+                    cooldownUntilMs = 0L,
+                )
+            }
             return ActiveModel(
                 id = "",
                 name = "No model",
                 provider = "",
+                usedToday = 0,
+                limit = null,
+                isEstimate = false,
                 quotaRemaining = 0,
                 quotaTotal = 0,
                 reason = status.reason ?: "No candidate models available",
                 isPinned = false,
+                canPin = false,
                 cooldownUntilMs = 0L,
             )
         }
@@ -157,32 +339,160 @@ class RealRouterStatus(
         val cooldownMs = router.cooldownStore.getRemainingCooldownMs(id)
         val cooldownUntil = if (cooldownMs > 0L) System.currentTimeMillis() + cooldownMs else 0L
 
+        var usedToday = RouterUsageTracker.getTodayCalls(id)
+        var limit: Int? = null
+        var isEstimate = true
+
+        if (provider.equals("openrouter", ignoreCase = true) && cachedOpenRouterKeyInfo != null) {
+            limit = cachedOpenRouterKeyInfo?.limit
+            if (limit != null) {
+                isEstimate = false
+                usedToday = maxOf(usedToday, cachedOpenRouterKeyInfo?.usage ?: 0)
+            }
+        }
+
         return ActiveModel(
             id = id,
             name = formatModelName(id),
             provider = formatProvider(provider),
-            quotaRemaining = 38,
-            quotaTotal = 50,
+            usedToday = usedToday,
+            limit = limit,
+            isEstimate = isEstimate,
+            quotaRemaining = if (limit != null) (limit - usedToday).coerceAtLeast(0) else 38,
+            quotaTotal = limit ?: 50,
             reason = status.reason ?: (if (isPinned) "Pinned model" else "Optimal candidate"),
             isPinned = isPinned,
+            canPin = true,
             cooldownUntilMs = cooldownUntil,
         )
     }
 
     private fun computeUsage(): List<ProviderUsage> {
-        if (router.candidates.isEmpty()) return emptyList()
-        val providers = router.candidates.map { it.provider }.distinct()
-        return providers.map { p ->
-            val providerModels = router.candidates.filter { it.provider.equals(p, ignoreCase = true) }
-            val maxCooldown = providerModels.maxOfOrNull { router.cooldownStore.getRemainingCooldownMs(it.id) } ?: 0L
-            val isBad = router.cooldownStore.isKeyBad(p)
-            val error = if (isBad) "Invalid Key" else if (maxCooldown > 0L) "Rate limit active" else null
+        val savedProviders = store?.providers?.value.orEmpty()
+        val providerEntries = if (savedProviders.isNotEmpty()) {
+            savedProviders.map { it.name to it }
+        } else {
+            router.candidates.map { it.provider }.distinct().map { p ->
+                p to null
+            }
+        }
+
+        if (providerEntries.isEmpty()) return emptyList()
+
+        return providerEntries.map { (pName, providerObj) ->
+            val providerKeyName = providerObj?.name ?: pName
+            val isZai = providerObj?.let { AppFreeKeyRouter.isZaiProvider(it) } ?: pName.equals("zai", ignoreCase = true)
+            val isModelScope = providerObj?.let { AppFreeKeyRouter.isModelScopeProvider(it) } ?: pName.equals("modelscope", ignoreCase = true)
+            val isOpenRouter = providerObj?.let { AppFreeKeyRouter.isOpenRouterProvider(it) } ?: pName.equals("openrouter", ignoreCase = true)
+
+            val providerId = providerObj?.id ?: pName
+            val isBadKey = router.cooldownStore.isKeyBad(providerKeyName) ||
+                router.cooldownStore.isKeyBad(providerId) ||
+                (if (isZai) router.cooldownStore.isKeyBad("zai") else false) ||
+                (if (isModelScope) router.cooldownStore.isKeyBad("modelscope") else false) ||
+                (if (isOpenRouter) router.cooldownStore.isKeyBad("openrouter") else false)
+
+            val modelIds = linkedSetOf<String>()
+
+            // 1. Router candidates matching this provider
+            router.candidates.filter {
+                it.provider.equals(pName, ignoreCase = true) ||
+                    it.provider.equals(providerId, ignoreCase = true) ||
+                    (isZai && it.provider.equals("zai", ignoreCase = true)) ||
+                    (isModelScope && it.provider.equals("modelscope", ignoreCase = true)) ||
+                    (isOpenRouter && it.provider.equals("openrouter", ignoreCase = true))
+            }.forEach { modelIds.add(it.id) }
+
+            // 2. Models from provider object
+            providerObj?.let { p ->
+                val freeModels = p.models?.filter { it.id.endsWith(":free") }.orEmpty()
+                if (isOpenRouter && freeModels.isNotEmpty()) {
+                    freeModels.forEach { modelIds.add(it.id) }
+                } else if (isModelScope && p.models?.isNotEmpty() == true) {
+                    p.models.filter { AppFreeKeyRouter.isModelScopeChatModel(it) }.forEach { modelIds.add(it.id) }
+                } else if (p.models?.isNotEmpty() == true && p.models.size <= 8) {
+                    p.models.forEach { modelIds.add(it.id) }
+                }
+
+                p.typedModels.forEach { modelIds.add(it) }
+                store?.configs?.value?.filter { it.providerId == p.id }?.forEach { modelIds.add(it.model) }
+            }
+
+            // 3. Fallbacks if still empty
+            if (modelIds.isEmpty()) {
+                if (isZai) {
+                    modelIds.add(ZaiPreset.MODEL_FLASH)
+                    modelIds.add(ZaiPreset.MODEL_VISION)
+                } else if (isModelScope) {
+                    modelIds.add("Qwen/Qwen2.5-72B-Instruct")
+                    modelIds.add("Qwen/Qwen2.5-7B-Instruct")
+                    modelIds.add("Qwen/Qwen2.5-VL-7B-Instruct")
+                } else if (isOpenRouter) {
+                    modelIds.add("google/gemini-2.0-flash-exp:free")
+                    modelIds.add("meta-llama/llama-3.3-70b-instruct:free")
+                    modelIds.add("meta-llama/llama-3.1-8b-instruct:free")
+                    modelIds.add("qwen/qwen-2.5-coder-32b-instruct:free")
+                }
+            }
+
+            val lines = modelIds.map { mId ->
+                var todayRequests = RouterUsageTracker.getTodayCalls(mId)
+                val isUnsupported = router.cooldownStore.isUnsupported(mId)
+                val cooldownMs = router.cooldownStore.getRemainingCooldownMs(mId)
+
+                val status = when {
+                    isBadKey -> ModelStatusKind.BadKey
+                    isUnsupported -> ModelStatusKind.Unsupported
+                    cooldownMs > 0L -> ModelStatusKind.Cooldown
+                    else -> ModelStatusKind.Ready
+                }
+                val cooldownMin = if (cooldownMs > 0L) ceil(cooldownMs / 60000.0).toInt().coerceAtLeast(1) else 0
+
+                var limit: Int? = null
+                var isEstimate = true
+                if (isOpenRouter && cachedOpenRouterKeyInfo != null) {
+                    limit = cachedOpenRouterKeyInfo?.limit
+                    if (limit != null) {
+                        isEstimate = false
+                        todayRequests = maxOf(todayRequests, cachedOpenRouterKeyInfo?.usage ?: 0)
+                    }
+                }
+
+                val costPerCall = if (isModelScope) modelScopeMagicubeCost(mId) else null
+                val costInfo = if (costPerCall != null) "~$costPerCall Magicube/call" else null
+
+                ModelQuotaLine(
+                    modelId = mId,
+                    modelName = formatModelName(mId),
+                    todayRequests = todayRequests,
+                    limit = limit,
+                    isEstimate = isEstimate,
+                    status = status,
+                    cooldownMinutes = cooldownMin,
+                    costPerCall = costPerCall,
+                    costInfo = costInfo,
+                )
+            }
+
+            val totalCostToday = if (isModelScope) {
+                lines.sumOf { (it.costPerCall ?: 0.0) * it.todayRequests }
+            } else null
+
+            val maxCooldown = lines.maxOfOrNull {
+                router.cooldownStore.getRemainingCooldownMs(it.modelId)
+            } ?: 0L
+
             ProviderUsage(
-                provider = formatProvider(p),
-                todayCount = 0,
+                provider = formatProvider(providerKeyName),
+                providerId = providerId,
+                isBadKey = isBadKey,
+                concurrency = if (isZai) 1 else null,
+                totalCostToday = totalCostToday,
+                models = lines,
+                todayCount = lines.sumOf { it.todayRequests },
                 remainingQuota = if (maxCooldown > 0L) 0 else 50,
                 totalQuota = 50,
-                lastError = error,
+                lastError = if (isBadKey) "Invalid Key" else if (maxCooldown > 0L) "Rate limit active" else null,
                 cooldownUntilMs = if (maxCooldown > 0L) System.currentTimeMillis() + maxCooldown else 0L,
             )
         }
@@ -207,6 +517,10 @@ class RealRouterStatus(
         id.contains("Qwen2.5-72B", ignoreCase = true) -> "Qwen 2.5 72B"
         id.contains("Qwen2.5-7B", ignoreCase = true) -> "Qwen 2.5 7B"
         id.contains("Qwen2.5-VL-7B", ignoreCase = true) -> "Qwen 2.5 VL 7B"
+        id.contains("qwen3.5", ignoreCase = true) -> "Qwen3.5"
+        id.contains("deepseek-v3", ignoreCase = true) -> "DeepSeek-V3"
+        id.contains("deepseek-v4", ignoreCase = true) -> "DeepSeek-V4"
+        id.contains("deepseek-r1", ignoreCase = true) -> "DeepSeek-R1"
         else -> id.substringAfterLast('/').removeSuffix(":free")
     }
 }
@@ -257,6 +571,8 @@ class FakeRouterStatus(
         }
     }
 
+    override fun refresh() {}
+
     fun emitSwitch(event: SwitchEvent) {
         _events.tryEmit(event)
     }
@@ -271,12 +587,23 @@ class FakeRouterStatus(
 }
 
 /**
- * Format chip text: "Model · provider · bacha quota" (e.g. "Gemini Flash · 38/50 aaj").
- * If the provider is already contained in the model name (e.g. "Gemini Flash" and "Gemini"),
- * the redundant provider segment is omitted.
+ * Format chip text: "Model · used/limit today" or "Model · provider · used/limit today".
  */
 fun formatChipText(active: ActiveModel, todayLabel: String = "today"): String {
-    val quotaPart = "${active.quotaRemaining}/${active.quotaTotal} $todayLabel"
+    if (active.name == "No model" || active.id.isEmpty()) {
+        return "No model · 0/0 $todayLabel"
+    }
+
+    val quotaPart = if (active.limit != null) {
+        "${active.usedToday}/${active.limit} $todayLabel"
+    } else if (active.isEstimate) {
+        val estLabel = if (todayLabel.equals("aaj", ignoreCase = true)) "anumaan" else "estimate"
+        "${active.usedToday} $todayLabel ($estLabel)"
+    } else {
+        // Fallback for tests/previews providing quotaRemaining / quotaTotal
+        "${active.quotaRemaining}/${active.quotaTotal} $todayLabel"
+    }
+
     return if (active.provider.isBlank() || active.name.contains(active.provider, ignoreCase = true)) {
         "${active.name} · $quotaPart"
     } else {
