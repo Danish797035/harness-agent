@@ -257,13 +257,20 @@ class FreeKeyRouterTest {
             RouterCandidate("chaos_m$i", "chaos_p$i", m, curatedRank = 5 - i)
         }
 
-        val router = FreeKeyRouter(candidates, maxSwitchesPerTask = 15, delayMs = {})
+        var simulatedTime = 100_000L
+        val router = FreeKeyRouter(
+            candidates,
+            maxSwitchesPerTask = 25,
+            now = { simulatedTime },
+            delayMs = { simulatedTime += maxOf(it, 1_000L) },
+        )
 
         val conversation = mutableListOf<Message>()
         conversation.add(Message(Role.User, listOf(Part.Text("Execute complex 20-step workflow")), Author.User))
 
         for (step in 1..20) {
             router.resetTask() // each step starts with fresh switch budget
+            simulatedTime += 2_000L // time passes between steps
             val reply = router.completeStreaming("system prompt", conversation, emptyList()) {}
             assertNotNull(reply)
             conversation.add(Message(Role.Assistant, reply.parts, Author.Mina))

@@ -43,6 +43,7 @@ object ProviderConverter {
      */
     fun normalizeToolCallIds(messages: List<Message>): List<Message> {
         val idMapping = mutableMapOf<String, String>()
+        val unassignedGeneratedIds = mutableListOf<String>()
         var toolCallSeq = 0
 
         val mapped = messages.mapIndexed { msgIdx, msg ->
@@ -57,6 +58,8 @@ object ProviderConverter {
                         }
                         if (part.id.isNotBlank()) {
                             idMapping[part.id] = stableId
+                        } else {
+                            unassignedGeneratedIds.add(stableId)
                         }
                         callIdx++
                         part.copy(id = stableId)
@@ -66,13 +69,23 @@ object ProviderConverter {
             } else msg
         }
 
-        if (idMapping.isEmpty()) return mapped
+        if (idMapping.isEmpty() && unassignedGeneratedIds.isEmpty()) return mapped
+
+        val remainingUnassigned = unassignedGeneratedIds.toMutableList()
 
         return mapped.map { msg ->
             if (msg.role == Role.Tool || msg.parts.any { it is Part.ToolResult }) {
                 val newParts = msg.parts.map { part ->
-                    if (part is Part.ToolResult && idMapping.containsKey(part.callId)) {
-                        part.copy(callId = idMapping[part.callId] ?: part.callId)
+                    if (part is Part.ToolResult) {
+                        when {
+                            part.callId.isNotBlank() && idMapping.containsKey(part.callId) -> {
+                                part.copy(callId = idMapping[part.callId] ?: part.callId)
+                            }
+                            part.callId.isBlank() && remainingUnassigned.isNotEmpty() -> {
+                                part.copy(callId = remainingUnassigned.removeAt(0))
+                            }
+                            else -> part
+                        }
                     } else part
                 }
                 msg.copy(parts = newParts)

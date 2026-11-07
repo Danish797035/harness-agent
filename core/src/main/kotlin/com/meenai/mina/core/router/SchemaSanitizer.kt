@@ -38,13 +38,21 @@ object SchemaSanitizer {
         }
     }
 
+    private val GENERAL_FORBIDDEN_KEYWORDS = setOf(
+        "additionalProperties",
+        "\$schema",
+        "\$id",
+        "\$defs",
+        "definitions",
+    )
+
     /**
      * General sanitization for retrying on 400 schema errors across any provider.
      */
     fun sanitizeGeneral(schemaJson: String): String {
         return try {
             val element = json.parseToJsonElement(schemaJson)
-            sanitizeElement(element, setOf("\$schema", "\$id", "\$defs", "definitions")).toString()
+            sanitizeElement(element, GENERAL_FORBIDDEN_KEYWORDS).toString()
         } catch (_: Exception) {
             schemaJson
         }
