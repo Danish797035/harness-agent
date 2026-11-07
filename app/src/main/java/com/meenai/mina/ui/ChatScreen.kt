@@ -6,7 +6,7 @@ import com.meenai.mina.core.cap.web.AttachedPage
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.ui.components.keepsKeyboard
 import com.meenai.mina.ui.router.ActiveModel
-import com.meenai.mina.ui.router.FakeRouterStatus
+import com.meenai.mina.ui.router.LocalRouterStatus
 import com.meenai.mina.ui.router.RouterBottomSheet
 import com.meenai.mina.ui.router.RouterChip
 import com.meenai.mina.ui.router.RouterStatus
@@ -183,7 +183,7 @@ fun ChatScreen(
     voice: VoiceSource? = null,
     /** 「还不能语音输入」里的「去选」。 */
     openSpeechModel: () -> Unit = {},
-    routerStatus: RouterStatus = remember { FakeRouterStatus() },
+    routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
     val activeModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
@@ -273,7 +273,7 @@ fun ChatScreen(
     val backdrop = rememberGlassBackdrop()
     val context = LocalContext.current
     val flags = remember { FeatureFlags.get(context) }
-    val showNotice = remember { flags.showSwitchNotice() }
+    val showNotice = flags.showSwitchNotice()
     LaunchedEffect(routerStatus) {
         routerStatus.events.collect { event ->
             latestSwitchEvent = event
