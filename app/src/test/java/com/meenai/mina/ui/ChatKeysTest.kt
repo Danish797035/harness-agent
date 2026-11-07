@@ -2,6 +2,7 @@ package com.meenai.mina.ui
 
 import com.meenai.mina.chat.SharedFile
 import com.meenai.mina.core.memory.MemoryNote
+import com.meenai.mina.core.memory.NoteKind
 import com.meenai.mina.core.skills.SkillNote
 import com.meenai.mina.task.SteerNote
 import com.meenai.mina.task.SteerState
@@ -70,7 +71,7 @@ class ChatKeysTest {
             live = false,
             runId = "run-1",
             files = listOf(SharedFile("ticket.pdf", 1024L, "ticket.pdf", "file://ticket.pdf")),
-            memoryNotes = listOf(MemoryNote("m1", "remembered", "Flight time 10am")),
+            memoryNotes = listOf(MemoryNote(NoteKind.added, "m1", "u1", null)),
             skillNotes = listOf(SkillNote("k1", "Learned flight booking")),
             keptPage = "https://airline.example",
             steers = listOf(steer1, steer2),
@@ -157,7 +158,7 @@ class ChatKeysTest {
             live = false,
             runId = "run-test",
             files = listOf(SharedFile("test.txt", 100L, "test.txt", "uri")),
-            memoryNotes = listOf(MemoryNote("m1", "k", "content")),
+            memoryNotes = listOf(MemoryNote(NoteKind.added, "m1", "u1", null)),
             steers = listOf(steer),
         )
 
