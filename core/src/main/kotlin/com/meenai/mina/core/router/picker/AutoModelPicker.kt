@@ -199,18 +199,17 @@ class AutoModelPicker(
 
     private fun isLightModel(candidate: ModelCandidate): Boolean {
         if (candidate.parameterSizeB in 0.1..10.0) return true
-        val lowerId = candidate.id.lowercase()
-        return lowerId.contains("mini") ||
-            lowerId.contains("small") ||
-            lowerId.contains("lite") ||
-            lowerId.contains("nano") ||
-            lowerId.contains("8b") ||
-            lowerId.contains("7b") ||
-            lowerId.contains("3b") ||
-            lowerId.contains("1b")
+        // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
+        val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
+        return tokens.any { token ->
+            token in LIGHT_KEYWORDS ||
+                (SIZE_TOKEN.matchEntire(token)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it in 0.1..10.0 } == true)
+        }
     }
 
     companion object {
+        private val LIGHT_KEYWORDS = setOf("mini", "small", "lite", "nano")
+        private val SIZE_TOKEN = Regex("""^(\d+(?:\.\d+)?)b$""")
         const val MIN_CONTEXT_TOKENS = 32_000
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
     }
