@@ -312,15 +312,16 @@ fun ChatScreen(
                 },
             ) {
                 if (ui.exchanges.isEmpty() && ui.blocked == null) {
-                    item("empty") { EmptyState(ui.conversationId) { input = it } }
+                    item(key = "empty", contentType = "empty") { EmptyState(ui.conversationId) { input = it } }
                 }
+                val hasMultipleDrafts = ui.exchanges.count { !it.draft.isNullOrBlank() } > 1
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(i, ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
+                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, hasMultipleDrafts)
                 }
-                if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item("phone-setup") { PhoneSetupLine(openPhoneSetup) }
+                if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
-                    item("blocked") {
+                    item(key = "blocked", contentType = "blocked") {
                         NeedCard(
                             stringResource(R.string.chat_cannot_start),
                             stringResource(R.string.chat_missing, problems.joinToString(stringResource(R.string.list_sep)) { StatusCopy.banner(it).title }),
@@ -516,36 +517,52 @@ private fun ExampleRow(icon: ImageVector, text: String, first: Boolean, onClick:
 // ---------- 一问一答 ----------
 
 private fun LazyListScope.exchange(
-    index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
+    ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     kept: KeptPage? = null,
+    hasMultipleDrafts: Boolean = false,
 ) {
-    if (ex.goal.isNotEmpty()) item("u$index") { UserBubble(ex.goal, conversationId, key = "u$index") }
+    if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
     if (active) {
-        if (!answering) item("s$index") { WorkBlock(ex, reduceMotion, backgroundNote, openRun) }
+        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun) }
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
-        item("s$index") { DoneLine(ex, reduceMotion, openRun) }
+        item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
     }
     // 任务进行中插的话:用户的原话,下面一行小字说它的去向。
     // 插话之前已经说完的回复照常显示;插话打断的那段留在原处(淡色、标「被你的新消息打断」);接着才是插话。
     // 还没交给模型的插话排在正在长出来的回答后面:那段回答是它到之前就在写的,不是对它的回复。
     fun steer(n: SteerNote) {
-        n.finished?.takeIf(String::isNotBlank)?.let { done -> item("a$index-${n.id}") { FinishedReply(done, "a$index-${n.id}") } }
-        n.interrupted?.takeIf(String::isNotBlank)?.let { cut -> item("i$index-${n.id}") { InterruptedReply(cut) } }
-        item("m$index-${n.id}") { UserBubble(n.text, conversationId, steerLabel(n.state), "m$index-${n.id}") }
+        n.finished?.takeIf(String::isNotBlank)?.let { done ->
+            item(key = "a:${ex.id}-${n.id}", contentType = "assistant") { FinishedReply(done, "a:${ex.id}-${n.id}") }
+        }
+        n.interrupted?.takeIf(String::isNotBlank)?.let { cut ->
+            item(key = "i:${ex.id}-${n.id}", contentType = "assistant") { InterruptedReply(cut) }
+        }
+        item(key = "m:${ex.id}-${n.id}", contentType = "user") { UserBubble(n.text, conversationId, steerLabel(n.state), "m:${ex.id}-${n.id}") }
     }
     val (joined, waiting) = steersAroundDraft(ex.steers)
     joined.forEach(::steer)
-    ex.draft?.takeIf(String::isNotBlank)?.let { draft -> item("d$index") { DraftText(draft, ex.waitingForModel) } }
+    ex.draft?.takeIf(String::isNotBlank)?.let { draft ->
+        val draftKey = if (hasMultipleDrafts) "draft:${ex.id}" else "draft"
+        item(key = draftKey, contentType = "draft") { DraftText(draft, ex.waitingForModel) }
+    }
     waiting.forEach(::steer)
-    item("r$index") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r$index") }
+    if (ex.status != ExchangeStatus.Working) {
+        item(key = "r:${ex.id}", contentType = "assistant") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r:${ex.id}") }
+    }
     // 这一轮结束后留在后台运行的那一页:还开着是绿色一行(能关),关了是一句原因
-    keptPageRow(index, ex, kept, vm::closeKeptPage)
-    if (ex.files.isNotEmpty()) item("f$index") { FileCards(ex.files) }
-    learningNotes(index, ex, vm)
+    keptPageRow(ex, kept, vm::closeKeptPage)
+    if (ex.files.isNotEmpty()) item(key = "f:${ex.id}", contentType = "files") { FileCards(ex.files) }
+    learningNotes(ex, vm)
 }
+
+private fun LazyListScope.exchange(
+    index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
+    openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
+    kept: KeptPage? = null,
+) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
 
 /**
  * 插话分成两段:第一句还没交给模型的([SteerState.unconsumed])之前的,和它连同之后的。
@@ -562,11 +579,67 @@ internal fun steersAroundDraft(steers: List<SteerNote>): Pair<List<SteerNote>, L
  * 电脑追加的([SteerNote.remote])不给:编辑会把只归当前任务的话变成手机插话、可能转成下一件事;撤不撤由电脑定。
  */
 internal fun withdrawableSteer(exchanges: List<Exchange>, key: String): SteerNote? = exchanges.mapIndexedNotNull { i, ex ->
-    if (ex.status.isActive()) ex.steers.firstOrNull { key == "m$i-${it.id}" && it.state.unconsumed && !it.remote } else null
+    if (ex.status.isActive()) ex.steers.firstOrNull {
+        (key == "m$i-${it.id}" || key == "m:${ex.id}-${it.id}") && it.state.unconsumed && !it.remote
+    } else null
 }.firstOrNull()
 
-private fun ExchangeStatus.isActive() =
+internal fun ExchangeStatus.isActive() =
     this !is ExchangeStatus.Done && this !is ExchangeStatus.Failed && this !is ExchangeStatus.Cancelled
+
+internal fun exchangeItemKeys(ex: Exchange, kept: KeptPage? = null, hasMultipleDrafts: Boolean = false): List<Pair<String, String>> {
+    val items = mutableListOf<Pair<String, String>>()
+    if (ex.goal.isNotEmpty()) items.add("u:${ex.id}" to "user")
+    val active = ex.status.isActive()
+    val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
+    if (active) {
+        if (!answering) items.add("s:${ex.id}" to "step")
+    } else if (ex.steps.isNotEmpty() || ex.runId != null) {
+        items.add("s:${ex.id}" to "step")
+    }
+    val (joined, waiting) = steersAroundDraft(ex.steers)
+    fun steerKeys(n: SteerNote) {
+        n.finished?.takeIf(String::isNotBlank)?.let { items.add("a:${ex.id}-${n.id}" to "assistant") }
+        n.interrupted?.takeIf(String::isNotBlank)?.let { items.add("i:${ex.id}-${n.id}" to "assistant") }
+        items.add("m:${ex.id}-${n.id}" to "user")
+    }
+    joined.forEach(::steerKeys)
+    ex.draft?.takeIf(String::isNotBlank)?.let {
+        val draftKey = if (hasMultipleDrafts) "draft:${ex.id}" else "draft"
+        items.add(draftKey to "draft")
+    }
+    waiting.forEach(::steerKeys)
+    if (ex.status != ExchangeStatus.Working) {
+        items.add("r:${ex.id}" to "assistant")
+    }
+    if (KeptRow.of(ex, kept) != null) items.add("k:${ex.id}" to "kept")
+    if (ex.files.isNotEmpty()) items.add("f:${ex.id}" to "files")
+    if (ex.runId != null && (ex.memoryNotes.isNotEmpty() || ex.skillNotes.isNotEmpty())) items.add("ln:${ex.id}" to "learning")
+    return items
+}
+
+internal fun chatListKeys(
+    exchanges: List<Exchange>,
+    hasBlocked: Boolean = false,
+    phoneSetupNeeded: Boolean = false,
+    kept: KeptPage? = null,
+): List<Pair<String, String>> {
+    val items = mutableListOf<Pair<String, String>>()
+    if (exchanges.isEmpty() && !hasBlocked) {
+        items.add("empty" to "empty")
+    }
+    val multi = exchanges.count { !it.draft.isNullOrBlank() } > 1
+    exchanges.forEach { ex ->
+        items.addAll(exchangeItemKeys(ex, kept, multi))
+    }
+    if (phoneSetupNeeded && exchanges.isNotEmpty()) {
+        items.add("phone-setup" to "setup")
+    }
+    if (hasBlocked) {
+        items.add("blocked" to "blocked")
+    }
+    return items
+}
 
 /**
  * 用户的话:蓝色气泡,圆角 20、右下尾角 6,最宽八成。[note] 是插话的去向。

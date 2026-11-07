@@ -54,9 +54,9 @@ sealed interface KeptRow {
 }
 
 /** 一轮下面留页的那一行(见 [KeptRow])。 */
-internal fun LazyListScope.keptPageRow(index: Int, ex: Exchange, live: KeptPage?, onClose: () -> Unit) {
+internal fun LazyListScope.keptPageRow(ex: Exchange, live: KeptPage?, onClose: () -> Unit) {
     val row = KeptRow.of(ex, live) ?: return
-    item("k$index") {
+    item(key = "k:${ex.id}", contentType = "kept") {
         when (row) {
             is KeptRow.Live -> KeptLine(row.page, onClose)
             is KeptRow.Closed -> Text(
@@ -66,6 +66,9 @@ internal fun LazyListScope.keptPageRow(index: Int, ex: Exchange, live: KeptPage?
         }
     }
 }
+
+internal fun LazyListScope.keptPageRow(index: Int, ex: Exchange, live: KeptPage?, onClose: () -> Unit) =
+    keptPageRow(ex, live, onClose)
 
 /** 绿色那一行:「这一页保持在后台运行」,下面「站点 · 还剩多久后自动关」,右边「关闭」。剩下的时间每分钟走一次。 */
 @Composable
