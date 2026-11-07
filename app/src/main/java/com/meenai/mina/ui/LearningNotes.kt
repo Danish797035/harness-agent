@@ -17,10 +17,10 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /** 结果卡片下的小字:记住了什么、学会或停用了哪项技能,各带按钮。 */
-internal fun LazyListScope.learningNotes(index: Int, ex: Exchange, vm: ChatViewModel) {
+internal fun LazyListScope.learningNotes(ex: Exchange, vm: ChatViewModel) {
     val runId = ex.runId ?: return
     if (ex.memoryNotes.isEmpty() && ex.skillNotes.isEmpty()) return
-    item("m$index") {
+    item(key = "ln:${ex.id}", contentType = "learning") {
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 8.dp).testTag("learning-notes")) {
             ex.memoryNotes.forEach { n ->
                 NoteLine(vm.noteText(n)) {
@@ -42,6 +42,9 @@ internal fun LazyListScope.learningNotes(index: Int, ex: Exchange, vm: ChatViewM
         }
     }
 }
+
+internal fun LazyListScope.learningNotes(index: Int, ex: Exchange, vm: ChatViewModel) =
+    learningNotes(ex, vm)
 
 @Composable
 private fun NoteLine(text: String, buttons: @Composable () -> Unit) {

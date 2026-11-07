@@ -59,6 +59,10 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.core.usage.UsageQuery
 import com.meenai.mina.core.usage.UsageRange
 import com.meenai.mina.i18n.AppLanguage
+import com.meenai.mina.ui.router.RouterStatus
+import com.meenai.mina.ui.router.FakeRouterStatus
+import com.meenai.mina.ui.router.RouterUsageCard
+import com.meenai.mina.ui.router.ProviderUsage as RouterProviderUsage
 import kotlinx.coroutines.Dispatchers
 import java.time.Instant
 import java.time.ZoneId
@@ -88,6 +92,7 @@ fun SettingsScreen(
     /** 查到的新版本号;有它时「关于 Mina」一行写「x 可更新」带红点。 */
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
+    routerStatus: RouterStatus = remember { FakeRouterStatus() },
 ) {
     val configs by store.configs.collectAsState()
     val roles by store.roles.collectAsState()
@@ -108,6 +113,8 @@ fun SettingsScreen(
     var operatingPace by remember { mutableStateOf(flags.operatingPace()) }
     var selfConfig by remember { mutableStateOf(flags.selfConfig()) }
     var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
+    var showSwitchNotice by remember { mutableStateOf(flags.showSwitchNotice()) }
+    val routerUsages by routerStatus.usage.collectAsState()
     // 换语言时界面会重建,这里每次进来读一次即可
     val language = remember { AppLanguage.current(context) }
     val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
@@ -184,6 +191,9 @@ fun SettingsScreen(
             computerAccess = mcpOn, onOpenComputerAccess = { page = SettingsPage.ComputerAccess },
             showDeveloper = showDeveloper, onOpenDeveloper = { page = SettingsPage.Developer },
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
+            routerUsages = routerUsages,
+            showSwitchNotice = showSwitchNotice,
+            onToggleSwitchNotice = { flags.setShowSwitchNotice(it); showSwitchNotice = it },
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
@@ -301,6 +311,9 @@ fun SettingsContent(
     versionName: String = "",
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
+    routerUsages: List<RouterProviderUsage> = emptyList(),
+    showSwitchNotice: Boolean = true,
+    onToggleSwitchNotice: (Boolean) -> Unit = {},
 ) {
     val check = Prerequisites.check(status, hasMainModel = mainModel != null)
     PageScaffold(stringResource(R.string.settings_title), onBack) {
@@ -344,6 +357,14 @@ fun SettingsContent(
                 RowValue(notifText, notifTone)
                 RowChevron()
             }
+        }
+
+        if (routerUsages.isNotEmpty()) {
+            RouterUsageCard(
+                usages = routerUsages,
+                showSwitchNotice = showSwitchNotice,
+                onToggleSwitchNotice = onToggleSwitchNotice,
+            )
         }
 
         val privacyRows = onOpenMemory != null || webSitesCount != null

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="router_today">today</string>
+    <string name="router_chip_desc">Active AI Model</string>
+    <string name="router_sheet_title">Model Status</string>
+    <string name="router_current_model">Current Model</string>
+    <string name="router_why_chosen">Why chosen</string>
+    <string name="router_provider_quotas">Provider Quotas</string>
+    <string name="router_quota_format">%1$d/%2$d remaining today</string>
+    <string name="router_cooldown_active">Cooldown: %1$s</string>
+    <string name="router_no_cooldown">Active</string>
+    <string name="router_pin_model">Pin this model</string>
+    <string name="router_unpin_model">Unpin model</string>
+    <string name="router_model_pinned">Pinned</string>
+    <string name="router_switch_notice_title">Switch notice</string>
+    <string name="router_switch_notice_sub">Show alert when switching models</string>
+    <string name="router_usage_card_title">Router Usage</string>
+    <string name="router_today_count">%1$d requests today</string>
+    <string name="router_last_error">Last error: %1$s</string>
+    <string name="router_no_error">None</string>
+    <string name="router_switched_note">Switched from %1$s to %2$s due to limit</string>
+    <string name="router_model_used_note">Completed with %1$s</string>
+    <string name="router_switch_toast_format">%1$s limit reached, switched to %2$s</string>
+    <string name="timeline_router_model">Model</string>
+</resources>

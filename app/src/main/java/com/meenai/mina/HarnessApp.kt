@@ -216,6 +216,11 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             deviceAbis = android.os.Build.SUPPORTED_ABIS.toList())
     }
 
+    /** 路由状态(Free Key Router UI)。 */
+    val routerStatus: com.meenai.mina.ui.router.RouterStatus by lazy {
+        com.meenai.mina.ui.router.FakeRouterStatus()
+    }
+
     /** 浮在别的 App 上的悬浮胶囊。 */
     val capsule: CapsuleController by lazy { CapsuleController(this, taskState, foreground, resources.takeoverQueue) }
 

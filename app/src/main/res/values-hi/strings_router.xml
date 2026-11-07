@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="router_today">aaj</string>
+    <string name="router_chip_desc">सक्रिय एआई मॉडल</string>
+    <string name="router_sheet_title">मॉडल स्थिति</string>
+    <string name="router_current_model">वर्तमान मॉडल</string>
+    <string name="router_why_chosen">क्यों चुना</string>
+    <string name="router_provider_quotas">प्रदाता कोटा</string>
+    <string name="router_quota_format">आज %1$d/%2$d शेष</string>
+    <string name="router_cooldown_active">कूलडाउन: %1$s</string>
+    <string name="router_no_cooldown">सक्रिय</string>
+    <string name="router_pin_model">Pin this model</string>
+    <string name="router_unpin_model">Unpin model</string>
+    <string name="router_model_pinned">पिन किया गया</string>
+    <string name="router_switch_notice_title">Switch notice dikhao</string>
+    <string name="router_switch_notice_sub">मॉडल स्विच होने पर सूचना दिखाएं</string>
+    <string name="router_usage_card_title">राउटर उपयोग</string>
+    <string name="router_today_count">आज %1$d अनुरोध</string>
+    <string name="router_last_error">अंतिम त्रुटि: %1$s</string>
+    <string name="router_no_error">कोई नहीं</string>
+    <string name="router_switched_note">limit ki wajah se %1$s se %2$s</string>
+    <string name="router_model_used_note">%1$s ne kiya</string>
+    <string name="router_switch_toast_format">%1$s limit khatam, %2$s par switch</string>
+    <string name="timeline_router_model">मॉडल</string>
+</resources>

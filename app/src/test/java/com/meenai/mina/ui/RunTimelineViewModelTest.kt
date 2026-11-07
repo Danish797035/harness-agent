@@ -245,4 +245,23 @@ class RunTimelineViewModelTest {
         assertTrue(ui.header.goal.contains(Redactor.MASK))
         assertEquals("Didn’t end", ui.header.outcome)
     }
+
+    @Test fun routerNoteShowsModelUsedOrSwitched() {
+        val singleModelRun = run("Task 1") {
+            event(RunEvent.TaskStarted(clock, "Task 1", "Gemini Flash"))
+            event(RunEvent.ModelReply(clock + 1_000, 1, "done", null, null, 100, 10, 0, model = "Gemini Flash"))
+            event(RunEvent.TaskEnded(clock + 2_000, "succeeded", "ok"))
+        }
+        val singleUi = ready(singleModelRun)
+        assertEquals("Completed with Gemini Flash", singleUi.header.routerNote)
+
+        val switchedRun = run("Task 2") {
+            event(RunEvent.TaskStarted(clock, "Task 2", "Gemini"))
+            event(RunEvent.ModelReply(clock + 1_000, 1, "reply 1", null, null, 100, 10, 0, model = "Gemini"))
+            event(RunEvent.ModelReply(clock + 2_000, 2, "reply 2", null, null, 100, 10, 0, model = "Llama"))
+            event(RunEvent.TaskEnded(clock + 3_000, "succeeded", "ok"))
+        }
+        val switchedUi = ready(switchedRun)
+        assertEquals("Switched from Gemini to Llama due to limit", switchedUi.header.routerNote)
+    }
 }

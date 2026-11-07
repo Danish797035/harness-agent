@@ -125,8 +125,16 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         prefs.edit().putFloat(CAPSULE_CARD_HEIGHT, fraction.coerceIn(0f, 1f)).apply()
     }
 
+    /** 切模型后的提示条;默认开(true),用户可以在设置里关闭。 */
+    fun showSwitchNotice(): Boolean = prefs.getBoolean(SHOW_SWITCH_NOTICE, true)
+
+    fun setShowSwitchNotice(on: Boolean) {
+        prefs.edit().putBoolean(SHOW_SWITCH_NOTICE, on).commit()
+    }
+
     companion object {
         const val PREFS = "feature_flags"
+        private const val SHOW_SWITCH_NOTICE = "show_switch_notice"
         private const val SPEED_FLAGS = "speed_flags"
         /**
          * 提速开关默认值的升级,按先后各做一次(键记下做过没有):v2 打开分级读屏、连续操作、按需看图;

@@ -66,6 +66,8 @@ data class TimelineHeader(
     val usedMemory: List<String> = emptyList(),
     /** 这次运行的小结;记录里没有开始事件时为 null(只显示用时)。 */
     val metrics: RunMetrics? = null,
+    /** 哪个模型执行的或切换说明(见 Free Key Router)。 */
+    val routerNote: String? = null,
 )
 
 sealed interface TimelineUi {
@@ -98,6 +100,16 @@ class RunTimelineViewModel(
         val ended = events.filterIsInstance<RunEvent.TaskEnded>().lastOrNull()
         val startMs = summary?.startedAtMs ?: events.first().atMs
         val endMs = summary?.endedAtMs ?: ended?.atMs
+        val models = mutableListOf<String>()
+        started?.model?.takeIf(String::isNotBlank)?.let { models.add(it) }
+        events.filterIsInstance<RunEvent.ModelReply>().forEach { reply ->
+            reply.model?.takeIf(String::isNotBlank)?.let { if (!models.contains(it)) models.add(it) }
+        }
+        val routerNote = when {
+            models.size >= 2 -> tr(R.string.router_switched_note, models[0], models[1])
+            models.size == 1 -> tr(R.string.router_model_used_note, models[0])
+            else -> summary?.model?.takeIf(String::isNotBlank)?.let { tr(R.string.router_model_used_note, it) }
+        }
         val header = TimelineHeader(
             goal = summary?.goal ?: started?.goal.orEmpty(),
             criteria = summary?.criteria?.takeIf { it.isNotEmpty() }
@@ -111,6 +123,7 @@ class RunTimelineViewModel(
             modelCalls = events.count { it is RunEvent.ModelReply },
             usedMemory = resolveMemory(events.filterIsInstance<RunEvent.MemoryUsed>().lastOrNull()?.ids.orEmpty()),
             metrics = RunMetrics.of(events, runId),
+            routerNote = routerNote,
         )
         return TimelineUi.Ready(header, steps(events, toolLabels::label))
     }

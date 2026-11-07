@@ -135,3 +135,16 @@ class EnglishTexts : ExternalResource() {
         UiText.source = previous
     }
 }
+
+/** 测试里把界面文字换成印地语。 */
+class HindiTexts : ExternalResource() {
+    private var previous: UiTexts? = null
+    override fun before() {
+        previous = UiText.source
+        UiText.source = ResFileTexts("values-hi", Locale.forLanguageTag("hi"))
+    }
+
+    override fun after() {
+        UiText.source = previous
+    }
+}
