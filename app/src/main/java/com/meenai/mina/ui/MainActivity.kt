@@ -336,6 +336,7 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                     },
                     voice = app.voice,
                     openSpeechModel = { nav.push(Route.SpeechModel) },
+                    routerStatus = app.routerStatus,
                 )
             }
         }
@@ -352,7 +353,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
             SettingsScreen(store, status, release, onFix, onBack = back, onOpenMemory = { nav.push(Route.Memory) },
                 onOpenModels = { nav.push(Route.Models) }, webSites = webSites,
                 autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
-                updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) })
+                updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
+                routerStatus = app.routerStatus)
         }
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) })
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)

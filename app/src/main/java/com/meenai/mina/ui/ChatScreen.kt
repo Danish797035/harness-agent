@@ -3,7 +3,15 @@ package com.meenai.mina.ui
 import androidx.compose.foundation.gestures.scrollBy
 import com.meenai.mina.core.agent.QuoteMessage
 import com.meenai.mina.core.cap.web.AttachedPage
+import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.ui.components.keepsKeyboard
+import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.FakeRouterStatus
+import com.meenai.mina.ui.router.RouterBottomSheet
+import com.meenai.mina.ui.router.RouterChip
+import com.meenai.mina.ui.router.RouterStatus
+import com.meenai.mina.ui.router.SwitchEvent
+import com.meenai.mina.ui.router.SwitchNoticeToast
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -175,7 +183,12 @@ fun ChatScreen(
     voice: VoiceSource? = null,
     /** 「还不能语音输入」里的「去选」。 */
     openSpeechModel: () -> Unit = {},
+    routerStatus: RouterStatus = remember { FakeRouterStatus() },
 ) {
+    val activeModel by routerStatus.current.collectAsState()
+    val routerUsages by routerStatus.usage.collectAsState()
+    var sheetOpen by remember { mutableStateOf(false) }
+    var latestSwitchEvent by remember { mutableStateOf<SwitchEvent?>(null) }
     val ui by vm.ui.collectAsState()
     val others by vm.otherRunning.collectAsState()
     val keptAny by vm.keptPage.collectAsState()
@@ -259,6 +272,13 @@ fun ChatScreen(
     val c = MinaTheme.colors
     val backdrop = rememberGlassBackdrop()
     val context = LocalContext.current
+    val flags = remember { FeatureFlags.get(context) }
+    val showNotice = remember { flags.showSwitchNotice() }
+    LaunchedEffect(routerStatus) {
+        routerStatus.events.collect { event ->
+            latestSwitchEvent = event
+        }
+    }
     /** 长按了的那条消息;菜单开着(收起的动画放完才清掉)。 */
     var menu by remember { mutableStateOf<MessageTarget?>(null) }
     /** 选了「选择文字」的那条:它换回系统的长按选中;换对话时清掉。 */
@@ -315,7 +335,10 @@ fun ChatScreen(
 
         // 没有任务在跑、这个对话留着一页在后台运行时:顶栏写「后台保持着 1 个网页」
         val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace)) ?: kept?.let { ChatCopy.KEPT_PAGE to ChatCopy.Tone.Ok }
-        Column(Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height }) {
+        Column(
+            Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             TopBar(
                 ChatCopy.APP_TITLE,
                 left = MinaIcons.Menu, leftLabel = stringResource(R.string.chat_menu), onLeft = onOpenDrawer,
@@ -329,6 +352,11 @@ fun ChatScreen(
                     ChatCopy.Tone.Ok -> c.ok
                     null -> Color.Unspecified
                 },
+            )
+            RouterChip(
+                activeModel = activeModel,
+                onClick = { sheetOpen = true },
+                modifier = Modifier.padding(bottom = 6.dp),
             )
         }
 
@@ -408,6 +436,24 @@ fun ChatScreen(
                 onWithdraw = pending?.let { n -> ({ closeMenu { vm.withdrawSteer(n.id) } }) },
             )
         }
+
+        if (sheetOpen) {
+            RouterBottomSheet(
+                activeModel = activeModel,
+                usages = routerUsages,
+                onPinClick = {
+                    routerStatus.pinModel(activeModel.id)
+                },
+                onDismiss = { sheetOpen = false },
+            )
+        }
+
+        SwitchNoticeToast(
+            event = latestSwitchEvent,
+            showNotice = showNotice,
+            onDismiss = { latestSwitchEvent = null },
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = with(density) { topHeight.toDp() } + 8.dp),
+        )
     }
 }
 

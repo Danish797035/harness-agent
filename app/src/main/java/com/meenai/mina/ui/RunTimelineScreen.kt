@@ -165,6 +165,7 @@ private fun HeaderGroup(h: TimelineHeader, onExport: () -> Unit) {
             }
         }
         if (h.verdict != stringResource(R.string.verify_none)) ListRow(null, stringResource(R.string.timeline_check)) { RowValue(h.verdict) }
+        h.routerNote?.let { note -> ListRow(null, stringResource(R.string.timeline_router_model)) { RowValue(note) } }
         // 小结那一行已经写了用时
         if (h.metrics == null) h.duration?.let { d -> ListRow(null, stringResource(R.string.timeline_duration)) { RowValue(d) } }
         ListRow(null, stringResource(R.string.timeline_export), stringResource(R.string.timeline_export_hint), onClick = onExport) { RowChevron() }
