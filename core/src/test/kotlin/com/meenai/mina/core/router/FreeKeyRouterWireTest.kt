@@ -42,7 +42,7 @@ class FreeKeyRouterWireTest {
         name: String,
         vision: Boolean = false,
         context: Int = 64_000,
-        responder: suspend (system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) -> ModelReply,
+        responder: suspend (system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) -> ModelReply = { _, _, _, _ -> simpleReply },
     ): MockChatModel = MockChatModel(
         name = name,
         capabilities = Capabilities(
@@ -197,9 +197,7 @@ class FreeKeyRouterWireTest {
         )
 
         val picker = AutoModelPicker(
-            apiClient = object : OpenRouterApiClient {
-                override suspend fun fetchModels(): List<com.meenai.mina.core.router.picker.ModelCandidate> = emptyList()
-            },
+            apiClient = OpenRouterApiClient { """{"data":[]}""" },
             cacheStore = com.meenai.mina.core.router.picker.InMemoryModelCacheStore(),
         )
 
