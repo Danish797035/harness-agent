@@ -518,6 +518,7 @@ class RealRouterStatus(
         id.contains("Qwen2.5-7B", ignoreCase = true) -> "Qwen 2.5 7B"
         id.contains("Qwen2.5-VL-7B", ignoreCase = true) -> "Qwen 2.5 VL 7B"
         id.contains("qwen3.5", ignoreCase = true) -> "Qwen3.5"
+        id.contains("qwen-plus", ignoreCase = true) -> "Qwen Plus"
         id.contains("deepseek-v3", ignoreCase = true) -> "DeepSeek-V3"
         id.contains("deepseek-v4", ignoreCase = true) -> "DeepSeek-V4"
         id.contains("deepseek-r1", ignoreCase = true) -> "DeepSeek-R1"

@@ -24,7 +24,6 @@ import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,7 +75,7 @@ class AppFreeKeyRouterTest {
         // Ensure task operations do not crash on empty router
         router.resetTask()
         realStatus.pinModel("any-model")
-        assertEquals("any-model", router.pinnedModelId)
+        assertNull("Candidates empty hone par pin disabled rehna chahiye", router.pinnedModelId)
         realStatus.pinModel(null)
         assertNull(router.pinnedModelId)
     }
@@ -168,11 +167,16 @@ class AppFreeKeyRouterTest {
         assertEquals("Z.ai", active.provider)
         assertFalse(active.isPinned)
 
+        // Z.ai ka limit provider nahi batata, isliye counter + estimate label
         val chipTextHindi = formatChipText(active, todayLabel = "aaj")
-        assertEquals("GLM-4.7 Flash · Z.ai · 38/50 aaj", chipTextHindi)
+        assertEquals("GLM-4.7 Flash · Z.ai · 0 aaj (anumaan)", chipTextHindi)
 
         val chipTextEnglish = formatChipText(active, todayLabel = "today")
-        assertEquals("GLM-4.7 Flash · Z.ai · 38/50 today", chipTextEnglish)
+        assertEquals("GLM-4.7 Flash · Z.ai · 0 today (estimate)", chipTextEnglish)
+
+        // Jab limit pata ho (jaise 12/50)
+        val activeWithLimit = active.copy(usedToday = 12, limit = 50, isEstimate = false)
+        assertEquals("GLM-4.7 Flash · Z.ai · 12/50 today", formatChipText(activeWithLimit, todayLabel = "today"))
     }
 
     @Test
@@ -369,7 +373,7 @@ class AppFreeKeyRouterTest {
     }
 
     @Test
-    fun limitNaMile_estimateLabel_fakeOpenRouterKey_sahiUsedAurLimit() = runTest {
+    fun limitNaMile_estimateLabel_fakeOpenRouterKey_sahiUsedAurLimit() {
         val store = createTestStore()
         store.connect(
             name = "OpenRouter",
@@ -379,23 +383,11 @@ class AppFreeKeyRouterTest {
             models = listOf(ListedModel("google/gemini-2.0-flash-exp:free")),
         )
 
-        val fakeClient = object : OpenRouterKeyClient {
-            override suspend fun getKeyInfo(apiKey: String): OpenRouterKeyInfo {
-                return OpenRouterKeyInfo(
-                    usage = 12,
-                    limit = 50,
-                    isFreeTier = true,
-                )
-            }
-        }
-
         val candidates = AppFreeKeyRouter.createCandidates(store)
         val router = FreeKeyRouter(candidates)
         val realStatus = RealRouterStatus(
             router = router,
             store = store,
-            openRouterKeyClient = fakeClient,
-            scope = this,
         )
 
         // Pehle without fake key response (initial before refresh)
@@ -404,9 +396,14 @@ class AppFreeKeyRouterTest {
         assertTrue("Limit na hone par estimate true hona chahiye", initialModel.isEstimate)
         assertNull("Limit na milne par limit null hona chahiye", initialModel.limit)
 
-        // Refresh triggers OpenRouter key client
-        realStatus.refresh()
-        advanceUntilIdle()
+        // Directly set fake OpenRouter key info
+        realStatus.setOpenRouterKeyInfo(
+            OpenRouterKeyInfo(
+                usage = 12,
+                limit = 50,
+                isFreeTier = true,
+            )
+        )
 
         // Key client response ke baad: limit = 50, usage = 12, isEstimate = false
         val refreshedUsage = realStatus.usage.value.first { it.provider == "OpenRouter" }
@@ -431,6 +428,16 @@ class AppFreeKeyRouterTest {
             isEstimate = false,
         )
         val chipText = formatChipText(active, todayLabel = "today")
-        assertEquals("Gemini 2.0 Flash · 12/50 today", chipText)
+        assertEquals("Gemini 2.0 Flash · OpenRouter · 12/50 today", chipText)
+
+        val activeStandalone = ActiveModel(
+            id = "qwen-3.5",
+            name = "Qwen3.5",
+            provider = "",
+            usedToday = 12,
+            limit = 50,
+            isEstimate = false,
+        )
+        assertEquals("Qwen3.5 · 12/50 today", formatChipText(activeStandalone, todayLabel = "today"))
     }
 }

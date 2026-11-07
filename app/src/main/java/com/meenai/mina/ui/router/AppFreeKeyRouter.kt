@@ -118,7 +118,7 @@ object AppFreeKeyRouter {
     fun isModelScopeProvider(p: Provider): Boolean {
         if (p.name.contains("ModelScope", ignoreCase = true)) return true
         if (p.name.contains("魔搭", ignoreCase = true)) return true
-        if (p.baseUrl.contains("modelscope.ai", ignoreCase = true)) return true
+        if (p.baseUrl.contains("modelscope.ai", ignoreCase = true) || p.baseUrl.contains("modelscope.cn", ignoreCase = true)) return true
         val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
         return preset?.label.equals("ModelScope", ignoreCase = true)
     }
