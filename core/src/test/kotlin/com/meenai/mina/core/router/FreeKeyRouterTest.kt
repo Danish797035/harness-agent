@@ -270,6 +270,7 @@ class FreeKeyRouterTest {
         conversation.add(Message(Role.User, listOf(Part.Text("Execute complex 20-step workflow")), Author.User))
 
         for (step in 1..20) {
+            router.resetTask() // har step ko naya switch budget
             val reply = router.completeStreaming("system prompt", conversation, emptyList()) {}
             assertNotNull(reply)
             conversation.add(Message(Role.Assistant, reply.parts, Author.Mina))
