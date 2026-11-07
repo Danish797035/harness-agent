@@ -17,12 +17,12 @@ class ChatKeysTest {
     fun oldItemKeysRemainUnchangedWhenNewItemAdded() {
         val ex1 = Exchange(
             goal = "First question",
-            steps = emptyList(),
+            steps = listOf(StepRow(1, "Search", "", StepState.Ok)),
             status = ExchangeStatus.Done("Answer 1", null),
             live = false,
         )
         val initialKeys = chatListKeys(listOf(ex1)).map { it.first }
-        assertEquals(listOf("u:${ex1.id}", "r:${ex1.id}"), initialKeys)
+        assertEquals(listOf("u:${ex1.id}", "s:${ex1.id}", "r:${ex1.id}"), initialKeys)
 
         // Append a second running exchange
         val ex2 = Exchange(
@@ -52,9 +52,9 @@ class ChatKeysTest {
 
         // ex1 and ex2 keys must remain unchanged even though list indices shifted
         assertTrue(prependedKeys.contains("u:${ex1.id}"))
+        assertTrue(prependedKeys.contains("s:${ex1.id}"))
         assertTrue(prependedKeys.contains("r:${ex1.id}"))
         assertTrue(prependedKeys.contains("u:${ex2.id}"))
-        assertTrue(prependedKeys.contains("s:${ex2.id}"))
         assertTrue(prependedKeys.contains("draft"))
         assertEquals(prependedKeys.size, prependedKeys.toSet().size)
     }
@@ -87,7 +87,15 @@ class ChatKeysTest {
             steers = listOf(steer3),
         )
 
-        val allItems = chatListKeys(listOf(ex1, ex2), phoneSetupNeeded = true)
+        val ex3 = Exchange(
+            goal = "Track parcel",
+            steps = listOf(StepRow(1, "Locating", "", StepState.Run)),
+            status = ExchangeStatus.Working,
+            live = true,
+            draft = null,
+        )
+
+        val allItems = chatListKeys(listOf(ex1, ex2, ex3), phoneSetupNeeded = true)
         val allKeys = allItems.map { it.first }
 
         // Assert all generated keys are unique (no duplicates whatsoever)
@@ -105,9 +113,10 @@ class ChatKeysTest {
         assertTrue(allKeys.contains("f:${ex1.id}"))
         assertTrue(allKeys.contains("ln:${ex1.id}"))
         assertTrue(allKeys.contains("u:${ex2.id}"))
-        assertTrue(allKeys.contains("s:${ex2.id}"))
         assertTrue(allKeys.contains("draft"))
         assertTrue(allKeys.contains("m:${ex2.id}-s3"))
+        assertTrue(allKeys.contains("u:${ex3.id}"))
+        assertTrue(allKeys.contains("s:${ex3.id}"))
         assertTrue(allKeys.contains("phone-setup"))
     }
 
