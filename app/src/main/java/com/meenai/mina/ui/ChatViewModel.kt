@@ -179,7 +179,7 @@ data class Exchange(
     /** 每一步实际做的动作(按步号):标题是汇总,点开一步时看这里的明细。 */
     val stepActions: Map<Int, List<StepAction>> = emptyMap(),
     /** 界面用于 LazyColumn 稳定 key 的唯一编号。 */
-    val id: String = java.util.UUID.randomUUID().toString(),
+    val id: String = runId ?: java.util.UUID.randomUUID().toString(),
 )
 
 /** 在跑时的一行进展:等你时说等什么;模型请求在途时只给中性状态;否则是这一步的话,没有就是最近做的事。 */

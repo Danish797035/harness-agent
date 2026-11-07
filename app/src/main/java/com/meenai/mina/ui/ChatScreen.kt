@@ -314,10 +314,9 @@ fun ChatScreen(
                 if (ui.exchanges.isEmpty() && ui.blocked == null) {
                     item(key = "empty", contentType = "empty") { EmptyState(ui.conversationId) { input = it } }
                 }
-                val hasMultipleDrafts = ui.exchanges.count { !it.draft.isNullOrBlank() } > 1
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, hasMultipleDrafts)
+                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
                 }
                 if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
@@ -520,7 +519,6 @@ private fun LazyListScope.exchange(
     ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     kept: KeptPage? = null,
-    hasMultipleDrafts: Boolean = false,
 ) {
     if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
@@ -545,8 +543,7 @@ private fun LazyListScope.exchange(
     val (joined, waiting) = steersAroundDraft(ex.steers)
     joined.forEach(::steer)
     ex.draft?.takeIf(String::isNotBlank)?.let { draft ->
-        val draftKey = if (hasMultipleDrafts) "draft:${ex.id}" else "draft"
-        item(key = draftKey, contentType = "draft") { DraftText(draft, ex.waitingForModel) }
+        item(key = "draft:${ex.id}", contentType = "draft") { DraftText(draft, ex.waitingForModel) }
     }
     waiting.forEach(::steer)
     if (ex.status != ExchangeStatus.Working) {
@@ -605,8 +602,7 @@ internal fun exchangeItemKeys(ex: Exchange, kept: KeptPage? = null, hasMultipleD
     }
     joined.forEach(::steerKeys)
     ex.draft?.takeIf(String::isNotBlank)?.let {
-        val draftKey = if (hasMultipleDrafts) "draft:${ex.id}" else "draft"
-        items.add(draftKey to "draft")
+        items.add("draft:${ex.id}" to "draft")
     }
     waiting.forEach(::steerKeys)
     if (ex.status != ExchangeStatus.Working) {
@@ -628,9 +624,8 @@ internal fun chatListKeys(
     if (exchanges.isEmpty() && !hasBlocked) {
         items.add("empty" to "empty")
     }
-    val multi = exchanges.count { !it.draft.isNullOrBlank() } > 1
     exchanges.forEach { ex ->
-        items.addAll(exchangeItemKeys(ex, kept, multi))
+        items.addAll(exchangeItemKeys(ex, kept))
     }
     if (phoneSetupNeeded && exchanges.isNotEmpty()) {
         items.add("phone-setup" to "setup")
