@@ -1,6 +1,8 @@
 package com.meenai.mina.core.agent
 
 import com.meenai.mina.core.trace.RunTrace
+import com.meenai.mina.core.router.FreeKeyRouter
+import com.meenai.mina.core.router.RouterStatus
 import com.meenai.mina.core.guard.OperationGuards
 import com.meenai.mina.core.guard.GuardVerdict
 import com.meenai.mina.core.observation.Place
@@ -155,6 +157,7 @@ class AgentLoop(
     /** 同一网站、App 里连着做对外动作(发送、提交)时两次之间的间隔;默认不等。 */
     private val outwardPacing: OutwardPacing = OutwardPacing.Off,
     private val trace: RunTrace? = null,
+    val freeKeyRouter: FreeKeyRouter? = null,
 ) {
     init {
         require(maxSteps > 0) { "maxSteps must be positive" }
@@ -190,6 +193,9 @@ class AgentLoop(
 
     private val _state = MutableStateFlow<TaskState>(TaskState.Idle)
     val state: StateFlow<TaskState> = _state.asStateFlow()
+
+    private val activeRouter: FreeKeyRouter? get() = freeKeyRouter ?: (model as? FreeKeyRouter)
+    val routerStatus: StateFlow<RouterStatus>? get() = activeRouter?.status
 
     @Volatile private var usedMemory: List<String> = emptyList()
     /** 本次任务记忆块里列出的条目编号;任务结束后读取。 */
@@ -238,6 +244,7 @@ class AgentLoop(
             override fun cancel() = this@AgentLoop.cancel()
         })
         caller.reset(basePrompt)
+        activeRouter?.resetTask()
         // 同意只在一次任务内有效
         confirmations?.reset()
         utterances?.clear()
@@ -328,6 +335,7 @@ class AgentLoop(
         val opening = shots.render(raw)
         val task = opening?.said ?: raw
         taskText = task
+        activeRouter?.startTask(task, hasImage = opening?.images?.isNotEmpty() == true)
         latestWords = ownWords(raw, opening)
         val priorTurns = shots.collapse(rawPrior)
         earlierGoals = priorTurns.map { it.userText }
@@ -452,6 +460,8 @@ class AgentLoop(
             appendRuntimeState(history, place, labels, step)
             _state.value = TaskState.Running(step, note)
             refreshOffer()
+            val stepHasImages = history.any { m -> m.parts.any { it is Part.Image } }
+            activeRouter?.prepareStep(step, stepHasImages)
             var asked = now()
             val routed = try {
                 routedOrRedirect(inbox, history, specs, track, step, { asked = it }, previewFor(step))
@@ -588,6 +598,7 @@ class AgentLoop(
                 continue
             }
             if (flags.batchSteps && first.name == DO_STEPS_TOOL) {
+                activeRouter?.recordStepAction("batch:${first.argsJson}")
                 when (val end = batch(first, skipped, history, specs, guards, executor, track, step, note, tool, reason, narration, recordReply = ::recordReply,
                     app = { place = it }, steerWaiting = { inbox?.hasSteers() == true },
                     noteVerdicts = { s, sub, v ->
@@ -665,6 +676,7 @@ class AgentLoop(
                 is ActionOutcome.Ran -> action
             }
             val exec = ran.exec
+            activeRouter?.recordStepAction("${first.name}:${first.argsJson}")
             if (verb == Verb.HandToUser && (args["reason"] as? JsonPrimitive)?.contentOrNull == PAYMENT) paymentHandedOver = true
             val isError = (exec.content["ok"] as? JsonPrimitive)?.booleanOrNull == false
             noteResultEvents(verb, exec.content)

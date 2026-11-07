@@ -197,20 +197,22 @@ class AutoModelPicker(
         return candidates.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
     }
 
-    private fun isLightModel(candidate: ModelCandidate): Boolean {
-        if (candidate.parameterSizeB in 0.1..10.0) return true
-        // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
-        val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
-        return tokens.any { token ->
-            token in LIGHT_KEYWORDS ||
-                (SIZE_TOKEN.matchEntire(token)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it in 0.1..10.0 } == true)
-        }
-    }
+    private fun isLightModel(candidate: ModelCandidate): Boolean = Companion.isLightModel(candidate)
 
     companion object {
         private val LIGHT_KEYWORDS = setOf("mini", "small", "lite", "nano")
         private val SIZE_TOKEN = Regex("""^(\d+(?:\.\d+)?)b$""")
         const val MIN_CONTEXT_TOKENS = 32_000
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
+
+        fun isLightModel(candidate: ModelCandidate): Boolean {
+            if (candidate.parameterSizeB in 0.1..10.0) return true
+            // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
+            val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
+            return tokens.any { token ->
+                token in LIGHT_KEYWORDS ||
+                    (SIZE_TOKEN.matchEntire(token)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it in 0.1..10.0 } == true)
+            }
+        }
     }
 }
