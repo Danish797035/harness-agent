@@ -37,6 +37,13 @@
     <string name="memory_clear_final">इसे पूर्ववत नहीं किया जा सकता.</string>
     <string name="memory_pinned_prefix">"पिन किया गया · "</string>
     <string name="memory_was">था: %1$s</string>
+    <string name="memory_note_remembered">याद रखा: %1$s</string>
+    <string name="memory_note_updated">अपडेट किया: %1$s</string>
+    <string name="memory_note_was"> (पहले: %1$s)</string>
+    <string name="memory_note_forgot">भूल गए: %1$s</string>
+    <string name="memory_note_forgot_one">एक याद भूल गए</string>
+    <string name="memory_note_do_this_every_time">क्या हर बार ऐसा ही करूँ? %1$s</string>
+    <string name="memory_note_deleted">हटा दी गई याद</string>
     <string name="memory_content">सामग्री</string>
     <string name="memory_keywords">कीवर्ड (रिक्त स्थान से अलग)</string>
     <string name="memory_sensitive">मुझे इस तरह की जानकारी याद नहीं है</string>

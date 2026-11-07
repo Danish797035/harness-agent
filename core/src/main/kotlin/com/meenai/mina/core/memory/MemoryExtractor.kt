@@ -18,24 +18,41 @@ import kotlinx.serialization.json.contentOrNull
 @Suppress("EnumEntryName")
 enum class NoteKind { added, updated, forgot, pending }
 
+data class MemoryStrings(
+    val remembered: (content: String) -> String = { "Remembered: $it" },
+    val updated: (content: String, was: String?) -> String = { content, was ->
+        "Updated: $content" + (was?.let { " (was: $it)" } ?: "")
+    },
+    val forgot: (content: String?) -> String = { content ->
+        if (content == null) "Forgot a memory" else "Forgot: $content"
+    },
+    val pending: (content: String) -> String = { "Do this every time? $it" },
+    val deleted: String = DELETED,
+) {
+    companion object {
+        const val DELETED = "a deleted memory"
+        val DEFAULT = MemoryStrings()
+    }
+}
+
 /**
  * 结果卡片下的一行。只带种类和编号,不带记忆内容:对话文件是明文,内容每次从加密的记忆里现取([text])。
  * [undoToken] 交给 [MemoryStore.undo];[pendingId] 是待批准的做法(「好」= approve,「不要」= 撤销或删除)。
  */
 data class MemoryNote(val kind: NoteKind, val memoryId: String, val undoToken: String?, val pendingId: String?) {
-    /** [item] 是 [memoryId] 此刻的那条;已经不在了(删掉、清空)时写「一条已删除的记忆」。 */
-    fun text(item: MemoryItem?): String {
-        val content = item?.content ?: DELETED
+    /** [item] 是 [memoryId] 此刻的那条;已经不在了(删掉、清空)时写「a deleted memory」。 */
+    fun text(item: MemoryItem?, strings: MemoryStrings = MemoryStrings.DEFAULT): String {
+        val content = item?.content ?: strings.deleted
         return when (kind) {
-            NoteKind.added -> "记住了:$content"
-            NoteKind.updated -> "更新了:$content" + (item?.replaces?.let { "(原来:$it)" } ?: "")
-            NoteKind.forgot -> if (item == null) "忘掉了一条记忆" else "忘掉了:$content"
-            NoteKind.pending -> "要我以后都这样做吗?$content"
+            NoteKind.added -> strings.remembered(content)
+            NoteKind.updated -> strings.updated(content, item?.replaces)
+            NoteKind.forgot -> strings.forgot(item?.content)
+            NoteKind.pending -> strings.pending(content)
         }
     }
 
     companion object {
-        const val DELETED = "一条已删除的记忆"
+        const val DELETED = MemoryStrings.DELETED
     }
 }
 
@@ -87,12 +104,12 @@ class MemoryExtractor(private val model: ChatModel) {
     }
 
     private fun request(utterances: List<String>, labels: Map<String, MemoryItem>) = buildString {
-        appendLine("用户本次说的话:")
+        appendLine("User utterances in this task:")
         utterances.filter { it.isNotBlank() }.forEachIndexed { i, u -> appendLine("${i + 1}. $u") }
         appendLine()
-        if (labels.isEmpty()) append("已有的相关记忆:无")
+        if (labels.isEmpty()) append("Existing relevant memories: None")
         else {
-            appendLine("已有的相关记忆:")
+            appendLine("Existing relevant memories:")
             labels.forEach { (label, m) -> appendLine("$label [${m.kind.name}] ${m.content}") }
         }
     }.trimEnd()
@@ -100,8 +117,8 @@ class MemoryExtractor(private val model: ChatModel) {
     companion object {
         const val MAX_OPS = 5
         const val MAX_RELATED = 10
-        private val FORGET = Regex("忘|别记|删|不用记|forget", RegexOption.IGNORE_CASE)
-        private val ONE_OFF = Regex("这次|这一次|今天先|this time", RegexOption.IGNORE_CASE)
+        private val FORGET = Regex("忘|别记|删|不用记|forget|delete|remove|don't remember|do not remember", RegexOption.IGNORE_CASE)
+        private val ONE_OFF = Regex("这次|这一次|今天先|this time|today only|just this once|for now", RegexOption.IGNORE_CASE)
 
         val PROMPT: String by lazy { Prompts.role("memory_extract") }
 

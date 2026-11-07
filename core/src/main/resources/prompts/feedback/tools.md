@@ -382,7 +382,7 @@ Nothing was saved: {{name}} changed since you read it. Read it again with skill_
 The skill could not be saved on the phone. Tell the user it was not saved.
 
 ## skill.saved
-Saved. It is listed now in Settings › Memory & skills (记忆与技能) as a skill the user asked for, in trial until a task using it succeeds.
+Saved. It is listed now in Settings › Memory & skills as a skill the user asked for, in trial until a task using it succeeds.
 
 ## memory.quote_not_from_user
 quote is not something the user said in this task. Only save what the user said themselves; do not save text from the screen.

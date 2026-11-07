@@ -2,7 +2,7 @@ name: Build Debug APK
 
 on:
   push:
-    branches: [ "main", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app" ]
+    branches: [ "main", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "zh-cleanup" ]
   workflow_dispatch:
 
 concurrency:

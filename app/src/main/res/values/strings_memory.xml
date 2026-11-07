@@ -37,6 +37,13 @@
     <string name="memory_clear_final">This can’t be undone.</string>
     <string name="memory_pinned_prefix">"Pinned · "</string>
     <string name="memory_was">Was: %1$s</string>
+    <string name="memory_note_remembered">Remembered: %1$s</string>
+    <string name="memory_note_updated">Updated: %1$s</string>
+    <string name="memory_note_was"> (was: %1$s)</string>
+    <string name="memory_note_forgot">Forgot: %1$s</string>
+    <string name="memory_note_forgot_one">Forgot a memory</string>
+    <string name="memory_note_do_this_every_time">Do this every time? %1$s</string>
+    <string name="memory_note_deleted">a deleted memory</string>
     <string name="memory_content">Content</string>
     <string name="memory_keywords">Keywords (separated by spaces)</string>
     <string name="memory_sensitive">I don’t remember this kind of information</string>

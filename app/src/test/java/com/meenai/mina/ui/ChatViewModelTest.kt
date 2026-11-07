@@ -1025,10 +1025,10 @@ class ChatViewModelTest {
         notesFlow.value = mapOf("r1" to com.meenai.mina.memory.RunNotes("c1", "r1", listOf(remembered)))
         runCurrent()
         val note = vm.ui.value.exchanges.single().memoryNotes.single()
-        assertEquals("记住了:用户点外卖不要香菜", vm.noteText(note))
-        // 内容现取:那条删掉后写「一条已删除的记忆」
+        assertEquals("Remembered: 用户点外卖不要香菜", vm.noteText(note))
+        // 内容现取:那条删掉后写「a deleted memory」
         items.value = items.value.filter { it.id != "a" }
-        assertEquals("记住了:一条已删除的记忆", vm.noteText(note))
+        assertEquals("Remembered: a deleted memory", vm.noteText(note))
         // 重新打开对话时从存下的那一轮读回(只存了种类和编号)
         val store = ConversationStore(tmp.newFolder())
         store.append("c2", Turn("点外卖", "ok", "succeeded", runId = "r2", memoryNotes = listOf(remembered), usedMemory = listOf("a")))
@@ -1055,7 +1055,7 @@ class ChatViewModelTest {
         val second = procedure.copy(undoToken = "expired", pendingId = "p2", memoryId = "p2")
         notesFlow.value = mapOf("r1" to com.meenai.mina.memory.RunNotes("c1", "r1", listOf(procedure, second)))
         runCurrent()
-        assertEquals("要我以后都这样做吗?点外卖先比价", vm.noteText(procedure))
+        assertEquals("Do this every time? 点外卖先比价", vm.noteText(procedure))
         vm.approveNote("r1", procedure); runCurrent()
         assertEquals(listOf("approve:p1"), learnCalls)
         // 「不要」时令牌已失效:直接删掉那条做法

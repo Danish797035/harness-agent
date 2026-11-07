@@ -21,6 +21,7 @@ import com.meenai.mina.task.TaskGate
 import com.meenai.mina.core.agent.Turn
 import com.meenai.mina.core.memory.MemoryItem
 import com.meenai.mina.core.memory.MemoryNote
+import com.meenai.mina.core.memory.MemoryStrings
 import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.skills.SkillNote
 import com.meenai.mina.memory.RunNotes
@@ -127,7 +128,7 @@ sealed interface ExchangeStatus {
         val unverifiedLine: String? get() = when {
             unconfirmed.isNotEmpty() -> tr(R.string.chat_unconfirmed, unconfirmed.joinToString(tr(R.string.list_sep)))
             verified || !reviewed -> null
-            else -> note?.let { tr(R.string.chat_unverified_because, it) } ?: tr(R.string.chat_unverified)
+            else -> note?.let { tr(R.string.chat_unverified_because, localizeVerificationNote(it)) } ?: tr(R.string.chat_unverified)
         }
     }
     data class Failed(val reason: String) : ExchangeStatus
@@ -509,8 +510,22 @@ class ChatViewModel(
         return ex.copy(memoryNotes = n.memoryNotes, usedMemory = n.usedMemory, skillNotes = n.skillNotes)
     }
 
-    /** 提示这一行的文字,内容从此刻的记忆里取;那条已经删掉时写「一条已删除的记忆」。 */
-    fun noteText(note: MemoryNote): String = note.text(memoryItems.value.find { it.id == note.memoryId })
+    /** 提示这一行的文字,内容从此刻的记忆里取;那条已经删掉时写「a deleted memory」。 */
+    fun noteText(note: MemoryNote): String {
+        val item = memoryItems.value.find { it.id == note.memoryId }
+        val strings = MemoryStrings(
+            remembered = { tr(R.string.memory_note_remembered, it) },
+            updated = { content, was ->
+                tr(R.string.memory_note_updated, content) + (was?.let { tr(R.string.memory_note_was, it) } ?: "")
+            },
+            forgot = { content ->
+                if (content == null) tr(R.string.memory_note_forgot_one) else tr(R.string.memory_note_forgot, content)
+            },
+            pending = { tr(R.string.memory_note_do_this_every_time, it) },
+            deleted = tr(R.string.memory_note_deleted),
+        )
+        return note.text(item, strings)
+    }
 
     /** 撤销这条记忆改动;令牌已失效(重启过)时只把「撤销」去掉。 */
     fun undoNote(runId: String, note: MemoryNote) {
@@ -1153,6 +1168,23 @@ class ChatViewModel(
     companion object {
         const val DONE_LINGER_MS = 3_000L
 
+        fun localizeVerificationNote(note: String): String = when {
+            note.startsWith("未确认:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("未确认:").trim()
+            note.startsWith("Unconfirmed:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("Unconfirmed:").trim()
+            note == "结果页受系统防截屏保护,看不到画面,没法核实" -> tr(R.string.unverified_protected)
+            note == "核查超时" -> tr(R.string.unverified_timeout)
+            note == "核查器的回复无法解析" -> tr(R.string.unverified_unparsed)
+            note.startsWith("核查器出错:") -> tr(R.string.unverified_error_prefix) + " " + note.removePrefix("核查器出错:").trim()
+            note == "回答的依据在读到的界面、网页或命令输出里都找不到" -> tr(R.string.unverified_not_in_reads)
+            note == "核查器没有逐条核对每一条标准" -> tr(R.string.unverified_not_every_criterion)
+            note == "核查器认为没有做成,但没有指出哪条标准没满足" -> tr(R.string.unverified_fail_without_reason)
+            note == "这是接着上文的追问,没能列出具体标准,核查判不准" -> tr(R.string.unverified_follow_up_unclear)
+            note == "本次任务没有打开 App,也没有读到任何材料" -> tr(R.string.unverified_nothing_read)
+            note == "回答依据的是屏上被截断的文字(以…结尾),只看到了一部分,没能完整核实" -> tr(R.string.unverified_truncated)
+            note == "正在核实结果" -> tr(R.string.unverified_verifying)
+            else -> note
+        }
+
 
         private fun TaskState.active() = when (this) {
             TaskState.Idle, is TaskState.Succeeded, is TaskState.Failed, TaskState.Cancelled -> false
@@ -1259,6 +1291,7 @@ class ChatViewModel(
         private fun where(target: String, appLabel: (String) -> String): String? = when {
             target.isBlank() -> null
             target.startsWith(SITE_PREFIX) -> target.removePrefix(SITE_PREFIX)
+            target.startsWith("Site ") -> target.removePrefix("Site ")
             com.meenai.mina.core.tool.PACKAGE_NAME_RE.matches(target) -> appLabel(target)
             else -> target
         }
@@ -1316,7 +1349,11 @@ fun evidenceSource(events: List<RunEvent>, appLabel: (String) -> String = { it }
     val shots = events.filterIsInstance<RunEvent.Media>()
     val lastStep = shots.maxOfOrNull { it.step } ?: return EvidenceSource(null, emptyList())
     val final = shots.filter { it.step == lastStep }
-    val place = shots.lastOrNull { it.place != null }?.place?.let { if (it.startsWith(SITE_PREFIX)) it.removePrefix(SITE_PREFIX) else appLabel(it) }
+    val place = shots.lastOrNull { it.place != null }?.place?.let {
+        if (it.startsWith(SITE_PREFIX)) it.removePrefix(SITE_PREFIX)
+        else if (it.startsWith("Site ")) it.removePrefix("Site ")
+        else appLabel(it)
+    }
     return EvidenceSource(place, final.map { it.mediaId }.distinct())
 }
 
@@ -1326,6 +1363,7 @@ private const val SITE_PREFIX = "网站 "
 /** 来源里的地方:「网站 域名」和网址显示域名,包名换成 App 名,别的(命令、文件)原样。 */
 private fun placeLabel(place: String, appLabel: (String) -> String): String = when {
     place.startsWith(SITE_PREFIX) -> place.removePrefix(SITE_PREFIX)
+    place.startsWith("Site ") -> place.removePrefix("Site ")
     place.startsWith("http://") || place.startsWith("https://") -> runCatching { java.net.URI(place).host }.getOrNull() ?: place
     com.meenai.mina.core.tool.PACKAGE_NAME_RE.matches(place) -> appLabel(place)
     else -> place
@@ -1350,7 +1388,7 @@ fun splitEvidence(answer: String): Pair<String, String?> {
 }
 
 // 段首或句末标点之后,可带 markdown 的 **、#、- 等前缀
-private val EVIDENCE = Regex("""(^|\n|[。.!！?？]\s*)[\s*#>\-]*\**(?:依据|证据|来源)\**\s*[:：]\**""")
+private val EVIDENCE = Regex("""(^|\n|[。.!！?？\s])[\s*#>\-]*\**(?:依据|证据|来源|Evidence|Basis|Source)\**\s*[:：]\**""", RegexOption.IGNORE_CASE)
 
 /**
  * 工具在界面上的说法:工具声明里的 label(中文)按界面语言换成对应的资源;没有 label 的原样显示工具名。

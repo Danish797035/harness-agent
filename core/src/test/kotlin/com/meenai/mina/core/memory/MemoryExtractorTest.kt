@@ -32,8 +32,8 @@ class MemoryExtractorTest {
         assertEquals("conv", added.item.source.conversationId)
         val note = MemoryExtractor.notes(changes).single()
         assertEquals(MemoryNote(NoteKind.added, added.item.id, added.undoToken, null), note)
-        assertEquals("记住了:用户点外卖不要香菜", note.text(store.items.value.single()))
-        assertEquals("记住了:一条已删除的记忆", note.text(null))
+        assertEquals("Remembered: 用户点外卖不要香菜", note.text(store.items.value.single()))
+        assertEquals("Remembered: a deleted memory", note.text(null))
         assertEquals(1, store.items.value.size)
     }
 
@@ -49,7 +49,7 @@ class MemoryExtractorTest {
         val u = changes.single() as Change.Updated
         assertEquals("用户点外卖不要香菜", u.before.content)
         assertEquals("用户点外卖不要香菜和葱", store.items.value.single().content)
-        assertEquals("更新了:用户点外卖不要香菜和葱(原来:用户点外卖不要香菜)", MemoryExtractor.notes(changes).single().text(store.items.value.single()))
+        assertEquals("Updated: 用户点外卖不要香菜和葱 (was: 用户点外卖不要香菜)", MemoryExtractor.notes(changes).single().text(store.items.value.single()))
     }
 
     @Test fun unknownTargetDropped() {
@@ -65,7 +65,7 @@ class MemoryExtractorTest {
         val (changes, _) = run("""{"ops":[{"op":"forget","target":"#1","quote":"忘掉我外卖送公司的事"}]}""", listOf("点外卖送家里,忘掉我外卖送公司的事"), store)
         val f = changes.single() as Change.Forgot
         assertTrue(store.items.value.isEmpty())
-        assertEquals("忘掉了一条记忆", MemoryExtractor.notes(changes).single().text(null))
+        assertEquals("Forgot a memory", MemoryExtractor.notes(changes).single().text(null))
         assertTrue(store.undo(f.undoToken))
         assertEquals(1, store.items.value.size)
     }
@@ -88,7 +88,7 @@ class MemoryExtractorTest {
         val a = changes.single() as Change.Added
         assertEquals(MemoryStatus.pending, store.items.value.single().status)
         assertEquals(MemoryNote(NoteKind.pending, a.item.id, a.undoToken, a.item.id), MemoryExtractor.notes(changes).single())
-        assertEquals("要我以后都这样做吗?点外卖前先比较两家价格", MemoryExtractor.notes(changes).single().text(store.items.value.single()))
+        assertEquals("Do this every time? 点外卖前先比较两家价格", MemoryExtractor.notes(changes).single().text(store.items.value.single()))
     }
 
     @Test fun atMostFiveOps() {
@@ -117,7 +117,7 @@ class MemoryExtractorTest {
         val model = FakeModel(reply("""{"ops":[]}"""))
         run("", listOf("帮我点外卖", "要辣的"), store, model)
         val texts = model.requests.single().flatMap { it.parts }.filterIsInstance<Part.Text>().joinToString("\n") { it.text }
-        assertEquals("用户本次说的话:\n1. 帮我点外卖\n2. 要辣的\n\n已有的相关记忆:\n#1 [preference] 用户点外卖不要香菜", texts)
+        assertEquals("User utterances in this task:\n1. 帮我点外卖\n2. 要辣的\n\nExisting relevant memories:\n#1 [preference] 用户点外卖不要香菜", texts)
         assertTrue(model.offeredTools.single().isEmpty())
         assertFalse(texts.contains("phone_observe"))
     }

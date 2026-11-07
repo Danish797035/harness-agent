@@ -47,6 +47,7 @@ import com.meenai.mina.core.run.Attendance
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.takeover.Takeover
 import com.meenai.mina.takeover.TakeoverActivity
+import com.meenai.mina.ui.ChatViewModel
 import com.meenai.mina.ui.MainActivity
 import com.meenai.mina.ui.ScreenCopy
 import com.meenai.mina.ui.StatusCopy
@@ -970,8 +971,8 @@ class TaskService : Service() {
         internal fun describe(state: TaskState, appLabel: (String) -> String = { it }): Pair<String, String> = when (state) {
             TaskState.Idle -> "Harness Agent" to ""
             is TaskState.Running -> tr(R.string.task_running) to (state.progress?.let(StatusCopy::progress) ?: when {
-                state.step == 0 -> state.note
-                else -> tr(R.string.task_step_note, state.step, state.note).trimEnd(':', ' ')
+                state.step == 0 -> ChatViewModel.localizeVerificationNote(state.note)
+                else -> tr(R.string.task_step_note, state.step, ChatViewModel.localizeVerificationNote(state.note)).trimEnd(':', ' ')
             })
             is TaskState.Held -> when {
                 state.reason == TaskGate.LOCKED -> tr(R.string.task_wait_unlock) to tr(R.string.task_wait_unlock_body)
@@ -984,7 +985,7 @@ class TaskService : Service() {
             is TaskState.WaitingConfirmation -> ConfirmationCopy.title(state.request) to ConfirmationCopy.body(state.request, appLabel(state.request.app))
             is TaskState.Succeeded ->
                 if (!state.doubtful) tr(R.string.task_done) to state.answer
-                else tr(R.string.chat_unverified) to (state.note?.let { tr(R.string.task_reason, it) + "\n" }.orEmpty() + state.answer)
+                else tr(R.string.chat_unverified) to (state.note?.let { tr(R.string.task_reason, ChatViewModel.localizeVerificationNote(it)) + "\n" }.orEmpty() + state.answer)
             is TaskState.Failed -> tr(R.string.task_not_done) to state.reason
             TaskState.Cancelled -> tr(R.string.task_stopped) to tr(R.string.task_stopped_body)
         }
