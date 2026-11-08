@@ -132,12 +132,17 @@ class MagicubeLedgerTest {
 
         // Successful call: should deduct cost (~2.0 for 72B)
         shouldFail = false
-        router.cooldownStore.clearBadKey("modelscope")
-        router.completeStreaming("sys", userMsg, emptyList()) {}
+        val tSecondCall = tNow + 70_000L // after 60s cooldown expires
+        val router2 = FreeKeyRouter(
+            candidates = listOf(candidate),
+            now = { tSecondCall },
+            delayMs = {},
+        )
+        router2.completeStreaming("sys", userMsg, emptyList()) {}
 
         val cost = MagicubeLedger.costForModel("Qwen/Qwen2.5-72B-Instruct")
         assertEquals(2.0, cost, 0.001)
-        assertEquals("Successful call must deduct cost", 200.0 - cost, MagicubeLedger.totalBalance(tNow), 0.001)
+        assertEquals("Successful call must deduct cost", 200.0 - cost, MagicubeLedger.totalBalance(tSecondCall), 0.001)
     }
 
     @Test

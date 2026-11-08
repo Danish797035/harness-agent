@@ -458,8 +458,10 @@ class AppFreeKeyRouterTest {
         MagicubeLedger.syncBalance(150.0)
         assertEquals(150.0, MagicubeLedger.totalBalance(), 0.01)
 
-        val tracker = AppFreeKeyTracker(store, MockFreeKeyRouter(), okhttp3.OkHttpClient())
-        val usages = tracker.computeProviderUsages()
+        val candidates = AppFreeKeyRouter.createCandidates(store)
+        val router = FreeKeyRouter(candidates)
+        val realStatus = RealRouterStatus(router = router, store = store)
+        val usages = realStatus.usage.value
         val msUsage = usages.firstOrNull { it.provider == "ModelScope" }
 
         org.junit.Assert.assertNotNull(msUsage)
