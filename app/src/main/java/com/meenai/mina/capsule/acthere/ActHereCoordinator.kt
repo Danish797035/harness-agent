@@ -2,6 +2,18 @@ package com.meenai.mina.capsule.acthere
 
 import com.meenai.mina.capsule.CapsuleSecurityPolicy
 import com.meenai.mina.core.access.AppAccessState
+import com.meenai.mina.core.model.Author
+import com.meenai.mina.core.model.ChatModel
+import com.meenai.mina.core.model.Message
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
+import com.meenai.mina.core.model.ToolSpec
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 enum class ActHereActionType {
     Tap,
@@ -22,9 +34,32 @@ sealed interface StepDecision {
     data class RequireConfirmation(val actionLabel: String, val action: ActHereAction) : StepDecision
     data class PaymentScreenHandover(val message: String) : StepDecision
     data class BlockedApp(val message: String) : StepDecision
+    data class TargetNotFound(val message: String) : StepDecision
     data object MaxStepsReached : StepDecision
     data object Stopped : StepDecision
 }
+
+data class StepExecutionResult(
+    val executed: Boolean,
+    val decision: StepDecision,
+    val toolResultContent: String,
+)
+
+data class UiElementSummary(
+    val label: String,
+    val x: Float,
+    val y: Float,
+    val clickable: Boolean = true,
+    val editable: Boolean = false,
+)
+
+data class ScreenSnapshotData(
+    val elements: List<UiElementSummary>,
+    val screenTexts: List<String>,
+    val foregroundPackages: Collection<String>?,
+    val appAccessState: AppAccessState,
+    val topPackage: String?,
+)
 
 /**
  * Coordinates on-screen actions ("Yahin karo"), ensuring:
@@ -33,6 +68,7 @@ sealed interface StepDecision {
  * - Blocked apps, Aadhaar, bank, and UPI apps prevent actions.
  * - Stop immediately halts all steps.
  * - Maximum 15 steps before pausing and asking the user.
+ * - Multi-turn agent loop drives actions via Main model with gated tools.
  */
 class ActHereCoordinator(
     val maxSteps: Int = 15,
@@ -150,6 +186,9 @@ class ActHereCoordinator(
         if (isStopped) {
             return StepDecision.Stopped
         }
+        if (action.targetLabel.isBlank()) {
+            return StepDecision.TargetNotFound("Target not found on screen. No tap performed.")
+        }
         if (foregroundPackages != null && appAccessState != null) {
             if (!securityChecker(foregroundPackages, appAccessState)) {
                 return StepDecision.BlockedApp("Action blocked for sensitive or secured app")
@@ -178,5 +217,345 @@ class ActHereCoordinator(
         }
         stepCount++
         return StepDecision.ProceedWithStatus("Tap kar raha hoon: ${action.targetLabel}", action)
+    }
+
+    /**
+     * Executes an action through the security and confirmation gate.
+     * Guarantees:
+     * - Null/blank target never triggers fallback taps (no center/first button tap).
+     * - Payment screen actions are never executed and return handover decision.
+     * - Confirmation cancel halts the task and does not execute.
+     * - Stop prevents all subsequent actions.
+     */
+    suspend fun executeGatedAction(
+        action: ActHereAction?,
+        screenTexts: Collection<String> = emptyList(),
+        foregroundPackages: Collection<String>? = null,
+        appAccessState: AppAccessState? = null,
+        onConfirmRequest: suspend (label: String) -> Boolean = { false },
+        onStatusUpdate: (String) -> Unit = {},
+        performAction: suspend (ActHereAction) -> Boolean = { false },
+    ): StepExecutionResult {
+        if (action == null || action.targetLabel.isBlank()) {
+            return StepExecutionResult(
+                executed = false,
+                decision = StepDecision.TargetNotFound("Target not found on screen. No tap performed."),
+                toolResultContent = """{"error":"Target not found on screen. No tap performed."}""",
+            )
+        }
+
+        val decision = evaluateStep(action, screenTexts, foregroundPackages, appAccessState)
+        return when (decision) {
+            is StepDecision.Stopped -> {
+                StepExecutionResult(
+                    executed = false,
+                    decision = decision,
+                    toolResultContent = """{"status":"stopped","message":"Task stopped"}""",
+                )
+            }
+            is StepDecision.BlockedApp -> {
+                StepExecutionResult(
+                    executed = false,
+                    decision = decision,
+                    toolResultContent = """{"status":"blocked","message":"${decision.message}"}""",
+                )
+            }
+            is StepDecision.PaymentScreenHandover -> {
+                StepExecutionResult(
+                    executed = false,
+                    decision = decision,
+                    toolResultContent = """{"status":"payment_screen_handover","message":"${decision.message}"}""",
+                )
+            }
+            is StepDecision.TargetNotFound -> {
+                StepExecutionResult(
+                    executed = false,
+                    decision = decision,
+                    toolResultContent = """{"error":"${decision.message}"}""",
+                )
+            }
+            is StepDecision.MaxStepsReached -> {
+                StepExecutionResult(
+                    executed = false,
+                    decision = decision,
+                    toolResultContent = """{"status":"max_steps_reached","message":"15 step limit reached"}""",
+                )
+            }
+            is StepDecision.RequireConfirmation -> {
+                val confirmed = onConfirmRequest(decision.actionLabel)
+                if (!confirmed) {
+                    stop()
+                    StepExecutionResult(
+                        executed = false,
+                        decision = decision,
+                        toolResultContent = """{"status":"cancelled","message":"User cancelled sensitive action"}""",
+                    )
+                } else {
+                    confirmAction(action)
+                    onStatusUpdate("Tap kar raha hoon: ${action.targetLabel}")
+                    val success = performAction(action)
+                    StepExecutionResult(
+                        executed = success,
+                        decision = decision,
+                        toolResultContent = """{"status":"success","action":"${action.targetLabel}"}""",
+                    )
+                }
+            }
+            is StepDecision.ProceedWithStatus -> {
+                onStatusUpdate(decision.statusMessage)
+                val success = performAction(action)
+                StepExecutionResult(
+                    executed = success,
+                    decision = decision,
+                    toolResultContent = """{"status":"success","action":"${action.targetLabel}"}""",
+                )
+            }
+        }
+    }
+
+    /**
+     * Multi-turn agent loop for "Yahin karo", driving the task via the Main model
+     * with accessibility tools (phone_tap, phone_type, phone_swipe, done) gated
+     * by ActHereCoordinator.
+     */
+    suspend fun runActHereLoop(
+        model: ChatModel,
+        goal: String,
+        fetchScreen: suspend () -> ScreenSnapshotData,
+        onStatus: (String) -> Unit,
+        onHighlight: suspend (Float, Float) -> Unit,
+        onHandover: (String) -> Unit,
+        onConfirm: suspend (String) -> Boolean,
+        onMaxStepsPrompt: suspend () -> Boolean,
+        onStopped: () -> Unit,
+        performTap: suspend (Float, Float) -> Boolean,
+        performType: suspend (String, Float, Float) -> Boolean,
+        performSwipe: suspend (String) -> Boolean,
+    ) {
+        reset()
+        var screen = fetchScreen()
+
+        if (!canOpen(screen.foregroundPackages, screen.appAccessState)) {
+            onStopped()
+            return
+        }
+
+        if (isPaymentScreen(screen.screenTexts)) {
+            onHandover("Ye aap khud karo")
+            stop()
+            return
+        }
+
+        val tools = listOf(
+            ToolSpec(
+                name = "phone_tap",
+                description = "Tap on an element on the screen by target label or coordinates",
+                parametersJsonSchema = """{"type":"object","properties":{"target":{"type":"string","description":"Label of button or element to tap"},"x":{"type":"number"},"y":{"type":"number"}},"required":["target"]}"""
+            ),
+            ToolSpec(
+                name = "phone_type",
+                description = "Type text into a field on the screen",
+                parametersJsonSchema = """{"type":"object","properties":{"text":{"type":"string","description":"Text to type"},"target":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"}},"required":["text"]}"""
+            ),
+            ToolSpec(
+                name = "phone_swipe",
+                description = "Swipe or scroll the screen",
+                parametersJsonSchema = """{"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]}},"required":["direction"]}"""
+            ),
+            ToolSpec(
+                name = "done",
+                description = "Finish the task when completed",
+                parametersJsonSchema = """{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}"""
+            )
+        )
+
+        val systemPrompt = "You are an AI assistant acting directly on the current Android screen.\n" +
+            "Current foreground app: ${screen.topPackage ?: "unknown"}\n" +
+            "Task goal: $goal\n\n" +
+            "Rules:\n" +
+            "1. ONLY perform actions inside this current app to achieve the user's goal. Never switch to another app.\n" +
+            "2. Choose specific elements matching the goal. Never guess or tap random locations.\n" +
+            "3. When the goal is completed, call 'done'.\n" +
+            "4. Use the provided tools (phone_tap, phone_type, phone_swipe, done)."
+
+        fun formatScreen(data: ScreenSnapshotData): String {
+            val elementLines = data.elements.take(30).joinToString("\n") { el ->
+                "- \"${el.label}\" at (${el.x.toInt()}, ${el.y.toInt()})" +
+                    (if (el.clickable) " [clickable]" else "") +
+                    (if (el.editable) " [input]" else "")
+            }
+            val textLines = data.screenTexts.take(20).joinToString("\n") { "• $it" }
+            return "User goal: $goal\n\nScreen elements:\n$elementLines\n\nVisible text:\n$textLines"
+        }
+
+        val history = mutableListOf<Message>()
+        history.add(Message(Role.User, listOf(Part.Text(formatScreen(screen))), Author.User))
+
+        while (!isStopped) {
+            if (!canOpen(screen.foregroundPackages, screen.appAccessState)) {
+                onStopped()
+                break
+            }
+            if (isPaymentScreen(screen.screenTexts)) {
+                onHandover("Ye aap khud karo")
+                stop()
+                break
+            }
+
+            val reply = try {
+                model.complete(systemPrompt, history, tools)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                break
+            }
+
+            val toolCalls = reply.parts.filterIsInstance<Part.ToolCall>()
+            if (toolCalls.isEmpty()) {
+                break
+            }
+
+            history.add(Message(Role.Assistant, reply.parts, Author.Mina))
+
+            var shouldBreak = false
+            val toolResults = mutableListOf<Part>()
+
+            for (call in toolCalls) {
+                if (isStopped) {
+                    shouldBreak = true
+                    break
+                }
+
+                if (call.name == "done") {
+                    shouldBreak = true
+                    toolResults.add(Part.ToolResult(call.id, """{"status":"done"}""", false))
+                    break
+                }
+
+                val json = runCatching { Json.parseToJsonElement(call.argsJson).jsonObject }.getOrNull()
+                when (call.name) {
+                    "phone_tap" -> {
+                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val parsedX = json?.get("x")?.jsonPrimitive?.floatOrNull
+                        val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
+
+                        val matchedEl = if (parsedX != null && parsedY != null) {
+                            UiElementSummary(target, parsedX, parsedY)
+                        } else {
+                            screen.elements.firstOrNull { it.label.contains(target, ignoreCase = true) }
+                        }
+
+                        val action = if (matchedEl != null) {
+                            ActHereAction(ActHereActionType.Tap, targetLabel = target.ifBlank { matchedEl.label }, x = matchedEl.x, y = matchedEl.y)
+                        } else if (target.isNotBlank() && parsedX != null && parsedY != null) {
+                            ActHereAction(ActHereActionType.Tap, targetLabel = target, x = parsedX, y = parsedY)
+                        } else null
+
+                        val execResult = executeGatedAction(
+                            action = action,
+                            screenTexts = screen.screenTexts,
+                            foregroundPackages = screen.foregroundPackages,
+                            appAccessState = screen.appAccessState,
+                            onConfirmRequest = onConfirm,
+                            onStatusUpdate = onStatus,
+                            performAction = { act ->
+                                onHighlight(act.x, act.y)
+                                performTap(act.x, act.y)
+                            }
+                        )
+
+                        toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+
+                        if (execResult.decision is StepDecision.PaymentScreenHandover) {
+                            onHandover("Ye aap khud karo")
+                            shouldBreak = true
+                        } else if (execResult.decision is StepDecision.BlockedApp || execResult.decision is StepDecision.Stopped || execResult.decision is StepDecision.TargetNotFound) {
+                            shouldBreak = true
+                        } else if (execResult.decision is StepDecision.MaxStepsReached) {
+                            val cont = onMaxStepsPrompt()
+                            if (!cont) {
+                                stop()
+                                shouldBreak = true
+                            } else {
+                                continueSteps()
+                            }
+                        } else if (!execResult.executed && execResult.decision is StepDecision.RequireConfirmation) {
+                            shouldBreak = true
+                        }
+                    }
+                    "phone_type" -> {
+                        val text = json?.get("text")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val parsedX = json?.get("x")?.jsonPrimitive?.floatOrNull
+                        val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
+
+                        val matchedEl = if (parsedX != null && parsedY != null) {
+                            UiElementSummary(target, parsedX, parsedY)
+                        } else {
+                            screen.elements.firstOrNull { it.editable || it.label.contains(target, ignoreCase = true) }
+                        }
+
+                        val action = if (matchedEl != null) {
+                            ActHereAction(ActHereActionType.Type, targetLabel = target.ifBlank { matchedEl.label }, x = matchedEl.x, y = matchedEl.y, textToType = text)
+                        } else if (target.isNotBlank()) {
+                            ActHereAction(ActHereActionType.Type, targetLabel = target, textToType = text)
+                        } else null
+
+                        val execResult = executeGatedAction(
+                            action = action,
+                            screenTexts = screen.screenTexts,
+                            foregroundPackages = screen.foregroundPackages,
+                            appAccessState = screen.appAccessState,
+                            onConfirmRequest = onConfirm,
+                            onStatusUpdate = onStatus,
+                            performAction = { act ->
+                                performType(act.textToType ?: text, act.x, act.y)
+                            }
+                        )
+
+                        toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+
+                        if (execResult.decision is StepDecision.PaymentScreenHandover) {
+                            onHandover("Ye aap khud karo")
+                            shouldBreak = true
+                        } else if (!execResult.executed) {
+                            shouldBreak = true
+                        }
+                    }
+                    "phone_swipe" -> {
+                        val dir = json?.get("direction")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val action = ActHereAction(ActHereActionType.Scroll, targetLabel = "Swipe $dir")
+                        val execResult = executeGatedAction(
+                            action = action,
+                            screenTexts = screen.screenTexts,
+                            foregroundPackages = screen.foregroundPackages,
+                            appAccessState = screen.appAccessState,
+                            onConfirmRequest = onConfirm,
+                            onStatusUpdate = onStatus,
+                            performAction = {
+                                performSwipe(dir)
+                            }
+                        )
+
+                        toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+                        if (!execResult.executed) shouldBreak = true
+                    }
+                    else -> {
+                        toolResults.add(Part.ToolResult(call.id, """{"error":"Unknown tool"}""", true))
+                    }
+                }
+            }
+
+            history.add(Message(Role.Tool, toolResults, Author.Mina))
+
+            if (shouldBreak || isStopped) break
+
+            screen = fetchScreen()
+            history.add(Message(Role.User, listOf(Part.Text("Updated screen:\n" + formatScreen(screen))), Author.User))
+        }
+
+        if (isStopped) {
+            onStopped()
+        }
     }
 }

@@ -3,8 +3,17 @@ package com.meenai.mina.capsule.acthere
 import com.meenai.mina.core.access.AppAccessState
 import com.meenai.mina.core.access.AppCategory
 import com.meenai.mina.core.access.AppClassification
+import com.meenai.mina.core.model.Capabilities
+import com.meenai.mina.core.model.ChatModel
+import com.meenai.mina.core.model.Message
+import com.meenai.mina.core.model.ModelReply
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.StopReason
+import com.meenai.mina.core.model.ToolSpec
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -177,5 +186,183 @@ class ActHereCoordinatorTest {
         val resumedStep = coordinator.evaluateStep(ActHereAction(targetLabel = "Button 16"))
         assertTrue("Step after continuation must proceed", resumedStep is StepDecision.ProceedWithStatus)
         assertEquals(1, coordinator.stepCount)
+    }
+
+    @Test
+    fun koiTargetNaMileToKoiTapNahiHota() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        var tapExecuted = false
+
+        // 1. When action is null (no target found on screen by name or coordinates)
+        val nullResult = coordinator.executeGatedAction(
+            action = null,
+            performAction = {
+                tapExecuted = true
+                true
+            }
+        )
+        assertFalse("When target is not found, action must not execute", nullResult.executed)
+        assertFalse("performAction must never be called (no center or first element tap)", tapExecuted)
+        assertTrue(nullResult.decision is StepDecision.TargetNotFound)
+        assertTrue(nullResult.toolResultContent.contains("Target not found"))
+
+        // 2. When target label is blank
+        val blankResult = coordinator.executeGatedAction(
+            action = ActHereAction(targetLabel = "   ", x = 500f, y = 500f),
+            performAction = {
+                tapExecuted = true
+                true
+            }
+        )
+        assertFalse(blankResult.executed)
+        assertFalse(tapExecuted)
+        assertTrue(blankResult.decision is StepDecision.TargetNotFound)
+
+        // 3. In runActHereLoop with a fake model issuing phone_tap on a missing element
+        val fakeModel = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                return ModelReply(
+                    parts = listOf(
+                        Part.ToolCall("call_1", "phone_tap", """{"target":"NonExistentButton"}""")
+                    ),
+                    stopReason = StopReason.ToolUse,
+                    usage = null
+                )
+            }
+        }
+
+        val screenSnapshot = ScreenSnapshotData(
+            elements = listOf(UiElementSummary(label = "ExistingButton", x = 100f, y = 200f)),
+            screenTexts = listOf("ExistingButton"),
+            foregroundPackages = listOf("com.example.app"),
+            appAccessState = AppAccessState(available = true),
+            topPackage = "com.example.app"
+        )
+
+        var tappedX: Float? = null
+        var tappedY: Float? = null
+
+        coordinator.runActHereLoop(
+            model = fakeModel,
+            goal = "Tap NonExistentButton",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { true },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { x, y ->
+                tappedX = x
+                tappedY = y
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertNull("No tap should happen when target is not on screen", tappedX)
+        assertNull("No tap should happen when target is not on screen", tappedY)
+    }
+
+    @Test
+    fun gateWalaToolCallPaymentScreenParExecuteNahiHota() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        var actionExecuted = false
+
+        val action = ActHereAction(targetLabel = "Proceed to Pay", x = 300f, y = 400f)
+        val result = coordinator.executeGatedAction(
+            action = action,
+            screenTexts = listOf("Order Summary", "Payment Gateway", "Enter UPI PIN", "Total ₹500"),
+            performAction = {
+                actionExecuted = true
+                true
+            }
+        )
+
+        assertFalse("Tool call on payment screen must not execute", result.executed)
+        assertFalse("performAction must never be called on payment screen", actionExecuted)
+        assertTrue("Decision must be PaymentScreenHandover", result.decision is StepDecision.PaymentScreenHandover)
+        val handover = result.decision as StepDecision.PaymentScreenHandover
+        assertEquals("Ye aap khud karo", handover.message)
+        assertTrue(result.toolResultContent.contains("payment_screen_handover"))
+        assertTrue(result.toolResultContent.contains("Ye aap khud karo"))
+    }
+
+    @Test
+    fun confirmCancelParToolCallExecuteNahiHotaAurKaamRuktaHai() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        var actionExecuted = false
+
+        val deleteAction = ActHereAction(targetLabel = "Delete", x = 200f, y = 300f)
+        val result = coordinator.executeGatedAction(
+            action = deleteAction,
+            onConfirmRequest = { false }, // User hits Cancel
+            performAction = {
+                actionExecuted = true
+                true
+            }
+        )
+
+        assertFalse("Tool call must not execute when confirm is cancelled", result.executed)
+        assertFalse("performAction must not be called", actionExecuted)
+        assertTrue("Coordinator must be stopped when user cancels", coordinator.isStopped)
+        assertTrue(result.decision is StepDecision.RequireConfirmation)
+        assertTrue(result.toolResultContent.contains("cancelled"))
+
+        // Kaam rukta hai: next action cannot run
+        val nextAction = ActHereAction(targetLabel = "Next", x = 100f, y = 100f)
+        val nextResult = coordinator.executeGatedAction(
+            action = nextAction,
+            performAction = {
+                actionExecuted = true
+                true
+            }
+        )
+        assertFalse("Next action after cancel must not execute", nextResult.executed)
+        assertFalse("performAction must not be called after cancel", actionExecuted)
+        assertTrue(nextResult.decision is StepDecision.Stopped)
+    }
+
+    @Test
+    fun stopKeBaadAglaToolCallNahiChalta() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        var actionExecuted = false
+
+        // Before stop: normal action executes
+        val firstAction = ActHereAction(targetLabel = "Home", x = 100f, y = 200f)
+        val firstResult = coordinator.executeGatedAction(
+            action = firstAction,
+            performAction = {
+                actionExecuted = true
+                true
+            }
+        )
+        assertTrue("First action before stop executes", firstResult.executed)
+        assertTrue(actionExecuted)
+        assertEquals(1, coordinator.stepCount)
+
+        // User triggers stop
+        coordinator.stop()
+        assertTrue(coordinator.isStopped)
+
+        actionExecuted = false
+
+        // Next tool call after stop must not execute
+        val secondAction = ActHereAction(targetLabel = "Profile", x = 150f, y = 250f)
+        val secondResult = coordinator.executeGatedAction(
+            action = secondAction,
+            performAction = {
+                actionExecuted = true
+                true
+            }
+        )
+
+        assertFalse("Tool call after stop must not execute", secondResult.executed)
+        assertFalse("performAction must never be called after stop", actionExecuted)
+        assertTrue(secondResult.decision is StepDecision.Stopped)
+        assertEquals("Step count must not increment after stop", 1, coordinator.stepCount)
+        assertTrue(secondResult.toolResultContent.contains("stopped"))
     }
 }
