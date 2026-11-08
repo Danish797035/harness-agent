@@ -1151,7 +1151,7 @@ class CapsuleController(
         val service = windowOn ?: return
         if (menuWindow != null) return
         wake()
-        val hasActive = tasks.runs.value.any { it.state.isActive }
+        val hasActive = tasks.runs.value.any { it.state.isActive() }
         menuWindow = service.overlays().open(
             OverlayPlacement(Gravity.CENTER),
             onOutside = ::closeShortcutMenu,
@@ -1207,7 +1207,7 @@ class CapsuleController(
     }
 
     private fun stopActiveTask() {
-        val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.runs.value.firstOrNull { it.state.isActive }?.key
+        val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.runs.value.firstOrNull { it.state.isActive() }?.key
         if (active != null) {
             TaskService.cancel(context, active)
             showNote(tr(R.string.capsule_task_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
