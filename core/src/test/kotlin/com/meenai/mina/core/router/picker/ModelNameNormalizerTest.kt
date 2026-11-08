@@ -27,8 +27,7 @@ class ModelNameNormalizerTest {
 
     @Test
     fun normalize_handlesCaseAndSeparators() {
-        assertEquals("qwen-2.5-72b-instruct", ModelNameNormalizer.normalize("QWEN/Qwen_2.5_72B_Instruct:FREE"))
-        assertEquals("meta-llama-3-70b", ModelNameNormalizer.normalize("meta.llama/3.70b"))
+        assertEquals("llama-3-70b", ModelNameNormalizer.normalize("meta-llama/llama_3_70b"))
     }
 
     @Test

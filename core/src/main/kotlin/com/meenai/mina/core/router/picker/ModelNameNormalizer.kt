@@ -7,7 +7,7 @@ package com.meenai.mina.core.router.picker
 object ModelNameNormalizer {
 
     private val PREFIX_REGEX = Regex(
-        "^(?:meta-llama|meta|qwen|deepseek|mistralai|mistral|google|microsoft|zai|z-ai|alibaba|anthropic|openai|models|modelscope)/+",
+        "^(?:meta-llama|meta[.-]llama|meta|qwen|deepseek|mistralai|mistral|google|microsoft|zai|z-ai|alibaba|anthropic|openai|models|modelscope)/+",
         RegexOption.IGNORE_CASE
     )
 
@@ -16,7 +16,7 @@ object ModelNameNormalizer {
         RegexOption.IGNORE_CASE
     )
 
-    private val SEPARATORS_REGEX = Regex("[._/\\s]+")
+    private val SEPARATORS_REGEX = Regex("[/_\\s]+")
 
     /**
      * Normalizes a model identifier into a canonical lowercased kebab-case name.

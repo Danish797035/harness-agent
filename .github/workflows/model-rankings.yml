@@ -25,7 +25,7 @@ jobs:
         env:
           ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
         run: |
-          python3 scripts/update_model_rankings.py
+          python3 tools/update_model_rankings.py
 
       - name: Commit and push changes
         run: |
