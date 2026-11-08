@@ -54,12 +54,17 @@ fun RouterChip(
             .padding(horizontal = 12.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center,
     ) {
+        val dotColor = when (activeModel.callStatus) {
+            ModelCallStatus.Success -> colors.ok
+            ModelCallStatus.Failure -> colors.bad
+            ModelCallStatus.Untested -> colors.ink3
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .padding(end = 6.dp)
                     .size(6.dp)
-                    .background(if (activeModel.isPinned) colors.accent else colors.ok, CircleShape)
+                    .background(dotColor, CircleShape)
             )
             Text(
                 text = text,

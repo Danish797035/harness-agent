@@ -323,8 +323,13 @@ private fun LegacyProviderUsageRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
+        val quotaText = if (usage.totalQuota > 0) {
+            stringResource(R.string.router_quota_format, usage.remainingQuota, usage.totalQuota)
+        } else {
+            stringResource(R.string.router_today_count, usage.todayCount)
+        }
         Text(
-            text = stringResource(R.string.router_quota_format, usage.remainingQuota, usage.totalQuota),
+            text = quotaText,
             style = MinaType.Hint,
             color = colors.ink3,
         )

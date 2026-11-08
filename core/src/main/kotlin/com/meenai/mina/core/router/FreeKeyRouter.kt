@@ -15,6 +15,8 @@ import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.ModelCandidate
 import com.meenai.mina.core.router.picker.ModelRole
+import com.meenai.mina.core.router.picker.OpenRouterApiClient
+import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -71,9 +73,9 @@ class FreeKeyRouter(
     var candidates: List<RouterCandidate>,
     val cooldownStore: ModelCooldownStore = ModelCooldownStore(),
     val healthTracker: ModelHealthTracker = ModelHealthTracker(),
-    val difficultyRouter: DifficultyRouter? = null,
+    difficultyRouter: DifficultyRouter? = null,
     val maxSwitchesPerTask: Int = 6,
-    val firstTokenTimeoutMs: Long = 30_000L,
+    val firstTokenTimeoutMs: Long = 40_000L,
     val switchBackoffMs: Long = 500L,
     val now: () -> Long = System::currentTimeMillis,
     val delayMs: suspend (Long) -> Unit = { delay(it) },
@@ -81,6 +83,12 @@ class FreeKeyRouter(
     val maxInlineWaitMs: Long = 15_000L,
     val onModelSwitched: ((oldModel: String?, newModel: String, reason: String) -> Unit)? = null,
 ) : StreamingChatModel {
+
+    val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
+        picker = AutoModelPicker(object : OpenRouterApiClient {
+            override suspend fun fetchModelsJson(): String = "[]"
+        })
+    )
 
     var activeCandidate: RouterCandidate? = null
         private set
@@ -115,10 +123,16 @@ class FreeKeyRouter(
         if (current != null && !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = null
         }
+        val reason = when {
+            pinnedModelId != null -> "Pinned model"
+            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
+            activeCandidate != null -> "Optimal free candidate"
+            else -> "Task reset"
+        }
         updateStatus(
             model = activeCandidate?.id,
             provider = activeCandidate?.provider,
-            reason = "Task reset",
+            reason = reason,
         )
     }
 
@@ -131,17 +145,23 @@ class FreeKeyRouter(
         plannedSteps: Int? = null,
     ) {
         switchCountInTask = 0
-        val difficulty = difficultyRouter?.startTask(task, hasImage, plannedSteps)
-        val role = difficultyRouter?.getRole(hasImage) ?: if (hasImage) ModelRole.Vision else ModelRole.Main
+        val difficulty = difficultyRouter.startTask(task, hasImage, plannedSteps)
+        val role = difficultyRouter.getRole(hasImage)
 
         val current = activeCandidate
         if (current == null || !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = pickBestCandidate(role, isNewTask = true)
         }
+        val reason = when {
+            pinnedModelId != null -> "Pinned model"
+            hasImage -> "Vision task, best image understanding"
+            difficulty == TaskDifficulty.Light -> "Light task, cheapest free model"
+            else -> "Heavy task, strongest free model"
+        }
         updateStatus(
             model = activeCandidate?.id,
             provider = activeCandidate?.provider,
-            reason = "Task started (${difficulty ?: "Default"})",
+            reason = reason,
         )
     }
 
@@ -151,20 +171,20 @@ class FreeKeyRouter(
      * Switches only at step boundaries if necessary.
      */
     fun prepareStep(step: Int, hasImages: Boolean = false) {
-        val role = difficultyRouter?.getRole(hasImages) ?: if (hasImages) ModelRole.Vision else ModelRole.Main
+        val role = difficultyRouter.getRole(hasImages)
         val current = activeCandidate
 
         val needsSwitch = current == null ||
             !checkCachedQuota(current, isNewTask = false) ||
             (hasImages && !current.model.capabilities.vision) ||
-            (difficultyRouter?.isEscalated == true && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main))
+            (difficultyRouter.isEscalated && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main))
 
         if (needsSwitch) {
             val next = pickBestCandidate(role, isNewTask = false)
             if (next != null && next.id != current?.id) {
                 val oldId = current?.id
                 activeCandidate = next
-                val reason = if (difficultyRouter?.isEscalated == true) "Escalated to Heavy" else "Step boundary check"
+                val reason = if (difficultyRouter.isEscalated) "Escalated to Heavy (strongest model)" else "Step boundary check"
                 onModelSwitched?.invoke(oldId, next.id, reason)
                 updateStatus(
                     model = next.id,
@@ -181,7 +201,7 @@ class FreeKeyRouter(
      * and escalate to Heavy if repeating.
      */
     fun recordStepAction(toolSignature: String) {
-        difficultyRouter?.recordStep(toolSignature)
+        difficultyRouter.recordStep(toolSignature)
     }
 
     fun pinModel(modelId: String) {
@@ -207,10 +227,23 @@ class FreeKeyRouter(
         if (active != null && newCandidates.none { it.id == active.id }) {
             activeCandidate = null
         }
+        if (activeCandidate == null) {
+            val role = difficultyRouter.getRole()
+            activeCandidate = pickBestCandidate(role, isNewTask = false)
+        }
+        val existingReason = _status.value.reason
+        val reason = if (!existingReason.isNullOrBlank() && !existingReason.contains("Candidates updated", ignoreCase = true) && existingReason != "Success") {
+            existingReason
+        } else when {
+            pinnedModelId != null -> "Pinned model"
+            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
+            activeCandidate != null -> "Optimal free candidate"
+            else -> "No model available"
+        }
         updateStatus(
             model = activeCandidate?.id,
             provider = activeCandidate?.provider,
-            reason = "Candidates updated",
+            reason = reason,
         )
     }
 
@@ -269,7 +302,11 @@ class FreeKeyRouter(
                 val prev = previousCandidate?.id
                 activeCandidate = next
                 if (prev != null && prev != next.id) {
-                    val reason = "Switching candidate"
+                    val reason = if (lastError is ModelError.FirstTokenTimeout) {
+                        "Model slow tha, dusra try kar raha hoon"
+                    } else {
+                        "Switching candidate"
+                    }
                     onModelSwitched?.invoke(prev, next.id, reason)
                     updateStatus(
                         model = next.id,
@@ -304,12 +341,12 @@ class FreeKeyRouter(
                     val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText)
                     val latency = now() - beganTime
                     healthTracker.recordSuccess(currentCandidate.id, latency)
-                    difficultyRouter?.recordSuccess()
+                    difficultyRouter.recordSuccess()
                     RouterUsageTracker.recordCall(currentCandidate.id, currentCandidate.provider, now())
                     updateStatus(
                         model = currentCandidate.id,
                         provider = currentCandidate.provider,
-                        reason = "Success",
+                        reason = _status.value.reason,
                         usage = reply.usage,
                     )
                     return reply
@@ -318,7 +355,7 @@ class FreeKeyRouter(
                 } catch (e: Throwable) {
                     lastError = e
                     healthTracker.recordFailure(currentCandidate.id)
-                    difficultyRouter?.recordFailure()
+                    difficultyRouter.recordFailure()
 
                     val action = RouterErrorClassifier.classify(e)
 
@@ -382,6 +419,18 @@ class FreeKeyRouter(
                             break
                         }
                         RouterAction.SWITCH -> {
+                            val isTimeout = (e is ModelError.FirstTokenTimeout)
+                            val isPinned = (pinnedModelId != null && pinnedModelId == currentCandidate.id)
+                            if (isPinned) {
+                                val timeoutMsg = if (isTimeout) "Model slow tha, dobara try karo" else (e.message ?: "Model call failed")
+                                updateStatus(
+                                    model = currentCandidate.id,
+                                    provider = currentCandidate.provider,
+                                    reason = timeoutMsg,
+                                )
+                                throw e
+                            }
+
                             val isQuota = (e is ModelError.QuotaExceeded) ||
                                 (e.message?.contains("insufficient_quota", ignoreCase = true) == true) ||
                                 (e.message?.contains("quota", ignoreCase = true) == true)
@@ -405,6 +454,14 @@ class FreeKeyRouter(
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
                                 throw AllLimitsExhaustedException(msg, waitMin)
+                            }
+                            if (isTimeout) {
+                                val timeoutReason = "Model slow tha, dusra try kar raha hoon"
+                                updateStatus(
+                                    model = currentCandidate.id,
+                                    provider = currentCandidate.provider,
+                                    reason = timeoutReason,
+                                )
                             }
                             delayMs(switchBackoffMs)
                             break
@@ -471,7 +528,7 @@ class FreeKeyRouter(
      * - Sorts by curated rank, health score, context tokens.
      */
     fun pickBestCandidate(targetRole: ModelRole = ModelRole.Main, isNewTask: Boolean = false): RouterCandidate? {
-        val pinned = pinnedModelId ?: difficultyRouter?.pinnedModelId
+        val pinned = pinnedModelId ?: difficultyRouter.pinnedModelId
         if (!pinned.isNullOrBlank()) {
             return candidates.find { it.id == pinned }
         }
@@ -493,11 +550,19 @@ class FreeKeyRouter(
         }
         val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
 
-        return targetPool.sortedWith(
+        val comparator = if (targetRole == ModelRole.Light) {
+            compareBy<RouterCandidate> { candidate ->
+                val size = CuratedTiers.extractParameterSizeB(candidate.id)
+                if (size > 0.0) size else 8.0
+            }.thenByDescending { healthTracker.score(it.id) }
+             .thenByDescending { it.curatedRank }
+        } else {
             compareByDescending<RouterCandidate> { it.curatedRank }
                 .thenByDescending { healthTracker.score(it.id) }
                 .thenByDescending { it.model.capabilities.contextTokens }
-        ).firstOrNull()
+        }
+
+        return targetPool.sortedWith(comparator).firstOrNull()
     }
 
     private fun shortestCooldownMs(): Long =

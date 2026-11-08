@@ -6,7 +6,11 @@ import com.meenai.mina.core.model.OpenAiCompatModel
 import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.RouterCandidate
+import com.meenai.mina.core.router.RouterUsageTracker
+import com.meenai.mina.core.router.picker.AutoModelPicker
 import com.meenai.mina.core.router.picker.CuratedTiers
+import com.meenai.mina.core.router.picker.DifficultyRouter
+import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.preset.ModelScopePreset
 import com.meenai.mina.core.router.preset.ZaiPreset
@@ -90,7 +94,13 @@ object AppFreeKeyRouter {
         http: OkHttpClient = OkHttpClient(),
     ): FreeKeyRouter {
         val candidates = createCandidates(store, http)
-        return FreeKeyRouter(candidates = candidates)
+        val picker = AutoModelPicker(HttpOpenRouterApiClient(http))
+        val diffRouter = DifficultyRouter(picker = picker)
+        return FreeKeyRouter(
+            candidates = candidates,
+            difficultyRouter = diffRouter,
+            firstTokenTimeoutMs = 40_000L,
+        )
     }
 
     fun isOpenRouterProvider(p: Provider): Boolean {
@@ -302,13 +312,27 @@ object AppFreeKeyRouter {
         }
 
         // Hardcoded fallback list if no dynamic models provided
-        val qwen72b = OpenAiCompatModel(
-            baseUrl = ModelScopePreset.BASE_URL,
-            apiKey = apiKey,
-            model = "Qwen/Qwen2.5-72B-Instruct",
-            capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
-            http = http,
-        )
+        val candidates = mutableListOf<RouterCandidate>()
+        if (RouterUsageTracker.getTodayCalls("Qwen/Qwen2.5-72B-Instruct") > 0) {
+            val qwen72b = OpenAiCompatModel(
+                baseUrl = ModelScopePreset.BASE_URL,
+                apiKey = apiKey,
+                model = "Qwen/Qwen2.5-72B-Instruct",
+                capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
+                http = http,
+            )
+            candidates.add(
+                RouterCandidate(
+                    id = "Qwen/Qwen2.5-72B-Instruct",
+                    provider = ModelScopePreset.PROVIDER_ID,
+                    model = qwen72b,
+                    curatedRank = 75,
+                    isFree = true,
+                    isBackup = true,
+                    roles = setOf(ModelRole.Main),
+                )
+            )
+        }
         val qwen7b = OpenAiCompatModel(
             baseUrl = ModelScopePreset.BASE_URL,
             apiKey = apiKey,
@@ -324,16 +348,7 @@ object AppFreeKeyRouter {
             http = http,
         )
 
-        return listOf(
-            RouterCandidate(
-                id = "Qwen/Qwen2.5-72B-Instruct",
-                provider = ModelScopePreset.PROVIDER_ID,
-                model = qwen72b,
-                curatedRank = 75,
-                isFree = true,
-                isBackup = true,
-                roles = setOf(ModelRole.Main),
-            ),
+        candidates.add(
             RouterCandidate(
                 id = "Qwen/Qwen2.5-7B-Instruct",
                 provider = ModelScopePreset.PROVIDER_ID,
@@ -342,7 +357,9 @@ object AppFreeKeyRouter {
                 isFree = true,
                 isBackup = true,
                 roles = setOf(ModelRole.Light),
-            ),
+            )
+        )
+        candidates.add(
             RouterCandidate(
                 id = "Qwen/Qwen2.5-VL-7B-Instruct",
                 provider = ModelScopePreset.PROVIDER_ID,
@@ -351,7 +368,8 @@ object AppFreeKeyRouter {
                 isFree = true,
                 isBackup = true,
                 roles = setOf(ModelRole.Vision),
-            ),
+            )
         )
+        return candidates
     }
 }

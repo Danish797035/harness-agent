@@ -3,6 +3,7 @@ package com.meenai.mina.ui.router
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.router.FreeKeyRouter
+import com.meenai.mina.core.router.ModelHealthTracker
 import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.preset.ZaiPreset
@@ -33,6 +34,12 @@ import okhttp3.Request
 import okhttp3.Response
 import kotlin.math.ceil
 
+enum class ModelCallStatus {
+    Untested,
+    Success,
+    Failure,
+}
+
 /**
  * Currently active model metadata for Router UI.
  */
@@ -43,12 +50,13 @@ data class ActiveModel(
     val usedToday: Int = 0,
     val limit: Int? = null,
     val isEstimate: Boolean = false,
-    val quotaRemaining: Int = 38,
-    val quotaTotal: Int = 50,
-    val reason: String = "Lowest latency and high quota remaining",
+    val quotaRemaining: Int = 0,
+    val quotaTotal: Int = 0,
+    val reason: String = "Optimal free candidate",
     val isPinned: Boolean = false,
     val canPin: Boolean = true,
     val cooldownUntilMs: Long = 0L,
+    val callStatus: ModelCallStatus = ModelCallStatus.Untested,
 )
 
 enum class ModelStatusKind {
@@ -92,8 +100,8 @@ data class ProviderUsage(
     val models: List<ModelQuotaLine> = emptyList(),
     // Backward compatibility fields
     val todayCount: Int = 0,
-    val remainingQuota: Int = 50,
-    val totalQuota: Int = 50,
+    val remainingQuota: Int = 0,
+    val totalQuota: Int = 0,
     val lastError: String? = null,
     val cooldownUntilMs: Long = 0L,
 )
@@ -173,6 +181,9 @@ data class SwitchEvent(
     val timestamp: Long = System.currentTimeMillis(),
 ) {
     fun formatMessage(isHindi: Boolean = false): String {
+        if (reason.contains("Model slow tha", ignoreCase = true)) {
+            return reason
+        }
         val target = if (toProvider.isNotBlank()) "$toModel ($toProvider)" else toModel
         return if (isHindi) {
             "$fromModel limit khatam, $target par switch"
@@ -339,9 +350,16 @@ class RealRouterStatus(
         val cooldownMs = router.cooldownStore.getRemainingCooldownMs(id)
         val cooldownUntil = if (cooldownMs > 0L) System.currentTimeMillis() + cooldownMs else 0L
 
+        val callOutcome = router.healthTracker.getLastCallOutcome(id)
+        val callStatus = when (callOutcome) {
+            ModelHealthTracker.CallOutcome.Success -> ModelCallStatus.Success
+            ModelHealthTracker.CallOutcome.Failure -> ModelCallStatus.Failure
+            ModelHealthTracker.CallOutcome.None -> ModelCallStatus.Untested
+        }
+
         var usedToday = RouterUsageTracker.getTodayCalls(id)
         var limit: Int? = null
-        var isEstimate = true
+        var isEstimate = false
 
         if (provider.equals("openrouter", ignoreCase = true) && cachedOpenRouterKeyInfo != null) {
             limit = cachedOpenRouterKeyInfo?.limit
@@ -358,12 +376,13 @@ class RealRouterStatus(
             usedToday = usedToday,
             limit = limit,
             isEstimate = isEstimate,
-            quotaRemaining = if (limit != null) (limit - usedToday).coerceAtLeast(0) else 38,
-            quotaTotal = limit ?: 50,
-            reason = status.reason ?: (if (isPinned) "Pinned model" else "Optimal candidate"),
+            quotaRemaining = if (limit != null) (limit - usedToday).coerceAtLeast(0) else 0,
+            quotaTotal = limit ?: 0,
+            reason = status.reason ?: (if (isPinned) "Pinned model" else "Optimal free candidate"),
             isPinned = isPinned,
             canPin = true,
             cooldownUntilMs = cooldownUntil,
+            callStatus = callStatus,
         )
     }
 
@@ -424,7 +443,9 @@ class RealRouterStatus(
                     modelIds.add(ZaiPreset.MODEL_FLASH)
                     modelIds.add(ZaiPreset.MODEL_VISION)
                 } else if (isModelScope) {
-                    modelIds.add("Qwen/Qwen2.5-72B-Instruct")
+                    if (RouterUsageTracker.getTodayCalls("Qwen/Qwen2.5-72B-Instruct") > 0) {
+                        modelIds.add("Qwen/Qwen2.5-72B-Instruct")
+                    }
                     modelIds.add("Qwen/Qwen2.5-7B-Instruct")
                     modelIds.add("Qwen/Qwen2.5-VL-7B-Instruct")
                 } else if (isOpenRouter) {
@@ -482,6 +503,11 @@ class RealRouterStatus(
                 router.cooldownStore.getRemainingCooldownMs(it.modelId)
             } ?: 0L
 
+            val todayTotal = lines.sumOf { it.todayRequests }
+            val providerLimit = if (isOpenRouter && cachedOpenRouterKeyInfo?.limit != null) cachedOpenRouterKeyInfo?.limit else null
+            val remQuota = if (providerLimit != null) (providerLimit - todayTotal).coerceAtLeast(0) else 0
+            val totQuota = providerLimit ?: 0
+
             ProviderUsage(
                 provider = formatProvider(providerKeyName),
                 providerId = providerId,
@@ -489,9 +515,9 @@ class RealRouterStatus(
                 concurrency = if (isZai) 1 else null,
                 totalCostToday = totalCostToday,
                 models = lines,
-                todayCount = lines.sumOf { it.todayRequests },
-                remainingQuota = if (maxCooldown > 0L) 0 else 50,
-                totalQuota = 50,
+                todayCount = todayTotal,
+                remainingQuota = remQuota,
+                totalQuota = totQuota,
                 lastError = if (isBadKey) "Invalid Key" else if (maxCooldown > 0L) "Rate limit active" else null,
                 cooldownUntilMs = if (maxCooldown > 0L) System.currentTimeMillis() + maxCooldown else 0L,
             )
@@ -595,14 +621,13 @@ fun formatChipText(active: ActiveModel, todayLabel: String = "today"): String {
         return "No model · 0/0 $todayLabel"
     }
 
-    val quotaPart = if (active.limit != null) {
-        "${active.usedToday}/${active.limit} $todayLabel"
-    } else if (active.isEstimate) {
-        val estLabel = if (todayLabel.equals("aaj", ignoreCase = true)) "anumaan" else "estimate"
-        "${active.usedToday} $todayLabel ($estLabel)"
-    } else {
-        // Fallback for tests/previews providing quotaRemaining / quotaTotal
-        "${active.quotaRemaining}/${active.quotaTotal} $todayLabel"
+    val quotaPart = when {
+        active.limit != null && active.limit > 0 -> "${active.usedToday}/${active.limit} $todayLabel"
+        active.quotaTotal > 0 -> {
+            val count = if (active.usedToday > 0) active.usedToday else active.quotaRemaining
+            "$count/${active.quotaTotal} $todayLabel"
+        }
+        else -> "${active.usedToday} $todayLabel"
     }
 
     return if (active.provider.isBlank() || active.name.contains(active.provider, ignoreCase = true)) {
