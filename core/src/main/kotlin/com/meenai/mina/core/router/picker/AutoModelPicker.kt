@@ -243,6 +243,7 @@ class AutoModelPicker(
         fun isLightModel(candidate: ModelCandidate): Boolean {
             val total = candidate.totalParamsB ?: candidate.parameterSizeB
             if (total in 0.1..10.0) return true
+            if (total > 10.0) return false
             // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
             val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
             return tokens.any { token ->
