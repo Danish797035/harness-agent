@@ -2,7 +2,7 @@ package com.meenai.mina.capsule.circle
 
 import com.meenai.mina.core.access.AppAccessState
 import com.meenai.mina.core.access.AppCategory
-import com.meenai.mina.core.access.PackageClassification
+import com.meenai.mina.core.access.AppClassification
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -111,9 +111,8 @@ class CircleToAskCoordinatorTest {
         val defaultState = AppAccessState(
             available = true,
             blocked = setOf("com.secret.vault"),
-            canShareAll = true,
             classifications = mapOf(
-                "com.mybank.app" to PackageClassification("com.mybank.app", AppCategory.Finance)
+                "com.mybank.app" to AppClassification(AppCategory.Finance)
             )
         )
 
