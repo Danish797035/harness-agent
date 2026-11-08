@@ -264,4 +264,12 @@ class RunTimelineViewModelTest {
         val switchedUi = ready(switchedRun)
         assertEquals("Switched from Gemini to Llama due to limit", switchedUi.header.routerNote)
     }
+
+    @Test fun routerNoteShowsRunningOnWhenTaskIsAlive() {
+        val h = store.open("Live task")
+        store.append(h.runId, RunEvent.TaskStarted(clock, "Live task", "Qwen 2.5 72B"))
+        store.append(h.runId, RunEvent.ModelReply(clock + 1_000, 1, "reply", null, null, 100, 10, 0, model = "Qwen 2.5 72B"))
+        val live = RunTimelineViewModel(store, h.runId, alive = { it == h.runId }).load() as TimelineUi.Ready
+        assertEquals("Running on Qwen 2.5 72B", live.header.routerNote)
+    }
 }

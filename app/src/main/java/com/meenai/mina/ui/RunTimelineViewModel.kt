@@ -105,7 +105,10 @@ class RunTimelineViewModel(
         events.filterIsInstance<RunEvent.ModelReply>().forEach { reply ->
             reply.model?.takeIf(String::isNotBlank)?.let { if (!models.contains(it)) models.add(it) }
         }
+        val isRunning = ended == null && summary?.endedAtMs == null && alive(runId)
         val routerNote = when {
+            isRunning && models.isNotEmpty() -> tr(R.string.router_model_running_note, models.last())
+            isRunning && !summary?.model.isNullOrBlank() -> tr(R.string.router_model_running_note, summary!!.model)
             models.size >= 2 -> tr(R.string.router_switched_note, models[0], models[1])
             models.size == 1 -> tr(R.string.router_model_used_note, models[0])
             else -> summary?.model?.takeIf(String::isNotBlank)?.let { tr(R.string.router_model_used_note, it) }
@@ -117,7 +120,7 @@ class RunTimelineViewModel(
             outcome = outcomeLabel(summary?.outcome ?: ended?.outcome,
                 summary?.judged ?: events.filterIsInstance<RunEvent.OutcomeJudged>().lastOrNull()?.outcome),
             // 结束事件或结束时间只要有一个就算跑完了;都没有时还要任务真在跑,界面据此决定要不要按秒重读
-            running = ended == null && summary?.endedAtMs == null && alive(runId),
+            running = isRunning,
             verdict = verdictLabel(summary?.verdict ?: events.filterIsInstance<RunEvent.Verifier>().lastOrNull()?.verdict),
             duration = endMs?.let { duration(it - startMs) },
             modelCalls = events.count { it is RunEvent.ModelReply },

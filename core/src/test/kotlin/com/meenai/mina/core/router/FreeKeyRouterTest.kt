@@ -12,6 +12,7 @@ import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.StreamingChatModel
 import com.meenai.mina.core.model.ToolSpec
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -278,6 +279,84 @@ class FreeKeyRouterTest {
         }
 
         assertEquals(41, conversation.size) // 1 initial user + 20 * (1 assistant + 1 tool)
+    }
+
+    @Test
+    fun slowModelTimesOutAt40sAndSwitchesToNextCandidate() = runTest {
+        var clockTime = 0L
+        val m1Slow = mockModel("m1_slow") { _, _, _, _ ->
+            // Simulates 60s slow model: delays past 40s timeout
+            delay(60_000L)
+            simpleReply
+        }
+        val m2Fast = mockModel("m2_fast") { _, _, _, onText ->
+            onText("fast reply from m2")
+            simpleReply
+        }
+
+        val candidate1 = RouterCandidate("m1_slow", "p1", m1Slow, curatedRank = 10)
+        val candidate2 = RouterCandidate("m2_fast", "p2", m2Fast, curatedRank = 5)
+
+        var switchedOld: String? = null
+        var switchedNew: String? = null
+        var switchReason: String? = null
+
+        val router = FreeKeyRouter(
+            candidates = listOf(candidate1, candidate2),
+            firstTokenTimeoutMs = 40_000L,
+            now = { clockTime },
+            delayMs = { clockTime += it },
+            onModelSwitched = { old, new, reason ->
+                switchedOld = old
+                switchedNew = new
+                switchReason = reason
+            },
+        )
+
+        var textEmitted = ""
+        val reply = router.completeStreaming("sys", userMsg, emptyList()) { textEmitted = it }
+
+        assertEquals("fast reply from m2", textEmitted)
+        assertEquals("m2_fast", router.activeCandidate?.id)
+        assertEquals("m1_slow", switchedOld)
+        assertEquals("m2_fast", switchedNew)
+        assertEquals("Model slow tha, dusra try kar raha hoon", switchReason)
+        assertTrue(router.cooldownStore.getRemainingCooldownMs("m1_slow", clockTime) > 0L)
+    }
+
+    @Test
+    fun pinnedModelDoesNotSwitchOnTimeout() = runTest {
+        val m1Slow = mockModel("m1_pinned") { _, _, _, _ ->
+            delay(60_000L)
+            simpleReply
+        }
+        val m2Fast = mockModel("m2_candidate") { _, _, _, onText ->
+            onText("reply from m2")
+            simpleReply
+        }
+
+        val candidate1 = RouterCandidate("m1_pinned", "p1", m1Slow, curatedRank = 10)
+        val candidate2 = RouterCandidate("m2_candidate", "p2", m2Fast, curatedRank = 5)
+
+        val router = FreeKeyRouter(
+            candidates = listOf(candidate1, candidate2),
+            firstTokenTimeoutMs = 40_000L,
+            delayMs = {},
+        )
+        router.pinModel("m1_pinned")
+
+        try {
+            router.completeStreaming("sys", userMsg, emptyList()) {}
+            fail("Expected FirstTokenTimeoutException")
+        } catch (e: ModelError.FirstTokenTimeout) {
+            // Expected
+        }
+
+        // Must NOT switch to m2
+        assertEquals("m1_pinned", router.activeCandidate?.id)
+        assertEquals("m1_pinned", router.pinnedModelId)
+        assertEquals(0, m2Fast.calls)
+        assertEquals("Model slow tha, dobara try karo", router.status.value.reason)
     }
 }
 

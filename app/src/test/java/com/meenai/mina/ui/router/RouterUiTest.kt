@@ -4,6 +4,7 @@ import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.i18n.HindiTexts
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
+import com.meenai.mina.ui.ChatCopy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -177,5 +178,33 @@ class RouterUiTest {
 
         val modelFailure = ActiveModel(callStatus = ModelCallStatus.Failure)
         assertEquals(ModelCallStatus.Failure, modelFailure.callStatus)
+    }
+
+    @Test
+    fun waitLabelIncrementsSecondsAndIncludesModelName() {
+        val label0 = ChatCopy.modelWaitLabel(0, "Qwen 2.5 72B")
+        assertEquals("Model ka jawab aa raha hai · 0s · Qwen 2.5 72B", label0)
+
+        val label25 = ChatCopy.modelWaitLabel(25, "Qwen 2.5 72B")
+        assertEquals("Model ka jawab aa raha hai · 25s · Qwen 2.5 72B", label25)
+
+        val label40NoModel = ChatCopy.modelWaitLabel(40, "")
+        assertEquals("Model ka jawab aa raha hai · 40s", label40NoModel)
+
+        for (sec in 0..40) {
+            val label = ChatCopy.modelWaitLabel(sec, "Qwen 2.5 72B")
+            assertEquals("Model ka jawab aa raha hai · ${sec}s · Qwen 2.5 72B", label)
+        }
+    }
+
+    @Test
+    fun switchEventTimeoutReason_retainsExactMessage() {
+        val event = SwitchEvent(
+            fromModel = "Qwen 2.5 72B",
+            toModel = "Llama 3.1 8B",
+            reason = "Model slow tha, dusra try kar raha hoon",
+        )
+        assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = false))
+        assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = true))
     }
 }

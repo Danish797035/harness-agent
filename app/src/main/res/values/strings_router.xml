@@ -20,6 +20,11 @@
     <string name="router_no_error">None</string>
     <string name="router_switched_note">Switched from %1$s to %2$s due to limit</string>
     <string name="router_model_used_note">Completed with %1$s</string>
+    <string name="router_model_running_note">Running on %1$s</string>
+    <string name="router_model_wait_label">Waiting for model reply · %1$ds</string>
+    <string name="router_model_wait_label_with_model">Waiting for model reply · %1$ds · %2$s</string>
+    <string name="router_model_timeout_switch">Model was slow, trying another one</string>
+    <string name="router_model_timeout_pinned">Model was slow, please retry</string>
     <string name="router_switch_toast_format">%1$s limit reached, switched to %2$s</string>
     <string name="timeline_router_model">Model</string>
     <string name="router_status_ready">Ready</string>

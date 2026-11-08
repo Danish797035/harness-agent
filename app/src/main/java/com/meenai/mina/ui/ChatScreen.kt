@@ -760,6 +760,16 @@ private fun WorkBlock(ex: Exchange, reduceMotion: Boolean, backgroundNote: Boole
     val c = MinaTheme.colors
     val paused = ChatCopy.paused(ex.status)
     val elapsed = rememberElapsed(ex.startedAt)
+    val router = LocalRouterStatus.current
+    val activeModel by router.current.collectAsState()
+    val isWaitingForModel = ex.waitingForModel
+    val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
+    val progressText = if (isWaitingForModel) {
+        val modelName = if (activeModel.name != "No model") activeModel.name else ""
+        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName)
+    } else {
+        ChatCopy.progressLine(ex)
+    }
     Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 28.dp),
@@ -771,7 +781,7 @@ private fun WorkBlock(ex: Exchange, reduceMotion: Boolean, backgroundNote: Boole
                 track = if (paused) c.warnSoft else c.accentSoft, head = if (paused) c.warnSolid else c.accent,
             )
             Text(
-                ChatCopy.progressLine(ex), Modifier.weight(1f), style = NowText, color = c.ink,
+                progressText, Modifier.weight(1f), style = NowText, color = c.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
@@ -1072,6 +1082,24 @@ private fun StatusCard(
                 Text(stringResource(R.string.chat_not_done), style = MinaType.BodyStrong, color = MinaTheme.colors.ink)
             }
             Text(status.reason, Modifier.padding(top = 4.dp), style = CardBody, color = MinaTheme.colors.ink2)
+            val showRetry = status.reason.contains("Model slow tha", ignoreCase = true) ||
+                status.reason.contains("dobara try", ignoreCase = true) ||
+                status.reason.contains("retry", ignoreCase = true)
+            if (showRetry) {
+                Box(Modifier.padding(top = 8.dp)) {
+                    MinaButton(
+                        text = stringResource(R.string.retry),
+                        onClick = {
+                            val lastGoal = vm.ui.value.exchanges.lastOrNull()?.goal
+                            if (!lastGoal.isNullOrBlank()) {
+                                vm.send(lastGoal, check = false)
+                            }
+                        },
+                        kind = ButtonKind.Tonal,
+                        size = ButtonSize.Medium,
+                    )
+                }
+            }
         }
         // 停止后补上的交代当作这一轮的回答,排在「已停止」下面;还在写时一行小字
         is ExchangeStatus.Cancelled -> Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {

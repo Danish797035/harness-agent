@@ -20,6 +20,11 @@
     <string name="router_no_error">कोई नहीं</string>
     <string name="router_switched_note">limit ki wajah se %1$s se %2$s</string>
     <string name="router_model_used_note">%1$s ne kiya</string>
+    <string name="router_model_running_note">%1$s par chal raha hai</string>
+    <string name="router_model_wait_label">Model ka jawab aa raha hai · %1$ds</string>
+    <string name="router_model_wait_label_with_model">Model ka jawab aa raha hai · %1$ds · %2$s</string>
+    <string name="router_model_timeout_switch">Model slow tha, dusra try kar raha hoon</string>
+    <string name="router_model_timeout_pinned">Model slow tha, dobara try karo</string>
     <string name="router_switch_toast_format">%1$s limit khatam, %2$s par switch</string>
     <string name="timeline_router_model">मॉडल</string>
     <string name="router_status_ready">Ready</string>
