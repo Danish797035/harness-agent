@@ -46,6 +46,7 @@ import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.GroupCard
 import com.meenai.mina.ui.components.GroupLabel
 import com.meenai.mina.ui.components.MinaButton
+import com.meenai.mina.ui.components.MinaSwitch
 import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
@@ -176,6 +177,8 @@ fun ProviderUsageBlock(
     val isModelScope = usage.provider.equals("ModelScope", ignoreCase = true)
     var showSyncDialog by remember { mutableStateOf(false) }
     var syncInputText by remember { mutableStateOf("") }
+    var isLoginMarked by remember { mutableStateOf(MagicubeLedger.isLoginMarkedToday()) }
+    var isAlibabaLinked by remember { mutableStateOf(MagicubeLedger.isAlibabaLinked) }
 
     if (showSyncDialog) {
         AlertDialog(
@@ -272,22 +275,57 @@ fun ProviderUsageBlock(
                     )
                 }
             }
+        }
 
-            if (isModelScope) {
-                TextButton(
+        if (isModelScope) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.router_magicube_alibaba_linked),
+                    style = MinaType.Body.copy(fontSize = 13.5.sp),
+                    color = colors.ink,
+                )
+                MinaSwitch(
+                    checked = isAlibabaLinked,
+                    onCheckedChange = { checked ->
+                        isAlibabaLinked = checked
+                        MagicubeLedger.setAlibabaLinked(checked)
+                    },
+                    modifier = Modifier.testTag("magicube-alibaba-toggle"),
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MinaButton(
+                    text = if (isLoginMarked) stringResource(R.string.router_magicube_login_done) else stringResource(R.string.router_magicube_login_btn),
+                    onClick = {
+                        MagicubeLedger.recordDailyLogin(isAlibabaLinked = isAlibabaLinked)
+                        isLoginMarked = true
+                    },
+                    kind = if (isLoginMarked) ButtonKind.Tonal else ButtonKind.Secondary,
+                    size = ButtonSize.Small,
+                    modifier = Modifier.weight(1f).testTag("magicube-login-btn"),
+                )
+                MinaButton(
+                    text = stringResource(R.string.router_sync_balance),
                     onClick = {
                         val currentBal = usage.magicubeBalance ?: MagicubeLedger.totalBalance()
                         syncInputText = if (currentBal % 1.0 == 0.0) currentBal.toInt().toString() else currentBal.toString()
                         showSyncDialog = true
                     },
-                    modifier = Modifier.testTag("sync-balance-btn"),
-                ) {
-                    Text(
-                        text = stringResource(R.string.router_sync_balance),
-                        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
-                        color = colors.accent,
-                    )
-                }
+                    kind = ButtonKind.Tonal,
+                    size = ButtonSize.Small,
+                    modifier = Modifier.weight(1f).testTag("sync-balance-btn"),
+                )
             }
         }
 

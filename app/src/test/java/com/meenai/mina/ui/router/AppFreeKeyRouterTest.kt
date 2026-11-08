@@ -45,6 +45,8 @@ class AppFreeKeyRouterTest {
 
     @Before
     fun setUp() {
+        MagicubeLedger.detachStorage()
+        MagicubeLedger.clear()
         MagicubeLedger.recordDailyLogin()
     }
 

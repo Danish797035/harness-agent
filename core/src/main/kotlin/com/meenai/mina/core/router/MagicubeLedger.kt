@@ -16,6 +16,21 @@ import java.time.ZonedDateTime
  * - Router avoids ModelScope when estimated balance < 5.0.
  * - 9:00 IST daily login reminder, skipped if already marked today.
  */
+data class MagicubeState(
+    val shortTermBalance: Double = 0.0,
+    val shortTermDayKey: String? = null,
+    val isLoginMarkedDayKey: String? = null,
+    val isAlibabaLinkedDayKey: String? = null,
+    val longTermBalance: Double = 0.0,
+    val longTermExpiryEpochMs: Long? = null,
+    val isAlibabaLinked: Boolean = false,
+)
+
+interface MagicubeStorage {
+    fun load(): MagicubeState?
+    fun save(state: MagicubeState)
+}
+
 object MagicubeLedger {
 
     val IST_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
@@ -23,6 +38,13 @@ object MagicubeLedger {
     const val DAILY_LOGIN_GRANT: Double = 200.0
     const val ALIBABA_LINKED_BONUS: Double = 50.0
     const val MINIMUM_BALANCE_FOR_MODELSCOPE: Double = 5.0
+
+    @Volatile
+    private var storage: MagicubeStorage? = null
+
+    @Volatile
+    var isAlibabaLinked: Boolean = false
+        private set
 
     @Volatile
     private var shortTermBalance: Double = 0.0
@@ -42,12 +64,62 @@ object MagicubeLedger {
     @Volatile
     private var longTermExpiryEpochMs: Long? = null
 
+    @Synchronized
+    fun attachStorage(s: MagicubeStorage, nowMs: Long = System.currentTimeMillis()) {
+        storage = s
+        val loaded = s.load()
+        if (loaded != null) {
+            loadState(loaded, nowMs)
+        }
+    }
+
+    @Synchronized
+    fun detachStorage() {
+        storage = null
+    }
+
+    @Synchronized
+    fun loadState(state: MagicubeState, nowMs: Long = System.currentTimeMillis()) {
+        val today = todayKey(nowMs)
+        shortTermDayKey = state.shortTermDayKey
+        shortTermBalance = if (state.shortTermDayKey == today) state.shortTermBalance else 0.0
+        isLoginMarkedDayKey = state.isLoginMarkedDayKey
+        isAlibabaLinkedDayKey = state.isAlibabaLinkedDayKey
+        val expiry = state.longTermExpiryEpochMs
+        if (expiry != null && nowMs >= expiry) {
+            longTermBalance = 0.0
+            longTermExpiryEpochMs = null
+        } else {
+            longTermBalance = state.longTermBalance
+            longTermExpiryEpochMs = expiry
+        }
+        isAlibabaLinked = state.isAlibabaLinked
+    }
+
+    @Synchronized
+    fun toState(): MagicubeState {
+        return MagicubeState(
+            shortTermBalance = shortTermBalance,
+            shortTermDayKey = shortTermDayKey,
+            isLoginMarkedDayKey = isLoginMarkedDayKey,
+            isAlibabaLinkedDayKey = isAlibabaLinkedDayKey,
+            longTermBalance = longTermBalance,
+            longTermExpiryEpochMs = longTermExpiryEpochMs,
+            isAlibabaLinked = isAlibabaLinked,
+        )
+    }
+
+    private fun persist() {
+        storage?.save(toState())
+    }
+
     fun todayKey(nowMs: Long = System.currentTimeMillis()): String {
         return LocalDate.ofInstant(Instant.ofEpochMilli(nowMs), IST_ZONE).toString()
     }
 
     @Synchronized
-    fun recordDailyLogin(isAlibabaLinked: Boolean = false, nowMs: Long = System.currentTimeMillis()) {
+    fun recordDailyLogin(isAlibabaLinked: Boolean = this.isAlibabaLinked, nowMs: Long = System.currentTimeMillis()) {
+        this.isAlibabaLinked = isAlibabaLinked
         val today = todayKey(nowMs)
         if (isLoginMarkedDayKey != today) {
             isLoginMarkedDayKey = today
@@ -58,6 +130,18 @@ object MagicubeLedger {
             isAlibabaLinkedDayKey = today
             shortTermBalance += ALIBABA_LINKED_BONUS
         }
+        persist()
+    }
+
+    @Synchronized
+    fun setAlibabaLinked(linked: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        this.isAlibabaLinked = linked
+        val today = todayKey(nowMs)
+        if (linked && isLoginMarkedDayKey == today && isAlibabaLinkedDayKey != today) {
+            isAlibabaLinkedDayKey = today
+            shortTermBalance += ALIBABA_LINKED_BONUS
+        }
+        persist()
     }
 
     fun isLoginMarkedToday(nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -86,6 +170,7 @@ object MagicubeLedger {
     fun setLongTermBalance(balance: Double, expiryEpochMs: Long? = null) {
         longTermBalance = balance.coerceAtLeast(0.0)
         longTermExpiryEpochMs = expiryEpochMs
+        persist()
     }
 
     @Synchronized
@@ -117,6 +202,7 @@ object MagicubeLedger {
             shortTermBalance -= fromShort
             val rem = cost - fromShort
             longTermBalance = (longTermBalance - rem).coerceAtLeast(0.0)
+            persist()
             return false
         }
 
@@ -128,6 +214,7 @@ object MagicubeLedger {
             shortTermBalance = 0.0
             longTermBalance -= rem
         }
+        persist()
         return true
     }
 
@@ -144,6 +231,7 @@ object MagicubeLedger {
             shortTermBalance = DAILY_LOGIN_GRANT
             longTermBalance = target - DAILY_LOGIN_GRANT
         }
+        persist()
     }
 
     fun costForModel(modelId: String): Double {
@@ -163,6 +251,13 @@ object MagicubeLedger {
         return !isLoginMarkedToday(nowMs)
     }
 
+    fun nextNineAmIst(nowMs: Long = System.currentTimeMillis()): Long {
+        val zdt = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowMs), IST_ZONE)
+        val todayNine = zdt.toLocalDate().atTime(9, 0).atZone(IST_ZONE)
+        val target = if (zdt.isBefore(todayNine)) todayNine else todayNine.plusDays(1)
+        return target.toInstant().toEpochMilli()
+    }
+
     @Synchronized
     fun clear() {
         shortTermBalance = 0.0
@@ -171,5 +266,7 @@ object MagicubeLedger {
         isAlibabaLinkedDayKey = null
         longTermBalance = 0.0
         longTermExpiryEpochMs = null
+        isAlibabaLinked = false
+        persist()
     }
 }

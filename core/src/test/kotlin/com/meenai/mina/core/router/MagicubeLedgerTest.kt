@@ -29,6 +29,7 @@ class MagicubeLedgerTest {
 
     @Before
     fun setUp() {
+        MagicubeLedger.detachStorage()
         MagicubeLedger.clear()
         RouterUsageTracker.clear()
     }
@@ -215,5 +216,145 @@ class MagicubeLedgerTest {
 
         // Next day at 9:05 IST: should send reminder again until logged in on day 2
         assertTrue("Next day should remind again", MagicubeLedger.shouldSendLoginReminder(tNextDay9))
+    }
+
+    @Test
+    fun testSaveAndReloadPreservesBalanceAndDays() {
+        val tNow = ZonedDateTime.of(
+            2026, 5, 10, 15, 30, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        val mockStorage = object : MagicubeStorage {
+            var savedState: MagicubeState? = null
+            override fun load(): MagicubeState? = savedState
+            override fun save(state: MagicubeState) {
+                savedState = state
+            }
+        }
+
+        MagicubeLedger.attachStorage(mockStorage, nowMs = tNow)
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tNow)
+        MagicubeLedger.setLongTermBalance(100.0, expiryEpochMs = tNow + 86400_000L)
+        MagicubeLedger.deduct(30.0, nowMs = tNow) // 250 - 30 = 220 short-term
+
+        val originalDayKey = MagicubeLedger.todayKey(tNow)
+        assertEquals(220.0, MagicubeLedger.getShortTermBalance(tNow), 0.001)
+        assertEquals(100.0, MagicubeLedger.getLongTermBalance(tNow), 0.001)
+        assertEquals(320.0, MagicubeLedger.totalBalance(tNow), 0.001)
+
+        // Clear memory to simulate app restart
+        MagicubeLedger.detachStorage()
+        MagicubeLedger.clear()
+        assertEquals(0.0, MagicubeLedger.totalBalance(tNow), 0.001)
+
+        // Reload on same day: balance and day keys are restored
+        MagicubeLedger.attachStorage(mockStorage, nowMs = tNow)
+        assertEquals(220.0, MagicubeLedger.getShortTermBalance(tNow), 0.001)
+        assertEquals(100.0, MagicubeLedger.getLongTermBalance(tNow), 0.001)
+        assertEquals(320.0, MagicubeLedger.totalBalance(tNow), 0.001)
+        assertTrue(MagicubeLedger.isAlibabaLinked)
+        assertTrue(MagicubeLedger.isLoginMarkedToday(tNow))
+        assertEquals(originalDayKey, MagicubeLedger.toState().shortTermDayKey)
+    }
+
+    @Test
+    fun testNextDayLoadResetsShortTermToZero() {
+        // Day 1
+        val tDay1 = ZonedDateTime.of(
+            2026, 5, 10, 20, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        // Day 2 (after IST midnight)
+        val tDay2 = ZonedDateTime.of(
+            2026, 5, 11, 8, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        val mockStorage = object : MagicubeStorage {
+            var savedState: MagicubeState? = null
+            override fun load(): MagicubeState? = savedState
+            override fun save(state: MagicubeState) {
+                savedState = state
+            }
+        }
+
+        MagicubeLedger.attachStorage(mockStorage, nowMs = tDay1)
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = false, nowMs = tDay1)
+        assertEquals(200.0, MagicubeLedger.getShortTermBalance(tDay1), 0.001)
+
+        // Simulate app restart on Day 2
+        MagicubeLedger.detachStorage()
+        MagicubeLedger.clear()
+
+        // Load on Day 2: short-term balance must be 0 (no rollover across IST midnight)
+        MagicubeLedger.attachStorage(mockStorage, nowMs = tDay2)
+        assertEquals("Short-term must reset to 0 across IST midnight", 0.0, MagicubeLedger.getShortTermBalance(tDay2), 0.001)
+        assertEquals("Total balance should be 0", 0.0, MagicubeLedger.totalBalance(tDay2), 0.001)
+        assertFalse("Day 2 login not yet marked", MagicubeLedger.isLoginMarkedToday(tDay2))
+    }
+
+    @Test
+    fun testRecordDailyLoginGrantsBalanceAndSkipsReminder() {
+        val tDay1 = ZonedDateTime.of(
+            2026, 5, 10, 9, 30, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        // Before login: balance is 0 and reminder is due
+        assertEquals(0.0, MagicubeLedger.totalBalance(tDay1), 0.001)
+        assertTrue(MagicubeLedger.shouldSendLoginReminder(tDay1))
+
+        // "Aaj login kiya" without Alibaba linked: balance is 200, reminder skipped
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = false, nowMs = tDay1)
+        assertEquals(200.0, MagicubeLedger.getShortTermBalance(tDay1), 0.001)
+        assertEquals(200.0, MagicubeLedger.totalBalance(tDay1), 0.001)
+        assertTrue(MagicubeLedger.isLoginMarkedToday(tDay1))
+        assertFalse("Reminder must be skipped once logged in today", MagicubeLedger.shouldSendLoginReminder(tDay1))
+
+        // Day 2: "Aaj login kiya" with Alibaba linked: balance is 250 (200 + 50)
+        val tDay2 = ZonedDateTime.of(
+            2026, 5, 11, 10, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        MagicubeLedger.clear()
+        assertTrue(MagicubeLedger.shouldSendLoginReminder(tDay2))
+
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tDay2)
+        assertEquals(250.0, MagicubeLedger.getShortTermBalance(tDay2), 0.001)
+        assertEquals(250.0, MagicubeLedger.totalBalance(tDay2), 0.001)
+        assertTrue(MagicubeLedger.isLoginMarkedToday(tDay2))
+        assertFalse(MagicubeLedger.shouldSendLoginReminder(tDay2))
+    }
+
+    @Test
+    fun testNextNineAmIstCalculation() {
+        // 2026-05-10 08:30:00 IST -> target is 2026-05-10 09:00:00 IST
+        val tBefore9 = ZonedDateTime.of(
+            2026, 5, 10, 8, 30, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        val expectedToday9 = ZonedDateTime.of(
+            2026, 5, 10, 9, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        assertEquals(expectedToday9, MagicubeLedger.nextNineAmIst(tBefore9))
+
+        // 2026-05-10 09:30:00 IST -> target is 2026-05-11 09:00:00 IST
+        val tAfter9 = ZonedDateTime.of(
+            2026, 5, 10, 9, 30, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        val expectedTomorrow9 = ZonedDateTime.of(
+            2026, 5, 11, 9, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        assertEquals(expectedTomorrow9, MagicubeLedger.nextNineAmIst(tAfter9))
     }
 }

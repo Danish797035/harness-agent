@@ -43,4 +43,8 @@
     <string name="router_sync_balance_cancel">Cancel</string>
     <string name="router_magicube_reminder_title">ModelScope Daily Login</string>
     <string name="router_magicube_reminder_body">Claim today\'s 200 Magicube on ModelScope</string>
+    <string name="router_magicube_login_btn">Logged in today</string>
+    <string name="router_magicube_login_done">Logged in today ✓</string>
+    <string name="router_magicube_alibaba_linked">Alibaba linked (+50)</string>
+    <string name="router_magicube_action_login">Logged in</string>
 </resources>
