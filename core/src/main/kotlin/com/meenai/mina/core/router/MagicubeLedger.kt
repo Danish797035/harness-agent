@@ -236,6 +236,9 @@ object MagicubeLedger {
 
     fun costForModel(modelId: String): Double {
         val lower = modelId.lowercase()
+        if (lower.contains("qwen-image-2.1")) return 1.0
+        if (lower.contains("qwen-image-edit")) return 2.0
+        if (lower.contains("qwen-image")) return 2.0
         val paramSize = CuratedTiers.extractParameterSizeB(modelId)
         return when {
             paramSize in 0.1..10.0 || lower.contains("7b") || lower.contains("8b") || lower.contains("flash") -> 0.5
