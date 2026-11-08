@@ -77,4 +77,14 @@
     <string name="circle_to_ask_hint">Ask about this selection…</string>
     <string name="circle_to_ask_too_small">Selection is too small (min 24dp)</string>
     <string name="circle_to_ask_prompt_default">What is in this circled area?</string>
+    <string name="capsule_menu_act_here">Act here</string>
+    <string name="act_here_status_tapping">Tap kar raha hoon: %1$s</string>
+    <string name="act_here_confirm_title">Confirm: %1$s</string>
+    <string name="act_here_confirm">Confirm</string>
+    <string name="act_here_cancel">Cancel</string>
+    <string name="act_here_handover_payment">Ye aap khud karo</string>
+    <string name="act_here_max_steps">Completed 15 steps. Continue?</string>
+    <string name="act_here_continue">Continue</string>
+    <string name="act_here_prompt_hint">What should I do on this screen?</string>
+    <string name="act_here_start">Start</string>
 </resources>

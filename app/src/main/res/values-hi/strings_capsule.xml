@@ -77,4 +77,14 @@
     <string name="circle_to_ask_hint">इस हिस्से के बारे में पूछें…</string>
     <string name="circle_to_ask_too_small">चुना गया हिस्सा बहुत छोटा है (कम से कम 24dp)</string>
     <string name="circle_to_ask_prompt_default">इस घेरे गए हिस्से में क्या है?</string>
+    <string name="capsule_menu_act_here">यहाँ करें</string>
+    <string name="act_here_status_tapping">Tap kar raha hoon: %1$s</string>
+    <string name="act_here_confirm_title">पुष्टि करें: %1$s</string>
+    <string name="act_here_confirm">पुष्टि करें</string>
+    <string name="act_here_cancel">रद्द करें</string>
+    <string name="act_here_handover_payment">Ye aap khud karo</string>
+    <string name="act_here_max_steps">15 steps ho gaye hain. Kya aage badhein?</string>
+    <string name="act_here_continue">आगे बढ़ें</string>
+    <string name="act_here_prompt_hint">इस स्क्रीन पर क्या करना है?</string>
+    <string name="act_here_start">शुरू करें</string>
 </resources>

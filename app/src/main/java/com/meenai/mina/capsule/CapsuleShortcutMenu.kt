@@ -52,6 +52,7 @@ enum class CapsuleShortcut(
     LiveShare("live_share", R.string.capsule_menu_live_share),
     AskAboutScreen("ask_about_screen", R.string.capsule_menu_ask_about_screen),
     CircleToAsk("circle_to_ask", R.string.capsule_menu_circle_to_ask),
+    ActHere("act_here", R.string.capsule_menu_act_here),
     Voice("voice", R.string.capsule_menu_voice),
     TranslateHindi("translate_hindi", R.string.capsule_menu_translate_hindi),
     PageSummary("page_summary", R.string.capsule_menu_page_summary),
@@ -66,6 +67,7 @@ enum class CapsuleShortcut(
         LiveShare -> MinaIcons.Globe
         AskAboutScreen -> MinaIcons.Camera
         CircleToAsk -> MinaIcons.Spark
+        ActHere -> MinaIcons.Hand
         Voice -> MinaIcons.Mic
         TranslateHindi -> MinaIcons.Doc
         PageSummary -> MinaIcons.Search

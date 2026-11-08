@@ -36,6 +36,11 @@ import com.meenai.mina.cap.phone.a11y.OverlayDrag
 import com.meenai.mina.cap.phone.a11y.OverlayHold
 import com.meenai.mina.cap.phone.a11y.OverlayPlacement
 import com.meenai.mina.cap.phone.a11y.OverlayWindow
+import android.view.Display
+import android.view.accessibility.AccessibilityWindowInfo
+import com.meenai.mina.cap.phone.a11y.ScreenReader
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import com.meenai.mina.cap.phone.a11y.ScreenAccessibility
 import com.meenai.mina.confirm.ConfirmationNotifier
 import com.meenai.mina.core.agent.TaskState
@@ -433,6 +438,7 @@ class CapsuleController(
         dismissWindow = null
         closeShortcutMenu()
         closeCircleOverlay()
+        stopActHere()
         windowOn = null
         view = null
         resetCard()
@@ -1182,6 +1188,7 @@ class CapsuleController(
             CapsuleShortcut.LiveShare -> requestLiveShare()
             CapsuleShortcut.AskAboutScreen -> sendScreen()
             CapsuleShortcut.CircleToAsk -> requestCircleToAsk()
+            CapsuleShortcut.ActHere -> requestActHere()
             CapsuleShortcut.Voice -> beginTalk(byTouch = false)
             CapsuleShortcut.TranslateHindi -> {
                 scope.launch {
@@ -1357,10 +1364,310 @@ class CapsuleController(
         }
     }
 
+    private val actHereCoordinator = com.meenai.mina.capsule.acthere.ActHereCoordinator()
+    private var actHereJob: Job? = null
+    private var actHerePromptWindow: OverlayWindow? = null
+    private var actHereConfirmWindow: OverlayWindow? = null
+    private var actHereHighlightWindow: OverlayWindow? = null
+    private var actHereControlWindow: OverlayWindow? = null
+    private var actHereMaxStepsWindow: OverlayWindow? = null
+
+    private fun requestActHere() {
+        val service = windowOn ?: return
+        val app = context.applicationContext as HarnessApp
+        val store = app.appAccess
+
+        val sources = MainScreenCapture.sourcePackages(service)
+        if (sources.isNullOrEmpty() || !actHereCoordinator.canOpen(sources, store.current())) {
+            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+            return
+        }
+
+        openActHerePrompt(service)
+    }
+
+    private fun openActHerePrompt(service: ScreenAccessibility) {
+        actHerePromptWindow?.close()
+        actHerePromptWindow = service.overlays().open(
+            OverlayPlacement(Gravity.CENTER),
+            touchable = true
+        ) {
+            MinaTheme(reduceMotion = animationsOff(context)) {
+                com.meenai.mina.capsule.acthere.ActHerePromptOverlay(
+                    onStart = { goal ->
+                        actHerePromptWindow?.close()
+                        actHerePromptWindow = null
+                        startActHere(service, goal)
+                    },
+                    onCancel = {
+                        actHerePromptWindow?.close()
+                        actHerePromptWindow = null
+                    }
+                )
+            }
+        }
+        actHerePromptWindow?.onBack {
+            actHerePromptWindow?.close()
+            actHerePromptWindow = null
+        }
+    }
+
+    private fun stopActHere() {
+        actHereCoordinator.stop()
+        actHereJob?.cancel()
+        actHereJob = null
+        actHerePromptWindow?.close()
+        actHerePromptWindow = null
+        actHereConfirmWindow?.close()
+        actHereConfirmWindow = null
+        actHereHighlightWindow?.close()
+        actHereHighlightWindow = null
+        actHereControlWindow?.close()
+        actHereControlWindow = null
+        actHereMaxStepsWindow?.close()
+        actHereMaxStepsWindow = null
+    }
+
+    private fun startActHere(service: ScreenAccessibility, goal: String) {
+        val app = context.applicationContext as HarnessApp
+        val store = app.appAccess
+
+        stopActHere()
+        actHereCoordinator.reset()
+
+        openActHereControlBar(service)
+
+        actHereJob = scope.launch(Dispatchers.Default) {
+            withContext(Dispatchers.Main) {
+                showNote(tr(R.string.capsule_running), CapsuleKind.Running, opensMina = false, 15000L)
+            }
+
+            while (!actHereCoordinator.isStopped) {
+                // 1. Check foreground security
+                val currentSources = MainScreenCapture.sourcePackages(service)
+                if (currentSources.isNullOrEmpty() || !actHereCoordinator.canOpen(currentSources, store.current())) {
+                    withContext(Dispatchers.Main) {
+                        showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                        stopActHere()
+                    }
+                    break
+                }
+
+                // 2. Read screen accessibility tree
+                val windows = service.windowsOn(Display.DEFAULT_DISPLAY).filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                val m = service.resources.displayMetrics
+                val size = runCatching { service.overlays().area() }.getOrNull()
+                val screenRead = ScreenReader.read(windows, size?.width ?: m.widthPixels, size?.height ?: m.heightPixels)
+                val screenTexts = screenRead.texts
+
+                // Check payment screen immediately
+                if (actHereCoordinator.isPaymentScreen(screenTexts)) {
+                    withContext(Dispatchers.Main) {
+                        showNote(tr(R.string.act_here_handover_payment), CapsuleKind.Done, opensMina = false, NOTE_LONG_MS)
+                        stopActHere()
+                    }
+                    break
+                }
+
+                // 3. Find candidate target element
+                val targetEntry = screenRead.entries.firstOrNull { entry ->
+                    val name = entry.element.name
+                    goal.split(" ").any { word -> word.length > 2 && name.contains(word, ignoreCase = true) }
+                } ?: screenRead.entries.firstOrNull { it.element.clickable }
+
+                val targetLabel = targetEntry?.element?.name?.takeIf { it.isNotBlank() } ?: goal.take(20)
+                val targetX = targetEntry?.element?.centerX?.toFloat() ?: (m.widthPixels / 2f)
+                val targetY = targetEntry?.element?.centerY?.toFloat() ?: (m.heightPixels / 2f)
+
+                val action = com.meenai.mina.capsule.acthere.ActHereAction(
+                    type = com.meenai.mina.capsule.acthere.ActHereActionType.Tap,
+                    targetLabel = targetLabel,
+                    x = targetX,
+                    y = targetY,
+                )
+
+                // 4. Evaluate step with coordinator
+                val decision = actHereCoordinator.evaluateStep(action, screenTexts, currentSources, store.current())
+
+                when (decision) {
+                    is com.meenai.mina.capsule.acthere.StepDecision.Stopped -> break
+                    is com.meenai.mina.capsule.acthere.StepDecision.BlockedApp -> {
+                        withContext(Dispatchers.Main) {
+                            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                            stopActHere()
+                        }
+                        break
+                    }
+                    is com.meenai.mina.capsule.acthere.StepDecision.PaymentScreenHandover -> {
+                        withContext(Dispatchers.Main) {
+                            showNote(tr(R.string.act_here_handover_payment), CapsuleKind.Done, opensMina = false, NOTE_LONG_MS)
+                            stopActHere()
+                        }
+                        break
+                    }
+                    is com.meenai.mina.capsule.acthere.StepDecision.MaxStepsReached -> {
+                        val proceed = promptMaxSteps(service)
+                        if (!proceed) {
+                            withContext(Dispatchers.Main) {
+                                stopActHere()
+                            }
+                            break
+                        } else {
+                            actHereCoordinator.continueSteps()
+                        }
+                    }
+                    is com.meenai.mina.capsule.acthere.StepDecision.RequireConfirmation -> {
+                        val confirmed = promptConfirmation(service, decision.actionLabel)
+                        if (!confirmed) {
+                            withContext(Dispatchers.Main) {
+                                stopActHere()
+                            }
+                            break
+                        }
+                        val confirmDecision = actHereCoordinator.confirmAction(action)
+                        if (confirmDecision is com.meenai.mina.capsule.acthere.StepDecision.ProceedWithStatus) {
+                            executeTap(service, confirmDecision.action, confirmDecision.statusMessage)
+                        } else {
+                            break
+                        }
+                    }
+                    is com.meenai.mina.capsule.acthere.StepDecision.ProceedWithStatus -> {
+                        executeTap(service, decision.action, decision.statusMessage)
+                    }
+                }
+
+                if (targetEntry != null) {
+                    delay(1500L)
+                    break
+                }
+                delay(1000L)
+            }
+
+            withContext(Dispatchers.Main) {
+                stopActHere()
+            }
+        }
+    }
+
+    private suspend fun executeTap(service: ScreenAccessibility, action: com.meenai.mina.capsule.acthere.ActHereAction, statusMessage: String) {
+        withContext(Dispatchers.Main) {
+            showNote(statusMessage, CapsuleKind.Running, opensMina = false, 3000L)
+            showTapHighlight(service, action.x, action.y)
+        }
+        delay(300L)
+        withContext(Dispatchers.Main) {
+            hideTapHighlight()
+        }
+        service.taps(Display.DEFAULT_DISPLAY, action.x, action.y, 1, 50L, 0L)
+        delay(800L)
+    }
+
+    private fun showTapHighlight(service: ScreenAccessibility, x: Float, y: Float) {
+        actHereHighlightWindow?.close()
+        actHereHighlightWindow = service.overlays().open(
+            OverlayPlacement(Gravity.FILL),
+            touchable = false
+        ) {
+            MinaTheme(reduceMotion = animationsOff(context)) {
+                com.meenai.mina.capsule.acthere.ActHereTapHighlightOverlay(x = x, y = y)
+            }
+        }
+    }
+
+    private fun hideTapHighlight() {
+        actHereHighlightWindow?.close()
+        actHereHighlightWindow = null
+    }
+
+    private fun openActHereControlBar(service: ScreenAccessibility) {
+        actHereControlWindow?.close()
+        actHereControlWindow = service.overlays().open(
+            OverlayPlacement(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, y = 120),
+            touchable = true
+        ) {
+            MinaTheme(reduceMotion = animationsOff(context)) {
+                com.meenai.mina.capsule.acthere.ActHereControlBar(
+                    onStop = {
+                        stopActHere()
+                        showNote(tr(R.string.capsule_task_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
+                    },
+                    onTakeover = {
+                        stopActHere()
+                        showNote(tr(R.string.capsule_you_handle), CapsuleKind.Done, opensMina = false, NOTE_SHORT_MS)
+                    }
+                )
+            }
+        }
+    }
+
+    private suspend fun promptConfirmation(service: ScreenAccessibility, actionLabel: String): Boolean =
+        suspendCancellableCoroutine { cont ->
+            scope.launch(Dispatchers.Main) {
+                actHereConfirmWindow?.close()
+                actHereConfirmWindow = service.overlays().open(
+                    OverlayPlacement(Gravity.CENTER),
+                    touchable = true
+                ) {
+                    MinaTheme(reduceMotion = animationsOff(context)) {
+                        com.meenai.mina.capsule.acthere.ActHereConfirmationOverlay(
+                            actionLabel = actionLabel,
+                            onConfirm = {
+                                actHereConfirmWindow?.close()
+                                actHereConfirmWindow = null
+                                if (cont.isActive) cont.resume(true)
+                            },
+                            onCancel = {
+                                actHereConfirmWindow?.close()
+                                actHereConfirmWindow = null
+                                if (cont.isActive) cont.resume(false)
+                            }
+                        )
+                    }
+                }
+                actHereConfirmWindow?.onBack {
+                    actHereConfirmWindow?.close()
+                    actHereConfirmWindow = null
+                    if (cont.isActive) cont.resume(false)
+                }
+            }
+        }
+
+    private suspend fun promptMaxSteps(service: ScreenAccessibility): Boolean =
+        suspendCancellableCoroutine { cont ->
+            scope.launch(Dispatchers.Main) {
+                actHereMaxStepsWindow?.close()
+                actHereMaxStepsWindow = service.overlays().open(
+                    OverlayPlacement(Gravity.CENTER),
+                    touchable = true
+                ) {
+                    MinaTheme(reduceMotion = animationsOff(context)) {
+                        com.meenai.mina.capsule.acthere.ActHereMaxStepsOverlay(
+                            onContinue = {
+                                actHereMaxStepsWindow?.close()
+                                actHereMaxStepsWindow = null
+                                if (cont.isActive) cont.resume(true)
+                            },
+                            onStop = {
+                                actHereMaxStepsWindow?.close()
+                                actHereMaxStepsWindow = null
+                                if (cont.isActive) cont.resume(false)
+                            }
+                        )
+                    }
+                }
+                actHereMaxStepsWindow?.onBack {
+                    actHereMaxStepsWindow?.close()
+                    actHereMaxStepsWindow = null
+                    if (cont.isActive) cont.resume(false)
+                }
+            }
+        }
+
     private fun stopActiveTask() {
         if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
             com.meenai.mina.capsule.live.LiveShareManager.stop(context)
         }
+        stopActHere()
         val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.runs.value.firstOrNull { it.state.value.isActive() }?.key
         if (active != null) {
             TaskService.cancel(context, active)

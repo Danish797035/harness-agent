@@ -31,16 +31,17 @@ class CapsuleShortcutMenuTest {
     @Test
     fun shortcutMenuItemsCountAndOrder() {
         val shortcuts = CapsuleShortcut.allShortcuts()
-        assertEquals(8, shortcuts.size)
+        assertEquals(9, shortcuts.size)
 
         assertEquals(CapsuleShortcut.LiveShare, shortcuts[0])
         assertEquals(CapsuleShortcut.AskAboutScreen, shortcuts[1])
         assertEquals(CapsuleShortcut.CircleToAsk, shortcuts[2])
-        assertEquals(CapsuleShortcut.Voice, shortcuts[3])
-        assertEquals(CapsuleShortcut.TranslateHindi, shortcuts[4])
-        assertEquals(CapsuleShortcut.PageSummary, shortcuts[5])
-        assertEquals(CapsuleShortcut.CopyText, shortcuts[6])
-        assertEquals(CapsuleShortcut.StopTask, shortcuts[7])
+        assertEquals(CapsuleShortcut.ActHere, shortcuts[3])
+        assertEquals(CapsuleShortcut.Voice, shortcuts[4])
+        assertEquals(CapsuleShortcut.TranslateHindi, shortcuts[5])
+        assertEquals(CapsuleShortcut.PageSummary, shortcuts[6])
+        assertEquals(CapsuleShortcut.CopyText, shortcuts[7])
+        assertEquals(CapsuleShortcut.StopTask, shortcuts[8])
     }
 
     @Test
@@ -76,6 +77,7 @@ class CapsuleShortcutMenuTest {
             "capsule_menu_live_share",
             "capsule_menu_ask_about_screen",
             "capsule_menu_circle_to_ask",
+            "capsule_menu_act_here",
             "capsule_menu_voice",
             "capsule_menu_translate_hindi",
             "capsule_menu_page_summary",
