@@ -1151,7 +1151,8 @@ class CapsuleController(
         val service = windowOn ?: return
         if (menuWindow != null) return
         wake()
-        val hasActive = tasks.runs.value.any { it.state.value.isActive() }
+        val hasActive = tasks.runs.value.any { it.state.value.isActive() } ||
+            com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing
         menuWindow = service.overlays().open(
             OverlayPlacement(Gravity.CENTER),
             onOutside = ::closeShortcutMenu,
@@ -1199,7 +1200,17 @@ class CapsuleController(
     }
 
     private fun requestLiveShare() {
-        showNote(tr(R.string.capsule_menu_live_share), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
+        if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+            com.meenai.mina.capsule.live.LiveShareManager.stop(context)
+            showNote(tr(R.string.live_share_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
+            return
+        }
+        val started = com.meenai.mina.capsule.live.LiveShareManager.start(context)
+        if (!started) {
+            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+        } else {
+            showNote(tr(R.string.live_share_started), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
+        }
     }
 
     private fun requestCircleToAsk() {
@@ -1207,6 +1218,9 @@ class CapsuleController(
     }
 
     private fun stopActiveTask() {
+        if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+            com.meenai.mina.capsule.live.LiveShareManager.stop(context)
+        }
         val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.runs.value.firstOrNull { it.state.value.isActive() }?.key
         if (active != null) {
             TaskService.cancel(context, active)

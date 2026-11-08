@@ -62,4 +62,13 @@
     <string name="capsule_text_copied">Text copied to clipboard</string>
     <string name="capsule_task_stopped">Task stopped</string>
     <string name="capsule_sensitive_blocked">Action blocked for sensitive or secured app</string>
+    <string name="live_share_title">Live Screen Sharing</string>
+    <string name="live_share_desc">Screen sharing is active. Tap to stop.</string>
+    <string name="live_share_stop">Stop</string>
+    <string name="live_share_started">Live share started</string>
+    <string name="live_share_stopped">Live share stopped</string>
+    <string name="live_share_paused_sensitive">Live share paused: secure or blocked app</string>
+    <string name="live_share_permission_denied">Screen capture permission not granted</string>
+    <string name="live_share_paused_indicator">Paused</string>
+    <string name="channel_live_share">Live Screen Share</string>
 </resources>

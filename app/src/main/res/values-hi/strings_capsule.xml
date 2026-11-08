@@ -62,4 +62,13 @@
     <string name="capsule_text_copied">टेक्स्ट क्लिपबोर्ड पर कॉपी हो गया</string>
     <string name="capsule_task_stopped">कार्य रोक दिया गया</string>
     <string name="capsule_sensitive_blocked">सुरक्षित ऐप के लिए यह क्रिया अवरुद्ध है</string>
+    <string name="live_share_title">लाइव स्क्रीन शेयर</string>
+    <string name="live_share_desc">स्क्रीन शेयर चालू है। रोकने के लिए टैप करें।</string>
+    <string name="live_share_stop">रोकें</string>
+    <string name="live_share_started">लाइव शेयर शुरू हुआ</string>
+    <string name="live_share_stopped">लाइव शेयर बंद हो गया</string>
+    <string name="live_share_paused_sensitive">सुरक्षित या ब्लॉक ऐप: शेयर रोका गया</string>
+    <string name="live_share_permission_denied">स्क्रीन कैप्चर की अनुमति नहीं मिली</string>
+    <string name="live_share_paused_indicator">रुका हुआ</string>
+    <string name="channel_live_share">लाइव स्क्रीन शेयर</string>
 </resources>
