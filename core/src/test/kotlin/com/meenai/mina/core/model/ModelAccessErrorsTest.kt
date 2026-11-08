@@ -22,6 +22,8 @@ class ModelAccessErrorsTest {
         // 404 也可能这样说
         notAvailable(404, """{"error":{"message":"Model not activated for this account"}}""")
         assertEquals("plain text not activated", notAvailable(400, "plain text not activated").detail)
+        val noProvider = notAvailable(400, """{"message":"Model deepseek-ai/DeepSeek-V4-Pro has no provider supported"}""")
+        assertTrue(noProvider.detail, noProvider.detail.contains("has no provider supported"))
     }
 
     @Test fun modelDoesNotSupportTools() {

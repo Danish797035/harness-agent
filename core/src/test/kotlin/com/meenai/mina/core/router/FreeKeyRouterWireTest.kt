@@ -256,6 +256,7 @@ class FreeKeyRouterWireTest {
 
     @Test
     fun modelScopeSirfLastFallback() = runTest {
+        MagicubeLedger.recordDailyLogin()
         val zaiModel = mockModel("zai_flash") { _, _, _, _ -> simpleReply }
         val openrouterModel = mockModel("or_free") { _, _, _, _ -> simpleReply }
         val modelscopeModel = mockModel("ms_qwen") { _, _, _, _ -> simpleReply }
@@ -271,26 +272,30 @@ class FreeKeyRouterWireTest {
             delayMs = {},
         )
 
-        // 1. When primary models are available, ModelScope is NOT chosen even if it has higher curated rank!
-        val picked1 = router.pickBestCandidate(ModelRole.Main)
-        assertNotNull(picked1)
-        assertEquals("zai_flash", picked1!!.id)
-        assertFalse(picked1.isBackup)
+        try {
+            // 1. When primary models are available, ModelScope is NOT chosen even if it has higher curated rank!
+            val picked1 = router.pickBestCandidate(ModelRole.Main)
+            assertNotNull(picked1)
+            assertEquals("zai_flash", picked1!!.id)
+            assertFalse(picked1.isBackup)
 
-        // 2. Put zai into cooldown -> next primary is or_free (still not ModelScope)
-        cooldownStore.markCooldown("zai_flash", 60_000L)
-        val picked2 = router.pickBestCandidate(ModelRole.Main)
-        assertNotNull(picked2)
-        assertEquals("or_free", picked2!!.id)
-        assertFalse(picked2.isBackup)
+            // 2. Put zai into cooldown -> next primary is or_free (still not ModelScope)
+            cooldownStore.markCooldown("zai_flash", 60_000L)
+            val picked2 = router.pickBestCandidate(ModelRole.Main)
+            assertNotNull(picked2)
+            assertEquals("or_free", picked2!!.id)
+            assertFalse(picked2.isBackup)
 
-        // 3. Put all primary models into cooldown -> ONLY THEN ModelScope is used as last fallback!
-        cooldownStore.markCooldown("or_free", 60_000L)
-        val picked3 = router.pickBestCandidate(ModelRole.Main)
-        assertNotNull(picked3)
-        assertEquals("ms_qwen", picked3!!.id)
-        assertTrue(picked3.isBackup)
-        assertEquals("modelscope", picked3.provider)
+            // 3. Put all primary models into cooldown -> ONLY THEN ModelScope is used as last fallback!
+            cooldownStore.markCooldown("or_free", 60_000L)
+            val picked3 = router.pickBestCandidate(ModelRole.Main)
+            assertNotNull(picked3)
+            assertEquals("ms_qwen", picked3!!.id)
+            assertTrue(picked3.isBackup)
+            assertEquals("modelscope", picked3.provider)
+        } finally {
+            MagicubeLedger.clear()
+        }
     }
 
     @Test

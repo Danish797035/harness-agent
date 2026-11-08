@@ -119,4 +119,11 @@ object ChatCopy {
         ComposerMode.Answer -> tr(R.string.voice_placeholder_answer)
         ComposerMode.Idle -> tr(R.string.voice_placeholder_idle)
     }
+
+    /** Model response wait label showing elapsed seconds and optional model name */
+    fun modelWaitLabel(seconds: Int, modelName: String = "", isHindi: Boolean = true): String {
+        val s = seconds.coerceAtLeast(0)
+        val base = if (isHindi) "Model ka jawab aa raha hai · ${s}s" else "Waiting for model reply · ${s}s"
+        return if (modelName.isNotBlank()) "$base · $modelName" else base
+    }
 }

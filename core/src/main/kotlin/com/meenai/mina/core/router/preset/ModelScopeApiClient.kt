@@ -27,6 +27,15 @@ class HttpModelScopeApiClient(
     val httpClient: OkHttpClient = OkHttpClient(),
 ) : ModelScopeApiClient {
 
+    companion object {
+        val NON_CHAT_TOKENS = listOf(
+            "embedding", "embeddings", "rerank", "reranker", "bge",
+            "image", "images", "flux", "stable-diffusion", "diffusers",
+            "video", "audio", "tts", "stt", "asr", "whisper", "speech", "voice",
+            "moderation", "guard", "reward", "discriminator"
+        )
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun listModels(apiKey: String): List<ModelCandidate> = withContext(Dispatchers.IO) {
@@ -57,6 +66,7 @@ class HttpModelScopeApiClient(
                 val created = obj["created"]?.jsonPrimitive?.longOrNull ?: 0L
 
                 val lowerId = id.lowercase()
+                if (NON_CHAT_TOKENS.any { lowerId.contains(it) }) return@mapNotNull null
                 val supportsImages = lowerId.contains("vl") ||
                     lowerId.contains("vision") ||
                     lowerId.contains("omni")

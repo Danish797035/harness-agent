@@ -38,6 +38,7 @@ object ModelAccessErrors {
         "do not have access to the model", "does not have access to the model", "does not have access to model",
         "do not have access to model", "no access to model", "no permission to access the model", "no permission to use the model",
         "model_not_available", "model is not available", "model not available", "not available for your account",
+        "has no provider supported", "no provider supported", "provider not supported",
         "未开通", "没有开通", "尚未开通", "无权限", "没有权限使用", "无权访问", "无权使用",
         // 模型已经下线
         "no longer available", "has been retired", "has been discontinued", "has been shut down",

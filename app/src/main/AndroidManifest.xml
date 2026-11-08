@@ -265,6 +265,7 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".task.TriggerAlarmReceiver" android:exported="false" />
+        <receiver android:name=".ui.router.MagicubeReminderReceiver" android:exported="false" />
         <activity
             android:name="com.meenai.mina.about.UpdateInstallActivity"
             android:exported="false"

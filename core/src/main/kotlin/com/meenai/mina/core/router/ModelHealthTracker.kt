@@ -19,7 +19,12 @@ class ModelHealthTracker {
 
     private val stats = ConcurrentHashMap<String, HealthStat>()
 
+    enum class CallOutcome { None, Success, Failure }
+
+    private val lastCallOutcomes = ConcurrentHashMap<String, CallOutcome>()
+
     fun recordSuccess(modelId: String, latencyMs: Long) {
+        lastCallOutcomes[modelId.lowercase()] = CallOutcome.Success
         val stat = stats.getOrPut(modelId) { HealthStat() }
         synchronized(stat) {
             stat.consecutiveFailures = 0
@@ -30,11 +35,19 @@ class ModelHealthTracker {
     }
 
     fun recordFailure(modelId: String) {
+        lastCallOutcomes[modelId.lowercase()] = CallOutcome.Failure
         val stat = stats.getOrPut(modelId) { HealthStat() }
         synchronized(stat) {
             stat.consecutiveFailures++
             stat.totalFailures++
         }
+    }
+
+    fun getLastCallOutcome(modelId: String): CallOutcome =
+        lastCallOutcomes[modelId.lowercase()] ?: CallOutcome.None
+
+    fun setLastCallOutcome(modelId: String, outcome: CallOutcome) {
+        lastCallOutcomes[modelId.lowercase()] = outcome
     }
 
     /**
@@ -63,8 +76,10 @@ class ModelHealthTracker {
     fun reset(modelId: String? = null) {
         if (modelId != null) {
             stats.remove(modelId)
+            lastCallOutcomes.remove(modelId.lowercase())
         } else {
             stats.clear()
+            lastCallOutcomes.clear()
         }
     }
 }

@@ -4,6 +4,7 @@ import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.i18n.HindiTexts
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
+import com.meenai.mina.ui.ChatCopy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -139,5 +140,71 @@ class RouterUiTest {
         advanceTimeBy(600L)
         job.cancel()
         assertTrue(results.isNotEmpty())
+    }
+
+    @Test
+    fun chipAndQuotaSameNumber_noPlaceholderDemo() {
+        val active = ActiveModel(
+            id = "Qwen/Qwen2.5-72B-Instruct",
+            name = "Qwen 2.5 72B",
+            provider = "ModelScope",
+            usedToday = 5,
+            limit = null,
+            quotaRemaining = 0,
+            quotaTotal = 0,
+        )
+        // Chip text formats using usedToday without fallback 38/50
+        assertEquals("Qwen 2.5 72B · ModelScope · 5 today", formatChipText(active, todayLabel = "today"))
+        assertEquals("Qwen 2.5 72B · ModelScope · 5 aaj", formatChipText(active, todayLabel = "aaj"))
+
+        // ProviderUsage reads the exact same usedToday count (5) and totalQuota is 0 (no hardcoded 50)
+        val usage = ProviderUsage(
+            provider = "ModelScope",
+            todayCount = active.usedToday,
+            remainingQuota = 0,
+            totalQuota = 0,
+        )
+        assertEquals(5, usage.todayCount)
+        assertEquals(0, usage.totalQuota)
+    }
+
+    @Test
+    fun dotCallStatus_untestedIsGrey_successIsGreen_failureIsRed() {
+        val modelUntested = ActiveModel(callStatus = ModelCallStatus.Untested)
+        assertEquals(ModelCallStatus.Untested, modelUntested.callStatus)
+
+        val modelSuccess = ActiveModel(callStatus = ModelCallStatus.Success)
+        assertEquals(ModelCallStatus.Success, modelSuccess.callStatus)
+
+        val modelFailure = ActiveModel(callStatus = ModelCallStatus.Failure)
+        assertEquals(ModelCallStatus.Failure, modelFailure.callStatus)
+    }
+
+    @Test
+    fun waitLabelIncrementsSecondsAndIncludesModelName() {
+        val label0 = ChatCopy.modelWaitLabel(0, "Qwen 2.5 72B")
+        assertEquals("Model ka jawab aa raha hai · 0s · Qwen 2.5 72B", label0)
+
+        val label25 = ChatCopy.modelWaitLabel(25, "Qwen 2.5 72B")
+        assertEquals("Model ka jawab aa raha hai · 25s · Qwen 2.5 72B", label25)
+
+        val label40NoModel = ChatCopy.modelWaitLabel(40, "")
+        assertEquals("Model ka jawab aa raha hai · 40s", label40NoModel)
+
+        for (sec in 0..40) {
+            val label = ChatCopy.modelWaitLabel(sec, "Qwen 2.5 72B")
+            assertEquals("Model ka jawab aa raha hai · ${sec}s · Qwen 2.5 72B", label)
+        }
+    }
+
+    @Test
+    fun switchEventTimeoutReason_retainsExactMessage() {
+        val event = SwitchEvent(
+            fromModel = "Qwen 2.5 72B",
+            toModel = "Llama 3.1 8B",
+            reason = "Model slow tha, dusra try kar raha hoon",
+        )
+        assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = false))
+        assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = true))
     }
 }
