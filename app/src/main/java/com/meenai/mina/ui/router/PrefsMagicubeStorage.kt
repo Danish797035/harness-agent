@@ -49,8 +49,9 @@ class PrefsMagicubeStorage(
             .putLong(KEY_LONG_TERM_BAL, java.lang.Double.doubleToRawLongBits(state.longTermBalance))
             .putBoolean(KEY_ALIBABA_LINKED, state.isAlibabaLinked)
 
-        if (state.longTermExpiryEpochMs != null) {
-            editor.putLong(KEY_LONG_EXPIRY, state.longTermExpiryEpochMs)
+        val expiry = state.longTermExpiryEpochMs
+        if (expiry != null) {
+            editor.putLong(KEY_LONG_EXPIRY, expiry)
         } else {
             editor.remove(KEY_LONG_EXPIRY)
         }
