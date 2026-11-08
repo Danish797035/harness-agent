@@ -522,7 +522,7 @@ class CapsuleController(
         val access = (context.applicationContext as HarnessApp).appAccess.current()
         if (shot.sourcePackages.isEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(shot.sourcePackages, false, access)) {
             inputUi = inputUi.copy(screen = null)
-            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed)
+            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
             return
         }
         val conversationId = CapsuleCards.conversationOf(c) ?: ConversationStore.shared(context).newConversation()
@@ -594,7 +594,7 @@ class CapsuleController(
             val sources = MainScreenCapture.sourcePackages(service) ?: return null
             if (context.packageName in sources || !store.current().available) return null
             if (!CapsuleSecurityPolicy.canPerformScreenAction(sources, false, store.current())) {
-                showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed)
+                showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return null
             }
             for (pkg in sources) {
@@ -1151,7 +1151,7 @@ class CapsuleController(
         val service = windowOn ?: return
         if (menuWindow != null) return
         wake()
-        val hasActive = tasks.running().isNotEmpty()
+        val hasActive = tasks.runs.value.any { it.state.isActive }
         menuWindow = service.overlays().open(
             OverlayPlacement(Gravity.CENTER),
             onOutside = ::closeShortcutMenu,
@@ -1207,7 +1207,7 @@ class CapsuleController(
     }
 
     private fun stopActiveTask() {
-        val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.running().firstOrNull()?.key
+        val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.runs.value.firstOrNull { it.state.isActive }?.key
         if (active != null) {
             TaskService.cancel(context, active)
             showNote(tr(R.string.capsule_task_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
@@ -1218,8 +1218,8 @@ class CapsuleController(
         if (capturing) return
         scope.launch {
             val shot = captureScreen() ?: return@launch
-            val text = shot.screen?.text?.takeIf { it.isNotBlank() }
-            if (!text.isNullOrBlank()) {
+            val text = shot.screen.lines.joinToString("\n") { it.text }
+            if (text.isNotBlank()) {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("Screen text", text))
                 showNote(tr(R.string.capsule_text_copied), CapsuleKind.Done, opensMina = false, NOTE_SHORT_MS)

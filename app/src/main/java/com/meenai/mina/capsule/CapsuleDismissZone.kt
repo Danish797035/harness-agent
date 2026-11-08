@@ -59,7 +59,7 @@ fun CapsuleDismissZone(
                 .shadow(if (hovered) 16.dp else 8.dp, CircleShape)
                 .clip(CircleShape)
                 .background(bgColor)
-                .border(2.dp, if (hovered) colors.warnSoft else colors.border, CircleShape),
+                .border(2.dp, if (hovered) colors.warnSoft else colors.edge, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
