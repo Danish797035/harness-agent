@@ -3,6 +3,7 @@ package com.meenai.mina.ui.router
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.router.FreeKeyRouter
+import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.ModelHealthTracker
 import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.router.picker.CuratedTiers
@@ -97,6 +98,7 @@ data class ProviderUsage(
     val isBadKey: Boolean = false,
     val concurrency: Int? = null,
     val totalCostToday: Double? = null,
+    val magicubeBalance: Double? = null,
     val models: List<ModelQuotaLine> = emptyList(),
     // Backward compatibility fields
     val todayCount: Int = 0,
@@ -158,16 +160,7 @@ class HttpOpenRouterKeyClient(
     }
 }
 
-fun modelScopeMagicubeCost(modelId: String): Double {
-    val lower = modelId.lowercase()
-    val paramSize = CuratedTiers.extractParameterSizeB(modelId)
-    return when {
-        paramSize in 0.1..10.0 || lower.contains("7b") || lower.contains("8b") || lower.contains("flash") -> 0.5
-        paramSize in 10.1..35.0 || lower.contains("14b") || lower.contains("32b") -> 1.0
-        paramSize > 35.0 || lower.contains("72b") || lower.contains("deepseek") || lower.contains("70b") -> 2.0
-        else -> 1.0
-    }
-}
+fun modelScopeMagicubeCost(modelId: String): Double = MagicubeLedger.costForModel(modelId)
 
 /**
  * Model switch event emitted when switching to another provider/model.
@@ -508,12 +501,15 @@ class RealRouterStatus(
             val remQuota = if (providerLimit != null) (providerLimit - todayTotal).coerceAtLeast(0) else 0
             val totQuota = providerLimit ?: 0
 
+            val magicubeBal = if (isModelScope) MagicubeLedger.totalBalance() else null
+
             ProviderUsage(
                 provider = formatProvider(providerKeyName),
                 providerId = providerId,
                 isBadKey = isBadKey,
                 concurrency = if (isZai) 1 else null,
                 totalCostToday = totalCostToday,
+                magicubeBalance = magicubeBal,
                 models = lines,
                 todayCount = todayTotal,
                 remainingQuota = remQuota,

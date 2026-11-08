@@ -343,6 +343,10 @@ class FreeKeyRouter(
                     healthTracker.recordSuccess(currentCandidate.id, latency)
                     difficultyRouter.recordSuccess()
                     RouterUsageTracker.recordCall(currentCandidate.id, currentCandidate.provider, now())
+                    if (currentCandidate.provider.equals("modelscope", ignoreCase = true)) {
+                        val cost = MagicubeLedger.costForModel(currentCandidate.id)
+                        MagicubeLedger.deduct(cost, now())
+                    }
                     updateStatus(
                         model = currentCandidate.id,
                         provider = currentCandidate.provider,

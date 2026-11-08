@@ -35,4 +35,12 @@
     <string name="router_concurrency">Concurrency: %1$d</string>
     <string name="router_magicube_cost">~%1$s Magicube/call</string>
     <string name="router_magicube_total">Aaj ka total: ~%1$s Magicube</string>
+    <string name="router_magicube_balance">बैलेंस: ~%1$s Magicube</string>
+    <string name="router_sync_balance">बैलेंस सिंक करें</string>
+    <string name="router_sync_balance_title">Magicube बैलेंस सिंक करें</string>
+    <string name="router_sync_balance_hint">ModelScope साइट से बैलेंस दर्ज करें</string>
+    <string name="router_sync_balance_save">सहेजें</string>
+    <string name="router_sync_balance_cancel">रद्द करें</string>
+    <string name="router_magicube_reminder_title">ModelScope दैनिक लॉगिन</string>
+    <string name="router_magicube_reminder_body">ModelScope पर आज का 200 Magicube प्राप्त करें</string>
 </resources>

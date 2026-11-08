@@ -14,25 +14,33 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.R
+import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.GroupCard
@@ -165,6 +173,50 @@ fun ProviderUsageBlock(
     isFirst: Boolean,
 ) {
     val colors = MinaTheme.colors
+    val isModelScope = usage.provider.equals("ModelScope", ignoreCase = true)
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var syncInputText by remember { mutableStateOf("") }
+
+    if (showSyncDialog) {
+        AlertDialog(
+            onDismissRequest = { showSyncDialog = false },
+            title = { Text(stringResource(R.string.router_sync_balance_title)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.router_sync_balance_hint),
+                        style = MinaType.Caption,
+                        color = colors.ink3,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = syncInputText,
+                        onValueChange = { syncInputText = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("sync-balance-input"),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        syncInputText.toDoubleOrNull()?.let { MagicubeLedger.syncBalance(it) }
+                        showSyncDialog = false
+                    },
+                    modifier = Modifier.testTag("sync-balance-save"),
+                ) {
+                    Text(stringResource(R.string.router_sync_balance_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSyncDialog = false }) {
+                    Text(stringResource(R.string.router_sync_balance_cancel))
+                }
+            },
+        )
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -176,39 +228,66 @@ fun ProviderUsageBlock(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = usage.provider,
-                    style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.ink,
-                )
-                if (usage.isBadKey) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = " · ${stringResource(R.string.router_status_bad_key)}",
-                        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
-                        color = colors.bad,
+                        text = usage.provider,
+                        style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.ink,
+                    )
+                    if (usage.isBadKey) {
+                        Text(
+                            text = " · ${stringResource(R.string.router_status_bad_key)}",
+                            style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                            color = colors.bad,
+                        )
+                    }
+                }
+
+                val metaTexts = mutableListOf<String>()
+                if (usage.concurrency != null) {
+                    metaTexts.add(stringResource(R.string.router_concurrency, usage.concurrency))
+                }
+                if (usage.magicubeBalance != null) {
+                    val formattedBal = if (usage.magicubeBalance % 1.0 == 0.0) {
+                        usage.magicubeBalance.toInt().toString()
+                    } else {
+                        String.format(java.util.Locale.US, "%.1f", usage.magicubeBalance)
+                    }
+                    metaTexts.add(stringResource(R.string.router_magicube_balance, formattedBal))
+                }
+                if (usage.totalCostToday != null) {
+                    val formattedCost = if (usage.totalCostToday % 1.0 == 0.0) {
+                        usage.totalCostToday.toInt().toString()
+                    } else {
+                        String.format(java.util.Locale.US, "%.1f", usage.totalCostToday)
+                    }
+                    metaTexts.add(stringResource(R.string.router_magicube_total, formattedCost))
+                }
+                if (metaTexts.isNotEmpty()) {
+                    Text(
+                        text = metaTexts.joinToString(" · "),
+                        style = MinaType.Hint,
+                        color = colors.ink3,
                     )
                 }
             }
 
-            val metaTexts = mutableListOf<String>()
-            if (usage.concurrency != null) {
-                metaTexts.add(stringResource(R.string.router_concurrency, usage.concurrency))
-            }
-            if (usage.totalCostToday != null) {
-                val formattedCost = if (usage.totalCostToday % 1.0 == 0.0) {
-                    usage.totalCostToday.toInt().toString()
-                } else {
-                    String.format(java.util.Locale.US, "%.1f", usage.totalCostToday)
+            if (isModelScope) {
+                TextButton(
+                    onClick = {
+                        val currentBal = usage.magicubeBalance ?: MagicubeLedger.totalBalance()
+                        syncInputText = if (currentBal % 1.0 == 0.0) currentBal.toInt().toString() else currentBal.toString()
+                        showSyncDialog = true
+                    },
+                    modifier = Modifier.testTag("sync-balance-btn"),
+                ) {
+                    Text(
+                        text = stringResource(R.string.router_sync_balance),
+                        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                        color = colors.accent,
+                    )
                 }
-                metaTexts.add(stringResource(R.string.router_magicube_total, formattedCost))
-            }
-            if (metaTexts.isNotEmpty()) {
-                Text(
-                    text = metaTexts.joinToString(" · "),
-                    style = MinaType.Hint,
-                    color = colors.ink3,
-                )
             }
         }
 

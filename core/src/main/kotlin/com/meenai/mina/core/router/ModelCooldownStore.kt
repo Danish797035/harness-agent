@@ -77,6 +77,9 @@ class ModelCooldownStore(
         if (isUnsupported(modelId)) return false
         val expiry = cooldowns[modelId]
         if (expiry != null && nowMs < expiry) return false
+        if (provider.equals("modelscope", ignoreCase = true) && !MagicubeLedger.canAffordModelScope(nowMs)) {
+            return false
+        }
         // Proactive avoidance: if starting a new task and fewer than 2 requests remain, avoid this model
         if (isNewTask) {
             val remaining = knownQuotaRemaining[modelId]

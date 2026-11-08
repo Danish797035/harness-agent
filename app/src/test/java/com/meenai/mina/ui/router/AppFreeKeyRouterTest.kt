@@ -14,6 +14,7 @@ import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.router.FreeKeyRouter
+import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.RouterAction
 import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterErrorClassifier
@@ -439,5 +440,29 @@ class AppFreeKeyRouterTest {
             isEstimate = false,
         )
         assertEquals("Qwen3.5 · 12/50 today", formatChipText(activeStandalone, todayLabel = "today"))
+    }
+
+    @Test
+    fun modelScope_magicubeLedgerSyncBalance_updatesUsageAndBalance() {
+        MagicubeLedger.clear()
+        val store = createTestStore()
+        store.connect(
+            name = "ModelScope",
+            kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://api-inference.modelscope.cn/v1",
+            apiKey = "ms-test-key",
+            models = listOf(ListedModel("Qwen/Qwen2.5-72B-Instruct")),
+        )
+
+        // User syncs site balance to 150.0
+        MagicubeLedger.syncBalance(150.0)
+        assertEquals(150.0, MagicubeLedger.totalBalance(), 0.01)
+
+        val tracker = AppFreeKeyTracker(store, MockFreeKeyRouter(), okhttp3.OkHttpClient())
+        val usages = tracker.computeProviderUsages()
+        val msUsage = usages.firstOrNull { it.provider == "ModelScope" }
+
+        org.junit.Assert.assertNotNull(msUsage)
+        assertEquals(150.0, msUsage?.magicubeBalance ?: 0.0, 0.01)
     }
 }

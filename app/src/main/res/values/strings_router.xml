@@ -35,4 +35,12 @@
     <string name="router_concurrency">Concurrency: %1$d</string>
     <string name="router_magicube_cost">~%1$s Magicube/call</string>
     <string name="router_magicube_total">Today: ~%1$s Magicube</string>
+    <string name="router_magicube_balance">Balance: ~%1$s Magicube</string>
+    <string name="router_sync_balance">Sync balance</string>
+    <string name="router_sync_balance_title">Sync Magicube Balance</string>
+    <string name="router_sync_balance_hint">Enter balance from ModelScope site</string>
+    <string name="router_sync_balance_save">Save</string>
+    <string name="router_sync_balance_cancel">Cancel</string>
+    <string name="router_magicube_reminder_title">ModelScope Daily Login</string>
+    <string name="router_magicube_reminder_body">Claim today\'s 200 Magicube on ModelScope</string>
 </resources>
