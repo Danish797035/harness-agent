@@ -481,15 +481,25 @@ class ActHereCoordinatorTest {
         var tappedY: Float? = null
 
         val fakeModelPixel = object : ChatModel {
+            var turn = 0
             override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
             override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-                return ModelReply(
-                    parts = listOf(
-                        Part.ToolCall("call_1", "phone_tap", """{"x":150,"y":1250}""")
-                    ),
-                    stopReason = StopReason.ToolUse,
-                    usage = null
-                )
+                turn++
+                return if (turn == 1) {
+                    ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_1", "phone_tap", """{"x":150,"y":1250}""")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                } else {
+                    ModelReply(
+                        parts = listOf(Part.ToolCall("call_2", "done", "{}")),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                }
             }
         }
 
@@ -520,7 +530,7 @@ class ActHereCoordinatorTest {
         assertEquals("Tap X must be button center (216f), not model X (150f)", 216f, tappedX)
         assertEquals("Tap Y must be button center (1320f), not model Y (1250f)", 1320f, tappedY)
 
-        // 2. Tap at normalized number coordinates (200f, 550f) -> Pay must NOT be found!
+        // 2. Tap at normalized number coordinates (200f, 175f) of the other button -> Pay must NOT be found!
         val coordinator2 = ActHereCoordinator()
         var confirmPrompted2 = false
         var tappedPay2 = false
@@ -533,7 +543,7 @@ class ActHereCoordinatorTest {
                 return if (turn == 1) {
                     ModelReply(
                         parts = listOf(
-                            Part.ToolCall("call_1", "phone_tap", """{"x":200,"y":550}""")
+                            Part.ToolCall("call_1", "phone_tap", """{"x":200,"y":175}""")
                         ),
                         stopReason = StopReason.ToolUse,
                         usage = null
@@ -561,16 +571,18 @@ class ActHereCoordinatorTest {
             },
             onMaxStepsPrompt = { false },
             onStopped = {},
-            performTap = { _, _ ->
-                tappedPay2 = true
+            performTap = { x, y ->
+                if (x == payElement.x && y == payElement.y) {
+                    tappedPay2 = true
+                }
                 true
             },
             performType = { _, _, _ -> true },
             performSwipe = { true }
         )
 
-        assertFalse("Normalized numbers tap (200, 550) must not match Pay button", confirmPrompted2)
-        assertFalse("Normalized numbers tap (200, 550) must not tap Pay button", tappedPay2)
+        assertFalse("Normalized numbers tap (200, 175) must not match Pay button", confirmPrompted2)
+        assertFalse("Normalized numbers tap (200, 175) must not tap Pay button", tappedPay2)
     }
 
     @Test
@@ -603,7 +615,7 @@ class ActHereCoordinatorTest {
                         usage = null
                     )
                 } else {
-                    val toolResultPart = messages.lastOrNull()?.parts?.filterIsInstance<Part.ToolResult>()?.firstOrNull()
+                    val toolResultPart = messages.flatMap { it.parts }.filterIsInstance<Part.ToolResult>().lastOrNull()
                     receivedToolResult = toolResultPart?.content
                     return ModelReply(
                         parts = listOf(
@@ -671,7 +683,7 @@ class ActHereCoordinatorTest {
                         usage = null
                     )
                 } else {
-                    val toolResultPart = messages.lastOrNull()?.parts?.filterIsInstance<Part.ToolResult>()?.firstOrNull()
+                    val toolResultPart = messages.flatMap { it.parts }.filterIsInstance<Part.ToolResult>().lastOrNull()
                     receivedToolResult = toolResultPart?.content
                     return ModelReply(
                         parts = listOf(
