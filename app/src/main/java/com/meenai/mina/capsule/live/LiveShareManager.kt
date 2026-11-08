@@ -8,6 +8,7 @@ import com.meenai.mina.cap.phone.a11y.MainScreenCapture
 import com.meenai.mina.cap.phone.a11y.ScreenAccessibility
 import com.meenai.mina.capsule.CapsuleSecurityPolicy
 import com.meenai.mina.i18n.tr
+import com.meenai.mina.task.TaskService.Companion.isActive
 import kotlinx.coroutines.flow.StateFlow
 
 /**
