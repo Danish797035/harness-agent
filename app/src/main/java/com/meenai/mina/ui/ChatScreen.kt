@@ -1092,7 +1092,7 @@ private fun StatusCard(
                         onClick = {
                             val lastGoal = vm.ui.value.exchanges.lastOrNull()?.goal
                             if (!lastGoal.isNullOrBlank()) {
-                                vm.send(lastGoal, check = false)
+                                vm.send(lastGoal, Prerequisites.Check(emptyList()))
                             }
                         },
                         kind = ButtonKind.Tonal,
