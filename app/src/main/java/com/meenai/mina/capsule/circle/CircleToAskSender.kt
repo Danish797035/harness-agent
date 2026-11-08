@@ -39,4 +39,7 @@ object CircleToAskSender {
 
         return model.complete(SYSTEM_PROMPT, listOf(message), emptyList())
     }
+
+    fun textOf(reply: ModelReply): String =
+        reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }
 }

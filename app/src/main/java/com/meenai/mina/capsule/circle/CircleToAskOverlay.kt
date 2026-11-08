@@ -249,11 +249,11 @@ fun CircleToAskOverlay(
 
             // 5. Action card (Ask / Cancel + input) positioned below or above the rect
             val spaceBelow = screenHeightPx - rect.bottom
-            val showAbove = spaceBelow < 140.dp.toPx()
+            val showAbove = spaceBelow < 140f * density
             val cardY = if (showAbove) {
-                (rect.top - 120.dp.toPx()).coerceAtLeast(80.dp.toPx()).roundToInt()
+                (rect.top - 120f * density).coerceAtLeast(80f * density).roundToInt()
             } else {
-                (rect.bottom + 16.dp.toPx()).coerceAtMost(screenHeightPx - 130.dp.toPx()).roundToInt()
+                (rect.bottom + 16f * density).coerceAtMost(screenHeightPx - 130f * density).roundToInt()
             }
 
             Box(

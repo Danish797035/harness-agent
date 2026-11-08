@@ -1333,14 +1333,16 @@ class CapsuleController(
                 com.meenai.mina.capsule.circle.CircleToAskSender.askAboutCrop(visionModel, jpegBytes, targetW, targetH, promptText)
             }.getOrNull()
 
+            val replyText = reply?.let { com.meenai.mina.capsule.circle.CircleToAskSender.textOf(it) }
+
             withContext(Dispatchers.Main) {
-                if (reply != null && reply.text.isNotBlank()) {
+                if (!replyText.isNullOrBlank()) {
                     val convId = follow ?: app.conversations.newConversation()
                     app.conversations.append(
                         convId,
                         com.meenai.mina.core.agent.Turn(
                             userText = promptText,
-                            outcome = reply.text,
+                            outcome = replyText,
                             status = "succeeded"
                         )
                     )
