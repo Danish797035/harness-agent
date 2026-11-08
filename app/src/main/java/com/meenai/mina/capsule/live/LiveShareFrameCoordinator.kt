@@ -20,7 +20,7 @@ class LiveShareFrameCoordinator(
     private val onSendFrame: suspend (jpeg: ByteArray, width: Int, height: Int, currentTask: String?) -> Unit,
     private val onWarning: (String) -> Unit,
 ) {
-    var lastDispatchedTimeMs: Long = 0L
+    var lastDispatchedTimeMs: Long? = null
         private set
     var lastFrameHash: Long? = null
         private set
@@ -59,7 +59,8 @@ class LiveShareFrameCoordinator(
         }
 
         // 3. Rate limit: kam se kam 3 second ka gap
-        if (currentTimeMs - lastDispatchedTimeMs < minIntervalMs) {
+        val lastTime = lastDispatchedTimeMs
+        if (lastTime != null && currentTimeMs - lastTime < minIntervalMs) {
             return ProcessResult.SkippedTooSoon
         }
 
@@ -85,7 +86,7 @@ class LiveShareFrameCoordinator(
     }
 
     fun reset() {
-        lastDispatchedTimeMs = 0L
+        lastDispatchedTimeMs = null
         lastFrameHash = null
         hasWarnedNoVisionModel = false
         framesDispatchedCount = 0
