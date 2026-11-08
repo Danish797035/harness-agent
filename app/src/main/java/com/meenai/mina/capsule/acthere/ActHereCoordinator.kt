@@ -495,101 +495,134 @@ class ActHereCoordinator(
                 val json = runCatching { Json.parseToJsonElement(call.argsJson).jsonObject }.getOrNull()
                 when (call.name) {
                     "phone_tap" -> {
-                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty().trim()
                         val parsedX = json?.get("x")?.jsonPrimitive?.floatOrNull
                         val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
 
                         val matchedEl = if (parsedX != null && parsedY != null) {
                             findElementAt(screen.elements, parsedX, parsedY)
-                        } else {
+                        } else if (target.isNotBlank()) {
                             screen.elements.firstOrNull { it.label.contains(target, ignoreCase = true) }
+                        } else {
+                            null
                         }
 
-                        if (parsedX != null && parsedY != null && matchedEl == null) {
-                            toolResults.add(Part.ToolResult(call.id, """{"error":"is jagah koi button nahi"}""", true))
-                            shouldBreak = true
-                            break
-                        }
-
-                        val action = if (matchedEl != null) {
-                            ActHereAction(ActHereActionType.Tap, targetLabel = matchedEl.label.ifBlank { target }, x = parsedX ?: matchedEl.x, y = parsedY ?: matchedEl.y)
-                        } else null
-
-                        val execResult = executeGatedAction(
-                            action = action,
-                            screenTexts = screen.screenTexts,
-                            foregroundPackages = screen.foregroundPackages,
-                            appAccessState = screen.appAccessState,
-                            onConfirmRequest = onConfirm,
-                            onStatusUpdate = onStatus,
-                            performAction = { act ->
-                                onHighlight(act.x, act.y)
-                                performTap(act.x, act.y)
-                            }
-                        )
-
-                        toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
-
-                        if (execResult.decision is StepDecision.PaymentScreenHandover) {
-                            onHandover("Ye aap khud karo")
-                            shouldBreak = true
-                        } else if (execResult.decision is StepDecision.BlockedApp || execResult.decision is StepDecision.Stopped || execResult.decision is StepDecision.TargetNotFound) {
-                            shouldBreak = true
-                        } else if (execResult.decision is StepDecision.MaxStepsReached) {
-                            val cont = onMaxStepsPrompt()
-                            if (!cont) {
-                                stop()
-                                shouldBreak = true
+                        if (matchedEl == null) {
+                            stepCount++
+                            val errMsg = if (parsedX != null && parsedY != null) {
+                                "Is jagah koi button nahi"
+                            } else if (target.isBlank()) {
+                                "Target khali hai aur koi coordinates nahi diye"
                             } else {
-                                continueSteps()
+                                "Target not found on screen. No tap performed."
                             }
-                        } else if (!execResult.executed && execResult.decision is StepDecision.RequireConfirmation) {
-                            shouldBreak = true
+                            toolResults.add(Part.ToolResult(call.id, """{"error":"$errMsg"}""", true))
+                        } else {
+                            val action = ActHereAction(
+                                ActHereActionType.Tap,
+                                targetLabel = matchedEl.label.ifBlank { target },
+                                x = matchedEl.x,
+                                y = matchedEl.y
+                            )
+
+                            val execResult = executeGatedAction(
+                                action = action,
+                                screenTexts = screen.screenTexts,
+                                foregroundPackages = screen.foregroundPackages,
+                                appAccessState = screen.appAccessState,
+                                onConfirmRequest = onConfirm,
+                                onStatusUpdate = onStatus,
+                                performAction = { act ->
+                                    onHighlight(act.x, act.y)
+                                    performTap(act.x, act.y)
+                                }
+                            )
+
+                            toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+
+                            if (execResult.decision is StepDecision.PaymentScreenHandover) {
+                                onHandover("Ye aap khud karo")
+                                shouldBreak = true
+                            } else if (execResult.decision is StepDecision.BlockedApp || execResult.decision is StepDecision.Stopped) {
+                                shouldBreak = true
+                            } else if (execResult.decision is StepDecision.MaxStepsReached) {
+                                val cont = onMaxStepsPrompt()
+                                if (!cont) {
+                                    stop()
+                                    shouldBreak = true
+                                } else {
+                                    continueSteps()
+                                }
+                            } else if (!execResult.executed && execResult.decision is StepDecision.RequireConfirmation) {
+                                shouldBreak = true
+                            }
                         }
                     }
                     "phone_type" -> {
                         val text = json?.get("text")?.jsonPrimitive?.contentOrNull.orEmpty()
-                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val target = json?.get("target")?.jsonPrimitive?.contentOrNull.orEmpty().trim()
                         val parsedX = json?.get("x")?.jsonPrimitive?.floatOrNull
                         val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
 
                         val matchedEl = if (parsedX != null && parsedY != null) {
                             findElementAt(screen.elements, parsedX, parsedY)
-                        } else {
-                            screen.elements.firstOrNull { it.editable || it.label.contains(target, ignoreCase = true) }
-                        }
-
-                        if (parsedX != null && parsedY != null && matchedEl == null) {
-                            toolResults.add(Part.ToolResult(call.id, """{"error":"is jagah koi button nahi"}""", true))
-                            shouldBreak = true
-                            break
-                        }
-
-                        val action = if (matchedEl != null) {
-                            ActHereAction(ActHereActionType.Type, targetLabel = matchedEl.label.ifBlank { target.ifBlank { "Input" } }, x = parsedX ?: matchedEl.x, y = parsedY ?: matchedEl.y, textToType = text)
                         } else if (target.isNotBlank()) {
-                            ActHereAction(ActHereActionType.Type, targetLabel = target, textToType = text)
-                        } else null
+                            screen.elements.firstOrNull { it.editable && it.label.contains(target, ignoreCase = true) }
+                                ?: screen.elements.firstOrNull { it.label.contains(target, ignoreCase = true) }
+                        } else {
+                            null
+                        }
 
-                        val execResult = executeGatedAction(
-                            action = action,
-                            screenTexts = screen.screenTexts,
-                            foregroundPackages = screen.foregroundPackages,
-                            appAccessState = screen.appAccessState,
-                            onConfirmRequest = onConfirm,
-                            onStatusUpdate = onStatus,
-                            performAction = { act ->
-                                performType(act.textToType ?: text, act.x, act.y)
+                        if (matchedEl == null) {
+                            stepCount++
+                            val errMsg = if (parsedX != null && parsedY != null) {
+                                "Is jagah koi button nahi"
+                            } else if (target.isBlank()) {
+                                "Target khali hai aur koi coordinates nahi diye"
+                            } else {
+                                "Target input not found on screen"
                             }
-                        )
+                            toolResults.add(Part.ToolResult(call.id, """{"error":"$errMsg"}""", true))
+                        } else {
+                            val action = ActHereAction(
+                                ActHereActionType.Type,
+                                targetLabel = matchedEl.label.ifBlank { target.ifBlank { "Input" } },
+                                x = matchedEl.x,
+                                y = matchedEl.y,
+                                textToType = text
+                            )
 
-                        toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+                            val execResult = executeGatedAction(
+                                action = action,
+                                screenTexts = screen.screenTexts,
+                                foregroundPackages = screen.foregroundPackages,
+                                appAccessState = screen.appAccessState,
+                                onConfirmRequest = onConfirm,
+                                onStatusUpdate = onStatus,
+                                performAction = { act ->
+                                    onHighlight(act.x, act.y)
+                                    performType(act.textToType ?: text, act.x, act.y)
+                                }
+                            )
 
-                        if (execResult.decision is StepDecision.PaymentScreenHandover) {
-                            onHandover("Ye aap khud karo")
-                            shouldBreak = true
-                        } else if (!execResult.executed) {
-                            shouldBreak = true
+                            toolResults.add(Part.ToolResult(call.id, execResult.toolResultContent, !execResult.executed))
+
+                            if (execResult.decision is StepDecision.PaymentScreenHandover) {
+                                onHandover("Ye aap khud karo")
+                                shouldBreak = true
+                            } else if (execResult.decision is StepDecision.BlockedApp || execResult.decision is StepDecision.Stopped) {
+                                shouldBreak = true
+                            } else if (execResult.decision is StepDecision.MaxStepsReached) {
+                                val cont = onMaxStepsPrompt()
+                                if (!cont) {
+                                    stop()
+                                    shouldBreak = true
+                                } else {
+                                    continueSteps()
+                                }
+                            } else if (!execResult.executed && execResult.decision is StepDecision.RequireConfirmation) {
+                                shouldBreak = true
+                            }
                         }
                     }
                     "phone_swipe" -> {

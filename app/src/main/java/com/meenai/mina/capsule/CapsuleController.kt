@@ -1487,7 +1487,7 @@ class CapsuleController(
 
             if (routerModel == null) {
                 withContext(Dispatchers.Main) {
-                    showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                    showNote(tr(R.string.act_here_no_model), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                     stopActHere()
                 }
                 return@launch
@@ -1498,7 +1498,9 @@ class CapsuleController(
                 val windows = service.windowsOn(Display.DEFAULT_DISPLAY).filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
                 val m = service.resources.displayMetrics
                 val size = runCatching { service.overlays().area() }.getOrNull()
-                val screenRead = ScreenReader.read(windows, size?.width ?: m.widthPixels, size?.height ?: m.heightPixels)
+                val screenWidth = (size?.width ?: m.widthPixels).toFloat()
+                val screenHeight = (size?.height ?: m.heightPixels).toFloat()
+                val screenRead = ScreenReader.read(windows, screenWidth.toInt(), screenHeight.toInt())
                 val elements = screenRead.entries.mapNotNull { entry ->
                     val name = entry.element.name
                     if (name.isBlank() && !entry.element.clickable && !entry.element.editable) null
@@ -1512,10 +1514,10 @@ class CapsuleController(
                             secret = entry.element.secret,
                             bounds = if (entry.element.bounds.size == 4) {
                                 listOf(
-                                    entry.element.bounds[0].toFloat(),
-                                    entry.element.bounds[1].toFloat(),
-                                    entry.element.bounds[2].toFloat(),
-                                    entry.element.bounds[3].toFloat()
+                                    entry.element.bounds[0] * screenWidth / 1000f,
+                                    entry.element.bounds[1] * screenHeight / 1000f,
+                                    entry.element.bounds[2] * screenWidth / 1000f,
+                                    entry.element.bounds[3] * screenHeight / 1000f
                                 )
                             } else emptyList()
                         )

@@ -220,15 +220,25 @@ class ActHereCoordinatorTest {
 
         // 3. In runActHereLoop with a fake model issuing phone_tap on a missing element
         val fakeModel = object : ChatModel {
+            var turn = 0
             override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
             override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-                return ModelReply(
-                    parts = listOf(
-                        Part.ToolCall("call_1", "phone_tap", """{"target":"NonExistentButton"}""")
-                    ),
-                    stopReason = StopReason.ToolUse,
-                    usage = null
-                )
+                turn++
+                return if (turn == 1) {
+                    ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_1", "phone_tap", """{"target":"NonExistentButton"}""")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                } else {
+                    ModelReply(
+                        parts = listOf(Part.ToolCall("call_2", "done", "{}")),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                }
             }
         }
 
@@ -425,6 +435,211 @@ class ActHereCoordinatorTest {
     }
 
     @Test
+    fun normalizedBoundsConvertedToPixelFindsPayOnPixelTapAndRejectsNormalizedTap() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        val screenWidth = 1080f
+        val screenHeight = 2400f
+
+        // Raw element with normalized bounds 0-999: [100, 500, 300, 600], center (216, 1320)
+        // Converted to pixels in CapsuleController:
+        val payElement = UiElementSummary(
+            label = "Pay",
+            x = 216f,
+            y = 1320f,
+            bounds = listOf(
+                100 * screenWidth / 1000f,   // 108f
+                500 * screenHeight / 1000f,  // 1200f
+                300 * screenWidth / 1000f,   // 324f
+                600 * screenHeight / 1000f   // 1440f
+            )
+        )
+        // Another button with normalized bounds [100, 100, 300, 250], center (216, 420)
+        val otherElement = UiElementSummary(
+            label = "Cancel",
+            x = 216f,
+            y = 420f,
+            bounds = listOf(
+                100 * screenWidth / 1000f,   // 108f
+                100 * screenHeight / 1000f,  // 240f
+                300 * screenWidth / 1000f,   // 324f
+                250 * screenHeight / 1000f   // 600f
+            )
+        )
+
+        val screenSnapshot = ScreenSnapshotData(
+            elements = listOf(payElement, otherElement),
+            screenTexts = listOf("Amount: ₹499"),
+            foregroundPackages = listOf("org.wikipedia"),
+            appAccessState = AppAccessState(available = true),
+            topPackage = "org.wikipedia"
+        )
+
+        // 1. Tap at pixel coordinates (150f, 1250f) inside Pay bounds [108f, 1200f, 324f, 1440f]
+        var confirmPromptedForPay = false
+        var tappedX: Float? = null
+        var tappedY: Float? = null
+
+        val fakeModelPixel = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                return ModelReply(
+                    parts = listOf(
+                        Part.ToolCall("call_1", "phone_tap", """{"x":150,"y":1250}""")
+                    ),
+                    stopReason = StopReason.ToolUse,
+                    usage = null
+                )
+            }
+        }
+
+        coordinator.runActHereLoop(
+            model = fakeModelPixel,
+            goal = "Pay",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { label ->
+                if (label == "Pay") confirmPromptedForPay = true
+                true
+            },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { x, y ->
+                tappedX = x
+                tappedY = y
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertTrue("Pixel tap inside Pay bounds must find Pay and request confirm", confirmPromptedForPay)
+        // Point 2: Tap button ke center pe karo (matchedEl.x, matchedEl.y), model ke x,y pe nahi
+        assertEquals("Tap X must be button center (216f), not model X (150f)", 216f, tappedX)
+        assertEquals("Tap Y must be button center (1320f), not model Y (1250f)", 1320f, tappedY)
+
+        // 2. Tap at normalized number coordinates (200f, 550f) -> Pay must NOT be found!
+        val coordinator2 = ActHereCoordinator()
+        var confirmPrompted2 = false
+        var tappedPay2 = false
+
+        val fakeModelNormalized = object : ChatModel {
+            var turn = 0
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                turn++
+                return if (turn == 1) {
+                    ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_1", "phone_tap", """{"x":200,"y":550}""")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                } else {
+                    ModelReply(
+                        parts = listOf(Part.ToolCall("call_2", "done", "{}")),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                }
+            }
+        }
+
+        coordinator2.runActHereLoop(
+            model = fakeModelNormalized,
+            goal = "Pay",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { label ->
+                if (label == "Pay") confirmPrompted2 = true
+                true
+            },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { _, _ ->
+                tappedPay2 = true
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertFalse("Normalized numbers tap (200, 550) must not match Pay button", confirmPrompted2)
+        assertFalse("Normalized numbers tap (200, 550) must not tap Pay button", tappedPay2)
+    }
+
+    @Test
+    fun targetKhaliHoAurXyBhiNaHoToKoiTapNahiModelKoError() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        val screenSnapshot = ScreenSnapshotData(
+            elements = listOf(
+                UiElementSummary(label = "First Button", x = 100f, y = 100f, bounds = listOf(50f, 80f, 150f, 120f))
+            ),
+            screenTexts = listOf("First Button"),
+            foregroundPackages = listOf("org.wikipedia"),
+            appAccessState = AppAccessState(available = true),
+            topPackage = "org.wikipedia"
+        )
+
+        var tapExecuted = false
+        var turnCount = 0
+        var receivedToolResult: String? = null
+
+        val fakeModel = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                turnCount++
+                if (turnCount == 1) {
+                    return ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_1", "phone_tap", """{"target":""}""")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                } else {
+                    val toolResultPart = messages.lastOrNull()?.parts?.filterIsInstance<Part.ToolResult>()?.firstOrNull()
+                    receivedToolResult = toolResultPart?.content
+                    return ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_2", "done", "{}")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                }
+            }
+        }
+
+        coordinator.runActHereLoop(
+            model = fakeModel,
+            goal = "Tap blank target",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { false },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { _, _ ->
+                tapExecuted = true
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertFalse("Empty target and no x,y must not tap pehla element", tapExecuted)
+        assertEquals("Step count should increment", 1, coordinator.stepCount)
+        assertNotNull("Model should receive error result", receivedToolResult)
+        assertTrue("Tool result must contain error", receivedToolResult?.contains("error") == true)
+    }
+
+    @Test
     fun xyKhaliJagahParHoToTapNaHo() = runBlocking {
         val coordinator = ActHereCoordinator()
         val screenSnapshot = ScreenSnapshotData(
@@ -438,18 +653,33 @@ class ActHereCoordinatorTest {
         )
 
         var tapExecuted = false
+        var turnCount = 0
+        var receivedToolResult: String? = null
 
-        // Model sends phone_tap with coordinates on empty space (no button)
+        // Model sends phone_tap with coordinates on empty space on turn 1, then done on turn 2
         val fakeModel = object : ChatModel {
             override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
             override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-                return ModelReply(
-                    parts = listOf(
-                        Part.ToolCall("call_1", "phone_tap", """{"x":750,"y":900}""")
-                    ),
-                    stopReason = StopReason.ToolUse,
-                    usage = null
-                )
+                turnCount++
+                if (turnCount == 1) {
+                    return ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_1", "phone_tap", """{"x":750,"y":900}""")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                } else {
+                    val toolResultPart = messages.lastOrNull()?.parts?.filterIsInstance<Part.ToolResult>()?.firstOrNull()
+                    receivedToolResult = toolResultPart?.content
+                    return ModelReply(
+                        parts = listOf(
+                            Part.ToolCall("call_2", "done", "{}")
+                        ),
+                        stopReason = StopReason.ToolUse,
+                        usage = null
+                    )
+                }
             }
         }
 
@@ -472,6 +702,10 @@ class ActHereCoordinatorTest {
         )
 
         assertFalse("No tap must be executed on empty/khali space", tapExecuted)
+        assertEquals("Loop must continue and stepCount increment", 1, coordinator.stepCount)
+        assertFalse("Task must not be stopped on button not found", coordinator.isStopped)
+        assertNotNull("Model must receive tool result", receivedToolResult)
+        assertTrue("Error must say 'Is jagah koi button nahi'", receivedToolResult?.contains("Is jagah koi button nahi", ignoreCase = true) == true)
     }
 
     @Test

@@ -87,4 +87,5 @@
     <string name="act_here_continue">आगे बढ़ें</string>
     <string name="act_here_prompt_hint">इस स्क्रीन पर क्या करना है?</string>
     <string name="act_here_start">शुरू करें</string>
+    <string name="act_here_no_model">कोई AI मॉडल सेट नहीं है</string>
 </resources>
