@@ -15,6 +15,7 @@ import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.ModelCandidate
+import com.meenai.mina.core.router.picker.ModelRankingsRepository
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.picker.ModelScorer
 import com.meenai.mina.core.router.picker.ModelSizeParser
