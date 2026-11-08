@@ -245,4 +245,157 @@ class SmartModelPickerTest {
         // The unknown size frontier model with 1M context must rank above 0.5B and 1B models!
         assertEquals(unknownBigCtx.id, ranked[0].id)
     }
+
+    @Test
+    fun qwenImageAndImage21ExcludedFromAllRoles() {
+        val picker = AutoModelPicker(apiClient = { "[]" })
+
+        val qwenImage = ModelCandidate(
+            provider = "modelscope",
+            id = "Qwen/Qwen-Image",
+            contextTokens = 32768,
+            supportsTools = true,
+            supportsImages = true,
+            isFree = true,
+        )
+
+        val qwenImage21 = ModelCandidate(
+            provider = "modelscope",
+            id = "Qwen/Qwen-Image-2.1",
+            contextTokens = 32768,
+            supportsTools = true,
+            supportsImages = true,
+            isFree = true,
+        )
+
+        val qwenVL = ModelCandidate(
+            provider = "modelscope",
+            id = "Qwen/Qwen2.5-VL-72B-Instruct",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = true,
+            isFree = true,
+            totalParamsB = 72.0,
+        )
+
+        val candidates = listOf(qwenImage, qwenImage21, qwenVL)
+
+        // Qwen-Image and Qwen-Image-2.1 must be excluded from all roles
+        for (role in ModelRole.entries) {
+            val filtered = picker.filterCandidates(candidates, role)
+            assertFalse("Qwen-Image must not pass for $role", filtered.contains(qwenImage))
+            assertFalse("Qwen-Image-2.1 must not pass for $role", filtered.contains(qwenImage21))
+        }
+
+        // Qwen2.5-VL must NOT be excluded
+        val visionFiltered = picker.filterCandidates(candidates, ModelRole.Vision)
+        assertTrue("Qwen2.5-VL must pass for Vision role", visionFiltered.contains(qwenVL))
+
+        // Vision tag checks
+        assertFalse(ChatModelFilter.supportsVision("Qwen/Qwen-Image"))
+        assertFalse(ChatModelFilter.supportsVision("Qwen/Qwen-Image-2.1"))
+        assertFalse(ChatModelFilter.supportsVision("Qwen-Image"))
+        assertTrue(ChatModelFilter.supportsVision("Qwen2.5-VL"))
+        assertTrue(ChatModelFilter.supportsVision("Qwen/Qwen2.5-VL-72B-Instruct"))
+    }
+
+    @Test
+    fun supportsVision_strictTokenMatchingForVl() {
+        // Must match on token boundaries
+        assertTrue(ChatModelFilter.supportsVision("Qwen2.5-VL"))
+        assertTrue(ChatModelFilter.supportsVision("Qwen/Qwen2.5-VL-72B-Instruct"))
+        assertTrue(ChatModelFilter.supportsVision("qwen_vl_chat"))
+        assertTrue(ChatModelFilter.supportsVision("vl-adapter"))
+        assertTrue(ChatModelFilter.supportsVision("meta-llama/llama-3.2-11b-vision-instruct"))
+
+        // Must NOT falsely match loose substring "vl" in regular words
+        assertFalse(ChatModelFilter.supportsVision("evolve-70b"))
+        assertFalse(ChatModelFilter.supportsVision("silver-14b"))
+        assertFalse(ChatModelFilter.supportsVision("development-model"))
+        assertFalse(ChatModelFilter.supportsVision("overlap-32b"))
+    }
+
+    @Test
+    fun emptyRankings_picksMainLightVisionCodingLongSuccessfully() {
+        // When model-rankings.json has "models": [], picker still picks all roles using live data
+        val emptyRepo = ModelRankingsRepository(
+            cacheStore = InMemoryModelRankingsCacheStore(),
+            bundledResourceSupplier = {
+                """{"updatedAt":"2026-11-08T00:00:00Z","version":1,"sources":[],"models":[]}"""
+            }
+        )
+
+        val heavyMain = ModelCandidate(
+            provider = "openrouter",
+            id = "deepseek/deepseek-v3:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            totalParamsB = 671.0,
+        )
+
+        val codingModel = ModelCandidate(
+            provider = "openrouter",
+            id = "qwen/qwen-2.5-coder-32b-instruct:free",
+            contextTokens = 32768,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            totalParamsB = 32.0,
+        )
+
+        val lightFast = ModelCandidate(
+            provider = "openrouter",
+            id = "meta-llama/llama-3.1-8b-instruct:free",
+            contextTokens = 32768,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            totalParamsB = 8.0,
+        )
+
+        val visionModel = ModelCandidate(
+            provider = "openrouter",
+            id = "qwen/qwen2.5-vl-72b-instruct:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = true,
+            isFree = true,
+            totalParamsB = 72.0,
+        )
+
+        val longContextModel = ModelCandidate(
+            provider = "openrouter",
+            id = "google/gemini-2.0-flash-exp:free",
+            contextTokens = 1048576,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            totalParamsB = 20.0,
+        )
+
+        val pool = listOf(heavyMain, codingModel, lightFast, visionModel, longContextModel)
+        val picker = AutoModelPicker(apiClient = { "[]" }, rankingsRepository = emptyRepo)
+
+        val pickedMain = picker.pickFromCandidates(pool, ModelRole.Main)
+        assertNotNull(pickedMain)
+        assertEquals("deepseek/deepseek-v3:free", pickedMain?.id)
+
+        val pickedCoding = picker.pickFromCandidates(pool, ModelRole.Coding)
+        assertNotNull(pickedCoding)
+        assertEquals("qwen/qwen-2.5-coder-32b-instruct:free", pickedCoding?.id)
+
+        val pickedLight = picker.pickFromCandidates(pool, ModelRole.Light)
+        assertNotNull(pickedLight)
+        assertEquals("meta-llama/llama-3.1-8b-instruct:free", pickedLight?.id)
+
+        val pickedVision = picker.pickFromCandidates(pool, ModelRole.Vision)
+        assertNotNull(pickedVision)
+        assertEquals("qwen/qwen2.5-vl-72b-instruct:free", pickedVision?.id)
+
+        val pickedLong = picker.pickFromCandidates(pool, ModelRole.Long)
+        assertNotNull(pickedLong)
+        assertEquals("google/gemini-2.0-flash-exp:free", pickedLong?.id)
+    }
 }

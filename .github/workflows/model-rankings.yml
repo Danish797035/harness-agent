@@ -22,8 +22,6 @@ jobs:
           python-version: '3.11'
 
       - name: Update model rankings
-        env:
-          ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
         run: |
           python3 tools/update_model_rankings.py
 
@@ -31,10 +29,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ -n $(git status --porcelain model-rankings.json core/src/main/resources/model-rankings.json) ]]; then
+          HAS_MODELS=$(python3 -c 'import json; d=json.load(open("model-rankings.json")); print(1 if len(d.get("models", [])) > 0 else 0)' 2>/dev/null || echo 0)
+          if [[ "$HAS_MODELS" -eq 1 ]] && [[ -n $(git status --porcelain model-rankings.json core/src/main/resources/model-rankings.json) ]]; then
             git add model-rankings.json core/src/main/resources/model-rankings.json
             git commit -m "Automated: update model-rankings.json from public leaderboards"
             git push
           else
-            echo "No changes in model-rankings.json"
+            echo "No models fetched or no changes, keeping existing rankings file"
           fi

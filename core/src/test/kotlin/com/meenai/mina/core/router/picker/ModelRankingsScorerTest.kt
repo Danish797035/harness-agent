@@ -128,4 +128,28 @@ class ModelRankingsScorerTest {
         assertNotNull(picked)
         assertEquals("qwen/qwen-2.5-coder-32b-instruct:free", picked?.id)
     }
+
+    @Test
+    fun emptyRankings_reliesPurelyOnLiveData() {
+        val emptyRepo = ModelRankingsRepository(
+            cacheStore = InMemoryModelRankingsCacheStore(),
+            bundledResourceSupplier = {
+                """{"updatedAt":"2026-11-08T00:00:00Z","version":1,"sources":[],"models":[]}"""
+            }
+        )
+        val candidate = ModelCandidate(
+            provider = "openrouter",
+            id = "custom/unknown-model-70b:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            totalParamsB = 70.0,
+            parameterSizeB = 70.0,
+        )
+
+        val ranking = emptyRepo.findRanking(candidate.id)
+        val score = ModelScorer.computeScore(candidate, ranking)
+        assertTrue("Live score computed when rankings are empty", score >= 70.0)
+    }
 }
