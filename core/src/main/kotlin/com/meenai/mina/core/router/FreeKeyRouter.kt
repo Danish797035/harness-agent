@@ -89,6 +89,7 @@ class FreeKeyRouter(
     /** When every candidate is cooling down, wait inline (user just sees loading) if the shortest cooldown is at most this long. */
     val maxInlineWaitMs: Long = 15_000L,
     val onModelSwitched: ((oldModel: String?, newModel: String, reason: String) -> Unit)? = null,
+    val rankingsRepository: ModelRankingsRepository? = null,
 ) : StreamingChatModel {
 
     val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
@@ -574,13 +575,18 @@ class FreeKeyRouter(
             }
             ModelRole.Long -> {
                 compareByDescending<RouterCandidate> { it.model.capabilities.contextTokens }
-                    .thenByDescending { ModelScorer.computeScore(it.candidateInfo ?: it.toModelCandidate()) }
+                    .thenByDescending {
+                        val info = it.candidateInfo ?: it.toModelCandidate()
+                        val ranking = rankingsRepository?.findRanking(it.id)
+                        ModelScorer.computeScore(info, ranking, targetRole)
+                    }
                     .thenByDescending { healthTracker.score(it.id) }
             }
             else -> {
                 compareByDescending<RouterCandidate> {
                     val info = it.candidateInfo ?: it.toModelCandidate()
-                    ModelScorer.computeScore(info)
+                    val ranking = rankingsRepository?.findRanking(it.id)
+                    ModelScorer.computeScore(info, ranking, targetRole)
                 }.thenByDescending { healthTracker.score(it.id) }
                  .thenByDescending { it.model.capabilities.contextTokens }
             }

@@ -1,0 +1,40 @@
+name: Update Model Rankings
+
+on:
+  schedule:
+    # Run once a week on Monday at 03:00 UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-rankings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Update model rankings
+        env:
+          ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
+        run: |
+          python3 scripts/update_model_rankings.py
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ -n $(git status --porcelain model-rankings.json core/src/main/resources/model-rankings.json) ]]; then
+            git add model-rankings.json core/src/main/resources/model-rankings.json
+            git commit -m "Automated: update model-rankings.json from public leaderboards"
+            git push
+          else
+            echo "No changes in model-rankings.json"
+          fi

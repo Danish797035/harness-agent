@@ -5,20 +5,28 @@ import kotlin.math.ln
 /**
  * Scoring and ranking engine for model candidates.
  *
- * Implements heavy-to-light ranking:
+ * Implements heavy-to-light ranking and internet benchmark score integration:
  * 1. Sabse heavy upar (largest parameter capacity / MoE total parameters).
  * 2. Unknown size gets a fair baseline (~20B), NOT 0 (so it never sinks below 0.5B/1B models).
  * 3. Context window (logarithmic scaling).
  * 4. Extended reasoning / thinking capabilities.
  * 5. Vision / multimodal capabilities.
  * 6. Nayapan (newer release date timestamp as fine tie-breaker).
+ * 7. Leaderboard ranking match (LMSYS Chatbot Arena, Open LLM Leaderboard):
+ *    - Overall score, coding score, tool use score, vision score, speed score.
+ *    - If no match found, scores purely using live data.
  */
 object ModelScorer {
 
     /**
-     * Computes the heaviness / capability score for a [ModelCandidate].
+     * Computes the heaviness / capability score for a [ModelCandidate] using live data,
+     * optionally enhanced by public leaderboard rankings.
      */
-    fun computeScore(model: ModelCandidate): Double {
+    fun computeScore(
+        model: ModelCandidate,
+        ranking: ModelRankingEntry? = null,
+        role: ModelRole = ModelRole.Main,
+    ): Double {
         // 1. Parameter size component
         val sizeScore = when {
             model.totalParamsB != null -> model.totalParamsB
@@ -47,14 +55,28 @@ object ModelScorer {
             (model.releaseDateEpoch.toDouble() / 1_000_000_000.0) * 0.001
         } else 0.0
 
-        return sizeScore + ctxScore + featureScore + recencyScore
+        val liveDataScore = sizeScore + ctxScore + featureScore + recencyScore
+
+        // 5. Leaderboard score enhancement if matched
+        if (ranking == null) {
+            // Match na ho to sirf live data se score
+            return liveDataScore
+        }
+
+        val benchmarkComponent = when (role) {
+            ModelRole.Coding -> ranking.codingScore * 0.6 + ranking.overallScore * 0.4
+            ModelRole.Vision -> ranking.visionScore * 0.6 + ranking.overallScore * 0.4
+            ModelRole.Main -> ranking.toolUseScore * 0.5 + ranking.overallScore * 0.5
+            ModelRole.Light -> ranking.speedScore * 0.5 + (100.0 - (model.parameterSizeB.coerceAtMost(70.0))) * 0.5
+            ModelRole.Long -> ranking.overallScore * 0.5 + ctxScore * 5.0
+        }
+
+        // Blend live capability score with benchmark score (50% live capacity + 50% benchmark score)
+        return (liveDataScore * 0.5) + (benchmarkComponent * 0.5)
     }
 
     /**
-     * Comparator for sorting models from heaviest to lightest:
-     * - Heaviest score first
-     * - Larger context window next
-     * - Model ID ascending as deterministic tie-breaker
+     * Heavy-to-light comparator using live data only.
      */
     val HEAVY_TO_LIGHT_COMPARATOR: Comparator<ModelCandidate> = Comparator { a, b ->
         val scoreDiff = computeScore(b).compareTo(computeScore(a))
@@ -65,6 +87,28 @@ object ModelScorer {
 
         val dateDiff = b.releaseDateEpoch.compareTo(a.releaseDateEpoch)
         if (dateDiff != 0) return@Comparator dateDiff
+
+        a.id.compareTo(b.id)
+    }
+
+    /**
+     * Creates a comparator taking into account role-specific requirements and leaderboard rankings.
+     */
+    fun createComparator(
+        repository: ModelRankingsRepository? = null,
+        role: ModelRole = ModelRole.Main,
+    ): Comparator<ModelCandidate> = Comparator { a, b ->
+        val rankA = repository?.findRanking(a.id)
+        val rankB = repository?.findRanking(b.id)
+
+        val scoreA = computeScore(a, rankA, role)
+        val scoreB = computeScore(b, rankB, role)
+
+        val scoreDiff = scoreB.compareTo(scoreA)
+        if (scoreDiff != 0) return@Comparator scoreDiff
+
+        val ctxDiff = b.contextTokens.compareTo(a.contextTokens)
+        if (ctxDiff != 0) return@Comparator ctxDiff
 
         a.id.compareTo(b.id)
     }

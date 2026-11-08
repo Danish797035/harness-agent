@@ -28,6 +28,7 @@ class AutoModelPicker(
     private val healthSource: HealthSource = HealthSource.DEFAULT,
     private val clock: Clock = Clock.SYSTEM,
     private val cacheTtlMs: Long = ONE_DAY_MS,
+    private val rankingsRepository: ModelRankingsRepository? = null,
 ) {
 
     /**
@@ -178,16 +179,20 @@ class AutoModelPicker(
      * Main role: sabse heavy (flagship, reasoning, large capacity).
      */
     private fun rankMainRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        return candidates.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Main) }
+            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        return candidates.sortedWith(comparator)
     }
 
     /**
      * Coding role: coding-specialized models or heaviest capable models.
      */
     private fun rankCodingRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Coding) }
+            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
         val codingModels = candidates.filter { it.id.contains("coder", ignoreCase = true) }
         val pool = if (codingModels.isNotEmpty()) codingModels else candidates
-        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+        return pool.sortedWith(comparator)
     }
 
     /**
@@ -195,26 +200,32 @@ class AutoModelPicker(
      * Prefers models in the <= 10B range or marked small/mini/lite, ordered by quality.
      */
     private fun rankLightRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Light) }
+            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
         val lightModels = candidates.filter { isLightModel(it) }
         val pool = if (lightModels.isNotEmpty()) lightModels else candidates
-        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+        return pool.sortedWith(comparator)
     }
 
     /**
      * Vision role: best image understanding (excluding image-gen/edit models).
      */
     private fun rankVisionRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Vision) }
+            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
         val visionModels = candidates.filter { it.supportsImages && !ChatModelFilter.isImageEditOrGen(it.id) }
         val pool = if (visionModels.isNotEmpty()) visionModels else candidates
-        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+        return pool.sortedWith(comparator)
     }
 
     /**
      * Long role: models with massive context windows.
      */
     private fun rankLongRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val baseComparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Long) }
+            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
         val comparator = compareByDescending<ModelCandidate> { it.contextTokens }
-            .thenComparing(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+            .thenComparing(baseComparator)
         return candidates.sortedWith(comparator)
     }
 

@@ -12,6 +12,7 @@ import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
+import com.meenai.mina.core.router.picker.ModelRankingsRepository
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.picker.ModelSizeParser
 import com.meenai.mina.core.router.preset.ModelScopePreset
@@ -91,20 +92,31 @@ object AppFreeKeyRouter {
         return list
     }
 
+    private val sharedRankingsRepo: ModelRankingsRepository by lazy {
+        ModelRankingsRepository()
+    }
+
+    fun getRankingsRepository(): ModelRankingsRepository = sharedRankingsRepo
+
     /**
      * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
      */
     fun createRouter(
         store: ProviderStore,
         http: OkHttpClient = OkHttpClient(),
+        rankingsRepository: ModelRankingsRepository = sharedRankingsRepo,
     ): FreeKeyRouter {
         val candidates = createCandidates(store, http)
-        val picker = AutoModelPicker(HttpOpenRouterApiClient(http))
+        val picker = AutoModelPicker(
+            apiClient = HttpOpenRouterApiClient(http),
+            rankingsRepository = rankingsRepository,
+        )
         val diffRouter = DifficultyRouter(picker = picker)
         return FreeKeyRouter(
             candidates = candidates,
             difficultyRouter = diffRouter,
             firstTokenTimeoutMs = 15_000L,
+            rankingsRepository = rankingsRepository,
         )
     }
 
