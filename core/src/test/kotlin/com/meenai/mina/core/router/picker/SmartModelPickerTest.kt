@@ -308,6 +308,12 @@ class SmartModelPickerTest {
         assertTrue(ChatModelFilter.supportsVision("vl-adapter"))
         assertTrue(ChatModelFilter.supportsVision("meta-llama/llama-3.2-11b-vision-instruct"))
 
+        // InternVL and GLM-v vision models must be recognized
+        assertTrue(ChatModelFilter.supportsVision("OpenGVLab/InternVL3.5-241B-A28B"))
+        assertTrue(ChatModelFilter.supportsVision("OpenGVLab/InternVL3_5-241B-A28B"))
+        assertTrue(ChatModelFilter.supportsVision("zai-org/glm-4.5v"))
+        assertTrue(ChatModelFilter.supportsVision("glm-4v"))
+
         // Must NOT falsely match loose substring "vl" in regular words
         assertFalse(ChatModelFilter.supportsVision("evolve-70b"))
         assertFalse(ChatModelFilter.supportsVision("silver-14b"))

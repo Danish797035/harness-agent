@@ -27,11 +27,15 @@ object ChatModelFilter {
         Regex("""(?i)\b(?:embedding|embeddings|rerank|reranker|bge)\b"""),
         Regex("""(?i)\b(?:tts|stt|asr|whisper|speech|voice|audio|transcribe)\b"""),
         Regex("""(?i)\b(?:moderation|guard|reward|discriminator|ocr)\b"""),
+        Regex("""(?i)^openrouter/(?:free|auto|flavor.*)$"""),
+        Regex("""(?i)\blyria\b"""),
     )
 
     // Token boundary match for "vl": "-vl", "vl-", "_vl", or standalone "vl" token
     private val VL_TOKEN_REGEX = Regex("""(?i)(?:^|[-_/])vl(?:[-_/]|$)""")
     private val VISION_TOKEN_REGEX = Regex("""(?i)(?:^|[-_/])(?:vision|omni)(?:[-_/]|$)""")
+    private val INTERN_VL_REGEX = Regex("""(?i)\bintern[-_]?vl""")
+    private val GLM_V_REGEX = Regex("""(?i)(?:^|[-_/])glm-?\d+(?:\.\d+)?v(?:[-_/]|$)""")
 
     /**
      * Checks if a model ID or name represents an image generation or editing model.
@@ -53,20 +57,23 @@ object ChatModelFilter {
      */
     fun isExcluded(modelId: String, name: String = ""): Boolean {
         if (isImageEditOrGen(modelId, name)) return true
+        val cleanId = modelId.substringBefore(':').trim()
         val combined = "$modelId $name"
-        return NON_CHAT_PATTERNS.any { it.containsMatchIn(combined) }
+        return NON_CHAT_PATTERNS.any { it.containsMatchIn(cleanId) || it.containsMatchIn(combined) }
     }
 
     /**
      * Determines if a model genuinely supports multimodal vision input for chat.
      * Image-edit and image-generation models MUST return false.
-     * Checks "-vl", "vl-", "_vl", "vision", "omni" on clean token boundaries.
+     * Checks "-vl", "vl-", "_vl", "vision", "omni", "internvl", and "glm-*.v" on clean token boundaries.
      */
     fun supportsVision(modelId: String, declaredVision: Boolean = false): Boolean {
         if (isImageEditOrGen(modelId)) return false
         if (declaredVision) return true
         val cleanId = modelId.substringBefore(':').trim()
         return VL_TOKEN_REGEX.containsMatchIn(cleanId) ||
-            VISION_TOKEN_REGEX.containsMatchIn(cleanId)
+            VISION_TOKEN_REGEX.containsMatchIn(cleanId) ||
+            INTERN_VL_REGEX.containsMatchIn(cleanId) ||
+            GLM_V_REGEX.containsMatchIn(cleanId)
     }
 }

@@ -64,6 +64,39 @@ class ModelSizeParserTest {
     }
 
     @Test
+    fun parseProseMoeNotation() {
+        // "with 12B active parameters out of 120B total" (nemotron-3.5-super-vl)
+        val pNemotron = ModelSizeParser.parse(
+            modelId = "nvidia/nemotron-3.5-super-vl:free",
+            description = "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total."
+        )
+        assertTrue(pNemotron.isKnown)
+        assertEquals(120.0, pNemotron.totalParamsB!!, 0.001)
+        assertEquals(12.0, pNemotron.activeParamsB!!, 0.001)
+        assertEquals("120B-A12B", pNemotron.sizeLabel)
+
+        // "with 16B active parameters out of 280B total" (dots-3-note-preview)
+        val pDots = ModelSizeParser.parse(
+            modelId = "dots-studio/dots-3-note-preview:free",
+            description = "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total."
+        )
+        assertTrue(pDots.isKnown)
+        assertEquals(280.0, pDots.totalParamsB!!, 0.001)
+        assertEquals(16.0, pDots.activeParamsB!!, 0.001)
+        assertEquals("280B-A16B", pDots.sizeLabel)
+
+        // "29B total parameters with 4B active" (xing4.0-29b-a4b)
+        val pXing = ModelSizeParser.parse(
+            modelId = "xingchen-agi/xing4.0-29b-a4b:free",
+            description = "Xing is a 29B total parameters with 4B active MoE model."
+        )
+        assertTrue(pXing.isKnown)
+        assertEquals(29.0, pXing.totalParamsB!!, 0.001)
+        assertEquals(4.0, pXing.activeParamsB!!, 0.001)
+        assertEquals("29B-A4B", pXing.sizeLabel)
+    }
+
+    @Test
     fun sizeLessModelIsUnknown_notZero() {
         val parsed = ModelSizeParser.parse("google/gemini-2.0-flash-exp:free")
         assertFalse("Size na mile to known nahi hona chahiye", parsed.isKnown)

@@ -190,7 +190,10 @@ class AutoModelPicker(
     private fun rankCodingRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
         val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Coding) }
             ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
-        val codingModels = candidates.filter { it.id.contains("coder", ignoreCase = true) }
+        val codingModels = candidates.filter {
+            it.id.contains("coder", ignoreCase = true) ||
+                it.id.contains("code", ignoreCase = true)
+        }
         val pool = if (codingModels.isNotEmpty()) codingModels else candidates
         return pool.sortedWith(comparator)
     }

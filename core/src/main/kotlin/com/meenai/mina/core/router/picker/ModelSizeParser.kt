@@ -43,6 +43,16 @@ object ModelSizeParser {
         """(?i)(?:^|[\s/_\-:])(\d+(?:\.\d+)?)\s*[bB]\s*[-_]?\s*[aA](\d+(?:\.\d+)?)\s*[bB]?(?:$|[\s/_\-:])"""
     )
 
+    // Prose MoE format: "with 12B active parameters out of 120B total" or "16B active out of 280B total"
+    private val PROSE_MOE_OUT_OF_REGEX = Regex(
+        """(?i)(\d+(?:\.\d+)?)\s*[bB]\s+(?:active\s+)?(?:parameters\s+)?out of\s+(\d+(?:\.\d+)?)\s*[bB]\s+total"""
+    )
+
+    // Prose MoE format: "29B total parameters with 4B active" or "501B total and 23B active" or "124B total / 5.5B active"
+    private val PROSE_MOE_TOTAL_ACTIVE_REGEX = Regex(
+        """(?i)(\d+(?:\.\d+)?)\s*[bB]\s+total\s+(?:parameters\s+)?(?:with|and|\/)\s+(\d+(?:\.\d+)?)\s*[bB]\s+active"""
+    )
+
     // 8x7B or 8x22B
     private val MOE_X_REGEX = Regex(
         """(?i)(?:^|[\s/_\-:])(\d+)\s*[xX]\s*(\d+(?:\.\d+)?)\s*[bB](?:$|[\s/_\-:])"""
@@ -75,7 +85,27 @@ object ModelSizeParser {
             }
         }
 
-        // 2. Check for MoE format like 8x7B
+        // 2. Check for Prose MoE format like "12B active parameters out of 120B total"
+        val proseOutOf = PROSE_MOE_OUT_OF_REGEX.find(combined)
+        if (proseOutOf != null) {
+            val active = proseOutOf.groupValues[1].toDoubleOrNull()
+            val total = proseOutOf.groupValues[2].toDoubleOrNull()
+            if (total != null && total in 0.1..2000.0) {
+                return ParsedModelSize(totalParamsB = total, activeParamsB = active)
+            }
+        }
+
+        // 3. Check for Prose MoE format like "29B total parameters with 4B active"
+        val proseTotalActive = PROSE_MOE_TOTAL_ACTIVE_REGEX.find(combined)
+        if (proseTotalActive != null) {
+            val total = proseTotalActive.groupValues[1].toDoubleOrNull()
+            val active = proseTotalActive.groupValues[2].toDoubleOrNull()
+            if (total != null && total in 0.1..2000.0) {
+                return ParsedModelSize(totalParamsB = total, activeParamsB = active)
+            }
+        }
+
+        // 4. Check for MoE format like 8x7B
         val moeX = MOE_X_REGEX.find(combined)
         if (moeX != null) {
             val count = moeX.groupValues[1].toDoubleOrNull()
@@ -88,7 +118,7 @@ object ModelSizeParser {
             }
         }
 
-        // 3. Standard B format
+        // 5. Standard B format
         val standardB = STANDARD_B_REGEX.findAll(combined)
             .mapNotNull { m -> m.groupValues[1].toDoubleOrNull() }
             .firstOrNull { it in 0.1..2000.0 }
