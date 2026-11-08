@@ -142,26 +142,33 @@ class ActHereCoordinator(
             "भुगतान करें",
         )
 
-        val OTP_KEYWORD_REGEX = Regex("(?i)(otp|code|pin|cvv|password|passcode)[\\s:=]+(\\d{3,8})")
-        val STANDALONE_OTP_REGEX = Regex("\\b\\d{4,8}\\b")
         val CARD_NUMBER_REGEX = Regex("\\b(?:\\d[ -]*?){13,19}\\b")
 
+        val SENSITIVE_KEYWORD_BEFORE_NUMBER_REGEX = Regex(
+            "(?i)\\b(otp|pin|cvv|code|verification|password|passcode|ओटीपी|पिन|सीवीवी)\\b((?:\\s+(?:is|hai|code|no|num|number))*[\\s:=#-]*)\\b(\\d{3,8})\\b"
+        )
+
+        val SENSITIVE_NUMBER_BEFORE_KEYWORD_REGEX = Regex(
+            "(?i)\\b(\\d{3,8})\\b((?:\\s+(?:is|hai|your|apka|aapka))*(?:\\s+(?:verification|otp|code|pin))*[\\s:=#-]*)\\b(otp|pin|cvv|code|verification|password|passcode|ओटीपी|पिन|सीवीवी)\\b"
+        )
+
         fun maskSensitiveText(text: String): String {
-            var masked = OTP_KEYWORD_REGEX.replace(text) { matchResult ->
-                val prefix = matchResult.groupValues[1]
-                "$prefix: ••••••"
+            var masked = SENSITIVE_KEYWORD_BEFORE_NUMBER_REGEX.replace(text) { matchResult ->
+                val keyword = matchResult.groupValues[1]
+                val connector = matchResult.groupValues[2]
+                "$keyword$connector••••••"
+            }
+            masked = SENSITIVE_NUMBER_BEFORE_KEYWORD_REGEX.replace(masked) { matchResult ->
+                val connector = matchResult.groupValues[2]
+                val keyword = matchResult.groupValues[3]
+                "••••••$connector$keyword"
             }
             masked = CARD_NUMBER_REGEX.replace(masked, "••••••••••••••••")
-            masked = STANDALONE_OTP_REGEX.replace(masked, "••••••")
             return masked
         }
 
         fun maskElementLabel(label: String, isSecret: Boolean): String {
             if (isSecret) return "••••••"
-            val lower = label.lowercase()
-            if (lower.contains("password") || lower.contains("pin") || lower.contains("cvv") || lower.contains("passcode")) {
-                return maskSensitiveText(label)
-            }
             return maskSensitiveText(label)
         }
 
@@ -454,7 +461,7 @@ class ActHereCoordinator(
             }
 
             val reply = try {
-                kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+                kotlinx.coroutines.withTimeoutOrNull(20_000L) {
                     model.complete(systemPrompt, history, tools)
                 }
             } catch (e: CancellationException) {

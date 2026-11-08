@@ -476,19 +476,47 @@ class ActHereCoordinatorTest {
 
     @Test
     fun screenTextMasksPasswordsAndOtpNumbers() {
-        // Test sensitive text masking (OTP, Card numbers, PIN)
-        val textWithOtp = "Your verification OTP is 492104 to complete login"
-        val maskedOtp = ActHereCoordinator.maskSensitiveText(textWithOtp)
-        assertFalse("Raw OTP number must not appear in text", maskedOtp.contains("492104"))
+        // 1. "Rs 1500" and "2026" must remain visible (not masked)
+        val priceText = "Total: Rs 1500"
+        val yearText = "Copyright 2026"
+        val orderText = "Order 98765 placed at 14:30"
+        assertEquals("Total: Rs 1500", ActHereCoordinator.maskSensitiveText(priceText))
+        assertEquals("Copyright 2026", ActHereCoordinator.maskSensitiveText(yearText))
+        assertEquals("Order 98765 placed at 14:30", ActHereCoordinator.maskSensitiveText(orderText))
+
+        // 2. "OTP 482913" must be masked
+        val rawOtp = "OTP 482913"
+        val maskedOtp = ActHereCoordinator.maskSensitiveText(rawOtp)
+        assertFalse("Raw OTP number must not appear in text", maskedOtp.contains("482913"))
         assertTrue("Masked OTP placeholder must appear", maskedOtp.contains("••••••"))
+
+        // 3. Various OTP/PIN/verification formats
+        val textWithOtp = "Your verification OTP is 492104 to complete login"
+        val maskedVerification = ActHereCoordinator.maskSensitiveText(textWithOtp)
+        assertFalse("Raw OTP number must not appear in text", maskedVerification.contains("492104"))
+        assertTrue("Masked OTP placeholder must appear", maskedVerification.contains("••••••"))
 
         val textWithPin = "PIN: 5678"
         val maskedPin = ActHereCoordinator.maskSensitiveText(textWithPin)
         assertFalse("Raw PIN number must not appear", maskedPin.contains("5678"))
         assertTrue(maskedPin.contains("••••••"))
 
-        // Test password field masking
+        val reverseOtp = "482913 is your OTP"
+        val maskedReverseOtp = ActHereCoordinator.maskSensitiveText(reverseOtp)
+        assertFalse("Raw reverse OTP number must not appear", maskedReverseOtp.contains("482913"))
+        assertTrue(maskedReverseOtp.contains("••••••"))
+
+        // 4. Card number (13-19 digit) must stay masked
+        val cardText = "Card: 4532 1234 5678 9012"
+        val maskedCard = ActHereCoordinator.maskSensitiveText(cardText)
+        assertFalse("Card digits must not appear", maskedCard.contains("4532"))
+        assertTrue(maskedCard.contains("••••••••••••••••"))
+
+        // 5. Secret/password fields
         val secretElementLabel = ActHereCoordinator.maskElementLabel("my_secret_password", isSecret = true)
         assertEquals("••••••", secretElementLabel)
+
+        val nonSecretElementLabel = ActHereCoordinator.maskElementLabel("Rs 1500", isSecret = false)
+        assertEquals("Rs 1500", nonSecretElementLabel)
     }
 }
