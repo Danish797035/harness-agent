@@ -30,6 +30,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -41,6 +42,11 @@ class AppFreeKeyRouterTest {
     @get:Rule val tmp = TemporaryFolder()
 
     private val cipherKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+
+    @Before
+    fun setUp() {
+        MagicubeLedger.recordDailyLogin()
+    }
 
     private fun createTestStore(): ProviderStore = ProviderStore(
         tmp.root,
