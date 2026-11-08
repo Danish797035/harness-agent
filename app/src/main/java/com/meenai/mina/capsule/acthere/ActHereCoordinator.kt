@@ -51,6 +51,8 @@ data class UiElementSummary(
     val y: Float,
     val clickable: Boolean = true,
     val editable: Boolean = false,
+    val secret: Boolean = false,
+    val bounds: List<Float> = emptyList(),
 )
 
 data class ScreenSnapshotData(
@@ -139,6 +141,43 @@ class ActHereCoordinator(
             "चेकआउट",
             "भुगतान करें",
         )
+
+        val OTP_KEYWORD_REGEX = Regex("(?i)(otp|code|pin|cvv|password|passcode)[\\s:=]+(\\d{3,8})")
+        val STANDALONE_OTP_REGEX = Regex("\\b\\d{4,8}\\b")
+        val CARD_NUMBER_REGEX = Regex("\\b(?:\\d[ -]*?){13,19}\\b")
+
+        fun maskSensitiveText(text: String): String {
+            var masked = OTP_KEYWORD_REGEX.replace(text) { matchResult ->
+                val prefix = matchResult.groupValues[1]
+                "$prefix: ••••••"
+            }
+            masked = CARD_NUMBER_REGEX.replace(masked, "••••••••••••••••")
+            masked = STANDALONE_OTP_REGEX.replace(masked, "••••••")
+            return masked
+        }
+
+        fun maskElementLabel(label: String, isSecret: Boolean): String {
+            if (isSecret) return "••••••"
+            val lower = label.lowercase()
+            if (lower.contains("password") || lower.contains("pin") || lower.contains("cvv") || lower.contains("passcode")) {
+                return maskSensitiveText(label)
+            }
+            return maskSensitiveText(label)
+        }
+
+        fun findElementAt(elements: List<UiElementSummary>, x: Float, y: Float): UiElementSummary? {
+            // 1. Explicit bounds check if available
+            elements.firstOrNull { el ->
+                if (el.bounds.size == 4) {
+                    x >= el.bounds[0] && x <= el.bounds[2] && y >= el.bounds[1] && y <= el.bounds[3]
+                } else false
+            }?.let { return it }
+
+            // 2. Proximity check around center (within 50 pixels)
+            return elements
+                .filter { el -> kotlin.math.hypot(el.x - x, el.y - y) <= 50f }
+                .minByOrNull { el -> kotlin.math.hypot(el.x - x, el.y - y) }
+        }
     }
 
     fun canOpen(foregroundPackages: Collection<String>?, appAccessState: AppAccessState): Boolean {
@@ -380,11 +419,14 @@ class ActHereCoordinator(
 
         fun formatScreen(data: ScreenSnapshotData): String {
             val elementLines = data.elements.take(30).joinToString("\n") { el ->
-                "- \"${el.label}\" at (${el.x.toInt()}, ${el.y.toInt()})" +
+                val maskedLabel = maskElementLabel(el.label, el.secret)
+                "- \"$maskedLabel\" at (${el.x.toInt()}, ${el.y.toInt()})" +
                     (if (el.clickable) " [clickable]" else "") +
                     (if (el.editable) " [input]" else "")
             }
-            val textLines = data.screenTexts.take(20).joinToString("\n") { "• $it" }
+            val textLines = data.screenTexts.take(20).joinToString("\n") { raw ->
+                "• ${maskSensitiveText(raw)}"
+            }
             return "User goal: $goal\n\nScreen elements:\n$elementLines\n\nVisible text:\n$textLines"
         }
 
@@ -401,14 +443,25 @@ class ActHereCoordinator(
                 stop()
                 break
             }
+            if (stepCount >= maxSteps) {
+                val cont = onMaxStepsPrompt()
+                if (!cont) {
+                    stop()
+                    break
+                } else {
+                    continueSteps()
+                }
+            }
 
             val reply = try {
-                model.complete(systemPrompt, history, tools)
+                kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+                    model.complete(systemPrompt, history, tools)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 break
-            }
+            } ?: break
 
             val toolCalls = reply.parts.filterIsInstance<Part.ToolCall>()
             if (toolCalls.isEmpty()) {
@@ -440,15 +493,19 @@ class ActHereCoordinator(
                         val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
 
                         val matchedEl = if (parsedX != null && parsedY != null) {
-                            UiElementSummary(target, parsedX, parsedY)
+                            findElementAt(screen.elements, parsedX, parsedY)
                         } else {
                             screen.elements.firstOrNull { it.label.contains(target, ignoreCase = true) }
                         }
 
+                        if (parsedX != null && parsedY != null && matchedEl == null) {
+                            toolResults.add(Part.ToolResult(call.id, """{"error":"is jagah koi button nahi"}""", true))
+                            shouldBreak = true
+                            break
+                        }
+
                         val action = if (matchedEl != null) {
-                            ActHereAction(ActHereActionType.Tap, targetLabel = target.ifBlank { matchedEl.label }, x = matchedEl.x, y = matchedEl.y)
-                        } else if (target.isNotBlank() && parsedX != null && parsedY != null) {
-                            ActHereAction(ActHereActionType.Tap, targetLabel = target, x = parsedX, y = parsedY)
+                            ActHereAction(ActHereActionType.Tap, targetLabel = matchedEl.label.ifBlank { target }, x = parsedX ?: matchedEl.x, y = parsedY ?: matchedEl.y)
                         } else null
 
                         val execResult = executeGatedAction(
@@ -490,13 +547,19 @@ class ActHereCoordinator(
                         val parsedY = json?.get("y")?.jsonPrimitive?.floatOrNull
 
                         val matchedEl = if (parsedX != null && parsedY != null) {
-                            UiElementSummary(target, parsedX, parsedY)
+                            findElementAt(screen.elements, parsedX, parsedY)
                         } else {
                             screen.elements.firstOrNull { it.editable || it.label.contains(target, ignoreCase = true) }
                         }
 
+                        if (parsedX != null && parsedY != null && matchedEl == null) {
+                            toolResults.add(Part.ToolResult(call.id, """{"error":"is jagah koi button nahi"}""", true))
+                            shouldBreak = true
+                            break
+                        }
+
                         val action = if (matchedEl != null) {
-                            ActHereAction(ActHereActionType.Type, targetLabel = target.ifBlank { matchedEl.label }, x = matchedEl.x, y = matchedEl.y, textToType = text)
+                            ActHereAction(ActHereActionType.Type, targetLabel = matchedEl.label.ifBlank { target.ifBlank { "Input" } }, x = parsedX ?: matchedEl.x, y = parsedY ?: matchedEl.y, textToType = text)
                         } else if (target.isNotBlank()) {
                             ActHereAction(ActHereActionType.Type, targetLabel = target, textToType = text)
                         } else null

@@ -43,6 +43,7 @@ import android.graphics.Path
 import android.os.Bundle
 import com.meenai.mina.capsule.acthere.ScreenSnapshotData
 import com.meenai.mina.capsule.acthere.UiElementSummary
+import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.cap.phone.a11y.ScreenReader
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -1448,8 +1449,43 @@ class CapsuleController(
                 showNote(tr(R.string.capsule_running), CapsuleKind.Running, opensMina = false, 15000L)
             }
 
-            val model = app.providers.modelFor(ModelRole.Main)
-            if (model == null) {
+            val routerModel: ChatModel? = if (app.freeKeyRouter.candidates.isNotEmpty()) {
+                app.freeKeyRouter.resetTask()
+                app.freeKeyRouter
+            } else {
+                val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(app.providers)
+                if (candidates.isNotEmpty()) {
+                    com.meenai.mina.core.router.FreeKeyRouter(candidates)
+                } else {
+                    val main = app.providers.modelFor(ModelRole.Main)
+                    val light = app.providers.modelFor(ModelRole.Light)
+                    if (main != null) {
+                        val list = mutableListOf(
+                            com.meenai.mina.core.router.RouterCandidate(
+                                id = main.name.ifBlank { "main" },
+                                provider = "configured",
+                                model = main,
+                                curatedRank = 1,
+                                isFree = false
+                            )
+                        )
+                        light?.let {
+                            list.add(
+                                com.meenai.mina.core.router.RouterCandidate(
+                                    id = it.name.ifBlank { "light" },
+                                    provider = "configured",
+                                    model = it,
+                                    curatedRank = 2,
+                                    isFree = false
+                                )
+                            )
+                        }
+                        com.meenai.mina.core.router.FreeKeyRouter(list)
+                    } else null
+                }
+            }
+
+            if (routerModel == null) {
                 withContext(Dispatchers.Main) {
                     showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                     stopActHere()
@@ -1472,7 +1508,16 @@ class CapsuleController(
                             x = entry.element.centerX.toFloat(),
                             y = entry.element.centerY.toFloat(),
                             clickable = entry.element.clickable,
-                            editable = entry.element.editable
+                            editable = entry.element.editable,
+                            secret = entry.element.secret,
+                            bounds = if (entry.element.bounds.size == 4) {
+                                listOf(
+                                    entry.element.bounds[0].toFloat(),
+                                    entry.element.bounds[1].toFloat(),
+                                    entry.element.bounds[2].toFloat(),
+                                    entry.element.bounds[3].toFloat()
+                                )
+                            } else emptyList()
                         )
                     }
                 }
@@ -1487,7 +1532,7 @@ class CapsuleController(
             }
 
             actHereCoordinator.runActHereLoop(
-                model = model,
+                model = routerModel,
                 goal = goal,
                 fetchScreen = fetchScreen,
                 onStatus = { statusMsg ->

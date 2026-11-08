@@ -365,4 +365,130 @@ class ActHereCoordinatorTest {
         assertEquals("Step count must not increment after stop", 1, coordinator.stepCount)
         assertTrue(secondResult.toolResultContent.contains("stopped"))
     }
+
+    @Test
+    fun xyPayButtonParHoToConfirmMaange() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        val screenSnapshot = ScreenSnapshotData(
+            elements = listOf(
+                UiElementSummary(label = "Pay", x = 200f, y = 300f, bounds = listOf(150f, 280f, 250f, 320f))
+            ),
+            screenTexts = listOf("Amount: ₹499"),
+            foregroundPackages = listOf("org.wikipedia"),
+            appAccessState = AppAccessState(available = true),
+            topPackage = "org.wikipedia"
+        )
+
+        var confirmPrompted = false
+        var tapExecuted = false
+
+        // Model sends phone_tap with coordinates matching Pay button
+        val fakeModel = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                return ModelReply(
+                    parts = listOf(
+                        Part.ToolCall("call_1", "phone_tap", """{"x":200,"y":300}""")
+                    ),
+                    stopReason = StopReason.ToolUse,
+                    usage = null
+                )
+            }
+        }
+
+        coordinator.runActHereLoop(
+            model = fakeModel,
+            goal = "Pay now",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { label ->
+                confirmPrompted = true
+                assertEquals("Pay", label)
+                true // User confirms
+            },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { x, y ->
+                tapExecuted = true
+                assertEquals(200f, x)
+                assertEquals(300f, y)
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertTrue("Pay button at (200, 300) must request confirmation", confirmPrompted)
+        assertTrue("Tap should execute after confirmation", tapExecuted)
+    }
+
+    @Test
+    fun xyKhaliJagahParHoToTapNaHo() = runBlocking {
+        val coordinator = ActHereCoordinator()
+        val screenSnapshot = ScreenSnapshotData(
+            elements = listOf(
+                UiElementSummary(label = "Submit", x = 100f, y = 100f, bounds = listOf(50f, 80f, 150f, 120f))
+            ),
+            screenTexts = listOf("Some text"),
+            foregroundPackages = listOf("org.wikipedia"),
+            appAccessState = AppAccessState(available = true),
+            topPackage = "org.wikipedia"
+        )
+
+        var tapExecuted = false
+
+        // Model sends phone_tap with coordinates on empty space (no button)
+        val fakeModel = object : ChatModel {
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 4096, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                return ModelReply(
+                    parts = listOf(
+                        Part.ToolCall("call_1", "phone_tap", """{"x":750,"y":900}""")
+                    ),
+                    stopReason = StopReason.ToolUse,
+                    usage = null
+                )
+            }
+        }
+
+        coordinator.runActHereLoop(
+            model = fakeModel,
+            goal = "Tap blank area",
+            fetchScreen = { screenSnapshot },
+            onStatus = {},
+            onHighlight = { _, _ -> },
+            onHandover = {},
+            onConfirm = { false },
+            onMaxStepsPrompt = { false },
+            onStopped = {},
+            performTap = { _, _ ->
+                tapExecuted = true
+                true
+            },
+            performType = { _, _, _ -> true },
+            performSwipe = { true }
+        )
+
+        assertFalse("No tap must be executed on empty/khali space", tapExecuted)
+    }
+
+    @Test
+    fun screenTextMasksPasswordsAndOtpNumbers() {
+        // Test sensitive text masking (OTP, Card numbers, PIN)
+        val textWithOtp = "Your verification OTP is 492104 to complete login"
+        val maskedOtp = ActHereCoordinator.maskSensitiveText(textWithOtp)
+        assertFalse("Raw OTP number must not appear in text", maskedOtp.contains("492104"))
+        assertTrue("Masked OTP placeholder must appear", maskedOtp.contains("••••••"))
+
+        val textWithPin = "PIN: 5678"
+        val maskedPin = ActHereCoordinator.maskSensitiveText(textWithPin)
+        assertFalse("Raw PIN number must not appear", maskedPin.contains("5678"))
+        assertTrue(maskedPin.contains("••••••"))
+
+        // Test password field masking
+        val secretElementLabel = ActHereCoordinator.maskElementLabel("my_secret_password", isSecret = true)
+        assertEquals("••••••", secretElementLabel)
+    }
 }
