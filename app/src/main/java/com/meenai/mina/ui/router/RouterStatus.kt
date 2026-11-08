@@ -359,7 +359,7 @@ class RealRouterStatus(
 
         var usedToday = RouterUsageTracker.getTodayCalls(id)
         var limit: Int? = null
-        var isEstimate = false
+        var isEstimate = true
 
         if (provider.equals("openrouter", ignoreCase = true) && cachedOpenRouterKeyInfo != null) {
             limit = cachedOpenRouterKeyInfo?.limit
@@ -623,6 +623,10 @@ fun formatChipText(active: ActiveModel, todayLabel: String = "today"): String {
 
     val quotaPart = when {
         active.limit != null && active.limit > 0 -> "${active.usedToday}/${active.limit} $todayLabel"
+        active.isEstimate -> {
+            val estLabel = if (todayLabel.equals("aaj", ignoreCase = true)) "anumaan" else "estimate"
+            "${active.usedToday} $todayLabel ($estLabel)"
+        }
         active.quotaTotal > 0 -> {
             val count = if (active.usedToday > 0) active.usedToday else active.quotaRemaining
             "$count/${active.quotaTotal} $todayLabel"
