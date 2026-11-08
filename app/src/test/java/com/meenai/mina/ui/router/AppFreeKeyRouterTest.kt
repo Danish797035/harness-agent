@@ -475,4 +475,27 @@ class AppFreeKeyRouterTest {
         org.junit.Assert.assertNotNull(msUsage)
         assertEquals(150.0, msUsage?.magicubeBalance ?: 0.0, 0.01)
     }
+
+    @Test
+    fun imageEditModel_excludedFromModelScopeChatAndNoVisionRole() {
+        val edit1 = ListedModel("Qwen/Qwen-Image-Edit", vision = true)
+        val edit2 = ListedModel("MusePublic/Qwen-Image-Edit", vision = true)
+        val valid = ListedModel("Qwen/Qwen2.5-VL-7B-Instruct", vision = true)
+
+        assertFalse("Qwen-Image-Edit must not be chat model", AppFreeKeyRouter.isModelScopeChatModel(edit1))
+        assertFalse("MusePublic/Qwen-Image-Edit must not be chat model", AppFreeKeyRouter.isModelScopeChatModel(edit2))
+        assertTrue("Qwen2.5-VL must be chat model", AppFreeKeyRouter.isModelScopeChatModel(valid))
+
+        val candidates = AppFreeKeyRouter.createCandidates(
+            openRouterKey = null,
+            zaiKey = null,
+            modelScopeKey = "test-key",
+            modelScopeModels = listOf(edit1, edit2, valid),
+        )
+
+        // Only valid chat model should be created
+        assertEquals(1, candidates.size)
+        assertEquals("Qwen/Qwen2.5-VL-7B-Instruct", candidates[0].id)
+        assertTrue(candidates[0].roles.contains(ModelRole.Vision))
+    }
 }

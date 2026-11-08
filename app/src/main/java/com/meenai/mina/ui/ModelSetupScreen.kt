@@ -11,6 +11,7 @@ import com.meenai.mina.core.oauth.OpenRouterAuth
 import com.meenai.mina.HarnessApp
 import com.meenai.mina.voice.SystemSpeech
 import com.meenai.mina.settings.ChatGptSignIns
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.i18n.tr
 import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
@@ -660,14 +661,16 @@ object ModelSetupCopy {
         val visionKnown = o.visionKnown || o.visionByUser != null
         if (o.typed) add(tr(R.string.cap_typed) to false)
         if (forVision) {
-            add((if (visionKnown) tr(R.string.cap_vision) else tr(R.string.cap_vision_unconfirmed)) to false)
+            if (!ChatModelFilter.isImageEditOrGen(o.id)) {
+                add((if (visionKnown) tr(R.string.cap_vision) else tr(R.string.cap_vision_unconfirmed)) to false)
+            }
         } else {
             when {
                 !caps.toolCalls -> add(tr(R.string.cap_no_tools) to false)
                 o.toolCallsKnown -> add(tr(R.string.cap_tools) to true)
                 else -> add(tr(R.string.cap_tools_unconfirmed) to false)
             }
-            if (caps.vision && visionKnown) add(tr(R.string.cap_vision) to false)
+            if (caps.vision && visionKnown && !ChatModelFilter.isImageEditOrGen(o.id)) add(tr(R.string.cap_vision) to false)
         }
         if (caps.reasoning) add(tr(R.string.cap_reasoning) to false)
         if (o.contextKnown) add(ModelOptions.contextLabel(caps.contextTokens) to false)

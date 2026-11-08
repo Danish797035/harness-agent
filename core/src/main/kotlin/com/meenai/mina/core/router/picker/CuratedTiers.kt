@@ -1,51 +1,15 @@
 package com.meenai.mina.core.router.picker
 
 /**
- * Curated tier rankings and heuristic evaluation for model candidates.
- * Curated list orders models from strongest to weakest.
- * Models outside the curated list fall back to heuristic ranking:
- * 1. Bada model (parameter size)
- * 2. Bada context (context tokens)
- * 3. Naya release (release date timestamp)
+ * Curated tiers helper.
+ * Fixed name lists have been removed in favor of dynamic capability scoring.
  */
 object CuratedTiers {
 
     /**
-     * Curated list of top models, ordered from strongest first.
+     * Empty list: fixed model name list has been removed from ranking.
      */
-    val CURATED_TIER_LIST: List<String> = listOf(
-        // Tier 1: Heavy frontier reasoning & large models (Main role)
-        "deepseek/deepseek-r1",
-        "google/gemini-2.0-pro-exp-02-05",
-        "meta-llama/llama-3.3-70b-instruct",
-        "qwen/qwen-2.5-72b-instruct",
-        "deepseek/deepseek-chat",
-        "meta-llama/llama-3.1-70b-instruct",
-        "qwen/qwen-2.5-coder-32b-instruct",
-        "mistralai/mistral-small-24b-instruct-2501",
-        "mistralai/mistral-small-24b-instruct",
-
-        // Tier 2: Multimodal vision models (Vision role)
-        "google/gemini-2.0-flash-thinking-exp",
-        "google/gemini-2.0-flash-exp",
-        "google/gemini-2.0-flash",
-        "meta-llama/llama-3.2-11b-vision-instruct",
-        "google/gemini-1.5-pro",
-        "google/gemini-1.5-flash",
-        "google/gemini-flash-1.5",
-        "qwen/qwen-2.5-14b-instruct",
-
-        // Tier 3: Compact & fast lightweight models (Light role)
-        "meta-llama/llama-3.1-8b-instruct",
-        "meta-llama/llama-3-8b-instruct",
-        "google/gemini-flash-1.5-8b",
-        "qwen/qwen-2.5-7b-instruct",
-        "mistralai/mistral-7b-instruct",
-        "meta-llama/llama-3.2-3b-instruct",
-        "meta-llama/llama-3.2-1b-instruct",
-    )
-
-    private val PARAM_SIZE_REGEX = Regex("""(?i)\b(\d+(?:\.\d+)?)\s*[bB]\b""")
+    val CURATED_TIER_LIST: List<String> = emptyList()
 
     /**
      * Normalizes a model identifier by trimming, lowercasing, and stripping provider prefix or ":free".
@@ -55,84 +19,24 @@ object CuratedTiers {
     }
 
     /**
-     * Resolves the curated tier rank for a model (1 = best, 2 = next best, etc.).
-     * Returns null if not in the curated tier list.
+     * Legacy rank finder. Always returns null since hardcoded list is removed.
      */
-    fun findCuratedRank(modelId: String): Int? {
-        val normalized = normalizeModelId(modelId)
-        val index = CURATED_TIER_LIST.indexOfFirst { curated ->
-            val curNorm = normalizeModelId(curated)
-            normalized == curNorm ||
-                normalized.endsWith("/$curNorm") ||
-                curNorm.endsWith("/$normalized") ||
-                normalized.startsWith(curNorm) ||
-                curNorm.startsWith(normalized)
-        }
-        return if (index >= 0) index + 1 else null
-    }
+    fun findCuratedRank(modelId: String): Int? = null
 
     /**
-     * Computes tier rank. Returns 1..N if curated, or [Int.MAX_VALUE] if not curated.
+     * Legacy tier rank. Returns [Int.MAX_VALUE].
      */
-    fun computeTierRank(modelId: String): Int {
-        return findCuratedRank(modelId) ?: Int.MAX_VALUE
-    }
+    fun computeTierRank(modelId: String): Int = Int.MAX_VALUE
 
     /**
-     * Extracts parameter size in billions (e.g. 70.0 for 70B, 8.0 for 8B)
-     * using regex from ID, name, or description, with heuristic fallbacks.
+     * Extracts parameter size in billions dynamically via [ModelSizeParser].
      */
     fun extractParameterSizeB(modelId: String, name: String = "", description: String = ""): Double {
-        val combined = "$modelId $name $description"
-        val match = PARAM_SIZE_REGEX.find(combined)
-        if (match != null) {
-            val size = match.groupValues[1].toDoubleOrNull()
-            if (size != null && size in 0.1..2000.0) {
-                return size
-            }
-        }
-
-        val lower = combined.lowercase()
-        return when {
-            "deepseek-r1" in lower || "deepseek-v3" in lower -> 671.0
-            "llama-3.3" in lower || "llama-3-70b" in lower || "llama-3.1-70b" in lower -> 70.0
-            "qwen-2.5-72b" in lower -> 72.0
-            "qwen-2.5-32b" in lower || "coder-32b" in lower -> 32.0
-            "mistral-small" in lower -> 24.0
-            "gemini-2.0-pro" in lower || "gemini-pro" in lower -> 70.0
-            "gemini-2" in lower && "flash" in lower -> 14.0
-            "gemini-1.5-flash" in lower || "gemini-flash" in lower -> 8.0
-            "gemini-1.5-pro" in lower -> 70.0
-            "llama-3.1-8b" in lower || "llama-3-8b" in lower -> 8.0
-            "mistral-7b" in lower -> 7.0
-            "llama-3.2-3b" in lower -> 3.0
-            "llama-3.2-1b" in lower -> 1.0
-            else -> 0.0
-        }
+        return ModelSizeParser.extractParameterSizeB(modelId, name, description)
     }
 
     /**
-     * Heuristic comparator:
-     * 1. Curated tier list order (lowest rank number first)
-     * 2. Heuristic fallback:
-     *    - Bada model (parameterSizeB descending)
-     *    - Bada context (contextTokens descending)
-     *    - Naya release (releaseDateEpoch descending)
-     * 3. ID ascending (deterministic tie-breaker)
+     * Comparator for heavy-to-light sorting without hardcoded lists.
      */
-    val HEURISTIC_COMPARATOR: Comparator<ModelCandidate> = Comparator { a, b ->
-        val rankDiff = a.tierRank.compareTo(b.tierRank)
-        if (rankDiff != 0) return@Comparator rankDiff
-
-        val sizeDiff = b.parameterSizeB.compareTo(a.parameterSizeB)
-        if (sizeDiff != 0) return@Comparator sizeDiff
-
-        val ctxDiff = b.contextTokens.compareTo(a.contextTokens)
-        if (ctxDiff != 0) return@Comparator ctxDiff
-
-        val dateDiff = b.releaseDateEpoch.compareTo(a.releaseDateEpoch)
-        if (dateDiff != 0) return@Comparator dateDiff
-
-        a.id.compareTo(b.id)
-    }
+    val HEURISTIC_COMPARATOR: Comparator<ModelCandidate> = ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
 }

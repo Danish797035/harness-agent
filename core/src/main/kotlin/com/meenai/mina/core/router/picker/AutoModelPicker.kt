@@ -12,11 +12,11 @@ fun interface Clock {
 }
 
 /**
- * Auto model picker for Free Key Router (Part B).
+ * Auto model picker for Free Key Router.
  *
- * Automatically selects optimal free models based on curated tiers and heuristics:
- * - Filter: Free only, tools required, context >= 32k, vision input required for Vision role.
- * - Roles: Main (heavy frontier), Light (fast / low-latency), Vision (best image understanding).
+ * Automatically selects optimal free models based on dynamic heavy-to-light scoring and heuristics:
+ * - Filter: Free only, tools required, context >= 32k, excludes non-chat/image-edit/image-gen.
+ * - Roles: Main (heavy frontier), Coding, Light (fast / low-latency), Vision, Long.
  * - Pin respect: If a pinned model is configured, Auto does not change it.
  * - Cache: Caches OpenRouter models once a day (24h), falls back to cache when offline.
  * - Health score hook: Uses [HealthSource] (default 1.0) to avoid failing/unhealthy models.
@@ -67,7 +67,8 @@ class AutoModelPicker(
      * 1. Free only (OpenRouter ":free" or candidate marked isFree)
      * 2. Tools support required
      * 3. Context window >= 32,000 tokens
-     * 4. For Vision role, image input support required
+     * 4. Excludes non-chat, embedding, rerank, tts, asr, image-gen, and image-edit models
+     * 5. For Vision role, image input support required (image-edit/gen excluded)
      */
     fun filterCandidates(candidates: List<ModelCandidate>, role: ModelRole): List<ModelCandidate> {
         return candidates.filter { candidate ->
@@ -78,14 +79,33 @@ class AutoModelPicker(
 
             if (candidate.contextTokens < MIN_CONTEXT_TOKENS) return@filter false
 
-            if (role == ModelRole.Vision && !candidate.supportsImages) return@filter false
+            // Exclude non-chat and image-gen/edit models
+            if (ChatModelFilter.isExcluded(candidate.id)) return@filter false
+
+            if (role == ModelRole.Vision && (!candidate.supportsImages || ChatModelFilter.isImageEditOrGen(candidate.id))) {
+                return@filter false
+            }
 
             true
         }
     }
 
     /**
-     * Ranks candidates based on role requirements, health scores, and tier/heuristic orders.
+     * Returns the complete ranked list of candidates from heaviest to lightest.
+     */
+    fun getFullRankedList(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        return candidates
+            .filter { candidate ->
+                val isFree = candidate.isFree || candidate.id.endsWith(":free")
+                isFree && candidate.supportsTools &&
+                    candidate.contextTokens >= MIN_CONTEXT_TOKENS &&
+                    !ChatModelFilter.isExcluded(candidate.id)
+            }
+            .sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+    }
+
+    /**
+     * Ranks candidates based on role requirements, health scores, and dynamic scoring.
      */
     fun rankCandidates(
         candidates: List<ModelCandidate>,
@@ -100,8 +120,10 @@ class AutoModelPicker(
 
         return when (role) {
             ModelRole.Main -> rankMainRole(primaryPool)
+            ModelRole.Coding -> rankCodingRole(primaryPool)
             ModelRole.Light -> rankLightRole(primaryPool)
             ModelRole.Vision -> rankVisionRole(primaryPool)
+            ModelRole.Long -> rankLongRole(primaryPool)
         }
     }
 
@@ -156,28 +178,16 @@ class AutoModelPicker(
      * Main role: sabse heavy (flagship, reasoning, large capacity).
      */
     private fun rankMainRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val comparator = Comparator<ModelCandidate> { a, b ->
-            val aHeavy = a.parameterSizeB >= 20.0
-            val bHeavy = b.parameterSizeB >= 20.0
-            if (aHeavy != bHeavy) {
-                return@Comparator if (aHeavy) -1 else 1
-            }
+        return candidates.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+    }
 
-            val rankDiff = a.tierRank.compareTo(b.tierRank)
-            if (rankDiff != 0) return@Comparator rankDiff
-
-            val sizeDiff = b.parameterSizeB.compareTo(a.parameterSizeB)
-            if (sizeDiff != 0) return@Comparator sizeDiff
-
-            val ctxDiff = b.contextTokens.compareTo(a.contextTokens)
-            if (ctxDiff != 0) return@Comparator ctxDiff
-
-            val dateDiff = b.releaseDateEpoch.compareTo(a.releaseDateEpoch)
-            if (dateDiff != 0) return@Comparator dateDiff
-
-            a.id.compareTo(b.id)
-        }
-        return candidates.sortedWith(comparator)
+    /**
+     * Coding role: coding-specialized models or heaviest capable models.
+     */
+    private fun rankCodingRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val codingModels = candidates.filter { it.id.contains("coder", ignoreCase = true) }
+        val pool = if (codingModels.isNotEmpty()) codingModels else candidates
+        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
     }
 
     /**
@@ -187,14 +197,25 @@ class AutoModelPicker(
     private fun rankLightRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
         val lightModels = candidates.filter { isLightModel(it) }
         val pool = if (lightModels.isNotEmpty()) lightModels else candidates
-        return pool.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
+        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
     }
 
     /**
-     * Vision role: best image understanding.
+     * Vision role: best image understanding (excluding image-gen/edit models).
      */
     private fun rankVisionRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        return candidates.sortedWith(CuratedTiers.HEURISTIC_COMPARATOR)
+        val visionModels = candidates.filter { it.supportsImages && !ChatModelFilter.isImageEditOrGen(it.id) }
+        val pool = if (visionModels.isNotEmpty()) visionModels else candidates
+        return pool.sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+    }
+
+    /**
+     * Long role: models with massive context windows.
+     */
+    private fun rankLongRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
+        val comparator = compareByDescending<ModelCandidate> { it.contextTokens }
+            .thenComparing(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
+        return candidates.sortedWith(comparator)
     }
 
     private fun isLightModel(candidate: ModelCandidate): Boolean = Companion.isLightModel(candidate)
@@ -206,7 +227,8 @@ class AutoModelPicker(
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
 
         fun isLightModel(candidate: ModelCandidate): Boolean {
-            if (candidate.parameterSizeB in 0.1..10.0) return true
+            val total = candidate.totalParamsB ?: candidate.parameterSizeB
+            if (total in 0.1..10.0) return true
             // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
             val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
             return tokens.any { token ->

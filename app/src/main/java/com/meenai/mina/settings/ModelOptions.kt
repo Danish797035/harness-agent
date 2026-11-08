@@ -2,6 +2,7 @@ package com.meenai.mina.settings
 
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ListedModel
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -33,18 +34,21 @@ object ModelOptions {
      * 只写了 Mina 不会说的接口协议的模型(见 [ListedModel.usable])调用必然失败,不列出来。
      */
     fun merge(listed: List<ListedModel>, base: Capabilities): List<ModelOption> = listed.filter { it.usable }.map { m ->
+        val isImageEditOrGen = ChatModelFilter.isImageEditOrGen(m.id)
+        val visionEffective = if (isImageEditOrGen) false else (m.vision ?: base.vision)
+        val visionKnownEffective = if (isImageEditOrGen) false else (m.vision != null)
         ModelOption(
             id = m.id,
             capabilities = base.copy(
                 toolCalls = m.toolCalls ?: base.toolCalls,
-                vision = m.vision ?: base.vision,
+                vision = visionEffective,
                 contextTokens = m.contextTokens ?: base.contextTokens,
                 reasoning = m.reasoning ?: base.reasoning,
                 // 看图定位准不准要实测过才算,新连的一律未验证
                 groundingVerified = false,
             ),
             toolCallsKnown = m.toolCalls != null,
-            visionKnown = m.vision != null,
+            visionKnown = visionKnownEffective,
             contextKnown = m.contextTokens != null,
             displayName = m.displayName,
             chat = m.chat,
@@ -82,7 +86,8 @@ object ModelOptions {
      * 有一段以 [NON_CHAT_WORDS] 里的词开头就算。
      */
     fun looksNonChat(o: ModelOption): Boolean =
-        o.chat?.not() ?: o.id.lowercase().split(Regex("[^a-z0-9]+")).any { part -> NON_CHAT_WORDS.any { part.startsWith(it) } }
+        ChatModelFilter.isExcluded(o.id, o.displayName) ||
+            o.chat?.not() ?: o.id.lowercase().split(Regex("[^a-z0-9]+")).any { part -> NON_CHAT_WORDS.any { part.startsWith(it) } }
 
     private val NON_CHAT_WORDS = listOf(
         "embed", "rerank", "tts", "whisper", "transcribe", "speech", "audio", "realtime", "image", "dall", "moderation", "ocr", "asr",

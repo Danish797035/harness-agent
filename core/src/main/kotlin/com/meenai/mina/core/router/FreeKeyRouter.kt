@@ -40,15 +40,19 @@ data class RouterCandidate(
     fun toModelCandidate(): ModelCandidate {
         candidateInfo?.let { return it }
         val caps = model.capabilities
+        val size = ModelSizeParser.parse(id)
         return ModelCandidate(
             provider = provider,
             id = id,
             contextTokens = caps.contextTokens,
             supportsTools = caps.toolCalls,
-            supportsImages = caps.vision,
+            supportsImages = caps.vision && !ChatModelFilter.isImageEditOrGen(id),
             isFree = isFree,
             tierRank = curatedRank,
-            parameterSizeB = CuratedTiers.extractParameterSizeB(id),
+            parameterSizeB = size.totalParamsB ?: 0.0,
+            totalParamsB = size.totalParamsB,
+            activeParamsB = size.activeParamsB,
+            supportsReasoning = caps.reasoning,
         )
     }
 }
@@ -546,24 +550,37 @@ class FreeKeyRouter(
 
         val roleFiltered = pool.filter { candidate ->
             when (targetRole) {
-                ModelRole.Vision -> candidate.model.capabilities.vision || candidate.roles.contains(ModelRole.Vision)
+                ModelRole.Vision -> (candidate.model.capabilities.vision || candidate.roles.contains(ModelRole.Vision)) &&
+                    !ChatModelFilter.isImageEditOrGen(candidate.id)
                 ModelRole.Light -> candidate.roles.contains(ModelRole.Light) ||
                     AutoModelPicker.isLightModel(candidate.toModelCandidate())
+                ModelRole.Coding -> candidate.roles.contains(ModelRole.Coding) || candidate.id.contains("coder", ignoreCase = true)
+                ModelRole.Long -> candidate.roles.contains(ModelRole.Long) || candidate.model.capabilities.contextTokens >= 64_000
                 ModelRole.Main -> true
             }
         }
         val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
 
-        val comparator = if (targetRole == ModelRole.Light) {
-            compareBy<RouterCandidate> { candidate ->
-                val size = CuratedTiers.extractParameterSizeB(candidate.id)
-                if (size > 0.0) size else 8.0
-            }.thenByDescending { healthTracker.score(it.id) }
-             .thenByDescending { it.curatedRank }
-        } else {
-            compareByDescending<RouterCandidate> { it.curatedRank }
-                .thenByDescending { healthTracker.score(it.id) }
-                .thenByDescending { it.model.capabilities.contextTokens }
+        val comparator = when (targetRole) {
+            ModelRole.Light -> {
+                compareBy<RouterCandidate> { candidate ->
+                    val size = ModelSizeParser.extractParameterSizeB(candidate.id)
+                    if (size > 0.0) size else 8.0
+                }.thenByDescending { healthTracker.score(it.id) }
+                 .thenByDescending { it.model.capabilities.contextTokens }
+            }
+            ModelRole.Long -> {
+                compareByDescending<RouterCandidate> { it.model.capabilities.contextTokens }
+                    .thenByDescending { ModelScorer.computeScore(it.candidateInfo ?: it.toModelCandidate()) }
+                    .thenByDescending { healthTracker.score(it.id) }
+            }
+            else -> {
+                compareByDescending<RouterCandidate> {
+                    val info = it.candidateInfo ?: it.toModelCandidate()
+                    ModelScorer.computeScore(info)
+                }.thenByDescending { healthTracker.score(it.id) }
+                 .thenByDescending { it.model.capabilities.contextTokens }
+            }
         }
 
         return targetPool.sortedWith(comparator).firstOrNull()

@@ -8,10 +8,12 @@ import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.router.picker.AutoModelPicker
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
 import com.meenai.mina.core.router.picker.ModelRole
+import com.meenai.mina.core.router.picker.ModelSizeParser
 import com.meenai.mina.core.router.preset.ModelScopePreset
 import com.meenai.mina.core.router.preset.ZaiPreset
 import com.meenai.mina.settings.Provider
@@ -32,7 +34,10 @@ object AppFreeKeyRouter {
         "embedding", "embeddings", "rerank", "reranker", "bge",
         "image", "images", "flux", "stable-diffusion", "diffusers",
         "video", "audio", "tts", "stt", "asr", "whisper", "speech", "voice",
-        "moderation", "guard", "reward", "discriminator"
+        "moderation", "guard", "reward", "discriminator",
+        "image-edit", "image_edit", "imageedit",
+        "image-gen", "image_gen", "imagegen", "image-generation", "image_generation",
+        "t2i", "i2i", "text-to-image", "image-to-image"
     )
 
     /**
@@ -150,6 +155,7 @@ object AppFreeKeyRouter {
 
     fun isModelScopeChatModel(m: ListedModel): Boolean {
         if (m.chat == false) return false
+        if (ChatModelFilter.isExcluded(m.id)) return false
         val lower = m.id.lowercase()
         return MODEL_SCOPE_NON_CHAT.none { lower.contains(it) }
     }
@@ -159,12 +165,16 @@ object AppFreeKeyRouter {
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
     ): List<RouterCandidate> {
-        val freeListed = listedModels?.filter { it.id.endsWith(":free") }.orEmpty()
+        val freeListed = listedModels?.filter { it.id.endsWith(":free") && !ChatModelFilter.isExcluded(it.id) }.orEmpty()
         if (freeListed.isNotEmpty()) {
-            return freeListed.sortedByDescending { CuratedTiers.computeTierRank(it.id) }.map { listed ->
+            return freeListed.sortedWith(
+                compareByDescending<ListedModel> { ModelSizeParser.parse(it.id).totalParamsB ?: 20.0 }
+                    .thenByDescending { it.contextTokens ?: 0 }
+            ).map { listed ->
+                val supportsImages = ChatModelFilter.supportsVision(listed.id, listed.vision == true)
                 val caps = Capabilities(
                     toolCalls = listed.toolCalls ?: true,
-                    vision = listed.vision == true,
+                    vision = supportsImages,
                     contextTokens = listed.contextTokens ?: 64_000,
                     reasoning = listed.reasoning ?: false,
                     promptCaching = PromptCaching.Implicit,
@@ -178,14 +188,16 @@ object AppFreeKeyRouter {
                 )
                 val roles = buildSet {
                     add(ModelRole.Main)
-                    if (listed.vision == true) add(ModelRole.Vision)
-                    if ((listed.contextTokens ?: 0) <= 32_000) add(ModelRole.Light)
+                    if (supportsImages) add(ModelRole.Vision)
+                    if (listed.id.contains("coder", ignoreCase = true)) add(ModelRole.Coding)
+                    val size = ModelSizeParser.parse(listed.id).totalParamsB
+                    if ((size != null && size in 0.1..10.0) || (listed.contextTokens ?: 0) <= 32_000) add(ModelRole.Light)
                 }
                 RouterCandidate(
                     id = listed.id,
                     provider = OPENROUTER_PROVIDER,
                     model = model,
-                    curatedRank = CuratedTiers.computeTierRank(listed.id),
+                    curatedRank = 0,
                     isFree = true,
                     isBackup = false,
                     roles = roles,
@@ -270,12 +282,12 @@ object AppFreeKeyRouter {
     ): List<RouterCandidate> {
         val chatModels = listedModels?.filter { isModelScopeChatModel(it) }.orEmpty()
         if (chatModels.isNotEmpty()) {
-            return chatModels.sortedByDescending { CuratedTiers.computeTierRank(it.id) }.map { listed ->
-                val lowerId = listed.id.lowercase()
-                val supportsImages = listed.vision == true ||
-                    lowerId.contains("vl") || lowerId.contains("vision") || lowerId.contains("omni")
-                val paramSize = CuratedTiers.extractParameterSizeB(listed.id)
-                val rank = CuratedTiers.computeTierRank(listed.id)
+            return chatModels.sortedWith(
+                compareByDescending<ListedModel> { ModelSizeParser.parse(it.id).totalParamsB ?: 20.0 }
+                    .thenByDescending { it.contextTokens ?: 0 }
+            ).map { listed ->
+                val supportsImages = ChatModelFilter.supportsVision(listed.id, listed.vision == true)
+                val paramSize = ModelSizeParser.extractParameterSizeB(listed.id)
 
                 val caps = Capabilities(
                     toolCalls = listed.toolCalls ?: true,
@@ -293,6 +305,7 @@ object AppFreeKeyRouter {
                 )
                 val roles = buildSet {
                     if (supportsImages) add(ModelRole.Vision)
+                    if (listed.id.contains("coder", ignoreCase = true)) add(ModelRole.Coding)
                     if (paramSize in 0.1..10.0 || ((listed.contextTokens ?: 0) <= 32_000 && paramSize < 14.0)) {
                         add(ModelRole.Light)
                     } else {
@@ -303,7 +316,7 @@ object AppFreeKeyRouter {
                     id = listed.id,
                     provider = ModelScopePreset.PROVIDER_ID,
                     model = model,
-                    curatedRank = rank,
+                    curatedRank = 0,
                     isFree = true,
                     isBackup = true, // ModelScope is lowest-priority backup
                     roles = roles,

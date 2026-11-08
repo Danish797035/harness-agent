@@ -1,7 +1,8 @@
 package com.meenai.mina.core.router.preset
 
-import com.meenai.mina.core.router.picker.CuratedTiers
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.ModelCandidate
+import com.meenai.mina.core.router.picker.ModelSizeParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -32,7 +33,10 @@ class HttpModelScopeApiClient(
             "embedding", "embeddings", "rerank", "reranker", "bge",
             "image", "images", "flux", "stable-diffusion", "diffusers",
             "video", "audio", "tts", "stt", "asr", "whisper", "speech", "voice",
-            "moderation", "guard", "reward", "discriminator"
+            "moderation", "guard", "reward", "discriminator",
+            "image-edit", "image_edit", "imageedit",
+            "image-gen", "image_gen", "imagegen", "image-generation", "image_generation",
+            "t2i", "i2i", "text-to-image", "image-to-image"
         )
     }
 
@@ -65,13 +69,18 @@ class HttpModelScopeApiClient(
                 val id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
                 val created = obj["created"]?.jsonPrimitive?.longOrNull ?: 0L
 
+                // Filter out non-chat, image-gen, and image-edit models
+                if (ChatModelFilter.isExcluded(id)) return@mapNotNull null
+
                 val lowerId = id.lowercase()
                 if (NON_CHAT_TOKENS.any { lowerId.contains(it) }) return@mapNotNull null
-                val supportsImages = lowerId.contains("vl") ||
-                    lowerId.contains("vision") ||
-                    lowerId.contains("omni")
-                val paramSize = CuratedTiers.extractParameterSizeB(id)
-                val rank = CuratedTiers.computeTierRank(id)
+
+                val supportsImages = ChatModelFilter.supportsVision(id)
+                val size = ModelSizeParser.parse(id)
+
+                val supportsReasoning = id.contains("r1", ignoreCase = true) ||
+                    id.contains("reasoner", ignoreCase = true) ||
+                    id.contains("thinking", ignoreCase = true)
 
                 ModelCandidate(
                     provider = "modelscope",
@@ -80,9 +89,12 @@ class HttpModelScopeApiClient(
                     supportsTools = true,
                     supportsImages = supportsImages,
                     isFree = true,
-                    tierRank = rank,
+                    tierRank = Int.MAX_VALUE,
                     releaseDateEpoch = created,
-                    parameterSizeB = paramSize,
+                    parameterSizeB = size.totalParamsB ?: 0.0,
+                    totalParamsB = size.totalParamsB,
+                    activeParamsB = size.activeParamsB,
+                    supportsReasoning = supportsReasoning,
                 )
             }
         } catch (_: Exception) {
