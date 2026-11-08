@@ -85,8 +85,8 @@ class CapsuleShortcutMenuTest {
         )
 
         for (key in requiredKeys) {
-            val text = strings[key]
-            assertTrue("Key $key must exist in values-hi", !text.isNullOrBlank())
+            val text = checkNotNull(strings[key]) { "Key $key must exist in values-hi" }
+            assertTrue("Key $key must not be blank in values-hi", text.isNotBlank())
             assertFalse("Key $key in values-hi must not contain 'Mina'", text.contains("Mina", ignoreCase = true))
             assertFalse("Key $key in values-hi must not contain Chinese characters", text.any { it in '\u4e00'..'\u9fff' })
         }
