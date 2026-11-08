@@ -76,7 +76,7 @@ fun ActHerePromptOverlay(
                     Icon(
                         imageVector = MinaIcons.Hand,
                         contentDescription = null,
-                        tint = colors.primary,
+                        tint = colors.accent,
                         modifier = Modifier.size(20.dp),
                     )
                     Spacer(Modifier.width(8.dp))
@@ -150,7 +150,7 @@ fun ActHerePromptOverlay(
                     enabled = prompt.isNotBlank(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.primary,
+                        containerColor = colors.accent,
                     ),
                 ) {
                     Text(
@@ -237,12 +237,12 @@ fun ActHereTapHighlightOverlay(
         val center = Offset(x, y)
         val radiusPx = 28f * density
         drawCircle(
-            color = colors.primary.copy(alpha = 0.35f),
+            color = colors.accent.copy(alpha = 0.35f),
             radius = radiusPx,
             center = center,
         )
         drawCircle(
-            color = colors.primary.copy(alpha = 0.8f),
+            color = colors.accent.copy(alpha = 0.8f),
             radius = radiusPx,
             center = center,
             style = Stroke(width = 3f * density),
@@ -360,7 +360,7 @@ fun ActHereMaxStepsOverlay(
                     onClick = onContinue,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.primary,
+                        containerColor = colors.accent,
                     ),
                 ) {
                     Text(
