@@ -99,7 +99,7 @@ object AppFreeKeyRouter {
         return FreeKeyRouter(
             candidates = candidates,
             difficultyRouter = diffRouter,
-            firstTokenTimeoutMs = 40_000L,
+            firstTokenTimeoutMs = 15_000L,
         )
     }
 

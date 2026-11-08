@@ -75,7 +75,7 @@ class FreeKeyRouter(
     val healthTracker: ModelHealthTracker = ModelHealthTracker(),
     difficultyRouter: DifficultyRouter? = null,
     val maxSwitchesPerTask: Int = 6,
-    val firstTokenTimeoutMs: Long = 40_000L,
+    val firstTokenTimeoutMs: Long = 15_000L,
     val switchBackoffMs: Long = 500L,
     val now: () -> Long = System::currentTimeMillis,
     val delayMs: suspend (Long) -> Unit = { delay(it) },

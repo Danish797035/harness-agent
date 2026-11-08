@@ -282,10 +282,10 @@ class FreeKeyRouterTest {
     }
 
     @Test
-    fun slowModelTimesOutAt40sAndSwitchesToNextCandidate() = runTest {
+    fun slowModelTimesOutAt15sAndSwitchesToNextCandidate() = runTest {
         var clockTime = 0L
         val m1Slow = mockModel("m1_slow") { _, _, _, _ ->
-            // Simulates 60s slow model: delays past 40s timeout
+            // Simulates 60s slow model: delays past 15s timeout
             delay(60_000L)
             simpleReply
         }
@@ -303,7 +303,7 @@ class FreeKeyRouterTest {
 
         val router = FreeKeyRouter(
             candidates = listOf(candidate1, candidate2),
-            firstTokenTimeoutMs = 40_000L,
+            firstTokenTimeoutMs = 15_000L,
             now = { clockTime },
             delayMs = { clockTime += it },
             onModelSwitched = { old, new, reason ->
@@ -322,6 +322,7 @@ class FreeKeyRouterTest {
         assertEquals("m2_fast", switchedNew)
         assertEquals("Model slow tha, dusra try kar raha hoon", switchReason)
         assertTrue(router.cooldownStore.getRemainingCooldownMs("m1_slow", clockTime) > 0L)
+        assertTrue(testScheduler.currentTime in 15_000L..20_000L)
     }
 
     @Test
@@ -340,7 +341,7 @@ class FreeKeyRouterTest {
 
         val router = FreeKeyRouter(
             candidates = listOf(candidate1, candidate2),
-            firstTokenTimeoutMs = 40_000L,
+            firstTokenTimeoutMs = 15_000L,
             delayMs = {},
         )
         router.pinModel("m1_pinned")
