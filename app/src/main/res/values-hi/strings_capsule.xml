@@ -48,4 +48,18 @@
         <item quantity="other">%1$d एक साथ कदम</item>
     </plurals>
     <string name="and_more">" और अधिक"</string>
+    <string name="capsule_menu_live_share">लाइव शेयर</string>
+    <string name="capsule_menu_ask_about_screen">स्क्रीन के बारे में पूछें</string>
+    <string name="capsule_menu_circle_to_ask">सर्कल करके पूछें</string>
+    <string name="capsule_menu_voice">बोलकर पूछें</string>
+    <string name="capsule_menu_translate_hindi">स्क्रीन का हिंदी अनुवाद</string>
+    <string name="capsule_menu_page_summary">पेज का सारांश</string>
+    <string name="capsule_menu_copy_text">स्क्रीन से टेक्स्ट कॉपी करें</string>
+    <string name="capsule_menu_stop_task">कार्य रोकें</string>
+    <string name="capsule_menu_title">शॉर्टकट</string>
+    <string name="capsule_menu_close">मेनू बंद करें</string>
+    <string name="capsule_dismiss_zone">बंद करने के लिए यहाँ खींचें</string>
+    <string name="capsule_text_copied">टेक्स्ट क्लिपबोर्ड पर कॉपी हो गया</string>
+    <string name="capsule_task_stopped">कार्य रोक दिया गया</string>
+    <string name="capsule_sensitive_blocked">सुरक्षित ऐप के लिए यह क्रिया अवरुद्ध है</string>
 </resources>

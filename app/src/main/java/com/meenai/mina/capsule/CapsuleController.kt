@@ -207,6 +207,10 @@ class CapsuleController(
     private var cardWindow: OverlayWindow? = null
     /** 长按说话时的面板,在一颗那个窗口下面(压暗不盖住胶囊);平时空着没有大小。加不上时不能长按说话。 */
     private var panelWindow: OverlayWindow? = null
+    private var dismissWindow: OverlayWindow? = null
+    private var menuWindow: OverlayWindow? = null
+    private var dismissShowing by mutableStateOf(false)
+    private var dismissHovered by mutableStateOf(false)
     /** 窗口加在哪个服务实例上;服务换了,旧窗口已随旧实例拆掉。 */
     private var windowOn: ScreenAccessibility? = null
     /** 在这个服务实例上加窗口失败过:不再试,等服务重连。 */
@@ -314,6 +318,8 @@ class CapsuleController(
             window = null
             cardWindow = null
             panelWindow = null
+            dismissWindow = null
+            closeShortcutMenu()
             windowOn = null
         }
         val inputs = CapsuleInputs(
@@ -361,11 +367,13 @@ class CapsuleController(
         val overlays = service.overlays()
         // 面板先加,在一颗下面:按着说话时压暗的那层不盖住胶囊
         val panel = overlays.open(OverlayPlacement(Gravity.TOP or Gravity.LEFT), touchable = false) { VoicePanelOverlay() }
+        val dismiss = overlays.open(OverlayPlacement(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, 36), touchable = false) { DismissZoneOverlay() }
         val ball = overlays.open(OverlayPlacement(Gravity.TOP or Gravity.RIGHT)) { CapsuleOverlay() }
         val cardW = ball?.let { overlays.open(OverlayPlacement(Gravity.TOP or Gravity.CENTER_HORIZONTAL), ::outside) { CardOverlay() } }
         if (ball == null || cardW == null) {
             ball?.close()
             panel?.close()
+            dismiss?.close()
             failedOn = service
             Log.w(TAG, "capsule overlay unavailable, falling back to notifications")
             return null
@@ -373,6 +381,7 @@ class CapsuleController(
         window = ball
         cardWindow = cardW
         panelWindow = panel
+        dismissWindow = dismiss
         windowOn = service
         for (it in listOf(ball, cardW)) {
             it.onResize(::place)
@@ -420,6 +429,9 @@ class CapsuleController(
         cardWindow = null
         panelWindow?.close()
         panelWindow = null
+        dismissWindow?.close()
+        dismissWindow = null
+        closeShortcutMenu()
         windowOn = null
         view = null
         resetCard()
@@ -508,9 +520,9 @@ class CapsuleController(
      */
     private fun deliver(c: CardView, kind: CardInputKind, shot: CapturedScreen, words: String) {
         val access = (context.applicationContext as HarnessApp).appAccess.current()
-        if (shot.sourcePackages.isEmpty() || shot.sourcePackages.any { !access.canShare(it) }) {
+        if (shot.sourcePackages.isEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(shot.sourcePackages, false, access)) {
             inputUi = inputUi.copy(screen = null)
-            android.widget.Toast.makeText(context, tr(R.string.appaccess_share_expired), android.widget.Toast.LENGTH_SHORT).show()
+            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed)
             return
         }
         val conversationId = CapsuleCards.conversationOf(c) ?: ConversationStore.shared(context).newConversation()
@@ -581,6 +593,10 @@ class CapsuleController(
             val store = (context.applicationContext as HarnessApp).appAccess
             val sources = MainScreenCapture.sourcePackages(service) ?: return null
             if (context.packageName in sources || !store.current().available) return null
+            if (!CapsuleSecurityPolicy.canPerformScreenAction(sources, false, store.current())) {
+                showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed)
+                return null
+            }
             for (pkg in sources) {
                 if (!store.current().canShare(pkg) && !com.meenai.mina.cap.phone.a11y.requestScreenShare(service, store, pkg, appLabel(pkg))) return null
             }
@@ -852,8 +868,19 @@ class CapsuleController(
         val talkable = canTalk()
         // 说着说着不能说了(例如这时 App 交到你手上、胶囊换成那一条):这一段丢掉,不发——用户没机会松开选落点
         if (!talkable && talk.active) talk.abort()
-        window?.holdable(talkHold.takeIf { talkable }, CapsuleTalk.HOLD_MS)
+        window?.holdable(shortcutHold.takeIf { !isBar() }, 300)
         cardWindow?.draggable(cardDrag, cardHandle.takeIf { !zoomed } ?: Rect())
+    }
+
+    private val shortcutHold = object : OverlayHold {
+        override fun start(rawX: Float, rawY: Float) {
+            if (!isBar()) openShortcutMenu()
+        }
+        override fun move(rawX: Float, rawY: Float) {}
+        override fun end(rawX: Float, rawY: Float) {}
+        override fun cancel() {
+            closeShortcutMenu()
+        }
     }
 
     /** 卡片报来标题栏的位置。 */
@@ -902,6 +929,8 @@ class CapsuleController(
             dragging = true
             dragStartX = CapsuleDocking.dockedX(dock.side, a, w.width)
             dragStartY = placedY
+            dismissShowing = true
+            dismissHovered = false
         }
 
         override fun move(dx: Float, dy: Float) {
@@ -909,18 +938,40 @@ class CapsuleController(
             val a = area() ?: return
             if (!dragging) return
             val y = CapsuleDocking.fitY(dragStartY + dy.toInt(), a, w.height)
+            val curX = CapsuleDocking.dragX(dragStartX + dx.toInt(), a, w.width)
             if (isBar()) w.place(OverlayPlacement(Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, y))
-            else w.place(OverlayPlacement(Gravity.TOP or Gravity.LEFT, CapsuleDocking.dragX(dragStartX + dx.toInt(), a, w.width), y))
+            else w.place(OverlayPlacement(Gravity.TOP or Gravity.LEFT, curX, y))
+
+            val bubbleCenterX = curX + w.width / 2
+            val bubbleCenterY = y + w.height / 2
+            val targetCenterX = a.width / 2
+            val targetCenterY = a.bottom - dp(48)
+            val dist = kotlin.math.hypot(
+                (bubbleCenterX - targetCenterX).toDouble(),
+                (bubbleCenterY - targetCenterY).toDouble(),
+            )
+            val isNearDismiss = dist < dp(80) || y + w.height >= a.bottom - dp(40)
+            if (isNearDismiss != dismissHovered) {
+                dismissHovered = isNearDismiss
+            }
         }
 
         override fun end(dx: Float, dy: Float) {
             val w = window
             val a = area()
+            val wasHovered = dismissHovered
+            dismissShowing = false
+            dismissHovered = false
             if (!dragging || w == null || a == null) {
                 dragging = false
                 return
             }
             dragging = false
+            if (wasHovered) {
+                stopActiveTask()
+                flags.setCapsuleMode(CapsuleMode.Off)
+                return
+            }
             val y = CapsuleDocking.fitY(dragStartY + dy.toInt(), a, w.height)
             if (isBar()) {
                 barFraction = CapsuleDocking.fraction(y, a, dp(BAR_DP))
@@ -1096,6 +1147,105 @@ class CapsuleController(
         if (n?.opensMina == true) open(null) else tap()
     }
 
+    private fun openShortcutMenu() {
+        val service = windowOn ?: return
+        if (menuWindow != null) return
+        wake()
+        val hasActive = tasks.running().isNotEmpty()
+        menuWindow = service.overlays().open(
+            OverlayPlacement(Gravity.CENTER),
+            onOutside = ::closeShortcutMenu,
+        ) {
+            MinaTheme(reduceMotion = animationsOff(context)) {
+                CapsuleShortcutMenuOverlay(
+                    onSelect = { shortcut ->
+                        closeShortcutMenu()
+                        handleShortcut(shortcut)
+                    },
+                    onDismiss = ::closeShortcutMenu,
+                    hasActiveTask = hasActive,
+                )
+            }
+        }
+        menuWindow?.onBack(::closeShortcutMenu)
+    }
+
+    private fun closeShortcutMenu() {
+        menuWindow?.close()
+        menuWindow = null
+    }
+
+    private fun handleShortcut(shortcut: CapsuleShortcut) {
+        when (shortcut) {
+            CapsuleShortcut.LiveShare -> requestLiveShare()
+            CapsuleShortcut.AskAboutScreen -> sendScreen()
+            CapsuleShortcut.CircleToAsk -> requestCircleToAsk()
+            CapsuleShortcut.Voice -> beginTalk(byTouch = false)
+            CapsuleShortcut.TranslateHindi -> {
+                scope.launch {
+                    val shot = captureScreen() ?: return@launch
+                    sendPromptWithScreen(shot, "इस स्क्रीन का हिंदी में अनुवाद करें।")
+                }
+            }
+            CapsuleShortcut.PageSummary -> {
+                scope.launch {
+                    val shot = captureScreen() ?: return@launch
+                    sendPromptWithScreen(shot, "इस पेज का मुख्य सारांश प्रस्तुत करें।")
+                }
+            }
+            CapsuleShortcut.CopyText -> copyScreenText()
+            CapsuleShortcut.StopTask -> stopActiveTask()
+        }
+    }
+
+    private fun requestLiveShare() {
+        showNote(tr(R.string.capsule_menu_live_share), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
+    }
+
+    private fun requestCircleToAsk() {
+        showNote(tr(R.string.capsule_menu_circle_to_ask), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
+    }
+
+    private fun stopActiveTask() {
+        val active = (view as? CapsuleView.Shown)?.runKey ?: tasks.running().firstOrNull()?.key
+        if (active != null) {
+            TaskService.cancel(context, active)
+            showNote(tr(R.string.capsule_task_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
+        }
+    }
+
+    private fun copyScreenText() {
+        if (capturing) return
+        scope.launch {
+            val shot = captureScreen() ?: return@launch
+            val text = shot.screen?.text?.takeIf { it.isNotBlank() }
+            if (!text.isNullOrBlank()) {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("Screen text", text))
+                showNote(tr(R.string.capsule_text_copied), CapsuleKind.Done, opensMina = false, NOTE_SHORT_MS)
+            } else {
+                showNote(tr(R.string.capsule_text_copied), CapsuleKind.Done, opensMina = false, NOTE_SHORT_MS)
+            }
+        }
+    }
+
+    private fun sendPromptWithScreen(shot: CapturedScreen, prompt: String) {
+        val v = view ?: return
+        scope.launch {
+            if (v.kind == CapsuleKind.Idle) idle = loadIdle()
+            val target = CapsuleCards.of(model.cardRuns(), follow, idle)
+            val kind = target?.let(CapsuleCards::input)?.kind
+            if (target == null || kind == null) {
+                expand()
+                return@launch
+            }
+            deliver(target, kind, shot, prompt)
+            CapsuleCards.conversationOf(target)?.let { follow = it }
+            open()
+            refresh()
+        }
+    }
+
     // ---------- 点按与卡片 ----------
 
     /** 点一颗或胶囊:第一下先等一等,双击的时限里没有第二下才展开卡片;有就是双击,发出此刻的屏幕。 */
@@ -1236,6 +1386,14 @@ class CapsuleController(
         val bottom = placedY + (window?.height ?: 0) - room()
         MinaTheme(reduceMotion = animationsOff(context)) {
             CapsuleVoicePanel(talk, top, bottom.coerceAtLeast(top), a?.insetTop ?: 0, a?.insetBottom ?: 0)
+        }
+    }
+
+    @Composable
+    private fun DismissZoneOverlay() {
+        if (!dismissShowing) return
+        MinaTheme(reduceMotion = animationsOff(context)) {
+            CapsuleDismissZone(hovered = dismissHovered)
         }
     }
 

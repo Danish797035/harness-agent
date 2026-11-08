@@ -48,4 +48,18 @@
         <item quantity="other">%1$d steps at once</item>
     </plurals>
     <string name="and_more">" and more"</string>
+    <string name="capsule_menu_live_share">Live share</string>
+    <string name="capsule_menu_ask_about_screen">Ask about screen</string>
+    <string name="capsule_menu_circle_to_ask">Circle to ask</string>
+    <string name="capsule_menu_voice">Voice</string>
+    <string name="capsule_menu_translate_hindi">Translate screen to Hindi</string>
+    <string name="capsule_menu_page_summary">Page summary</string>
+    <string name="capsule_menu_copy_text">Copy text from screen</string>
+    <string name="capsule_menu_stop_task">Stop task</string>
+    <string name="capsule_menu_title">Shortcuts</string>
+    <string name="capsule_menu_close">Close menu</string>
+    <string name="capsule_dismiss_zone">Drag here to close</string>
+    <string name="capsule_text_copied">Text copied to clipboard</string>
+    <string name="capsule_task_stopped">Task stopped</string>
+    <string name="capsule_sensitive_blocked">Action blocked for sensitive or secured app</string>
 </resources>
