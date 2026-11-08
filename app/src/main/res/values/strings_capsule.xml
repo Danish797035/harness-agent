@@ -72,4 +72,9 @@
     <string name="live_share_paused_indicator">Paused</string>
     <string name="channel_live_share">Live Screen Share</string>
     <string name="live_share_no_vision_model">Screen viewing model is not set</string>
+    <string name="circle_to_ask_ask">Ask</string>
+    <string name="circle_to_ask_cancel">Cancel</string>
+    <string name="circle_to_ask_hint">Ask about this selection…</string>
+    <string name="circle_to_ask_too_small">Selection is too small (min 24dp)</string>
+    <string name="circle_to_ask_prompt_default">What is in this circled area?</string>
 </resources>

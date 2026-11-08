@@ -72,4 +72,9 @@
     <string name="live_share_paused_indicator">रुका हुआ</string>
     <string name="channel_live_share">लाइव स्क्रीन शेयर</string>
     <string name="live_share_no_vision_model">स्क्रीन देखने वाला मॉडल सेट नहीं है</string>
+    <string name="circle_to_ask_ask">पूछें</string>
+    <string name="circle_to_ask_cancel">रद्द करें</string>
+    <string name="circle_to_ask_hint">इस हिस्से के बारे में पूछें…</string>
+    <string name="circle_to_ask_too_small">चुना गया हिस्सा बहुत छोटा है (कम से कम 24dp)</string>
+    <string name="circle_to_ask_prompt_default">इस घेरे गए हिस्से में क्या है?</string>
 </resources>

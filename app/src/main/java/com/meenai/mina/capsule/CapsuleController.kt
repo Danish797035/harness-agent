@@ -432,6 +432,7 @@ class CapsuleController(
         dismissWindow?.close()
         dismissWindow = null
         closeShortcutMenu()
+        closeCircleOverlay()
         windowOn = null
         view = null
         resetCard()
@@ -1213,8 +1214,145 @@ class CapsuleController(
         }
     }
 
+    private var circleOverlayWindow: OverlayWindow? = null
+
     private fun requestCircleToAsk() {
-        showNote(tr(R.string.capsule_menu_circle_to_ask), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
+        val service = windowOn ?: return
+        val w = window ?: return
+        val c = cardWindow ?: return
+        val app = context.applicationContext as HarnessApp
+        val store = app.appAccess
+
+        // 1. Blocked apps / sensitive apps check
+        val sources = MainScreenCapture.sourcePackages(service)
+        if (sources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(sources, false, store.current())) {
+            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+            return
+        }
+
+        // 2. Vision model check
+        val visionModel = app.providers.modelFor(com.meenai.mina.core.model.ModelRole.Vision)
+        if (visionModel == null) {
+            showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
+            return
+        }
+
+        // 3. Capture screenshot without capsule windows
+        scope.launch {
+            suspend fun <T> OverlayWindow.hidden(block: suspend () -> T): T = if (height > 0) hiddenWhile(block) else block()
+            val shot = w.hidden { c.hidden { service.takeMainScreenshot() } }
+            if (shot !is ScreenAccessibility.MainShot.Ok) {
+                showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                return@launch
+            }
+            val screenshot = shot.bitmap
+
+            val currentSources = MainScreenCapture.sourcePackages(service)
+            if (currentSources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) {
+                screenshot.recycle()
+                showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                return@launch
+            }
+
+            openCircleOverlay(service, screenshot)
+        }
+    }
+
+    private fun openCircleOverlay(service: ScreenAccessibility, screenshot: android.graphics.Bitmap) {
+        circleOverlayWindow?.close()
+        circleOverlayWindow = service.overlays().open(
+            OverlayPlacement(Gravity.FILL),
+            touchable = true
+        ) {
+            MinaTheme(reduceMotion = animationsOff(context)) {
+                com.meenai.mina.capsule.circle.CircleToAskOverlay(
+                    screenshot = screenshot,
+                    onCancel = {
+                        closeCircleOverlay(screenshot)
+                    },
+                    onAsk = { cropRect, question ->
+                        closeCircleOverlay()
+                        processCircleCrop(cropRect, screenshot, question)
+                    }
+                )
+            }
+        }
+        circleOverlayWindow?.setFullScreen(true)
+        circleOverlayWindow?.onBack { closeCircleOverlay(screenshot) }
+    }
+
+    private fun closeCircleOverlay(bitmapToRecycle: android.graphics.Bitmap? = null) {
+        circleOverlayWindow?.close()
+        circleOverlayWindow = null
+        bitmapToRecycle?.recycle()
+    }
+
+    private fun processCircleCrop(
+        cropRect: com.meenai.mina.capsule.circle.CropRect,
+        fullBitmap: android.graphics.Bitmap,
+        question: String
+    ) {
+        scope.launch(Dispatchers.Default) {
+            val app = context.applicationContext as HarnessApp
+            val visionModel = app.providers.modelFor(com.meenai.mina.core.model.ModelRole.Vision)
+            if (visionModel == null) {
+                fullBitmap.recycle()
+                withContext(Dispatchers.Main) {
+                    showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
+                }
+                return@launch
+            }
+
+            val cropX = cropRect.left.toInt().coerceIn(0, fullBitmap.width - 1)
+            val cropY = cropRect.top.toInt().coerceIn(0, fullBitmap.height - 1)
+            val cropW = minOf(cropRect.width.toInt().coerceAtLeast(1), fullBitmap.width - cropX)
+            val cropH = minOf(cropRect.height.toInt().coerceAtLeast(1), fullBitmap.height - cropY)
+
+            val cropped = android.graphics.Bitmap.createBitmap(fullBitmap, cropX, cropY, cropW, cropH)
+            fullBitmap.recycle()
+
+            val (targetW, targetH) = com.meenai.mina.capsule.circle.CircleCropGeometry.calculateScaledDimensions(cropW, cropH, 1080)
+            val scaled = if (targetW != cropW || targetH != cropH) {
+                val s = android.graphics.Bitmap.createScaledBitmap(cropped, targetW, targetH, true)
+                cropped.recycle()
+                s
+            } else cropped
+
+            val stream = java.io.ByteArrayOutputStream()
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+            scaled.recycle()
+
+            val jpegBytes = stream.toByteArray()
+
+            withContext(Dispatchers.Main) {
+                showNote(tr(R.string.capsule_thinking), CapsuleKind.Running, opensMina = false, 20000L)
+            }
+
+            val promptText = if (question.isNotBlank()) question else tr(R.string.circle_to_ask_prompt_default)
+            val reply = runCatching {
+                com.meenai.mina.capsule.circle.CircleToAskSender.askAboutCrop(visionModel, jpegBytes, targetW, targetH, promptText)
+            }.getOrNull()
+
+            withContext(Dispatchers.Main) {
+                if (reply != null && reply.text.isNotBlank()) {
+                    val convId = follow ?: app.conversations.newConversation()
+                    app.conversations.append(
+                        convId,
+                        com.meenai.mina.core.agent.Turn(
+                            userText = promptText,
+                            outcome = reply.text,
+                            status = "succeeded"
+                        )
+                    )
+                    follow = convId
+                    clearNote()
+                    open()
+                    refresh()
+                } else {
+                    showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                }
+            }
+        }
     }
 
     private fun stopActiveTask() {
