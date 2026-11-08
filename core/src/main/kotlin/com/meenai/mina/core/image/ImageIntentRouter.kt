@@ -4,6 +4,7 @@ import com.meenai.mina.core.model.Author
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.Message
 import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.vision.ImageOps
 import kotlinx.serialization.json.Json
@@ -112,7 +113,7 @@ class ImageIntentRouter(
                 append("\n[User attached an image/photo]")
             }
         }
-        val userMsg = Message(Author.User, listOf(Part.Text(promptContent)))
+        val userMsg = Message(Role.User, listOf(Part.Text(promptContent)), Author.User)
 
         // 4. Call model with image tool specs
         val reply = try {
