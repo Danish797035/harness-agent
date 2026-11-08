@@ -18,6 +18,7 @@ class LiveShareStringsTest {
         "live_share_permission_denied",
         "live_share_paused_indicator",
         "channel_live_share",
+        "live_share_no_vision_model",
     )
 
     private fun loadStrings(file: File): Map<String, String> {

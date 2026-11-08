@@ -90,4 +90,14 @@ object LiveShareManager {
     fun onPackagesChanged(packages: Collection<String>?, accessState: com.meenai.mina.core.access.AppAccessState) {
         engine.onForegroundPackagesChanged(packages, accessState)
     }
+
+    fun visionModel(context: Context): com.meenai.mina.core.model.ChatModel? {
+        val app = context.applicationContext as? HarnessApp ?: return null
+        return app.providers.modelFor(com.meenai.mina.core.model.ModelRole.Vision)
+    }
+
+    fun currentTask(context: Context): String? {
+        val app = context.applicationContext as? HarnessApp ?: return null
+        return app.taskState.runs.value.firstOrNull { it.state.value.isActive() }?.goal
+    }
 }

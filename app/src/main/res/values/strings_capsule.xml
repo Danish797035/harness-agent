@@ -71,4 +71,5 @@
     <string name="live_share_permission_denied">Screen capture permission not granted</string>
     <string name="live_share_paused_indicator">Paused</string>
     <string name="channel_live_share">Live Screen Share</string>
+    <string name="live_share_no_vision_model">Screen viewing model is not set</string>
 </resources>

@@ -29,9 +29,12 @@ import com.meenai.mina.cap.phone.a11y.ScreenAccessibility
 import com.meenai.mina.i18n.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +48,31 @@ class LiveShareService : Service() {
 
     private var borderWindow: OverlayWindow? = null
     private var stopWindow: OverlayWindow? = null
+
+    private var captureJob: Job? = null
+
+    private val coordinator by lazy {
+        LiveShareFrameCoordinator(
+            minIntervalMs = 3000L,
+            maxLongestSide = 1080,
+            isPaused = { LiveShareManager.state.value.status == LiveShareStatus.Paused },
+            hasVisionModel = { LiveShareManager.visionModel(this) != null },
+            currentTaskProvider = { LiveShareManager.currentTask(this) },
+            onSendFrame = { jpeg, width, height, currentTask ->
+                val model = LiveShareManager.visionModel(this) ?: return@LiveShareFrameCoordinator
+                runCatching {
+                    LiveShareFrameSender.sendToVisionModel(model, jpeg, width, height, currentTask)
+                }.onFailure {
+                    Log.w(TAG, "could not send live share frame to vision model", it)
+                }
+            },
+            onWarning = {
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(this, tr(R.string.live_share_no_vision_model), android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+    }
 
     private val lockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -132,6 +160,7 @@ class LiveShareService : Service() {
         LiveShareManager.engine.onConsentGranted(sessionId)
         attachOverlays()
         startPackageObservation()
+        startFrameLoop()
     }
 
     private fun attachOverlays() {
@@ -180,7 +209,84 @@ class LiveShareService : Service() {
         }
     }
 
+    private fun startFrameLoop() {
+        captureJob?.cancel()
+        captureJob = scope.launch(Dispatchers.Default) {
+            coordinator.reset()
+            while (isActive) {
+                delay(1000L)
+                if (LiveShareManager.state.value.status != LiveShareStatus.Active) {
+                    continue
+                }
+                val service = ScreenAccessibility.instance.value ?: continue
+                val shot = service.takeMainScreenshot()
+                if (shot is ScreenAccessibility.MainShot.Ok) {
+                    val bmp = shot.bitmap
+                    try {
+                        val hash = computeBitmapHash(bmp)
+                        val longest = maxOf(bmp.width, bmp.height)
+                        val factor = if (longest > 1080) 1080.toDouble() / longest else 1.0
+                        val targetW = (bmp.width * factor).toInt().coerceAtLeast(1)
+                        val targetH = (bmp.height * factor).toInt().coerceAtLeast(1)
+
+                        val scaled = if (factor < 1.0) {
+                            android.graphics.Bitmap.createScaledBitmap(bmp, targetW, targetH, true)
+                        } else bmp
+
+                        val stream = java.io.ByteArrayOutputStream()
+                        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+                        if (scaled !== bmp) scaled.recycle()
+
+                        val jpegBytes = stream.toByteArray()
+                        coordinator.onFrameAvailable(
+                            frameData = jpegBytes,
+                            width = targetW,
+                            height = targetH,
+                            frameHash = hash,
+                            currentTimeMs = System.currentTimeMillis()
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "failed frame capture iteration", e)
+                    } finally {
+                        bmp.recycle()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun computeBitmapHash(bmp: android.graphics.Bitmap): Long {
+        val small = android.graphics.Bitmap.createScaledBitmap(bmp, 8, 8, true)
+        val pixels = IntArray(64)
+        small.getPixels(pixels, 0, 8, 0, 0, 8, 8)
+        small.recycle()
+
+        var sum = 0L
+        for (p in pixels) {
+            val r = (p shr 16) and 0xff
+            val g = (p shr 8) and 0xff
+            val b = p and 0xff
+            sum += (r * 299 + g * 587 + b * 114) / 1000
+        }
+        val avg = sum / 64
+        var hash = 0L
+        for (i in 0 until 64) {
+            val p = pixels[i]
+            val r = (p shr 16) and 0xff
+            val g = (p shr 8) and 0xff
+            val b = p and 0xff
+            val luma = (r * 299 + g * 587 + b * 114) / 1000
+            if (luma >= avg) {
+                hash = hash or (1L shl i)
+            }
+        }
+        return hash
+    }
+
     private fun stopShare(reason: StopReason) {
+        captureJob?.cancel()
+        captureJob = null
+        coordinator.reset()
         detachOverlays()
         runCatching { mediaProjection?.stop() }
         mediaProjection = null
@@ -192,6 +298,9 @@ class LiveShareService : Service() {
     }
 
     override fun onDestroy() {
+        captureJob?.cancel()
+        captureJob = null
+        coordinator.reset()
         detachOverlays()
         runCatching { unregisterReceiver(lockReceiver) }
         runCatching { mediaProjection?.stop() }
