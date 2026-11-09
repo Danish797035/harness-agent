@@ -118,7 +118,7 @@ class Verifier(
     suspend fun verify(goal: String, criteria: Criteria, answer: String, evidence: Evidence, earlierGoals: List<String> = emptyList()): Verification {
         val chosen = evidence.ledger.forAnswer(goal, answer)
         val reads = evidence.sources(chosen)
-        if (evidence.protected && reads.isEmpty()) return cannot("结果页受系统防截屏保护,看不到画面,没法核实")
+        if (evidence.protected && reads.isEmpty()) return cannot(PROTECTED)
         val image = evidence.freshImage?.takeIf { visionModel != null && !evidence.protected }
         val model = if (image != null) visionModel!! else textModel
         val v = when (val first = ask(model, goal, criteria, answer, evidence, chosen, EvidenceLedger.EXCERPT_CHARS, earlierGoals, image)) {
@@ -128,7 +128,7 @@ class Verifier(
             Asked.TimedOut -> when (val second = ask(model, goal, criteria, answer, trimmed(evidence), chosen, TRIM_EXCERPT_CHARS, earlierGoals, image)) {
                 is Asked.Done -> second.v
                 is Asked.Failed -> return cannot(second.reason)
-                Asked.TimedOut -> return cannot("核查超时")
+                Asked.TimedOut -> return cannot(TIMEOUT)
             }
         }
         return when (v.verdict) {
@@ -164,11 +164,11 @@ class Verifier(
             withTimeoutOrNull(timeoutMs(body.length, if (image != null) 1 else 0)) {
                 // 回复走容错解析;读不出来时再问一次、只要 JSON;还不行才算解析不了
                 ModelJson.completeParsed(model, PROMPT, listOf(Message(Role.User, parts, Author.Mina)), ::parse).also { unparsed = it == null }
-            }?.let { Asked.Done(it) } ?: if (unparsed) Asked.Failed("核查器的回复无法解析") else Asked.TimedOut
+            }?.let { Asked.Done(it) } ?: if (unparsed) Asked.Failed(UNPARSED) else Asked.TimedOut
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Asked.Failed("核查器出错:${e.message ?: e::class.simpleName}")
+            Asked.Failed("$ERROR_PREFIX${e.message ?: e::class.simpleName}")
         }
     }
 
@@ -230,6 +230,11 @@ class Verifier(
         /** 等多久与要读的东西成正比:基础 60 秒,每张图、每 KB 文字另加,封顶 150 秒。 */
         fun timeoutMs(textChars: Int, images: Int): Long =
             minOf(MAX_TIMEOUT_MS, TIMEOUT_MS + images * PER_IMAGE_MS + textChars / 1024 * PER_KB_MS)
+        const val PROTECTED = "结果页受系统防截屏保护,看不到画面,没法核实"
+        const val TIMEOUT = "核查超时"
+        const val UNPARSED = "核查器的回复无法解析"
+        const val ERROR_PREFIX = "核查器出错:"
+        const val VERIFYING = "正在核实结果"
         const val NOT_IN_READS = "回答的依据在读到的界面、网页或命令输出里都找不到"
         const val NOT_EVERY_CRITERION = "核查器没有逐条核对每一条标准"
         const val FAIL_WITHOUT_REASON = "核查器认为没有做成,但没有指出哪条标准没满足"
