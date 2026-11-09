@@ -192,4 +192,17 @@
     <string name="speech_footer">केवल भाषण मॉडल जैसे दिखने वाले मॉडल सूचीबद्ध हैं। यदि आपका गायब है, तो उसका नाम लिखें; जब आप इसे चुनते हैं तो एक छोटी क्लिप को परीक्षण के रूप में प्रतिलेखित किया जाता है।</string>
     <string name="speech_pick_failed">वह मॉडल प्रतिलेखन नहीं कर सका: %1$s</string>
     <string name="speech_pick_timeout">%1$s ने %2$d सेकंड के भीतर एक परीक्षण क्लिप का उत्तर नहीं दिया</string>
+
+    <!-- Settings > Models: image generation and editing roles -->
+    <string name="image_roles_title">इमेज निर्माण और संपादन</string>
+    <string name="image_role_image_title">इमेज</string>
+    <string name="image_role_image_what">नई इमेज बनाएं</string>
+    <string name="image_role_edit_title">इमेज संपादन</string>
+    <string name="image_role_edit_what">फ़ोटो संपादित करें</string>
+    <string name="image_role_auto">ऑटो</string>
+    <string name="image_role_auto_desc">कॉल विफल होने पर स्वतः अगला मॉडल चुनता है</string>
+    <string name="image_role_pinned">पिन किया गया</string>
+    <string name="image_allow_paid_title">सशुल्क इमेज मॉडल की अनुमति दें</string>
+    <string name="image_allow_paid_subtitle">OpenRouter इमेज मॉडल सशुल्क हैं। डिफ़ॉल्ट रूप से बंद।</string>
+    <string name="image_model_dialog_title">मॉडल चुनें</string>
 </resources>

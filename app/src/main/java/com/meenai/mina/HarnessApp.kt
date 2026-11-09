@@ -127,6 +127,9 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     /** 语音转文字的选择:整个进程一份,设置页改了输入框立刻看得到(两份实例互相看不到对方的 set)。 */
     val speech: com.meenai.mina.voice.SpeechSettings by lazy { com.meenai.mina.voice.SpeechSettings.get(this) }
 
+    /** Image generation and editing settings. */
+    val imageSettings: com.meenai.mina.image.ImageSettings by lazy { com.meenai.mina.image.ImageSettings.get(this) }
+
     /** 语音输入的入口,输入框和悬浮胶囊共用。 */
     val voice: com.meenai.mina.voice.VoiceInput by lazy { com.meenai.mina.voice.VoiceInput(this, speech, providers) }
 
