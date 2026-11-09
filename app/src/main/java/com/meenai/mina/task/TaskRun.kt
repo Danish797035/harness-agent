@@ -918,6 +918,7 @@ class TaskRun(
                     _takeoverStage.value = it
                     service.refreshNotifications(this@TaskRun)
                 }
+            }
             if (ImageIntentRouter.isVideoRequest(goal)) {
                 return TaskState.Done(ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
             }
