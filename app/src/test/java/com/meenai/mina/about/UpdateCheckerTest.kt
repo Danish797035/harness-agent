@@ -40,10 +40,11 @@ class UpdateCheckerTest {
     @After
     fun stop() = server.shutdown()
 
-    private fun checker(current: String = "0.1.0") = UpdateChecker(
+    private fun checker(current: String = "0.1.0", currentCode: Long = 0) = UpdateChecker(
         tmp.root.resolve("update.json"), current,
         releaseApi = server.url("/api").toString(),
         now = { clock },
+        currentVersionCode = currentCode,
     )
 
     private fun release(tag: String) =
@@ -147,13 +148,7 @@ class UpdateCheckerTest {
     @Test
     fun runNumberFromGitHubShowsUpdate() = runTest {
         github = release("v0.1.48-127")
-        val c = UpdateChecker(
-            tmp.root.resolve("update.json"),
-            currentVersionName = "0.1.48",
-            currentVersionCode = 49L,
-            releaseApi = server.url("/api").toString(),
-            now = { clock },
-        )
+        val c = checker(current = "0.1.48", currentCode = 49L)
         c.check(manual = true)
         val s = c.state.value
         assertEquals(CheckStatus.Done, s.status)
