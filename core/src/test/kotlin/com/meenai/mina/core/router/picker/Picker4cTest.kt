@@ -42,24 +42,33 @@ class Picker4cTest {
         val role = TaskDifficultyClassifier.classifyToRole(task)
         assertEquals(ModelRole.Coding, role)
 
-        val repo = ModelRankingsRepository(
-            initialRankings = mapOf(
-                "qwen/qwen-2.5-coder-32b-instruct:free" to ModelRankingEntry(
-                    id = "qwen/qwen-2.5-coder-32b-instruct:free",
-                    overallScore = 80.0,
-                    codingScore = 95.0,
-                    toolUseScore = 82.0,
-                    speedScore = 75.0,
+        val cache = InMemoryModelRankingsCacheStore()
+        cache.save(
+            CachedRankings(
+                timestampMs = System.currentTimeMillis(),
+                data = ModelRankingsData(
+                    models = listOf(
+                        ModelRankingEntry(
+                            model = "qwen-2.5-coder-32b-instruct",
+                            overallScore = 80.0,
+                            codingScore = 95.0,
+                            toolUseScore = 82.0,
+                            visionScore = 50.0,
+                            speedScore = 75.0,
+                        ),
+                        ModelRankingEntry(
+                            model = "llama-3.3-70b-instruct",
+                            overallScore = 88.0,
+                            codingScore = 72.0,
+                            toolUseScore = 85.0,
+                            visionScore = 50.0,
+                            speedScore = 70.0,
+                        ),
+                    ),
                 ),
-                "meta-llama/llama-3.3-70b-instruct:free" to ModelRankingEntry(
-                    id = "meta-llama/llama-3.3-70b-instruct:free",
-                    overallScore = 88.0,
-                    codingScore = 72.0,
-                    toolUseScore = 85.0,
-                    speedScore = 70.0,
-                ),
-            )
+            ),
         )
+        val repo = ModelRankingsRepository(cacheStore = cache, bundledResourceSupplier = { null })
 
         val coderModel = ModelCandidate(
             provider = "openrouter",
@@ -339,7 +348,8 @@ class Picker4cTest {
         val probeService = ModelProbeService()
 
         // 1. OpenRouter budget limit: max 6 probes per day
-        val openRouterCandidates = (1..8).map { i ->
+        // probeCandidates evaluates top 5 candidates per role; provide across 2 roles to test cap 6
+        val openRouterCandidates = (1..10).map { i ->
             ModelCandidate(
                 provider = "openrouter",
                 id = "openrouter/model-$i:free",
@@ -351,7 +361,12 @@ class Picker4cTest {
             )
         }
 
-        probeService.probeCandidates(mapOf(ModelRole.Main to openRouterCandidates))
+        probeService.probeCandidates(
+            mapOf(
+                ModelRole.Main to openRouterCandidates.take(5),
+                ModelRole.Coding to openRouterCandidates.drop(5).take(5),
+            )
+        )
         assertEquals(
             "OpenRouter daily probe limit 6 honi chahiye",
             6,
