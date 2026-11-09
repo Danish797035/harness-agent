@@ -44,6 +44,11 @@ internal class ToolConfig(
     val selfConfig: com.meenai.mina.core.settings.SelfConfig? = null,
     /** 存下的运行记录;给了、而这个对话之前有记过运行的轮次时提供 history_read。 */
     val runRecords: com.meenai.mina.core.record.RunRecords? = null,
+    val imageService: com.meenai.mina.core.image.ImageGenerationService? = null,
+    val onImageProgress: ((isGenerating: Boolean, prompt: String, model: String) -> Unit)? = null,
+    val onImageSaved: ((bytes: ByteArray, prompt: String, model: String) -> String)? = null,
+    val attachedPhoto: com.meenai.mina.core.image.AttachedPhoto? = null,
+    val isSensitivePackage: ((String?) -> Boolean)? = null,
 )
 
 /**

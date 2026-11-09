@@ -114,9 +114,15 @@ fun toolDispatcher(
     selfConfig: com.meenai.mina.core.settings.SelfConfig? = null,
     /** 存下的运行记录;给了、而这个对话之前有记过运行的轮次时提供 history_read(查之前几轮读到的东西)。 */
     runRecords: RunRecords? = null,
+    imageService: com.meenai.mina.core.image.ImageGenerationService? = null,
+    onImageProgress: ((isGenerating: Boolean, prompt: String, model: String) -> Unit)? = null,
+    onImageSaved: ((bytes: ByteArray, prompt: String, model: String) -> String)? = null,
+    attachedPhoto: com.meenai.mina.core.image.AttachedPhoto? = null,
+    isSensitivePackage: ((String?) -> Boolean)? = null,
 ): ToolDispatcher {
     val config = ToolConfig(visionEnabled, skills, recordFrames, vision, inlineScreen, adaptiveVision, memory, profile, utterances, conversationId,
-        imageOps, scheduleTrigger, scheduleAdmin, runSpec, childHost, userScreens, personalSkills, selfConfig, runRecords)
+        imageOps, scheduleTrigger, scheduleAdmin, runSpec, childHost, userScreens, personalSkills, selfConfig, runRecords,
+        imageService, onImageProgress, onImageSaved, attachedPhoto, isSensitivePackage)
     val providers: List<CapabilityProvider> = listOf(
         object : CapabilityProvider {
             override val id = PHONE

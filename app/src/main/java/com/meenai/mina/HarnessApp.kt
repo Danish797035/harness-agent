@@ -130,6 +130,32 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     /** Image generation and editing settings. */
     val imageSettings: com.meenai.mina.image.ImageSettings by lazy { com.meenai.mina.image.ImageSettings.get(this) }
 
+    /** Image generation and editing service. */
+    val imageService: com.meenai.mina.core.image.ImageGenerationService by lazy {
+        val modelScopeClient = com.meenai.mina.core.image.ModelScopeImageClient(
+            baseUrl = "https://api-inference.modelscope.ai",
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
+        val openRouterClient = com.meenai.mina.core.image.ModelScopeImageClient(
+            baseUrl = "https://openrouter.ai/api",
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
+        com.meenai.mina.core.image.ImageGenerationService(
+            modelScopeClient = modelScopeClient,
+            openRouterClient = openRouterClient,
+            getApiKey = { provider ->
+                when (provider.lowercase()) {
+                    "modelscope" -> com.meenai.mina.ui.router.AppFreeKeyRouter.resolveModelScopeKey(providers)
+                    "openrouter" -> com.meenai.mina.ui.router.AppFreeKeyRouter.resolveOpenRouterKey(providers)
+                    else -> providers.providers.value.firstOrNull { it.id.equals(provider, ignoreCase = true) }?.let { providers.providerKey(it.id) }
+                }
+            },
+            getPinnedModel = { role -> imageSettings.getPinnedModel(role) },
+            isPaidAllowed = { imageSettings.isPaidAllowed() },
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
+    }
+
     /** 语音输入的入口,输入框和悬浮胶囊共用。 */
     val voice: com.meenai.mina.voice.VoiceInput by lazy { com.meenai.mina.voice.VoiceInput(this, speech, providers) }
 
@@ -297,6 +323,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             sandboxReady = SandboxState.get(app).status.map { it !is SandboxStatus.Unsupported }
                 .stateIn(scope, SharingStarted.Eagerly, SandboxState.get(app).status.value !is SandboxStatus.Unsupported),
             sharedFiles = taskState.sharedFiles,
+            generatedImages = taskState.generatedImages,
             activities = taskState.activities,
             steers = taskState.steers,
             summarizing = taskState.summarizing,
@@ -353,6 +380,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch { runCatching { WebFiles.clearStale(this@HarnessApp, SandboxDirs(this@HarnessApp).gate) } }
         // 更新已经装上后,关于页下好的安装包
         scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@HarnessApp).dropInstalled() } }
+        // 7 din purani generated images saaf karo
+        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.image.ImageStorageManager.cleanOldCache(this@HarnessApp) } }
         // 运行环境没准备好(首次启动、Mina 升级后)就在后台准备,不联网、对用户不可见
         RuntimePreparer.ensure(this)
         // 沙箱就绪(启动时已就绪,或刚装好)就把技能目录核对一次:App 更新带来的脚本马上能用

@@ -32,8 +32,8 @@ enum class Verb {
     RunCommand, RunBundledScript, ReadFile, WriteFile, SearchFiles, ShareFile,
     Wait, AskUser, RequestConfirmation, HandToUser, HandleObstacle, EndNotDone,
     KnowledgeSearch, KnowledgeRead, SkillSearch, SkillRead, SkillSave, MemorySearch, MemorySave, ProfileEdit, HistoryRead,
-    ScheduleTask,
     SpawnAgent, SettingsList, SettingsSet,
+    GenerateImage, EditImage,
 }
 
 /** 按名字查得到的工具声明。 */

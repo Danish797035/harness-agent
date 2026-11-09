@@ -12,6 +12,9 @@ import com.meenai.mina.ui.router.RouterChip
 import com.meenai.mina.ui.router.RouterStatus
 import com.meenai.mina.ui.router.SwitchEvent
 import com.meenai.mina.ui.router.SwitchNoticeToast
+import com.meenai.mina.ui.image.GeneratedImageCard
+import com.meenai.mina.ui.image.GeneratedImageUi
+import com.meenai.mina.image.ImageStorageManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -556,6 +559,34 @@ private fun LazyListScope.exchange(
     // 这一轮结束后留在后台运行的那一页:还开着是绿色一行(能关),关了是一句原因
     keptPageRow(ex, kept, vm::closeKeptPage)
     if (ex.files.isNotEmpty()) item(key = "f:${ex.id}", contentType = "files") { FileCards(ex.files) }
+    if (ex.generatedImages.isNotEmpty()) {
+        ex.generatedImages.forEachIndexed { imgIdx, img ->
+            item(key = "img:${ex.id}-$imgIdx", contentType = "generated_image") {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                GeneratedImageCard(
+                    imageUi = img,
+                    onSave = { file ->
+                        val uri = ImageStorageManager.saveToGallery(context, file)
+                        val msg = if (uri != null) {
+                            context.getString(R.string.image_saved_to_gallery)
+                        } else {
+                            context.getString(R.string.image_save_failed)
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    },
+                    onShare = { file ->
+                        val intent = ImageStorageManager.createShareIntent(context, file)
+                        context.startActivity(android.content.Intent.createChooser(intent, null))
+                    },
+                    onRegenerate = { prompt ->
+                        if (prompt.isNotBlank()) {
+                            vm.send(prompt, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
+                        }
+                    }
+                )
+            }
+        }
+    }
     learningNotes(ex, vm)
 }
 
@@ -614,6 +645,11 @@ internal fun exchangeItemKeys(ex: Exchange, kept: KeptPage? = null, hasMultipleD
     }
     if (KeptRow.of(ex, kept) != null) items.add("k:${ex.id}" to "kept")
     if (ex.files.isNotEmpty()) items.add("f:${ex.id}" to "files")
+    if (ex.generatedImages.isNotEmpty()) {
+        ex.generatedImages.indices.forEach { imgIdx ->
+            items.add("img:${ex.id}-$imgIdx" to "generated_image")
+        }
+    }
     if (ex.runId != null && (ex.memoryNotes.isNotEmpty() || ex.skillNotes.isNotEmpty())) items.add("ln:${ex.id}" to "learning")
     return items
 }
