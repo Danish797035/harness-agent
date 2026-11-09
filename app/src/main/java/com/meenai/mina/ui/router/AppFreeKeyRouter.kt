@@ -20,7 +20,6 @@ import com.meenai.mina.core.router.picker.ModelSizeParser
 import com.meenai.mina.core.router.picker.ModelStatsTracker
 import com.meenai.mina.core.router.preset.ModelScopePreset
 import com.meenai.mina.core.router.preset.ZaiPreset
-import com.meenai.mina.core.router.toModelCandidate
 import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
