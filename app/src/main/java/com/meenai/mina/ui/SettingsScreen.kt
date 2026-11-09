@@ -109,6 +109,7 @@ fun SettingsScreen(
     fun fix(f: Fix) = if (f == Fix.AddModel) onOpenModels() else onFix(f)
     val onProblem: (Problem) -> Unit = { p -> StatusCopy.directFix(p)?.let(::fix) ?: run { explaining = p } }
 
+    val context = LocalContext.current
     var waitingRound by remember { mutableIntStateOf(-1) }
     LaunchedEffect(updateState?.manualRounds) {
         val s = updateState ?: return@LaunchedEffect
@@ -122,7 +123,6 @@ fun SettingsScreen(
     }
 
     // 并行任务的上限只在实验开关 parallelTasks 打开时出现;设备能力按此刻算,第二块屏建失败过就按失败算
-    val context = LocalContext.current
     val flags = remember { FeatureFlags.get(context) }
     var parallelMax by remember { mutableIntStateOf(flags.parallelMax()) }
     var keepScreenOn by remember { mutableStateOf(flags.keepScreenOn()) }
