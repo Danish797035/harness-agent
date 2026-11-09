@@ -20,13 +20,20 @@ object ModelScorer {
 
     /**
      * Computes the heaviness / capability score for a [ModelCandidate] using live data,
-     * optionally enhanced by public leaderboard rankings.
+     * enhanced by public leaderboard rankings, probe measurements, and 7-day real-use stats.
      */
     fun computeScore(
         model: ModelCandidate,
         ranking: ModelRankingEntry? = null,
         role: ModelRole = ModelRole.Main,
+        probeResult: ProbeResult? = null,
+        statsTracker: ModelStatsTracker? = null,
     ): Double {
+        // Probe disqualification: models that failed probe today get disqualified
+        if (probeResult != null && !probeResult.passed) {
+            return -1000.0
+        }
+
         // 1. Parameter size component
         val sizeScore = when {
             model.totalParamsB != null -> model.totalParamsB
@@ -55,9 +62,22 @@ object ModelScorer {
             (model.releaseDateEpoch.toDouble() / 1_000_000_000.0) * 0.001
         } else 0.0
 
-        val liveDataScore = sizeScore + ctxScore + featureScore + recencyScore
+        // 5. Probe measurement bonus/penalty
+        val probeBonus = if (probeResult != null && probeResult.passed) {
+            when {
+                probeResult.firstTokenMs in 1..3000 -> 10.0
+                probeResult.firstTokenMs in 3001..8000 -> 5.0
+                probeResult.firstTokenMs > 15000 -> -15.0
+                else -> 2.0
+            }
+        } else 0.0
 
-        // 5. Leaderboard score enhancement if matched
+        // 6. Asli use bonus (from 7-day stats)
+        val realUseBonus = statsTracker?.computeRealUseBonus(model.id) ?: 0.0
+
+        val liveDataScore = sizeScore + ctxScore + featureScore + recencyScore + probeBonus + realUseBonus
+
+        // 7. Leaderboard score enhancement if matched
         if (ranking == null) {
             // Match na ho to sirf live data se score
             return liveDataScore
@@ -92,17 +112,21 @@ object ModelScorer {
     }
 
     /**
-     * Creates a comparator taking into account role-specific requirements and leaderboard rankings.
+     * Creates a comparator taking into account role-specific requirements, leaderboard rankings, probe, and stats.
      */
     fun createComparator(
         repository: ModelRankingsRepository? = null,
         role: ModelRole = ModelRole.Main,
+        probeService: ModelProbeService? = null,
+        statsTracker: ModelStatsTracker? = null,
     ): Comparator<ModelCandidate> = Comparator { a, b ->
         val rankA = repository?.findRanking(a.id)
         val rankB = repository?.findRanking(b.id)
+        val probeA = probeService?.getProbeResult(a.id)
+        val probeB = probeService?.getProbeResult(b.id)
 
-        val scoreA = computeScore(a, rankA, role)
-        val scoreB = computeScore(b, rankB, role)
+        val scoreA = computeScore(a, rankA, role, probeA, statsTracker)
+        val scoreB = computeScore(b, rankB, role, probeB, statsTracker)
 
         val scoreDiff = scoreB.compareTo(scoreA)
         if (scoreDiff != 0) return@Comparator scoreDiff

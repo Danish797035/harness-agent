@@ -29,6 +29,8 @@ class AutoModelPicker(
     private val clock: Clock = Clock.SYSTEM,
     private val cacheTtlMs: Long = ONE_DAY_MS,
     private val rankingsRepository: ModelRankingsRepository? = null,
+    val probeService: ModelProbeService? = null,
+    val statsTracker: ModelStatsTracker? = null,
 ) {
 
     /**
@@ -83,6 +85,9 @@ class AutoModelPicker(
             // Exclude non-chat and image-gen/edit models
             if (ChatModelFilter.isExcluded(candidate.id)) return@filter false
 
+            // Exclude models that failed probe today
+            if (probeService?.isFailedToday(candidate.id) == true) return@filter false
+
             if (role == ModelRole.Vision && (!candidate.supportsImages || ChatModelFilter.isImageEditOrGen(candidate.id))) {
                 return@filter false
             }
@@ -136,6 +141,7 @@ class AutoModelPicker(
         role: ModelRole,
         pinnedModelId: String? = null,
         activeHealthSource: HealthSource = healthSource,
+        currentModelId: String? = null,
     ): ModelCandidate? {
         // Pin respect: if pinned, Auto does not change it
         if (!pinnedModelId.isNullOrBlank()) {
@@ -153,7 +159,33 @@ class AutoModelPicker(
 
         val filtered = filterCandidates(candidates, role)
         val ranked = rankCandidates(filtered, role, activeHealthSource)
-        return ranked.firstOrNull()
+        val best = ranked.firstOrNull() ?: return null
+
+        // Apply hysteresis if current model is known and still in candidate pool
+        if (currentModelId != null && statsTracker != null && currentModelId != best.id) {
+            val current = filtered.firstOrNull { it.id == currentModelId }
+            if (current != null) {
+                val currentScore = ModelScorer.computeScore(
+                    current,
+                    rankingsRepository?.findRanking(current.id),
+                    role,
+                    probeService?.getProbeResult(current.id),
+                    statsTracker,
+                )
+                val bestScore = ModelScorer.computeScore(
+                    best,
+                    rankingsRepository?.findRanking(best.id),
+                    role,
+                    probeService?.getProbeResult(best.id),
+                    statsTracker,
+                )
+                if (!statsTracker.shouldSwitch(currentScore, bestScore, 10.0)) {
+                    return current
+                }
+            }
+        }
+
+        return best
     }
 
     /**
@@ -165,6 +197,7 @@ class AutoModelPicker(
         extraCandidates: List<ModelCandidate> = emptyList(),
         forceRefresh: Boolean = false,
         activeHealthSource: HealthSource = healthSource,
+        currentModelId: String? = null,
     ): ModelCandidate? {
         if (!pinnedModelId.isNullOrBlank()) {
             return pickFromCandidates(emptyList(), role, pinnedModelId, activeHealthSource)
@@ -172,15 +205,14 @@ class AutoModelPicker(
 
         val openRouterCandidates = getCandidates(forceRefresh)
         val combined = (openRouterCandidates + extraCandidates).distinctBy { it.id }
-        return pickFromCandidates(combined, role, pinnedModelId, activeHealthSource)
+        return pickFromCandidates(combined, role, pinnedModelId, activeHealthSource, currentModelId)
     }
 
     /**
      * Main role: sabse heavy (flagship, reasoning, large capacity).
      */
     private fun rankMainRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Main) }
-            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        val comparator = ModelScorer.createComparator(rankingsRepository, ModelRole.Main, probeService, statsTracker)
         return candidates.sortedWith(comparator)
     }
 
@@ -188,8 +220,7 @@ class AutoModelPicker(
      * Coding role: coding-specialized models or heaviest capable models.
      */
     private fun rankCodingRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Coding) }
-            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        val comparator = ModelScorer.createComparator(rankingsRepository, ModelRole.Coding, probeService, statsTracker)
         val codingModels = candidates.filter {
             it.id.contains("coder", ignoreCase = true) ||
                 it.id.contains("code", ignoreCase = true)
@@ -203,8 +234,7 @@ class AutoModelPicker(
      * Prefers models in the <= 10B range or marked small/mini/lite, ordered by quality.
      */
     private fun rankLightRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Light) }
-            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        val comparator = ModelScorer.createComparator(rankingsRepository, ModelRole.Light, probeService, statsTracker)
         val lightModels = candidates.filter { isLightModel(it) }
         val pool = if (lightModels.isNotEmpty()) lightModels else candidates
         return pool.sortedWith(comparator)
@@ -214,8 +244,7 @@ class AutoModelPicker(
      * Vision role: best image understanding (excluding image-gen/edit models).
      */
     private fun rankVisionRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val comparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Vision) }
-            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        val comparator = ModelScorer.createComparator(rankingsRepository, ModelRole.Vision, probeService, statsTracker)
         val visionModels = candidates.filter { it.supportsImages && !ChatModelFilter.isImageEditOrGen(it.id) }
         val pool = if (visionModels.isNotEmpty()) visionModels else candidates
         return pool.sortedWith(comparator)
@@ -225,8 +254,7 @@ class AutoModelPicker(
      * Long role: models with massive context windows.
      */
     private fun rankLongRole(candidates: List<ModelCandidate>): List<ModelCandidate> {
-        val baseComparator = rankingsRepository?.let { ModelScorer.createComparator(it, ModelRole.Long) }
-            ?: ModelScorer.HEAVY_TO_LIGHT_COMPARATOR
+        val baseComparator = ModelScorer.createComparator(rankingsRepository, ModelRole.Long, probeService, statsTracker)
         val comparator = compareByDescending<ModelCandidate> { it.contextTokens }
             .thenComparing(baseComparator)
         return candidates.sortedWith(comparator)

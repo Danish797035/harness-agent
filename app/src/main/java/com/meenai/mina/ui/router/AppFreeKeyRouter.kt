@@ -12,11 +12,15 @@ import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
+import com.meenai.mina.core.router.picker.ModelCandidate
+import com.meenai.mina.core.router.picker.ModelProbeService
 import com.meenai.mina.core.router.picker.ModelRankingsRepository
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.picker.ModelSizeParser
+import com.meenai.mina.core.router.picker.ModelStatsTracker
 import com.meenai.mina.core.router.preset.ModelScopePreset
 import com.meenai.mina.core.router.preset.ZaiPreset
+import com.meenai.mina.core.router.toModelCandidate
 import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
@@ -96,7 +100,17 @@ object AppFreeKeyRouter {
         ModelRankingsRepository()
     }
 
+    private val sharedProbeService: ModelProbeService by lazy {
+        ModelProbeService()
+    }
+
+    private val sharedStatsTracker: ModelStatsTracker by lazy {
+        ModelStatsTracker()
+    }
+
     fun getRankingsRepository(): ModelRankingsRepository = sharedRankingsRepo
+    fun getProbeService(): ModelProbeService = sharedProbeService
+    fun getStatsTracker(): ModelStatsTracker = sharedStatsTracker
 
     /**
      * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
@@ -105,11 +119,15 @@ object AppFreeKeyRouter {
         store: ProviderStore,
         http: OkHttpClient = OkHttpClient(),
         rankingsRepository: ModelRankingsRepository = sharedRankingsRepo,
+        probeService: ModelProbeService = sharedProbeService,
+        statsTracker: ModelStatsTracker = sharedStatsTracker,
     ): FreeKeyRouter {
         val candidates = createCandidates(store, http)
         val picker = AutoModelPicker(
             apiClient = HttpOpenRouterApiClient(http),
             rankingsRepository = rankingsRepository,
+            probeService = probeService,
+            statsTracker = statsTracker,
         )
         val diffRouter = DifficultyRouter(picker = picker)
         return FreeKeyRouter(
@@ -117,7 +135,97 @@ object AppFreeKeyRouter {
             difficultyRouter = diffRouter,
             firstTokenTimeoutMs = 15_000L,
             rankingsRepository = rankingsRepository,
+            probeService = probeService,
+            statsTracker = statsTracker,
         )
+    }
+
+    /**
+     * Auto-populates unconfigured roles in Settings (Main, Light, Vision) from Smart Model Picker.
+     * Guarantees:
+     * - User-chosen models are strictly preserved (never overwritten).
+     * - Coding and Long roles remain exclusively inside Smart Picker (never added to Settings UI).
+     */
+    fun autoPopulateSettingsRoles(
+        store: ProviderStore,
+        picker: AutoModelPicker,
+        candidates: List<ModelCandidate>? = null,
+    ) {
+        val currentRoles = store.roles.value
+        val mainChosen = currentRoles.main != null
+        val lightChosen = currentRoles.light !is com.meenai.mina.settings.RoleChoice.SameAsMain
+        val visionChosen = currentRoles.vision !is com.meenai.mina.settings.RoleChoice.Off
+
+        // If user explicitly chose all 3 roles, preserve everything
+        if (mainChosen && lightChosen && visionChosen) return
+
+        val pool = candidates ?: createCandidates(store).map { it.toModelCandidate() }
+        if (pool.isEmpty()) return
+
+        fun findProvider(candidate: ModelCandidate): Provider? {
+            return store.providers.value.firstOrNull { p ->
+                when (candidate.provider.lowercase()) {
+                    "openrouter" -> isOpenRouterProvider(p)
+                    "zai", "z.ai" -> isZaiProvider(p)
+                    "modelscope" -> isModelScopeProvider(p)
+                    else -> p.id == candidate.provider || p.name.contains(candidate.provider, ignoreCase = true)
+                }
+            }
+        }
+
+        // 1. Auto-fill Main if user has not chosen
+        if (!mainChosen) {
+            val bestMain = picker.pickFromCandidates(pool, ModelRole.Main)
+            if (bestMain != null) {
+                val p = findProvider(bestMain)
+                if (p != null) {
+                    val caps = Capabilities(
+                        toolCalls = bestMain.supportsTools,
+                        vision = bestMain.supportsImages,
+                        contextTokens = bestMain.contextTokens,
+                        reasoning = bestMain.supportsReasoning,
+                        promptCaching = PromptCaching.Implicit,
+                    )
+                    store.use(com.meenai.mina.core.model.ModelRole.Main, p.id, bestMain.id, caps)
+                }
+            }
+        }
+
+        // 2. Auto-fill Light if user has not chosen (currently SameAsMain)
+        if (!lightChosen) {
+            val bestLight = picker.pickFromCandidates(pool, ModelRole.Light)
+            if (bestLight != null) {
+                val p = findProvider(bestLight)
+                if (p != null) {
+                    val caps = Capabilities(
+                        toolCalls = bestLight.supportsTools,
+                        vision = bestLight.supportsImages,
+                        contextTokens = bestLight.contextTokens,
+                        reasoning = bestLight.supportsReasoning,
+                        promptCaching = PromptCaching.Implicit,
+                    )
+                    store.use(com.meenai.mina.core.model.ModelRole.Light, p.id, bestLight.id, caps)
+                }
+            }
+        }
+
+        // 3. Auto-fill Vision if user has not chosen (currently Off)
+        if (!visionChosen) {
+            val bestVision = picker.pickFromCandidates(pool, ModelRole.Vision)
+            if (bestVision != null) {
+                val p = findProvider(bestVision)
+                if (p != null) {
+                    val caps = Capabilities(
+                        toolCalls = bestVision.supportsTools,
+                        vision = true,
+                        contextTokens = bestVision.contextTokens,
+                        reasoning = bestVision.supportsReasoning,
+                        promptCaching = PromptCaching.Implicit,
+                    )
+                    store.use(com.meenai.mina.core.model.ModelRole.Vision, p.id, bestVision.id, caps)
+                }
+            }
+        }
     }
 
     fun isOpenRouterProvider(p: Provider): Boolean {
@@ -330,7 +438,7 @@ object AppFreeKeyRouter {
                     model = model,
                     curatedRank = 0,
                     isFree = true,
-                    isBackup = true, // ModelScope is lowest-priority backup
+                    isBackup = false,
                     roles = roles,
                 )
             }
@@ -353,7 +461,7 @@ object AppFreeKeyRouter {
                     model = qwen72b,
                     curatedRank = 75,
                     isFree = true,
-                    isBackup = true,
+                    isBackup = false,
                     roles = setOf(ModelRole.Main),
                 )
             )
@@ -380,7 +488,7 @@ object AppFreeKeyRouter {
                 model = qwen7b,
                 curatedRank = 50,
                 isFree = true,
-                isBackup = true,
+                isBackup = false,
                 roles = setOf(ModelRole.Light),
             )
         )
@@ -391,7 +499,7 @@ object AppFreeKeyRouter {
                 model = qwenVl,
                 curatedRank = 55,
                 isFree = true,
-                isBackup = true,
+                isBackup = false,
                 roles = setOf(ModelRole.Vision),
             )
         )

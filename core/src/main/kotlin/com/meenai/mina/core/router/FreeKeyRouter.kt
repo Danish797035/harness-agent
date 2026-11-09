@@ -91,6 +91,8 @@ class FreeKeyRouter(
     val maxInlineWaitMs: Long = 15_000L,
     val onModelSwitched: ((oldModel: String?, newModel: String, reason: String) -> Unit)? = null,
     val rankingsRepository: ModelRankingsRepository? = null,
+    val probeService: ModelProbeService? = null,
+    val statsTracker: ModelStatsTracker? = null,
 ) : StreamingChatModel {
 
     val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
@@ -264,6 +266,12 @@ class FreeKeyRouter(
         if (cooldownStore.isKeyBad(candidate.provider)) return false
         val remainingCooldown = cooldownStore.getRemainingCooldownMs(candidate.id, now())
         if (remainingCooldown > 0L) return false
+        if (candidate.provider.equals("modelscope", ignoreCase = true)) {
+            if (!MagicubeLedger.canAffordModelScope(now())) return false
+        }
+        if (probeService?.isFailedToday(candidate.id) == true) {
+            return false
+        }
         return cooldownStore.isAvailable(candidate.id, candidate.provider, now(), isNewTask = isNewTask)
     }
 
@@ -350,6 +358,11 @@ class FreeKeyRouter(
                     val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText)
                     val latency = now() - beganTime
                     healthTracker.recordSuccess(currentCandidate.id, latency)
+                    statsTracker?.recordSuccess(
+                        modelId = currentCandidate.id,
+                        firstTokenMs = latency,
+                        hasValidToolCall = reply.parts.any { it is Part.ToolCall },
+                    )
                     difficultyRouter.recordSuccess()
                     RouterUsageTracker.recordCall(currentCandidate.id, currentCandidate.provider, now())
                     if (currentCandidate.provider.equals("modelscope", ignoreCase = true)) {
@@ -368,6 +381,10 @@ class FreeKeyRouter(
                 } catch (e: Throwable) {
                     lastError = e
                     healthTracker.recordFailure(currentCandidate.id)
+                    statsTracker?.recordFailure(
+                        modelId = currentCandidate.id,
+                        isToolCallFailure = (lastError is ModelError.BadResponse || lastError is ModelError.SchemaError),
+                    )
                     difficultyRouter.recordFailure()
 
                     val action = RouterErrorClassifier.classify(e)
@@ -549,8 +566,7 @@ class FreeKeyRouter(
         val available = candidates.filter { checkCachedQuota(it, isNewTask = isNewTask) }
         if (available.isEmpty()) return null
 
-        // ModelScope is backup only: select ModelScope ONLY when all non-backup candidates are in cooldown
-        val (primary, backup) = available.partition { !it.isBackup && !it.provider.equals("modelscope", ignoreCase = true) }
+        val (primary, backup) = available.partition { !it.isBackup }
         val pool = if (primary.isNotEmpty()) primary else backup
 
         val roleFiltered = pool.filter { candidate ->
@@ -579,7 +595,7 @@ class FreeKeyRouter(
                     .thenByDescending {
                         val info = it.candidateInfo ?: it.toModelCandidate()
                         val ranking = rankingsRepository?.findRanking(it.id)
-                        ModelScorer.computeScore(info, ranking, targetRole)
+                        ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
                     }
                     .thenByDescending { healthTracker.score(it.id) }
             }
@@ -587,13 +603,27 @@ class FreeKeyRouter(
                 compareByDescending<RouterCandidate> {
                     val info = it.candidateInfo ?: it.toModelCandidate()
                     val ranking = rankingsRepository?.findRanking(it.id)
-                    ModelScorer.computeScore(info, ranking, targetRole)
+                    ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
                 }.thenByDescending { healthTracker.score(it.id) }
                  .thenByDescending { it.model.capabilities.contextTokens }
             }
         }
 
-        return targetPool.sortedWith(comparator).firstOrNull()
+        val bestCandidate = targetPool.sortedWith(comparator).firstOrNull() ?: return null
+
+        // Hysteresis check: only switch if candidate is >= 10% better
+        val current = activeCandidate
+        if (current != null && current in targetPool && current.id != bestCandidate.id && statsTracker != null) {
+            val currentInfo = current.candidateInfo ?: current.toModelCandidate()
+            val bestInfo = bestCandidate.candidateInfo ?: bestCandidate.toModelCandidate()
+            val currentScore = ModelScorer.computeScore(currentInfo, rankingsRepository?.findRanking(current.id), targetRole, probeService?.getProbeResult(current.id), statsTracker)
+            val bestScore = ModelScorer.computeScore(bestInfo, rankingsRepository?.findRanking(bestCandidate.id), targetRole, probeService?.getProbeResult(bestCandidate.id), statsTracker)
+            if (!statsTracker.shouldSwitch(currentScore, bestScore, 10.0)) {
+                return current
+            }
+        }
+
+        return bestCandidate
     }
 
     private fun shortestCooldownMs(): Long =
