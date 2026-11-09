@@ -569,11 +569,12 @@ class TaskService : Service() {
         val (_, text) = describe(state) { ConfirmationNotifier.appLabel(this, it) }
         val warning = run.muteFailedFor?.let { "\n" + tr(R.string.task_may_make_sound) }.orEmpty() +
             (if (state is TaskState.WaitingTakeover && !takeoverFirst(run)) "\n$TAKEOVER_QUEUED" else "")
+        val content = com.meenai.mina.core.general.MarkdownSanitizer.strip(text + warning)
         val b = Notification.Builder(this, CHANNEL_PROGRESS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(tr(R.string.task_notif_title, ScreenCopy.plain(run.goal)))
-            .setContentText(text + warning)
-            .setStyle(Notification.BigTextStyle().bigText(text + warning))
+            .setContentText(content)
+            .setStyle(Notification.BigTextStyle().bigText(content))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openApp())
@@ -784,17 +785,24 @@ class TaskService : Service() {
         internal fun notifyDelivery(context: Context, delivery: Delivery, resultId: Int): SendOutcome {
             val nm = context.getSystemService(NotificationManager::class.java)
             when (delivery) {
-                is Delivery.Result -> nm.notify(resultId, Notification.Builder(context, CHANNEL_RESULT)
-                    .setSmallIcon(R.drawable.ic_notification)
-                    .setContentTitle(delivery.title)
-                    .setContentText(delivery.text)
-                    .setStyle(Notification.BigTextStyle().bigText(delivery.text))
-                    .setContentIntent(openApp(context, delivery.threadId))
-                    .setAutoCancel(true)
-                    .build())
-                is Delivery.Notice -> nm.notify(nextResultId(), Notification.Builder(context, CHANNEL_RESULT)
-                    .setSmallIcon(R.drawable.ic_notification).setContentTitle("Harness Agent")
-                    .setContentText(delivery.text).setContentIntent(openApp(context, delivery.threadId)).setAutoCancel(true).build())
+                is Delivery.Result -> {
+                    val cleanTitle = com.meenai.mina.core.general.MarkdownSanitizer.strip(delivery.title)
+                    val cleanText = com.meenai.mina.core.general.MarkdownSanitizer.strip(delivery.text)
+                    nm.notify(resultId, Notification.Builder(context, CHANNEL_RESULT)
+                        .setSmallIcon(R.drawable.ic_notification)
+                        .setContentTitle(cleanTitle)
+                        .setContentText(cleanText)
+                        .setStyle(Notification.BigTextStyle().bigText(cleanText))
+                        .setContentIntent(openApp(context, delivery.threadId))
+                        .setAutoCancel(true)
+                        .build())
+                }
+                is Delivery.Notice -> {
+                    val cleanText = com.meenai.mina.core.general.MarkdownSanitizer.strip(delivery.text)
+                    nm.notify(nextResultId(), Notification.Builder(context, CHANNEL_RESULT)
+                        .setSmallIcon(R.drawable.ic_notification).setContentTitle("Harness Agent")
+                        .setContentText(cleanText).setContentIntent(openApp(context, delivery.threadId)).setAutoCancel(true).build())
+                }
                 is Delivery.Ask, is Delivery.Progress -> {}
             }
             return SendOutcome.Delivered
