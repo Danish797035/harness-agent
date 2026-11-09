@@ -44,6 +44,7 @@ import com.meenai.mina.core.run.ChannelInteraction
 import com.meenai.mina.core.run.RunProvenance
 import com.meenai.mina.core.run.RunOrigin
 import com.meenai.mina.core.run.Attendance
+import com.meenai.mina.core.verify.Verifier
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.takeover.Takeover
 import com.meenai.mina.takeover.TakeoverActivity
@@ -974,12 +975,29 @@ class TaskService : Service() {
             else -> true
         }
 
+        internal fun localizeVerificationNote(note: String): String = when {
+            note.startsWith(AgentLoop.UNCONFIRMED_NOTE) -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix(AgentLoop.UNCONFIRMED_NOTE).trim()
+            note.startsWith("Unconfirmed:") -> tr(R.string.chat_unconfirmed_prefix) + " " + note.removePrefix("Unconfirmed:").trim()
+            note == Verifier.PROTECTED -> tr(R.string.unverified_protected)
+            note == Verifier.TIMEOUT -> tr(R.string.unverified_timeout)
+            note == Verifier.UNPARSED -> tr(R.string.unverified_unparsed)
+            note.startsWith(Verifier.ERROR_PREFIX) -> tr(R.string.unverified_error_prefix) + " " + note.removePrefix(Verifier.ERROR_PREFIX).trim()
+            note == Verifier.NOT_IN_READS -> tr(R.string.unverified_not_in_reads)
+            note == Verifier.NOT_EVERY_CRITERION -> tr(R.string.unverified_not_every_criterion)
+            note == Verifier.FAIL_WITHOUT_REASON -> tr(R.string.unverified_fail_without_reason)
+            note == Verifier.FOLLOW_UP_UNCLEAR -> tr(R.string.unverified_follow_up_unclear)
+            note == Verifier.NOTHING_READ -> tr(R.string.unverified_nothing_read)
+            note == Verifier.TRUNCATED -> tr(R.string.unverified_truncated)
+            note == Verifier.VERIFYING -> tr(R.string.unverified_verifying)
+            else -> note
+        }
+
         /** 通知的标题和正文;[appLabel] 把包名换成 App 名。 */
         internal fun describe(state: TaskState, appLabel: (String) -> String = { it }): Pair<String, String> = when (state) {
             TaskState.Idle -> "Harness Agent" to ""
             is TaskState.Running -> tr(R.string.task_running) to (state.progress?.let(StatusCopy::progress) ?: when {
-                state.step == 0 -> state.note
-                else -> tr(R.string.task_step_note, state.step, state.note).trimEnd(':', ' ')
+                state.step == 0 -> localizeVerificationNote(state.note)
+                else -> tr(R.string.task_step_note, state.step, localizeVerificationNote(state.note)).trimEnd(':', ' ')
             })
             is TaskState.Held -> when {
                 state.reason == TaskGate.LOCKED -> tr(R.string.task_wait_unlock) to tr(R.string.task_wait_unlock_body)
@@ -992,7 +1010,7 @@ class TaskService : Service() {
             is TaskState.WaitingConfirmation -> ConfirmationCopy.title(state.request) to ConfirmationCopy.body(state.request, appLabel(state.request.app))
             is TaskState.Succeeded ->
                 if (!state.doubtful) tr(R.string.task_done) to state.answer
-                else tr(R.string.chat_unverified) to (state.note?.let { tr(R.string.task_reason, it) + "\n" }.orEmpty() + state.answer)
+                else tr(R.string.chat_unverified) to (state.note?.let { tr(R.string.task_reason, localizeVerificationNote(it)) + "\n" }.orEmpty() + state.answer)
             is TaskState.Failed -> tr(R.string.task_not_done) to state.reason
             TaskState.Cancelled -> tr(R.string.task_stopped) to tr(R.string.task_stopped_body)
         }

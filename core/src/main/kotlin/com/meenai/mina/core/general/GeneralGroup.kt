@@ -8,5 +8,6 @@ internal object GeneralGroup {
         Wait, ViewPastScreens, ViewUserScreen, AskUser, RequestConfirmation, HandToUser, HandleObstacle, EndNotDone,
         KnowledgeSearch, KnowledgeRead, SkillSearch, SkillRead, SkillSave, MemorySearch, MemorySave, ProfileEdit, HistoryRead, ScheduleTask, SpawnAgent,
         com.meenai.mina.core.settings.SettingsList, com.meenai.mina.core.settings.SettingsSet,
+        com.meenai.mina.core.image.GenerateImageTool, com.meenai.mina.core.image.EditImageTool,
     )
 }

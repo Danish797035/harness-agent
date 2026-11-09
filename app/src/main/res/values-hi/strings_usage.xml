@@ -35,4 +35,7 @@
     <string name="usage_input">इनपुट</string>
     <string name="usage_output">उत्पादन</string>
     <string name="usage_calls">कॉल</string>
+    <string name="usage_unit_k">K</string>
+    <string name="usage_unit_m">M</string>
+    <string name="usage_unit_b">B</string>
 </resources>

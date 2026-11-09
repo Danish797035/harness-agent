@@ -150,4 +150,22 @@
     <string name="pip_closed_hint">इस कार्य के लिए बंद कर दिया गया है. नीचे दाईं ओर "स्क्रीन दिखाएं" पर टैप करें, या साइड मेनू में "बैकग्राउंड स्क्रीन" खोलें।</string>
     <string name="chat_example_food">स्विगी या ब्लिंकिट खोलें और मेरे लिए भोजन या किराने का सामान ऑर्डर करें</string>
     <string name="chat_example_ride">उबर या ओला पर सवारी खोजें</string>
+    <string name="chat_unconfirmed_prefix">पुष्टि नहीं हुई:</string>
+    <string name="unverified_protected">परिणाम स्क्रीन स्क्रीनशॉट से सुरक्षित है, स्क्रीन देखकर पुष्टि नहीं की जा सकती।</string>
+    <string name="unverified_timeout">सत्यापन का समय समाप्त हो गया।</string>
+    <string name="unverified_unparsed">सत्यापनकर्ता का उत्तर पार्स नहीं किया जा सका।</string>
+    <string name="unverified_error_prefix">सत्यापनकर्ता त्रुटि:</string>
+    <string name="unverified_not_in_reads">उत्तर का आधार स्क्रीन, वेबपेज या कमांड आउटपुट में नहीं मिला।</string>
+    <string name="unverified_not_every_criterion">सत्यापनकर्ता ने प्रत्येक मानदंड की जांच नहीं की।</string>
+    <string name="unverified_fail_without_reason">सत्यापनकर्ता ने निष्कर्ष निकाला कि कार्य पूरा नहीं हुआ, लेकिन कोई कारण नहीं बताया।</string>
+    <string name="unverified_follow_up_unclear">यह पिछले संदर्भ से जुड़ा प्रश्न है, विशिष्ट मानदंड नहीं थे; सटीक पुष्टि नहीं की जा सकती।</string>
+    <string name="unverified_nothing_read">इस कार्य के दौरान कोई ऐप नहीं खोला गया और कोई सामग्री नहीं पढ़ी गई।</string>
+    <string name="unverified_truncated">उत्तर स्क्रीन पर कटे हुए टेक्स्ट पर आधारित है (… पर समाप्त), पूरी तरह से सत्यापित नहीं किया जा सका।</string>
+    <string name="unverified_verifying">परिणामों की पुष्टि की जा रही है…</string>
+    <string name="image_generating">इमेज बन रही है…</string>
+    <string name="image_save">सेव करें</string>
+    <string name="image_share">शेयर करें</string>
+    <string name="image_regenerate">दोबारा बनाएं</string>
+    <string name="image_saved_to_gallery">गैलरी में सेव हो गई</string>
+    <string name="image_save_failed">गैलरी में सेव नहीं हो सकी</string>
 </resources>

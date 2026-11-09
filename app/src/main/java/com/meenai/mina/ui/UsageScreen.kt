@@ -142,23 +142,14 @@ object UsageCopy {
     const val COLORED = 3
 
     /**
-     * token 数:一万以下照写;往上按万、亿,保留三位有效数字(四舍五入,去掉末尾的 0),
-     * 例如 8765、1.23 万、12.3 万、123 万、1.5 亿;繁体写成萬、億。
+     * token 数:一万以下照写;往上按 K、M、B,保留三位有效数字(四舍五入,去掉末尾的 0),
+     * 例如 8765、10K、12.3K、123K、1.23M、1.5B。
      */
     fun tokens(n: Long): String {
         if (n < 10_000) return n.toString()
-        val wan = round3(BigDecimal(n).divide(BigDecimal(10_000)))
-        val locale = uiLocale()
-        if (locale.language == "zh") {
-            val hant = locale.script == "Hant"
-            if (wan < BigDecimal(10_000)) return "${wan.stripTrailingZeros().toPlainString()} ${if (hant) "萬" else "万"}"
-            val yi = round3(BigDecimal(n).divide(BigDecimal(100_000_000)))
-            return "${yi.stripTrailingZeros().toPlainString()} ${if (hant) "億" else "亿"}"
-        }
-        // 英文按千、百万、十亿写:12.3K、1.5M
-        for ((unit, size) in listOf("K" to 1_000L, "M" to 1_000_000L, "B" to 1_000_000_000L)) {
+        for ((unitRes, size) in listOf(R.string.usage_unit_k to 1_000L, R.string.usage_unit_m to 1_000_000L, R.string.usage_unit_b to 1_000_000_000L)) {
             val v = round3(BigDecimal(n).divide(BigDecimal(size)))
-            if (v < BigDecimal(1_000) || unit == "B") return "${v.stripTrailingZeros().toPlainString()}$unit"
+            if (v < BigDecimal(1_000) || unitRes == R.string.usage_unit_b) return "${v.stripTrailingZeros().toPlainString()}${tr(unitRes)}"
         }
         return n.toString()
     }

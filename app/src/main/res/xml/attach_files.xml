@@ -3,4 +3,5 @@
 <paths>
     <cache-path name="camera" path="attach/camera/" />
     <cache-path name="viewing" path="attach/viewing/" />
+    <cache-path name="generated_images" path="generated_images/" />
 </paths>

@@ -304,7 +304,7 @@ class PageChat(private val context: Context, private val browser: UserBrowser, p
             val row = rows.getOrNull(i) ?: return@mapIndexed null
             val target = ex.activities.lastOrNull { it.step == row.step }?.target?.trim().orEmpty()
             when {
-                target.startsWith(SITE_PREFIX) -> PageAskCopy.WEB
+                target.startsWith(SITE_PREFIX) || target.startsWith("Site ") -> PageAskCopy.WEB
                 PACKAGE_NAME_RE.matches(target) -> PageAskCopy.APP
                 else -> null
             }
