@@ -35,4 +35,7 @@
     <string name="usage_input">Input</string>
     <string name="usage_output">Output</string>
     <string name="usage_calls">Calls</string>
+    <string name="usage_unit_k">K</string>
+    <string name="usage_unit_m">M</string>
+    <string name="usage_unit_b">B</string>
 </resources>

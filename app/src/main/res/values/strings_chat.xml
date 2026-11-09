@@ -150,4 +150,16 @@
     <string name="pip_closed_hint">Closed for this task. Tap “Show screen” at the bottom right, or open “Background screens” in the side menu.</string>
     <string name="chat_example_food">Open Swiggy or Blinkit and order food or groceries for me</string>
     <string name="chat_example_ride">Find a ride on Uber or Ola</string>
+    <string name="chat_unconfirmed_prefix">Unconfirmed:</string>
+    <string name="unverified_protected">The result screen is protected from screenshots, cannot see the screen to verify.</string>
+    <string name="unverified_timeout">Verification timed out.</string>
+    <string name="unverified_unparsed">The verifier reply could not be parsed.</string>
+    <string name="unverified_error_prefix">Verifier error:</string>
+    <string name="unverified_not_in_reads">The claim in the answer could not be found in the screen, webpage, or command output.</string>
+    <string name="unverified_not_every_criterion">The verifier did not check every criterion.</string>
+    <string name="unverified_fail_without_reason">The verifier concluded it was not done, but did not specify which criterion was unmet.</string>
+    <string name="unverified_follow_up_unclear">This is a follow-up question with no specific criteria; cannot verify accurately.</string>
+    <string name="unverified_nothing_read">No app was opened and no materials were read during this task.</string>
+    <string name="unverified_truncated">The answer is based on truncated text on screen (ending with …); only partially visible and could not be fully verified.</string>
+    <string name="unverified_verifying">Verifying results…</string>
 </resources>
