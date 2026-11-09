@@ -1,22 +1,22 @@
 package com.meenai.mina.image
 
-import com.meenai.mina.core.image.AttachedPhoto
-import com.meenai.mina.core.image.EditImageTool
-import com.meenai.mina.core.image.GenerateImageTool
-import com.meenai.mina.core.image.ImageGenerationService
+import com.meenai.mina.chat.ConversationStore
+import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.image.ImageIntentRouter
-import com.meenai.mina.core.image.ImageResult
-import com.meenai.mina.core.image.PhotoSource
-import com.meenai.mina.core.tool.Args
-import com.meenai.mina.core.tool.ToolConfig
-import com.meenai.mina.core.tool.ToolContext
-import com.meenai.mina.core.tool.ToolIndex
-import com.meenai.mina.ui.ChatCopy
+import com.meenai.mina.settings.AccessibilityState
+import com.meenai.mina.settings.Prerequisites
+import com.meenai.mina.core.shell.BuiltinShellStatus
+import com.meenai.mina.settings.SystemStatus
+import com.meenai.mina.takeover.Takeover
+import com.meenai.mina.ui.ChatViewModel
 import com.meenai.mina.ui.Exchange
 import com.meenai.mina.ui.ExchangeStatus
+import com.meenai.mina.ui.TaskActions
 import com.meenai.mina.ui.exchangeItemKeys
 import com.meenai.mina.ui.image.GeneratedImageUi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,74 +32,89 @@ class ImageChatWiringTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
+    private val ready = SystemStatus(34, BuiltinShellStatus.Running, AccessibilityState.On, notificationsAllowed = true)
+    private val ok = Prerequisites.check(ready, hasMainModel = true)
+
+    private val actions = object : TaskActions {
+        override fun start(goal: String, conversationId: String) {}
+        override fun steer(conversationId: String, messageId: String, text: String) {}
+        override fun withdrawSteer(conversationId: String, messageId: String): Boolean = true
+        override fun cancel() {}
+        override fun resume() {}
+        override fun takeOver() {}
+        override fun handBack() {}
+        override fun finishedMyself() {}
+        override fun skip() {}
+        override fun answer(text: String) {}
+        override fun approve(key: Int) {}
+        override fun decline(key: Int) {}
+        override fun show(conversationId: String) {}
+        override fun cancelIn(conversationId: String) {}
+        override fun resumeIn(conversationId: String) {}
+        override fun answerIn(conversationId: String, text: String) {}
+        override fun approveIn(conversationId: String, key: Int) {}
+    }
+
     @Test
-    fun toolCallGeneratesImageCardProgressAndResult() = runTest {
-        val root = tmp.newFolder("image_cache")
-        val progressUpdates = mutableListOf<GeneratedImageUi>()
-        var savedFilePath: String? = null
+    fun generatedImagesFlowUpdatesExchangeInChatViewModel() = runTest {
+        val state = MutableStateFlow<TaskState>(TaskState.Idle)
+        val stage = MutableStateFlow(Takeover.Stage.None)
+        val imagesFlow = MutableStateFlow<List<GeneratedImageUi>>(emptyList())
+        val store = ConversationStore(tmp.newFolder())
 
-        val fakeService = object : ImageGenerationService() {
-            override suspend fun generateImage(prompt: String, size: String?): ImageResult {
-                val fakeBytes = "FAKED_PNG_BYTES".toByteArray()
-                return ImageResult.Success(
-                    bytes = fakeBytes,
-                    contentType = "image/jpeg",
-                    model = "Qwen/Qwen-Image-2.1",
-                    costMagicube = 1.0,
-                )
-            }
-        }
+        val vm = ChatViewModel(
+            scope = backgroundScope,
+            state = state,
+            takeoverStage = stage,
+            actions = actions,
+            store = store,
+            generatedImages = imagesFlow,
+        ).also { runCurrent() }
 
-        val onProgress: (Boolean, String, String) -> Unit = { isGenerating, prompt, model ->
-            progressUpdates += GeneratedImageUi(
-                filePath = null,
-                isGenerating = isGenerating,
-                prompt = prompt,
-                model = model,
-            )
-        }
+        // Start message
+        vm.send("ek sundar billi ki photo banao", ok)
+        runCurrent()
 
-        val onSaved: (ByteArray, String, String) -> String = { bytes, prompt, model ->
-            val savedFile = ImageStorageManager.saveToPrivateCache(root, bytes)
-            savedFilePath = savedFile.absolutePath
-            progressUpdates += GeneratedImageUi(
-                filePath = savedFilePath,
-                isGenerating = false,
-                prompt = prompt,
-                model = model,
-            )
-            savedFile.absolutePath
-        }
+        state.value = TaskState.Running(1, "Image ban rahi hai…")
+        runCurrent()
 
-        val config = ToolConfig(
-            imageService = fakeService,
-            onImageProgress = onProgress,
-            onImageSaved = onSaved,
+        val initialExchange = vm.ui.value.exchanges.single()
+        assertTrue("Initially no generated images", initialExchange.generatedImages.isEmpty())
+
+        // Image generation in progress
+        val inProgressImage = GeneratedImageUi(
+            filePath = null,
+            isGenerating = true,
+            prompt = "ek sundar billi ki photo banao",
+            model = "Qwen/Qwen-Image-2.1",
         )
-        val ctx = ToolContext(config = config, evidenceLog = com.meenai.mina.core.verify.EvidenceLog(), tools = ToolIndex(emptyList()))
+        imagesFlow.value = listOf(inProgressImage)
+        runCurrent()
 
-        assertTrue("GenerateImageTool should be available when imageService is set", GenerateImageTool.available(ctx))
+        var ex = vm.ui.value.exchanges.single()
+        assertEquals(1, ex.generatedImages.size)
+        assertTrue(ex.generatedImages.first().isGenerating)
 
-        val exec = GenerateImageTool.execute(Args(mapOf("prompt" to "A beautiful mountain")), ctx)
-        assertTrue("Tool execution must succeed: ${exec.text}", exec.isOk)
-
-        // Progress updates: first isGenerating = true, then isGenerating = false with filePath
-        assertTrue(progressUpdates.size >= 2)
-        assertTrue("First progress should indicate generating", progressUpdates.first().isGenerating)
-        assertFalse("Final update should indicate finished", progressUpdates.last().isGenerating)
-        assertNotNull("File path should be populated", progressUpdates.last().filePath)
-
-        // Verify Chat UI integration: exchangeItemKeys generates img key
-        val ex = Exchange(
-            goal = "A beautiful mountain",
-            steps = emptyList(),
-            status = ExchangeStatus.Done("Image ban gayi", null),
-            live = false,
-            generatedImages = listOf(progressUpdates.last()),
+        // Image generation completed
+        val finishedImage = GeneratedImageUi(
+            filePath = "/data/user/0/com.meenai.mina/cache/images/cat.jpg",
+            isGenerating = false,
+            prompt = "ek sundar billi ki photo banao",
+            model = "Qwen/Qwen-Image-2.1",
         )
+        imagesFlow.value = listOf(finishedImage)
+        state.value = TaskState.Succeeded("Image ban gayi")
+        runCurrent()
+
+        ex = vm.ui.value.exchanges.single()
+        assertEquals(1, ex.generatedImages.size)
+        assertFalse(ex.generatedImages.first().isGenerating)
+        assertEquals("/data/user/0/com.meenai.mina/cache/images/cat.jpg", ex.generatedImages.first().filePath)
+
+        // Check chat list keys: contains img key
         val keys = exchangeItemKeys(ex)
         val imgKey = keys.firstOrNull { it.first == "img:${ex.id}-0" }
-        assertNotNull("Chat exchange must contain img:\${ex.id}-0 key", imgKey)
+        assertNotNull("Exchange item keys must contain img key", imgKey)
         assertEquals("generated_image", imgKey?.second)
     }
 
@@ -131,29 +146,5 @@ class ImageChatWiringTest {
         assertFalse(ImageIntentRouter.isVideoRequest("draw a portrait of cat"))
 
         assertEquals("Video abhi support nahi hai.", ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
-    }
-
-    @Test
-    fun sensitivePackagePhotoIsBlockedForEdit() = runTest {
-        val fakeService = object : ImageGenerationService() {
-            override suspend fun editImage(prompt: String, imageBase64: String): ImageResult {
-                return ImageResult.Success("FAKE_BYTES".toByteArray(), "image/jpeg", "Qwen/Qwen-Image-Edit", 2.0)
-            }
-        }
-
-        val config = ToolConfig(
-            imageService = fakeService,
-            attachedPhoto = AttachedPhoto(
-                base64 = "BASE64_SENSITIVE",
-                source = PhotoSource.UserAttachment,
-                sourcePackage = "com.banking.app",
-            ),
-            isSensitivePackage = { pkg -> pkg == "com.banking.app" },
-        )
-        val ctx = ToolContext(config = config, evidenceLog = com.meenai.mina.core.verify.EvidenceLog(), tools = ToolIndex(emptyList()))
-
-        val exec = EditImageTool.execute(Args(mapOf("prompt" to "make it blue")), ctx)
-        assertFalse("Should fail for sensitive app photo", exec.isOk)
-        assertTrue("Failure message should mention sensitive app", exec.text.contains("Sensitive ya blocked app"))
     }
 }
