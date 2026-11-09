@@ -920,7 +920,7 @@ class TaskRun(
                 }
             }
             if (ImageIntentRouter.isVideoRequest(goal)) {
-                return TaskState.Done(ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
+                return TaskState.Succeeded(ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG, verified = false, reviewed = false)
             }
             return withContext(tally) { agent.run(runSpec, inbox) }.also { usedGroups = agent.usedGroups.toList() }.let(::withRetestHint)
         } finally {
