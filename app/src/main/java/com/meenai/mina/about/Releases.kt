@@ -75,7 +75,7 @@ object Releases {
         fun named(suffix: String) = apks.firstOrNull { it.str("name")!!.endsWith("-$suffix.apk", ignoreCase = true) }
         val forDevice = deviceAbis.firstNotNullOfOrNull { abi -> ABI_APK_SUFFIX[abi]?.let(::named) }
         val universal = apks.firstOrNull { a -> ABI_APK_SUFFIX.values.none { a.str("name")!!.endsWith("-$it.apk", ignoreCase = true) } }
-        return forDevice ?: universal ?: apks.firstOrNull()
+        return forDevice ?: universal
     }
 
     /** 存盘用:记下最近一次查到的版本,下次打开 App 时红点还在。 */
