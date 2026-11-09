@@ -192,4 +192,17 @@
     <string name="speech_footer">Only models that look like speech models are listed. If yours is missing, type its name; a short clip is transcribed as a test when you pick it.</string>
     <string name="speech_pick_failed">That model couldn’t transcribe: %1$s</string>
     <string name="speech_pick_timeout">%1$s didn’t answer a test clip within %2$d seconds</string>
+
+    <!-- Settings > Models: image generation and editing roles -->
+    <string name="image_roles_title">Image generation</string>
+    <string name="image_role_image_title">Image</string>
+    <string name="image_role_image_what">Generate new images</string>
+    <string name="image_role_edit_title">Image Edit</string>
+    <string name="image_role_edit_what">Edit photos</string>
+    <string name="image_role_auto">Auto</string>
+    <string name="image_role_auto_desc">Auto switches if a model fails</string>
+    <string name="image_role_pinned">Pinned</string>
+    <string name="image_allow_paid_title">Allow paid image models</string>
+    <string name="image_allow_paid_subtitle">OpenRouter image models are paid. Default OFF.</string>
+    <string name="image_model_dialog_title">Select model</string>
 </resources>

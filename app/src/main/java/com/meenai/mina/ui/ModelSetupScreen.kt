@@ -58,12 +58,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.core.model.ModelRole
+import com.meenai.mina.image.ImageSettings
 import com.meenai.mina.settings.ModelContextSettings
 import com.meenai.mina.settings.ModelOption
 import com.meenai.mina.settings.ModelOptions
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
+import com.meenai.mina.ui.image.ImageRolesSection
 import com.meenai.mina.settings.RoleChoice
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
@@ -279,6 +281,12 @@ fun ModelSetupContent(ui: ModelSetupUi, onboarding: Boolean, actions: ModelSetup
                     FooterNote(ModelSetupCopy.ONBOARDING_NOTE)
                 } else {
                     RolesSection(ui, onPick, actions.setReasoningEffort, actions.openSpeech, actions.setModelContext)
+                    val ctx = LocalContext.current
+                    val imageSettings = remember {
+                        (ctx.applicationContext as? com.meenai.mina.HarnessApp)?.imageSettings
+                            ?: ImageSettings.get(ctx)
+                    }
+                    ImageRolesSection(imageSettings)
                     ProvidersSection(ui, actions)
                 }
                 Spacer(Modifier.height(16.dp))

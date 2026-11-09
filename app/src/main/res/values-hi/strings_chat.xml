@@ -150,4 +150,10 @@
     <string name="pip_closed_hint">इस कार्य के लिए बंद कर दिया गया है. नीचे दाईं ओर "स्क्रीन दिखाएं" पर टैप करें, या साइड मेनू में "बैकग्राउंड स्क्रीन" खोलें।</string>
     <string name="chat_example_food">स्विगी या ब्लिंकिट खोलें और मेरे लिए भोजन या किराने का सामान ऑर्डर करें</string>
     <string name="chat_example_ride">उबर या ओला पर सवारी खोजें</string>
+    <string name="image_generating">इमेज बन रही है…</string>
+    <string name="image_save">सेव करें</string>
+    <string name="image_share">शेयर करें</string>
+    <string name="image_regenerate">दोबारा बनाएं</string>
+    <string name="image_saved_to_gallery">गैलरी में सेव हो गई</string>
+    <string name="image_save_failed">गैलरी में सेव नहीं हो सकी</string>
 </resources>

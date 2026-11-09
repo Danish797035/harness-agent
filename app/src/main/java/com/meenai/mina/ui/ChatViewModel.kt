@@ -10,6 +10,7 @@ import com.meenai.mina.chat.ConversationStore
 import com.meenai.mina.chat.CurrentChat
 import com.meenai.mina.chat.DeleteImpact
 import com.meenai.mina.chat.SharedFile
+import com.meenai.mina.ui.image.GeneratedImageUi
 import com.meenai.mina.cap.sandbox.ImportResult
 import com.meenai.mina.confirm.ConfirmationCopy
 import com.meenai.mina.confirm.ConfirmationNotifier
@@ -160,6 +161,7 @@ data class Exchange(
     val skillNotes: List<SkillNote> = emptyList(),
     /** 这一轮导出到「下载/Mina」的文件,显示成文件卡片。 */
     val files: List<SharedFile> = emptyList(),
+    val generatedImages: List<GeneratedImageUi> = emptyList(),
     /** 这次打开 App 后开始跟的时刻(毫秒);不知道时为 0。 */
     val startedAt: Long = 0L,
     /** 结束时算出的用时;没结束或不知道开始时刻时为 null。 */
@@ -335,6 +337,7 @@ class ChatViewModel(
     private val sandboxReady: StateFlow<Boolean> = MutableStateFlow(false),
     /** 当前任务导出的文件;任务开始时由服务清空。 */
     private val sharedFiles: StateFlow<List<SharedFile>> = MutableStateFlow(emptyList()),
+    private val generatedImages: StateFlow<List<GeneratedImageUi>> = MutableStateFlow(emptyList()),
     /** 把选中的文件(内容 URI 字符串)复制进对话工作区的 inbox/。 */
     private val importAttachments: suspend (conversationId: String, uris: List<String>) -> ImportResult = { _, _ -> ImportResult(emptyList(), emptyList()) },
     /** 读出选中文件(内容 URI 字符串)的名字、大小和是不是照片;读盘的活由调用方放到后台线程。 */
@@ -454,6 +457,7 @@ class ChatViewModel(
         scope.launch { screenOpen.collect { if (it && ownTask()) onScreenOpened() } }
         scope.launch { sandboxReady.collect { r -> _ui.update { it.copy(attachEnabled = r) } } }
         scope.launch { sharedFiles.collect { if (ownTask()) onSharedFiles(it) } }
+        scope.launch { generatedImages.collect { if (ownTask()) onGeneratedImages(it) } }
         scope.launch { runNotes.collect { notes -> _ui.update { ui -> ui.copy(exchanges = ui.exchanges.map { withNotes(it, notes) }) } } }
         scope.launch { activities.collect { if (ownTask()) onActivities(it) } }
         scope.launch { steers.collect { if (ownTask()) onSteers(it) } }
@@ -582,6 +586,33 @@ class ChatViewModel(
         }
     }
 
+    private fun onGeneratedImages(images: List<GeneratedImageUi>) {
+        if (liveIndex < 0) return
+        _ui.update { ui ->
+            val exchanges = ui.exchanges.toMutableList()
+            if (liveIndex in exchanges.indices) exchanges[liveIndex] = exchanges[liveIndex].copy(generatedImages = images)
+            ui.copy(exchanges = exchanges)
+        }
+    }
+
+    fun onGeneratedImageUpdated(img: GeneratedImageUi) {
+        if (liveIndex < 0) return
+        _ui.update { ui ->
+            val exchanges = ui.exchanges.toMutableList()
+            if (liveIndex in exchanges.indices) {
+                val current = exchanges[liveIndex].generatedImages.toMutableList()
+                val idx = current.indexOfFirst { it.prompt == img.prompt }
+                if (idx >= 0) {
+                    current[idx] = img
+                } else {
+                    current.add(img)
+                }
+                exchanges[liveIndex] = exchanges[liveIndex].copy(generatedImages = current)
+            }
+            ui.copy(exchanges = exchanges)
+        }
+    }
+
     private fun canAttach(ui: ChatUi) = ui.attachEnabled && ui.composer == ComposerMode.Idle && !ui.importing
 
     /** 从相机、相册、文件选择器拿到的文件:没有任务在跑、沙箱就绪时才收;读出名字和大小后挂在输入框上方,随下一句话发出去。 */
@@ -705,9 +736,10 @@ class ChatViewModel(
         pipClosed = false
         _ui.update {
             liveIndex = it.exchanges.size
+            val currentImages = if (ownTask()) generatedImages.value else emptyList()
             it.copy(
                 conversationId = id,
-                exchanges = it.exchanges + Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, startedAt = clock()),
+                exchanges = it.exchanges + Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, startedAt = clock(), generatedImages = currentImages),
                 blocked = null,
                 attachments = emptyList(),
                 pip = gated(PipUi(visible = true)),
@@ -830,7 +862,7 @@ class ChatViewModel(
         if (fresh) {
             // 先把这个对话的那一问一答摆好,再让服务显示它:服务一换显示,状态可能当场就送进来(onShown),
             // 那时这一问一答必须已经在,不然会另起一条没有原话的
-            val live = p?.exchange ?: Exchange(runGoal(conversationId).orEmpty(), emptyList(), ExchangeStatus.Working, live = true, startedAt = clock())
+            val live = p?.exchange ?: Exchange(runGoal(conversationId).orEmpty(), emptyList(), ExchangeStatus.Working, live = true, startedAt = clock(), generatedImages = if (ownTask()) generatedImages.value else emptyList())
             screenSeen = p?.screenSeen ?: false
             pipClosed = p?.pipClosed ?: false
             _ui.update {
@@ -846,6 +878,7 @@ class ChatViewModel(
         if (!screenSeen && screenOpen.value) screenSeen = true
         _ui.update { it.copy(takeoverStage = takeoverStage.value) }
         onSharedFiles(sharedFiles.value)
+        onGeneratedImages(generatedImages.value)
         onActivities(activities.value)
         onSteers(steers.value)
         onState(shown.second)
@@ -1069,7 +1102,8 @@ class ChatViewModel(
                 // 原话、文件按对话取:这条状态属于屏上这个对话的任务
                 val goal = it.conversationId?.let(runGoal).orEmpty()
                 val files = if (ownTask()) sharedFiles.value else emptyList()
-                val ex = Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, files = files, startedAt = clock())
+                val images = if (ownTask()) generatedImages.value else emptyList()
+                val ex = Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, files = files, generatedImages = images, startedAt = clock())
                 it.copy(exchanges = it.exchanges + ex)
             }
         }
