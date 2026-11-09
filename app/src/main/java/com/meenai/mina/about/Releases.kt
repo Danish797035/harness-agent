@@ -22,6 +22,8 @@ data class ReleaseInfo(
     val apkSize: Long? = null,
     /** APK 附件的摘要,形如 `sha256:<hex>`;较早的附件没有,这时只靠包名、版本号和签名把关。 */
     val apkDigest: String? = null,
+    val tag: String = "",
+    val runNumber: Long? = null,
 ) {
     /** 「从 GitHub 下载」打开的地址:有 APK 直链就下 APK,没有就打开发布页。 */
     val downloadUrl: String get() = apkUrl ?: pageUrl
@@ -48,6 +50,7 @@ object Releases {
         val apk = o["assets"]?.let { a ->
             runCatching { a.jsonArray }.getOrNull()?.map { it.jsonObject }?.let { pickApk(it, deviceAbis) }
         }
+        val runNumber = AppVersion.parseRunNumber(tag)
         val version = AppVersion.normalize(tag)
         return ReleaseInfo(
             version = version,
@@ -58,6 +61,8 @@ object Releases {
             apkUrl = apk?.str("browser_download_url"),
             apkSize = apk?.strOrNumber("size")?.toLongOrNull(),
             apkDigest = apk?.str("digest"),
+            tag = tag,
+            runNumber = runNumber,
         )
     }
 
@@ -83,13 +88,23 @@ object Releases {
         r.apkUrl?.let { put("apkUrl", it) }
         r.apkSize?.let { put("apkSize", it) }
         r.apkDigest?.let { put("apkDigest", it) }
+        put("tag", r.tag)
+        r.runNumber?.let { put("runNumber", it) }
     }
 
     fun fromJson(o: JsonObject): ReleaseInfo? = runCatching {
+        val tag = o.str("tag") ?: ("v" + o.str("version")!!)
         ReleaseInfo(
-            version = o.str("version")!!, name = o.str("name") ?: o.str("version")!!, notes = o.str("notes").orEmpty(),
-            date = o.str("date"), pageUrl = o.str("pageUrl") ?: HarnessLinks.RELEASES, apkUrl = o.str("apkUrl"),
-            apkSize = o.strOrNumber("apkSize")?.toLongOrNull(), apkDigest = o.str("apkDigest"),
+            version = o.str("version")!!,
+            name = o.str("name") ?: o.str("version")!!,
+            notes = o.str("notes").orEmpty(),
+            date = o.str("date"),
+            pageUrl = o.str("pageUrl") ?: HarnessLinks.RELEASES,
+            apkUrl = o.str("apkUrl"),
+            apkSize = o.strOrNumber("apkSize")?.toLongOrNull(),
+            apkDigest = o.str("apkDigest"),
+            tag = tag,
+            runNumber = o.strOrNumber("runNumber")?.toLongOrNull() ?: AppVersion.parseRunNumber(tag),
         )
     }.getOrNull()
 

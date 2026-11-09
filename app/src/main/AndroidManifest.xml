@@ -266,6 +266,13 @@
         </receiver>
         <receiver android:name=".task.TriggerAlarmReceiver" android:exported="false" />
         <receiver android:name=".ui.router.MagicubeReminderReceiver" android:exported="false" />
+        <receiver
+            android:name=".about.UpdateDownloadReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <activity
             android:name="com.meenai.mina.about.UpdateInstallActivity"
             android:exported="false"

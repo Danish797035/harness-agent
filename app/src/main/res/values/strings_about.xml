@@ -66,4 +66,8 @@
     <string name="about_update_channel">App updates</string>
     <string name="about_update_ready">Harness Agent %1$s ready to install</string>
     <string name="about_update_notification_text">Tap to install the new version. Your chats and settings are kept.</string>
+    <string name="update_dialog_title">New version available</string>
+    <string name="update_dialog_message">Harness Agent %1$s is available. Would you like to download and install it now?</string>
+    <string name="update_dialog_download">Download</string>
+    <string name="update_dialog_later">Later</string>
 </resources>

@@ -45,7 +45,7 @@ data class UpdateState(
  * 上次时间比现在还晚(改过系统时间)也算到期。
  */
 object UpdateSchedule {
-    const val MIN_GAP_MS = 2 * 60 * 1000L
+    const val MIN_GAP_MS = 6 * 60 * 60 * 1000L
 
     fun due(lastAttempt: Long?, now: Long): Boolean = lastAttempt == null || now - lastAttempt >= MIN_GAP_MS || now < lastAttempt
 }
@@ -64,6 +64,7 @@ class UpdateChecker(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** 本机支持的 ABI(Build.SUPPORTED_ABIS),用来挑发布里合适的 APK;为空时取全架构包。 */
     private val deviceAbis: List<String> = emptyList(),
+    private val currentVersionCode: Long = 0,
 ) {
     private val _state = MutableStateFlow(UpdateState())
     val state: StateFlow<UpdateState> = _state.asStateFlow()
@@ -127,7 +128,12 @@ class UpdateChecker(
     }
 
     private fun UpdateState.withLatest(r: ReleaseInfo?): UpdateState =
-        copy(latest = r, update = r?.takeIf { AppVersion.isNewer(it.version, currentVersion) })
+        copy(latest = r, update = r?.takeIf { isNewerRelease(it) })
+
+    private fun isNewerRelease(r: ReleaseInfo): Boolean {
+        val tagToUse = if (r.tag.isNotEmpty()) r.tag else ("v" + r.version)
+        return AppVersion.isUpdateAvailable(tagToUse, currentVersion, currentVersionCode)
+    }
 
     private fun loadLocked() {
         if (loaded) return

@@ -69,6 +69,10 @@ import java.time.ZoneId
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import com.meenai.mina.about.UpdateState
+import com.meenai.mina.about.CheckStatus
+import android.widget.Toast
+
 /** 设置里能进入的子页面;[Home] 是设置首页。 */
 private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats }
 
@@ -92,6 +96,8 @@ fun SettingsScreen(
     /** 查到的新版本号;有它时「关于 Mina」一行写「x 可更新」带红点。 */
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
+    onCheckUpdates: (() -> Unit)? = null,
+    updateState: UpdateState? = null,
     routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
     val configs by store.configs.collectAsState()
@@ -100,12 +106,23 @@ fun SettingsScreen(
     val visionConfig = remember(configs, roles) { store.configFor(ModelRole.Vision) }
     var page by rememberSaveable { mutableStateOf(SettingsPage.Home) }
     var explaining by remember { mutableStateOf<Problem?>(null) }
-
     fun fix(f: Fix) = if (f == Fix.AddModel) onOpenModels() else onFix(f)
     val onProblem: (Problem) -> Unit = { p -> StatusCopy.directFix(p)?.let(::fix) ?: run { explaining = p } }
 
-    // 并行任务的上限只在实验开关 parallelTasks 打开时出现;设备能力按此刻算,第二块屏建失败过就按失败算
     val context = LocalContext.current
+    var waitingRound by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(updateState?.manualRounds) {
+        val s = updateState ?: return@LaunchedEffect
+        if (waitingRound == s.manualRounds) {
+            when {
+                s.update != null -> {}
+                s.status == CheckStatus.Failed -> Toast.makeText(context, AboutCopy.OFFLINE_TOAST, Toast.LENGTH_SHORT).show()
+                s.status == CheckStatus.Done -> Toast.makeText(context, AboutCopy.UP_TO_DATE_TOAST, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 并行任务的上限只在实验开关 parallelTasks 打开时出现;设备能力按此刻算,第二块屏建失败过就按失败算
     val flags = remember { FeatureFlags.get(context) }
     var parallelMax by remember { mutableIntStateOf(flags.parallelMax()) }
     var keepScreenOn by remember { mutableStateOf(flags.keepScreenOn()) }
@@ -191,6 +208,8 @@ fun SettingsScreen(
             computerAccess = mcpOn, onOpenComputerAccess = { page = SettingsPage.ComputerAccess },
             showDeveloper = showDeveloper, onOpenDeveloper = { page = SettingsPage.Developer },
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
+            onCheckUpdates = onCheckUpdates?.let { fn -> { waitingRound = (updateState?.manualRounds ?: 0) + 1; fn() } },
+            updateState = updateState,
             routerUsages = routerUsages,
             showSwitchNotice = showSwitchNotice,
             onToggleSwitchNotice = { flags.setShowSwitchNotice(it); showSwitchNotice = it },
@@ -311,6 +330,8 @@ fun SettingsContent(
     versionName: String = "",
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
+    onCheckUpdates: (() -> Unit)? = null,
+    updateState: UpdateState? = null,
     routerUsages: List<RouterProviderUsage> = emptyList(),
     showSwitchNotice: Boolean = true,
     onToggleSwitchNotice: (Boolean) -> Unit = {},
@@ -410,7 +431,25 @@ fun SettingsContent(
         }
 
         GroupCard {
-            ListRow(MinaIcons.Info, stringResource(R.string.settings_about), first = true, onClick = onOpenAbout) {
+            if (onCheckUpdates != null) {
+                ListRow(
+                    MinaIcons.Refresh,
+                    stringResource(R.string.about_check),
+                    first = true,
+                    onClick = onCheckUpdates,
+                ) {
+                    if (updateState != null) {
+                        TrailingValue(AboutCopy.checkValue(updateState))
+                    }
+                    RowChevron()
+                }
+            }
+            ListRow(
+                MinaIcons.Info,
+                stringResource(R.string.settings_about),
+                first = onCheckUpdates == null,
+                onClick = onOpenAbout,
+            ) {
                 TrailingValue(AboutCopy.settingsValue(updateVersion, versionName))
                 RowChevron()
             }

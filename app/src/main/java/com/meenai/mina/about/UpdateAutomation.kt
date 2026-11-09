@@ -29,12 +29,9 @@ object UpdateAutomation {
     /** App 每次打开时调:后台查一次版本,查到新版就接着自动下载、下好提醒。 */
     fun onAppOpened(context: Context, checker: UpdateChecker) {
         if (!running.compareAndSet(false, true)) return
-        val app = context.applicationContext
-        val updater = ApkUpdater(app)
         scope.launch {
             try {
                 runCatching { checker.autoCheck() }
-                runCatching { drive(app, updater, checker) }
             } finally {
                 running.set(false)
             }

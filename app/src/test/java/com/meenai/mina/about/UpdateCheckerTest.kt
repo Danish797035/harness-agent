@@ -40,10 +40,11 @@ class UpdateCheckerTest {
     @After
     fun stop() = server.shutdown()
 
-    private fun checker(current: String = "0.1.0") = UpdateChecker(
+    private fun checker(current: String = "0.1.0", currentCode: Long = 0) = UpdateChecker(
         tmp.root.resolve("update.json"), current,
         releaseApi = server.url("/api").toString(),
         now = { clock },
+        currentVersionCode = currentCode,
     )
 
     private fun release(tag: String) =
@@ -139,9 +140,21 @@ class UpdateCheckerTest {
         val ran = listOf(async { c.autoCheck() }, async { c.autoCheck() }).awaitAll()
         assertEquals(1, ran.count { it })
         assertEquals(1, hits.size)
-        clock += 10 * 60 * 1000L
+        clock += UpdateSchedule.MIN_GAP_MS
         assertTrue(c.autoCheck())
         assertEquals(2, hits.size)
+    }
+
+    @Test
+    fun runNumberFromGitHubShowsUpdate() = runTest {
+        github = release("v0.1.48-127")
+        val c = checker(current = "0.1.48", currentCode = 49L)
+        c.check(manual = true)
+        val s = c.state.value
+        assertEquals(CheckStatus.Done, s.status)
+        assertTrue(s.hasUpdate)
+        assertEquals("0.1.48-127", s.update?.version)
+        assertEquals(127L, s.update?.runNumber)
     }
 
     @Test

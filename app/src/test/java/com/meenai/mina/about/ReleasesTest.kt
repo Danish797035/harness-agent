@@ -98,4 +98,24 @@ class ReleasesTest {
         assertEquals(r.pageUrl, r.downloadUrl)
         assertEquals("https://github.com/x/Mina-v0.1.40-arm64.apk", Releases.fromGitHub(only, listOf("arm64-v8a")).apkUrl)
     }
+
+    @Test
+    fun parsesReleaseWithRunNumber() {
+        val json = """
+            {
+              "tag_name": "v0.1.48-127",
+              "name": "Harness Agent v0.1.48-127",
+              "html_url": "https://github.com/Danish797035/harness-agent/releases/tag/v0.1.48-127",
+              "assets": [
+                {"name": "app-debug.apk", "browser_download_url": "https://github.com/x/app.apk", "size": 1000}
+              ]
+            }
+        """.trimIndent()
+        val r = Releases.fromGitHub(json)
+        assertEquals("0.1.48-127", r.version)
+        assertEquals("v0.1.48-127", r.tag)
+        assertEquals(127L, r.runNumber)
+        assertEquals("https://github.com/x/app.apk", r.apkUrl)
+        assertEquals(r, Releases.fromJson(Releases.toJson(r)))
+    }
 }
