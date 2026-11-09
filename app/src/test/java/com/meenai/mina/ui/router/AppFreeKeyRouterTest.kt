@@ -125,7 +125,7 @@ class AppFreeKeyRouterTest {
         assertFalse(msCandidates.isEmpty())
         assertTrue("Sirf ModelScope candidates hone chahiye", msCandidates.all { it.provider == "modelscope" })
         assertTrue("Koi aur provider nahi hona chahiye", msCandidates.none { it.provider == "openrouter" || it.provider == "zai" })
-        assertTrue("ModelScope backup provider hona chahiye", msCandidates.all { it.isBackup })
+        assertFalse("ModelScope ab permanent backup nahi hai, dynamic compete karta hai", msCandidates.all { it.isBackup })
 
         // All three keys
         val allCandidates = AppFreeKeyRouter.createCandidates(
