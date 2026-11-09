@@ -2,8 +2,11 @@ name: Build Debug APK
 
 on:
   push:
-    branches: [ "main", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "router-fix", "capsule-live", "smart-picker", "zh-cleanup", "zh-cleanup-2", "image-gen" ]
+    branches: [ "main", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "router-fix", "capsule-live", "smart-picker", "zh-cleanup", "zh-cleanup-2", "image-gen", "auto-update" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -54,9 +57,12 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run App Unit Tests
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: ./gradlew testDebugUnitTest
 
   apk:
+    needs: [core-tests, app-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -78,13 +84,18 @@ jobs:
 
       - name: Setup Fixed Debug Keystore
         env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 || secrets.DEBUG_KEYSTORE_B64 }}
         run: |
           mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          echo "$SIGNING_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -92,3 +103,14 @@ jobs:
           name: Harness-Agent-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION_NAME=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          TAG="v${VERSION_NAME}-${{ github.run_number }}"
+          gh release create "$TAG" app/build/outputs/apk/debug/*.apk \
+            --title "Harness Agent $TAG" \
+            --generate-notes

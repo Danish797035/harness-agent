@@ -66,4 +66,8 @@
     <string name="about_update_channel">ऐप अपडेट</string>
     <string name="about_update_ready">Harness Agent %1$s स्थापित करने के लिए तैयार</string>
     <string name="about_update_notification_text">नया संस्करण स्थापित करने के लिए टैप करें. आपकी चैट और सेटिंग्स रखी जाती हैं.</string>
+    <string name="update_dialog_title">नया संस्करण उपलब्ध है</string>
+    <string name="update_dialog_message">Harness Agent %1$s उपलब्ध है। क्या आप इसे अभी डाउनलोड और स्थापित करना चाहते हैं?</string>
+    <string name="update_dialog_download">डाउनलोड करें</string>
+    <string name="update_dialog_later">बाद में</string>
 </resources>

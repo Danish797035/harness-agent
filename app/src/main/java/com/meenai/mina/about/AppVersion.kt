@@ -8,6 +8,56 @@ package com.meenai.mina.about
 object AppVersion {
     fun normalize(v: String): String = v.trim().removePrefix("v").removePrefix("V").trim()
 
+    /**
+     * Extracts the CI run number from a tag string.
+     * Supported formats:
+     * - "v0.1.48-127" -> 127L
+     * - "0.1.48-127" -> 127L
+     * - "v127" -> 127L
+     * - "127" -> 127L
+     * Semantic version tags without run numbers (e.g., "v0.1.48", "0.1.48") return null.
+     */
+    fun parseRunNumber(tag: String): Long? {
+        val trimmed = tag.trim()
+        if (trimmed.isEmpty()) return null
+        if ('-' in trimmed) {
+            val suffix = trimmed.substringAfterLast('-').trim()
+            val num = suffix.toLongOrNull()
+            if (num != null) return num
+        }
+        val withoutV = trimmed.removePrefix("v").removePrefix("V").trim()
+        if ('.' !in withoutV) {
+            return withoutV.toLongOrNull()
+        }
+        return null
+    }
+
+    /**
+     * Compares remote run number with current versionCode.
+     */
+    fun isNewerRun(remoteTag: String, currentVersionCode: Long): Boolean {
+        val remoteRun = parseRunNumber(remoteTag)
+        return if (remoteRun != null && remoteRun > 0 && currentVersionCode > 0) {
+            remoteRun > currentVersionCode
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Checks if an update is available:
+     * 1. If remote tag contains a valid run number and currentVersionCode > 0: compares run numbers.
+     * 2. Otherwise falls back to semantic version comparison.
+     */
+    fun isUpdateAvailable(candidateTag: String, currentVersionName: String, currentVersionCode: Long = 0): Boolean {
+        val remoteRun = parseRunNumber(candidateTag)
+        if (remoteRun != null && remoteRun > 0 && currentVersionCode > 0) {
+            return remoteRun > currentVersionCode
+        }
+        val candidateCore = normalize(candidateTag).substringBefore('-')
+        return isNewer(candidateCore.ifEmpty { normalize(candidateTag) }, currentVersionName)
+    }
+
     fun compare(a: String, b: String): Int {
         val (coreA, preA) = split(a)
         val (coreB, preB) = split(b)

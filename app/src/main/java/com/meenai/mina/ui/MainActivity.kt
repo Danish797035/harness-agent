@@ -41,6 +41,13 @@ import androidx.compose.ui.platform.LocalContext
 import com.meenai.mina.cap.web.WebHandover
 import com.meenai.mina.cap.web.WebSites
 import com.meenai.mina.browser.UserBrowser
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
+import com.meenai.mina.R
+import com.meenai.mina.about.ApkUpdater
+import com.meenai.mina.about.DownloadPhase
 import com.meenai.mina.BuildConfig
 import com.meenai.mina.HarnessApp
 import com.meenai.mina.about.Diagnostics
@@ -231,8 +238,48 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     val check = Prerequisites.check(status, hasMain)
     val context = LocalContext.current
     val app = context.applicationContext as HarnessApp
-    // 查到的新版本:侧栏、设置首页、关于页的红点都看它
     val updateState by app.updates.state.collectAsState()
+    var updateDialogDismissedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    val availableUpdate = updateState.update
+    val showUpdateDialog = availableUpdate != null && updateDialogDismissedFor != availableUpdate.version
+
+    if (showUpdateDialog && availableUpdate != null) {
+        val updater = remember { ApkUpdater(context.applicationContext) }
+        val scope = rememberCoroutineScope()
+        AlertDialog(
+            onDismissRequest = { updateDialogDismissedFor = availableUpdate.version },
+            title = { Text(stringResource(R.string.update_dialog_title)) },
+            text = {
+                Text(
+                    if (availableUpdate.notes.isNotBlank()) {
+                        stringResource(R.string.update_dialog_message, availableUpdate.version) + "\n\n" + availableUpdate.notes.take(300)
+                    } else {
+                        stringResource(R.string.update_dialog_message, availableUpdate.version)
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    updateDialogDismissedFor = availableUpdate.version
+                    if (updater.state(availableUpdate).phase == DownloadPhase.Ready) {
+                        runCatching { updater.openInstaller(availableUpdate) }
+                    } else {
+                        Toast.makeText(context, context.getString(R.string.about_update_downloading), Toast.LENGTH_SHORT).show()
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { updater.download(availableUpdate) }
+                        }
+                    }
+                }) {
+                    Text(stringResource(R.string.update_dialog_download))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateDialogDismissedFor = availableUpdate.version }) {
+                    Text(stringResource(R.string.update_dialog_later))
+                }
+            },
+        )
+    }
     LaunchedEffect(requestedConversation) {
         if (requestedConversation != null) {
             app.chat.openConversation(requestedConversation)
@@ -354,6 +401,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 onOpenModels = { nav.push(Route.Models) }, webSites = webSites,
                 autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
                 updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
+                onCheckUpdates = app.updates::checkInBackground,
+                updateState = updateState,
                 routerStatus = app.routerStatus)
         }
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) })

@@ -78,9 +78,8 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
             return
         }
         val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("Mina ${release.version}")
+            .setTitle("Harness Agent ${release.version}")
             .setMimeType("application/vnd.android.package-archive")
-            // 只在下载中显示通知:完成后的通知一点就会绕过下面的校验直接打开安装包,所以不留。
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(target))
         val id = manager.enqueue(request)
@@ -140,10 +139,26 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
             if (e.reason == ApkRejected.Reason.Corrupt) cancel()
             throw e
         }
-        val uri = if (viaApp) FileProvider.getUriForFile(context, "${context.packageName}.updatefiles", target)
-            else manager.getUriForDownloadedFile(prefs.getLong("id", -1)) ?: error("missing APK")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.updatefiles", target)
         return Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    fun openInstaller(release: ReleaseInfo) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+        ) {
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } else {
+            val intent = installIntent(release).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
     }
 
     @Suppress("DEPRECATION")

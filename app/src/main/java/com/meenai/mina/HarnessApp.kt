@@ -239,10 +239,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     /** Mina 自己的界面此刻看不看得见。 */
     val foreground = AppForeground()
 
-    /** 检查更新:查到的新版本跟进程走,侧栏、设置首页、关于页的红点看同一份。 */
     val updates: com.meenai.mina.about.UpdateChecker by lazy {
-        com.meenai.mina.about.UpdateChecker(java.io.File(filesDir, "update-v1.json"), BuildConfig.VERSION_NAME,
-            deviceAbis = android.os.Build.SUPPORTED_ABIS.toList())
+        com.meenai.mina.about.UpdateChecker(
+            java.io.File(filesDir, "update-v1.json"),
+            BuildConfig.VERSION_NAME,
+            deviceAbis = android.os.Build.SUPPORTED_ABIS.toList(),
+            currentVersionCode = BuildConfig.VERSION_CODE.toLong(),
+        )
     }
 
     val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {

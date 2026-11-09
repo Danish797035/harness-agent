@@ -17,7 +17,10 @@ android {
         applicationId = "com.danish.harnessagent"
         minSdk = 30
         targetSdk = 35
-        versionCode = 49
+        val runNumber = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+            ?: (project.findProperty("versionCode") as? String)?.toIntOrNull()
+            ?: 49)
+        versionCode = runNumber
         versionName = "0.1.48"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
@@ -58,9 +61,9 @@ android {
         getByName("debug") {
             enableV1Signing = true
             storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "android"
         }
     }
 
