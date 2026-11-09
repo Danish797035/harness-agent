@@ -85,7 +85,7 @@ class ImageIntentRouter(
                    lower.contains("create video") ||
                    lower.contains("make video") ||
                    lower.contains("generate video") ||
-                   (lower.contains("video") && (lower.contains("banao") || lower.contains("banaye") || lower.contains("chahiye") || lower.contains("generate") || lower.contains("create")))
+                   (lower.contains("video") && (lower.contains("banao") || lower.contains("banaye") || lower.contains("chahiye") || lower.contains("generate") || lower.contains("create") || lower.contains("make")))
         }
     }
 

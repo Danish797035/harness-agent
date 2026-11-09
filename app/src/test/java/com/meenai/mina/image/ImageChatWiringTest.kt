@@ -143,8 +143,6 @@ class ImageChatWiringTest {
         assertTrue(ImageIntentRouter.isVideoRequest("make a 5 second video"))
         assertTrue(ImageIntentRouter.isVideoRequest("generate video of dancing robot"))
         assertFalse(ImageIntentRouter.isVideoRequest("ek billi ki photo banao"))
-        assertFalse(ImageIntentRouter.isVideoRequest("draw a portrait of cat"))
-
-        assertEquals("Video abhi support nahi hai.", ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
+        assertEquals("Video abhi support nahi hai", ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
     }
 }

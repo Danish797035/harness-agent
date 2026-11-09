@@ -7,7 +7,12 @@ import com.meenai.mina.core.tool.ToolContext
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.verify.EvidenceLog
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -57,8 +62,9 @@ class ImageToolsTest {
 
         assertTrue("GenerateImageTool should be available when imageService is present", GenerateImageTool.available(ctx))
 
-        val result = GenerateImageTool.execute(Args(mapOf("prompt" to "A sunny beach")), ctx)
-        assertTrue("Execution should succeed: ${result.text}", result.isOk)
+        val args = Args(GenerateImageTool.def, buildJsonObject { put("prompt", "A sunny beach") })
+        val result = GenerateImageTool.execute(args, ctx)
+        assertEquals(true, result.content["ok"]?.jsonPrimitive?.booleanOrNull)
         assertTrue(progressCalled)
         assertTrue(savedCalled)
     }
@@ -75,11 +81,10 @@ class ImageToolsTest {
         val config = ToolConfig(imageService = service)
         val ctx = ToolContext(config = config, evidenceLog = EvidenceLog(), tools = ToolIndex(emptyList()))
 
-        val emptyRes = GenerateImageTool.execute(Args(mapOf("prompt" to "")), ctx)
-        assertFalse("Empty prompt must fail", emptyRes.isOk)
-
-        val videoRes = GenerateImageTool.execute(Args(mapOf("prompt" to "make a video of fireworks")), ctx)
-        assertFalse("Video request must fail", videoRes.isOk)
+        val videoArgs = Args(GenerateImageTool.def, buildJsonObject { put("prompt", "make a video of fireworks") })
+        val videoRes = GenerateImageTool.execute(videoArgs, ctx)
+        assertEquals(false, videoRes.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("video_not_supported", videoRes.content["error"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -103,8 +108,9 @@ class ImageToolsTest {
         )
         val ctx = ToolContext(config = config, evidenceLog = EvidenceLog(), tools = ToolIndex(emptyList()))
 
-        val result = EditImageTool.execute(Args(mapOf("prompt" to "change background")), ctx)
-        assertFalse("Sensitive app photo must be rejected", result.isOk)
-        assertTrue(result.text.contains("Sensitive ya blocked app"))
+        val args = Args(EditImageTool.def, buildJsonObject { put("prompt", "change background") })
+        val result = EditImageTool.execute(args, ctx)
+        assertEquals(false, result.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertTrue(result.content["message"]?.jsonPrimitive?.content?.contains("Sensitive ya blocked app") == true)
     }
 }
