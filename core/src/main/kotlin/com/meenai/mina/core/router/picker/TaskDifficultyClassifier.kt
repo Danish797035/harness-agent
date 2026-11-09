@@ -108,7 +108,36 @@ object TaskDifficultyClassifier {
         // Default fallback: short questions or single queries are Light, otherwise Heavy
         val isQuestion = trimmed.endsWith("?") || trimmed.startsWith("how", ignoreCase = true) ||
             trimmed.startsWith("why", ignoreCase = true) || trimmed.startsWith("is", ignoreCase = true)
-        return if (isQuestion) TaskDifficulty.Light else TaskDifficulty.Light
+        return if (isQuestion) TaskDifficulty.Light else TaskDifficulty.Heavy
+    }
+
+    /**
+     * Maps a task directly to its functional [ModelRole]:
+     * - [ModelRole.Vision]: If image input is attached
+     * - [ModelRole.Long]: If context length is very large (charCount >= 50,000)
+     * - [ModelRole.Coding]: If coding/scripting patterns match
+     * - [ModelRole.Light]: If classified as [TaskDifficulty.Light]
+     * - [ModelRole.Main]: If classified as [TaskDifficulty.Heavy] (phone control, multi-step, fallback)
+     */
+    fun classifyToRole(
+        task: String,
+        hasImage: Boolean = false,
+        plannedSteps: Int? = null,
+        charCount: Int = 0,
+    ): ModelRole {
+        if (hasImage) return ModelRole.Vision
+        val trimmed = task.trim()
+        if (charCount >= 50_000 || trimmed.length >= 50_000) {
+            return ModelRole.Long
+        }
+        if (HEAVY_CODING_PATTERNS.any { it.containsMatchIn(trimmed) }) {
+            return ModelRole.Coding
+        }
+        val difficulty = classify(task, hasImage, plannedSteps)
+        return when (difficulty) {
+            TaskDifficulty.Heavy -> ModelRole.Main
+            TaskDifficulty.Light -> ModelRole.Light
+        }
     }
 
     private fun countMentionedApps(text: String): Int {

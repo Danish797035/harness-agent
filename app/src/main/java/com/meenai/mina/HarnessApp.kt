@@ -364,7 +364,9 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch { taskRecovery.recover() }
         scope.launch {
             kotlinx.coroutines.flow.combine(providers.providers, providers.keysRevision) { list, _ -> list }.collect {
-                freeKeyRouter.updateCandidates(com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers))
+                val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
+                freeKeyRouter.updateCandidates(candidates)
+                com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
             }
         }
         // 上次进程被杀时没结束的运行:现在就标为中断并告知,不等任务服务起来

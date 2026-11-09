@@ -11,10 +11,16 @@ import com.meenai.mina.core.model.StreamingChatModel
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.router.picker.AutoModelPicker
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.ModelCandidate
+import com.meenai.mina.core.router.picker.ModelProbeService
+import com.meenai.mina.core.router.picker.ModelRankingsRepository
 import com.meenai.mina.core.router.picker.ModelRole
+import com.meenai.mina.core.router.picker.ModelScorer
+import com.meenai.mina.core.router.picker.ModelSizeParser
+import com.meenai.mina.core.router.picker.ModelStatsTracker
 import com.meenai.mina.core.router.picker.OpenRouterApiClient
 import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.CancellationException
@@ -40,15 +46,19 @@ data class RouterCandidate(
     fun toModelCandidate(): ModelCandidate {
         candidateInfo?.let { return it }
         val caps = model.capabilities
+        val size = ModelSizeParser.parse(id)
         return ModelCandidate(
             provider = provider,
             id = id,
             contextTokens = caps.contextTokens,
             supportsTools = caps.toolCalls,
-            supportsImages = caps.vision,
+            supportsImages = caps.vision && !ChatModelFilter.isImageEditOrGen(id),
             isFree = isFree,
             tierRank = curatedRank,
-            parameterSizeB = CuratedTiers.extractParameterSizeB(id),
+            parameterSizeB = size.totalParamsB ?: 0.0,
+            totalParamsB = size.totalParamsB,
+            activeParamsB = size.activeParamsB,
+            supportsReasoning = caps.reasoning,
         )
     }
 }
@@ -82,6 +92,9 @@ class FreeKeyRouter(
     /** When every candidate is cooling down, wait inline (user just sees loading) if the shortest cooldown is at most this long. */
     val maxInlineWaitMs: Long = 15_000L,
     val onModelSwitched: ((oldModel: String?, newModel: String, reason: String) -> Unit)? = null,
+    val rankingsRepository: ModelRankingsRepository? = null,
+    val probeService: ModelProbeService? = null,
+    val statsTracker: ModelStatsTracker? = null,
 ) : StreamingChatModel {
 
     val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
@@ -255,6 +268,12 @@ class FreeKeyRouter(
         if (cooldownStore.isKeyBad(candidate.provider)) return false
         val remainingCooldown = cooldownStore.getRemainingCooldownMs(candidate.id, now())
         if (remainingCooldown > 0L) return false
+        if (candidate.provider.equals("modelscope", ignoreCase = true)) {
+            if (!MagicubeLedger.canAffordModelScope(now())) return false
+        }
+        if (probeService?.isFailedToday(candidate.id) == true) {
+            return false
+        }
         return cooldownStore.isAvailable(candidate.id, candidate.provider, now(), isNewTask = isNewTask)
     }
 
@@ -341,6 +360,11 @@ class FreeKeyRouter(
                     val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText)
                     val latency = now() - beganTime
                     healthTracker.recordSuccess(currentCandidate.id, latency)
+                    statsTracker?.recordSuccess(
+                        modelId = currentCandidate.id,
+                        firstTokenMs = latency,
+                        hasValidToolCall = reply.parts.any { it is Part.ToolCall },
+                    )
                     difficultyRouter.recordSuccess()
                     RouterUsageTracker.recordCall(currentCandidate.id, currentCandidate.provider, now())
                     if (currentCandidate.provider.equals("modelscope", ignoreCase = true)) {
@@ -359,6 +383,10 @@ class FreeKeyRouter(
                 } catch (e: Throwable) {
                     lastError = e
                     healthTracker.recordFailure(currentCandidate.id)
+                    statsTracker?.recordFailure(
+                        modelId = currentCandidate.id,
+                        isToolCallFailure = (lastError is ModelError.BadResponse || lastError is ModelError.ToolsUnsupported),
+                    )
                     difficultyRouter.recordFailure()
 
                     val action = RouterErrorClassifier.classify(e)
@@ -540,33 +568,64 @@ class FreeKeyRouter(
         val available = candidates.filter { checkCachedQuota(it, isNewTask = isNewTask) }
         if (available.isEmpty()) return null
 
-        // ModelScope is backup only: select ModelScope ONLY when all non-backup candidates are in cooldown
-        val (primary, backup) = available.partition { !it.isBackup && !it.provider.equals("modelscope", ignoreCase = true) }
+        val (primary, backup) = available.partition { !it.isBackup }
         val pool = if (primary.isNotEmpty()) primary else backup
 
         val roleFiltered = pool.filter { candidate ->
             when (targetRole) {
-                ModelRole.Vision -> candidate.model.capabilities.vision || candidate.roles.contains(ModelRole.Vision)
+                ModelRole.Vision -> (candidate.model.capabilities.vision || candidate.roles.contains(ModelRole.Vision)) &&
+                    !ChatModelFilter.isImageEditOrGen(candidate.id)
                 ModelRole.Light -> candidate.roles.contains(ModelRole.Light) ||
                     AutoModelPicker.isLightModel(candidate.toModelCandidate())
+                ModelRole.Coding -> candidate.roles.contains(ModelRole.Coding) || candidate.id.contains("coder", ignoreCase = true)
+                ModelRole.Long -> candidate.roles.contains(ModelRole.Long) || candidate.model.capabilities.contextTokens >= 64_000
                 ModelRole.Main -> true
             }
         }
         val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
 
-        val comparator = if (targetRole == ModelRole.Light) {
-            compareBy<RouterCandidate> { candidate ->
-                val size = CuratedTiers.extractParameterSizeB(candidate.id)
-                if (size > 0.0) size else 8.0
-            }.thenByDescending { healthTracker.score(it.id) }
-             .thenByDescending { it.curatedRank }
-        } else {
-            compareByDescending<RouterCandidate> { it.curatedRank }
-                .thenByDescending { healthTracker.score(it.id) }
-                .thenByDescending { it.model.capabilities.contextTokens }
+        val comparator = when (targetRole) {
+            ModelRole.Light -> {
+                compareBy<RouterCandidate> { candidate ->
+                    val size = ModelSizeParser.extractParameterSizeB(candidate.id)
+                    if (size > 0.0) size else 8.0
+                }.thenByDescending { healthTracker.score(it.id) }
+                 .thenByDescending { it.model.capabilities.contextTokens }
+            }
+            ModelRole.Long -> {
+                compareByDescending<RouterCandidate> { it.model.capabilities.contextTokens }
+                    .thenByDescending {
+                        val info = it.candidateInfo ?: it.toModelCandidate()
+                        val ranking = rankingsRepository?.findRanking(it.id)
+                        ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
+                    }
+                    .thenByDescending { healthTracker.score(it.id) }
+            }
+            else -> {
+                compareByDescending<RouterCandidate> {
+                    val info = it.candidateInfo ?: it.toModelCandidate()
+                    val ranking = rankingsRepository?.findRanking(it.id)
+                    ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
+                }.thenByDescending { healthTracker.score(it.id) }
+                 .thenByDescending { it.model.capabilities.contextTokens }
+            }
         }
 
-        return targetPool.sortedWith(comparator).firstOrNull()
+        val bestCandidate = targetPool.sortedWith(comparator).firstOrNull() ?: return null
+
+        // Hysteresis check: only switch if candidate is >= 10% better
+        val current = activeCandidate
+        if (current != null && current in targetPool && current.id != bestCandidate.id && statsTracker != null) {
+            val currentInfo = current.candidateInfo ?: current.toModelCandidate()
+            val bestInfo = bestCandidate.candidateInfo ?: bestCandidate.toModelCandidate()
+            val currentScore = ModelScorer.computeScore(currentInfo, rankingsRepository?.findRanking(current.id), targetRole, probeService?.getProbeResult(current.id), statsTracker)
+            val bestScore = ModelScorer.computeScore(bestInfo, rankingsRepository?.findRanking(bestCandidate.id), targetRole, probeService?.getProbeResult(bestCandidate.id), statsTracker)
+            if (!statsTracker.shouldSwitch(currentScore, bestScore, 10.0)) {
+                return current
+            }
+        }
+
+        return bestCandidate
     }
 
     private fun shortestCooldownMs(): Long =

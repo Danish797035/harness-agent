@@ -18,16 +18,20 @@ import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.RouterAction
 import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterErrorClassifier
+import com.meenai.mina.core.model.PromptCaching
+import com.meenai.mina.core.router.picker.AutoModelPicker
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.settings.AesGcmKeyCipher
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
+import com.meenai.mina.settings.RoleChoice
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -121,7 +125,7 @@ class AppFreeKeyRouterTest {
         assertFalse(msCandidates.isEmpty())
         assertTrue("Sirf ModelScope candidates hone chahiye", msCandidates.all { it.provider == "modelscope" })
         assertTrue("Koi aur provider nahi hona chahiye", msCandidates.none { it.provider == "openrouter" || it.provider == "zai" })
-        assertTrue("ModelScope backup provider hona chahiye", msCandidates.all { it.isBackup })
+        assertFalse("ModelScope ab permanent backup nahi hai, dynamic compete karta hai", msCandidates.all { it.isBackup })
 
         // All three keys
         val allCandidates = AppFreeKeyRouter.createCandidates(
@@ -474,5 +478,85 @@ class AppFreeKeyRouterTest {
 
         org.junit.Assert.assertNotNull(msUsage)
         assertEquals(150.0, msUsage?.magicubeBalance ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun imageEditModel_excludedFromModelScopeChatAndNoVisionRole() {
+        val edit1 = ListedModel("Qwen/Qwen-Image-Edit", vision = true)
+        val edit2 = ListedModel("MusePublic/Qwen-Image-Edit", vision = true)
+        val valid = ListedModel("Qwen/Qwen2.5-VL-7B-Instruct", vision = true)
+
+        assertFalse("Qwen-Image-Edit must not be chat model", AppFreeKeyRouter.isModelScopeChatModel(edit1))
+        assertFalse("MusePublic/Qwen-Image-Edit must not be chat model", AppFreeKeyRouter.isModelScopeChatModel(edit2))
+        assertTrue("Qwen2.5-VL must be chat model", AppFreeKeyRouter.isModelScopeChatModel(valid))
+
+        val candidates = AppFreeKeyRouter.createCandidates(
+            openRouterKey = null,
+            zaiKey = null,
+            modelScopeKey = "test-key",
+            modelScopeModels = listOf(edit1, edit2, valid),
+        )
+
+        // Only valid chat model should be created
+        assertEquals(1, candidates.size)
+        assertEquals("Qwen/Qwen2.5-VL-7B-Instruct", candidates[0].id)
+        assertTrue(candidates[0].roles.contains(ModelRole.Vision))
+    }
+
+    @Test
+    fun autoPopulateSettings_userKaChunaModelNaBadle_khaliRolesBhare() {
+        val store = createTestStore()
+        val p = store.connect(
+            name = "OpenRouter",
+            kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test",
+            models = listOf(
+                ListedModel("meta-llama/llama-3.3-70b-instruct:free", toolCalls = true, vision = false, contextTokens = 64_000),
+                ListedModel("meta-llama/llama-3.1-8b-instruct:free", toolCalls = true, vision = false, contextTokens = 64_000),
+                ListedModel("google/gemini-2.0-flash-exp:free", toolCalls = true, vision = true, contextTokens = 128_000),
+            ),
+        )
+
+        // Case 1: All roles empty (main == null, light == SameAsMain, vision == Off)
+        assertNull(store.roles.value.main)
+        assertEquals(RoleChoice.SameAsMain, store.roles.value.light)
+        assertEquals(RoleChoice.Off, store.roles.value.vision)
+
+        val picker = AutoModelPicker(apiClient = { "[]" })
+        AppFreeKeyRouter.autoPopulateSettingsRoles(store, picker)
+
+        // Main should be auto-filled with 70b
+        val autoMain = store.roles.value.main
+        assertNotNull("Main role auto-populate hona chahiye", autoMain)
+        val mainConfig = store.configs.value.first { it.id == autoMain }
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", mainConfig.model)
+
+        // Light should be auto-filled with 8b
+        val autoLight = store.roles.value.light
+        assertTrue("Light role auto-populate hona chahiye", autoLight is RoleChoice.Model)
+        val lightConfig = store.configs.value.first { it.id == (autoLight as RoleChoice.Model).configId }
+        assertEquals("meta-llama/llama-3.1-8b-instruct:free", lightConfig.model)
+
+        // Vision should be auto-filled with gemini flash
+        val autoVision = store.roles.value.vision
+        assertTrue("Vision role auto-populate hona chahiye", autoVision is RoleChoice.Model)
+        val visionConfig = store.configs.value.first { it.id == (autoVision as RoleChoice.Model).configId }
+        assertEquals("google/gemini-2.0-flash-exp:free", visionConfig.model)
+
+        // Case 2: User manually changes Main to a specific model -> autoPopulate must NOT overwrite it
+        val customModel = "my-custom-model"
+        store.use(com.meenai.mina.core.model.ModelRole.Main, p.id, customModel, Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit))
+        val userChosenMainId = store.roles.value.main
+        assertNotNull(userChosenMainId)
+        val userChosenConfig = store.configs.value.first { it.id == userChosenMainId }
+        assertEquals(customModel, userChosenConfig.model)
+
+        // Run auto-populate again
+        AppFreeKeyRouter.autoPopulateSettingsRoles(store, picker)
+
+        // User's chosen model must remain untouched!
+        assertEquals("User ka chuna model nahi badalna chahiye", userChosenMainId, store.roles.value.main)
+        assertEquals(customModel, store.configs.value.first { it.id == store.roles.value.main }.model)
     }
 }

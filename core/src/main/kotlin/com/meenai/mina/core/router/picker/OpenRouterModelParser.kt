@@ -40,12 +40,21 @@ class OpenRouterModelParser(
         val name = (obj.str("name") ?: obj.str("display_name")).orEmpty()
         val description = obj.str("description").orEmpty()
 
+        // Filter out non-chat models, image-gen, and image-edit models
+        if (ChatModelFilter.isExcluded(id, name)) {
+            return null
+        }
+
         val contextTokens = obj.int("context_length")
             ?: obj.obj("top_provider")?.int("context_length")
             ?: obj.int("context_window")
             ?: obj.int("max_context_length")
             ?: obj.obj("limit")?.int("context")
             ?: 0
+
+        val maxOutputTokens = obj.obj("top_provider")?.int("max_completion_tokens")
+            ?: obj.obj("per_request_limits")?.int("max_completion_tokens")
+            ?: obj.int("max_output")
 
         val supportedParams = (obj["supported_parameters"] as? JsonArray)?.mapNotNull {
             (it as? JsonPrimitive)?.contentOrNull
@@ -66,13 +75,21 @@ class OpenRouterModelParser(
             (it as? JsonPrimitive)?.contentOrNull
         }
 
-        val supportsImages = inputModalities?.any { it == "image" || it.startsWith("image/") } == true ||
+        val rawImages = inputModalities?.any { it == "image" || it.startsWith("image/") } == true ||
             modalIn?.any { it == "image" || it.startsWith("image/") } == true ||
             modality?.contains("image") == true ||
             caps?.bool("vision") == true ||
             caps?.obj("image_input")?.bool("supported") == true ||
             obj.bool("supports_image_in") == true ||
             id.contains("vision", ignoreCase = true)
+
+        val supportsImages = ChatModelFilter.supportsVision(id, rawImages)
+
+        val supportsReasoning = supportedParams?.contains("reasoning") == true ||
+            caps?.bool("reasoning") == true ||
+            id.contains("reasoner", ignoreCase = true) ||
+            id.contains("-r1", ignoreCase = true) ||
+            id.contains("thinking", ignoreCase = true)
 
         val pricing = obj.obj("pricing")
         val promptPrice = pricing?.double("prompt")
@@ -84,8 +101,7 @@ class OpenRouterModelParser(
             ?: obj.long("created_at")
             ?: 0L
 
-        val parameterSizeB = CuratedTiers.extractParameterSizeB(id, name, description)
-        val tierRank = CuratedTiers.computeTierRank(id)
+        val size = ModelSizeParser.parse(id, name, description)
 
         return ModelCandidate(
             provider = "openrouter",
@@ -94,9 +110,13 @@ class OpenRouterModelParser(
             supportsTools = supportsTools,
             supportsImages = supportsImages,
             isFree = isFree,
-            tierRank = tierRank,
+            tierRank = Int.MAX_VALUE,
             releaseDateEpoch = releaseDateEpoch,
-            parameterSizeB = parameterSizeB,
+            parameterSizeB = size.totalParamsB ?: 0.0,
+            totalParamsB = size.totalParamsB,
+            activeParamsB = size.activeParamsB,
+            maxOutputTokens = maxOutputTokens,
+            supportsReasoning = supportsReasoning,
         )
     }
 

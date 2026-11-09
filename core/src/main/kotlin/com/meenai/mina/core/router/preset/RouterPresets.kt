@@ -34,7 +34,47 @@ object ZaiPreset {
         apiKey: String,
         http: OkHttpClient = OkHttpClient(),
         semaphore: Semaphore = sharedSemaphore,
+        dynamicModels: List<ModelCandidate>? = null,
     ): List<RouterCandidate> {
+        val candidatesList = dynamicModels?.ifEmpty { null }
+        if (candidatesList != null) {
+            return candidatesList.map { candidate ->
+                val chatModel = ConcurrencyLimitedChatModel(
+                    OpenAiCompatModel(
+                        baseUrl = BASE_URL,
+                        apiKey = apiKey,
+                        model = candidate.id,
+                        capabilities = Capabilities(
+                            toolCalls = candidate.supportsTools,
+                            vision = candidate.supportsImages,
+                            contextTokens = candidate.contextTokens,
+                            reasoning = candidate.supportsReasoning,
+                            promptCaching = PromptCaching.Implicit,
+                        ),
+                        http = http,
+                    ),
+                    semaphore = semaphore,
+                )
+                val roles = buildSet {
+                    if (candidate.supportsImages) add(ModelRole.Vision)
+                    if (candidate.parameterSizeB in 0.1..10.0) add(ModelRole.Light) else add(ModelRole.Main)
+                    if (candidate.id.contains("coder", ignoreCase = true) || candidate.id.contains("code", ignoreCase = true)) {
+                        add(ModelRole.Coding)
+                    }
+                }
+                RouterCandidate(
+                    id = candidate.id,
+                    provider = PROVIDER_ID,
+                    model = chatModel,
+                    curatedRank = candidate.tierRank,
+                    isFree = true,
+                    isBackup = false,
+                    roles = roles,
+                    candidateInfo = candidate,
+                )
+            }
+        }
+
         val flashModel = ConcurrencyLimitedChatModel(
             OpenAiCompatModel(
                 baseUrl = BASE_URL,
@@ -90,6 +130,16 @@ object ZaiPreset {
             ),
         )
     }
+
+    suspend fun createLiveCandidates(
+        apiKey: String,
+        http: OkHttpClient = OkHttpClient(),
+        semaphore: Semaphore = sharedSemaphore,
+        apiClient: ZaiApiClient = HttpZaiApiClient(BASE_URL, http),
+    ): List<RouterCandidate> {
+        val models = apiClient.listModels(apiKey)
+        return createCandidates(apiKey, http, semaphore, dynamicModels = models)
+    }
 }
 
 /**
@@ -125,6 +175,9 @@ object ModelScopePreset {
             val roles = buildSet {
                 if (candidate.supportsImages) add(ModelRole.Vision)
                 if (candidate.parameterSizeB in 0.1..10.0) add(ModelRole.Light) else add(ModelRole.Main)
+                if (candidate.id.contains("coder", ignoreCase = true) || candidate.id.contains("code", ignoreCase = true)) {
+                    add(ModelRole.Coding)
+                }
             }
             RouterCandidate(
                 id = candidate.id,
@@ -132,7 +185,7 @@ object ModelScopePreset {
                 model = chatModel,
                 curatedRank = candidate.tierRank,
                 isFree = true,
-                isBackup = true, // Lowest priority backup
+                isBackup = false,
                 roles = roles,
                 candidateInfo = candidate,
             )

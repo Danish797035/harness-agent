@@ -14,6 +14,9 @@ class DifficultyRouter(
     val classifier: TaskDifficultyClassifier = TaskDifficultyClassifier,
     val pinnedModelId: String? = null,
 ) {
+    var currentRole: ModelRole = ModelRole.Light
+        private set
+
     var currentDifficulty: TaskDifficulty = TaskDifficulty.Light
         private set
 
@@ -33,12 +36,17 @@ class DifficultyRouter(
         task: String,
         hasImage: Boolean = false,
         plannedSteps: Int? = null,
+        charCount: Int = 0,
     ): TaskDifficulty {
-        val diff = classifier.classify(task, hasImage, plannedSteps)
-        currentDifficulty = diff
+        currentRole = classifier.classifyToRole(task, hasImage, plannedSteps, charCount)
+        currentDifficulty = if (currentRole == ModelRole.Main || currentRole == ModelRole.Coding || currentRole == ModelRole.Vision) {
+            TaskDifficulty.Heavy
+        } else {
+            TaskDifficulty.Light
+        }
         failureCount = 0
         lastStep = null
-        isEscalated = (diff == TaskDifficulty.Heavy)
+        isEscalated = (currentDifficulty == TaskDifficulty.Heavy)
         return currentDifficulty
     }
 
@@ -77,22 +85,20 @@ class DifficultyRouter(
      */
     fun escalate() {
         currentDifficulty = TaskDifficulty.Heavy
+        currentRole = ModelRole.Main
         isEscalated = true
     }
 
     /**
      * Returns the target [ModelRole] for the current task state.
      * - If image input is present, returns [ModelRole.Vision].
-     * - Otherwise: Heavy maps to [ModelRole.Main], Light maps to [ModelRole.Light].
+     * - If escalated, returns [ModelRole.Main].
+     * - Otherwise returns [currentRole].
      */
     fun getRole(hasImage: Boolean = false): ModelRole {
-        return if (hasImage) {
-            ModelRole.Vision
-        } else if (currentDifficulty == TaskDifficulty.Heavy) {
-            ModelRole.Main
-        } else {
-            ModelRole.Light
-        }
+        if (hasImage) return ModelRole.Vision
+        if (isEscalated) return ModelRole.Main
+        return currentRole
     }
 
     /**
@@ -128,8 +134,9 @@ class DifficultyRouter(
         hasImage: Boolean = false,
         plannedSteps: Int? = null,
         candidates: List<ModelCandidate>? = null,
+        charCount: Int = 0,
     ): ModelCandidate? {
-        startTask(task, hasImage, plannedSteps)
+        startTask(task, hasImage, plannedSteps, charCount)
         return resolveModel(candidates, hasImage)
     }
 }

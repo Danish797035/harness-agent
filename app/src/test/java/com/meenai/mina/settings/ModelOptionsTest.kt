@@ -227,4 +227,30 @@ class ModelOptionsTest {
         assertTrue("已有配置的用配置里的能力", options.first { it.id == "b" }.capabilities.vision)
         assertEquals(emptyList<String>(), ModelOptions.ofProvider(p.copy(models = null), emptyList()).map { it.id })
     }
+
+    @Test fun qwenImageEdit_noVisionCapabilityAndLooksNonChat() {
+        val msBase = Capabilities(toolCalls = true, vision = true, contextTokens = 128_000, reasoning = false, promptCaching = PromptCaching.Implicit)
+        val listed = listOf(
+            ListedModel("Qwen/Qwen-Image-Edit"),
+            ListedModel("MusePublic/Qwen-Image-Edit"),
+            ListedModel("Qwen/Qwen2.5-VL-7B-Instruct"),
+        )
+        val options = ModelOptions.merge(listed, msBase)
+        val edit1 = options.first { it.id == "Qwen/Qwen-Image-Edit" }
+        val edit2 = options.first { it.id == "MusePublic/Qwen-Image-Edit" }
+        val vl = options.first { it.id == "Qwen/Qwen2.5-VL-7B-Instruct" }
+
+        assertFalse("Qwen-Image-Edit must NOT have vision capability", edit1.capabilities.vision)
+        assertFalse("Qwen-Image-Edit must NOT have visionKnown", edit1.visionKnown)
+        assertFalse("Qwen-Image-Edit cannot see images", edit1.canSee)
+        assertTrue("Qwen-Image-Edit looks non-chat", ModelOptions.looksNonChat(edit1))
+
+        assertFalse("MusePublic/Qwen-Image-Edit must NOT have vision capability", edit2.capabilities.vision)
+        assertFalse("MusePublic/Qwen-Image-Edit must NOT have visionKnown", edit2.visionKnown)
+        assertFalse("MusePublic/Qwen-Image-Edit cannot see images", edit2.canSee)
+        assertTrue("MusePublic/Qwen-Image-Edit looks non-chat", ModelOptions.looksNonChat(edit2))
+
+        assertTrue("VL model must have vision capability", vl.capabilities.vision)
+        assertTrue("VL model can see", vl.canSee)
+    }
 }
