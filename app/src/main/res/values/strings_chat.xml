@@ -150,4 +150,10 @@
     <string name="pip_closed_hint">Closed for this task. Tap “Show screen” at the bottom right, or open “Background screens” in the side menu.</string>
     <string name="chat_example_food">Open Swiggy or Blinkit and order food or groceries for me</string>
     <string name="chat_example_ride">Find a ride on Uber or Ola</string>
+    <string name="image_generating">Generating image…</string>
+    <string name="image_save">Save</string>
+    <string name="image_share">Share</string>
+    <string name="image_regenerate">Regenerate</string>
+    <string name="image_saved_to_gallery">Saved to gallery</string>
+    <string name="image_save_failed">Could not save to gallery</string>
 </resources>
