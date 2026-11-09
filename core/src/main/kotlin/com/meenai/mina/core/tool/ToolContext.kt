@@ -19,18 +19,17 @@ import com.meenai.mina.core.run.RunSpec
 
 /** 本任务的配置(模型、技能、记忆、开关);能力各自的端口与开关在能力里。 */
 internal class ToolConfig(
-    val visionEnabled: Boolean,
-    val skills: GuideCatalog?,
-    val recordFrames: Boolean,
-    val vision: VisionService?,
-    val inlineScreen: Boolean,
-    /** 元素优先:可读页面不把截图送给主模型,读不到时自动补图。 */
-    val adaptiveVision: Boolean,
-    val memory: MemoryStore?,
-    val profile: ProfileStore?,
-    val utterances: UserUtterances?,
-    val conversationId: String?,
-    val imageOps: ImageOps?,
+    val visionEnabled: Boolean = false,
+    val skills: GuideCatalog? = null,
+    val recordFrames: Boolean = false,
+    val vision: VisionService? = null,
+    val inlineScreen: Boolean = false,
+    val adaptiveVision: Boolean = false,
+    val memory: MemoryStore? = null,
+    val profile: ProfileStore? = null,
+    val utterances: UserUtterances? = null,
+    val conversationId: String? = null,
+    val imageOps: ImageOps? = null,
     /** 存下一个定时任务,并说明能不能准时(见 [Scheduled])。 */
     val scheduleTrigger: ((TriggerDefinition) -> Scheduled)? = null,
     val scheduleAdmin: ScheduleAdmin? = null,

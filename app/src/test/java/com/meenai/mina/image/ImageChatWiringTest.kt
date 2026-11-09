@@ -64,7 +64,7 @@ class ImageChatWiringTest {
 
         val vm = ChatViewModel(
             scope = backgroundScope,
-            state = state,
+            taskState = state,
             takeoverStage = stage,
             actions = actions,
             store = store,

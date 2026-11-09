@@ -1,18 +1,30 @@
 package com.meenai.mina.core.image
 
+import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.tool.Args
 import com.meenai.mina.core.tool.ToolConfig
 import com.meenai.mina.core.tool.ToolContext
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.verify.EvidenceLog
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
+import org.junit.After
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class ImageToolsTest {
+
+    @Before
+    fun setUp() {
+        MagicubeLedger.clear()
+        MagicubeLedger.syncBalance(100.0)
+    }
+
+    @After
+    fun tearDown() {
+        MagicubeLedger.clear()
+    }
 
     @Test
     fun generateImageToolExecutesAndInvokesCallbacks() = runBlocking {
@@ -20,12 +32,11 @@ class ImageToolsTest {
         var savedCalled = false
 
         val fakeClient = object : ImageClient {
-            override val provider: String = "ModelScope"
-            override suspend fun generate(prompt: String, model: String, size: String?, apiKey: String): ImageResult {
-                return ImageResult.Success("FAKE_IMAGE_BYTES".toByteArray(), model, 1.0)
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                return "FAKE_IMAGE_BYTES".toByteArray()
             }
-            override suspend fun edit(prompt: String, imageBase64: String, model: String, apiKey: String): ImageResult {
-                return ImageResult.Success("FAKE_IMAGE_BYTES".toByteArray(), model, 2.0)
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                return "FAKE_IMAGE_BYTES".toByteArray()
             }
         }
 
@@ -36,8 +47,8 @@ class ImageToolsTest {
 
         val config = ToolConfig(
             imageService = service,
-            onImageProgress = { isGenerating, _, _ -> progressCalled = true },
-            onImageSaved = { bytes, prompt, model ->
+            onImageProgress = { _, _, _ -> progressCalled = true },
+            onImageSaved = { _, _, _ ->
                 savedCalled = true
                 "/fake/cache/img.jpg"
             },
@@ -55,11 +66,10 @@ class ImageToolsTest {
     @Test
     fun generateImageToolRejectsEmptyPromptOrVideo() = runBlocking {
         val fakeClient = object : ImageClient {
-            override val provider: String = "ModelScope"
-            override suspend fun generate(prompt: String, model: String, size: String?, apiKey: String) =
-                ImageResult.Success(byteArrayOf(), model, 1.0)
-            override suspend fun edit(prompt: String, imageBase64: String, model: String, apiKey: String) =
-                ImageResult.Success(byteArrayOf(), model, 2.0)
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                "BYTES".toByteArray()
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                "BYTES".toByteArray()
         }
         val service = ImageGenerationService(fakeClient, getApiKey = { "key" })
         val config = ToolConfig(imageService = service)
@@ -75,11 +85,10 @@ class ImageToolsTest {
     @Test
     fun editImageToolRejectsSensitiveAppPhoto() = runBlocking {
         val fakeClient = object : ImageClient {
-            override val provider: String = "ModelScope"
-            override suspend fun generate(prompt: String, model: String, size: String?, apiKey: String) =
-                ImageResult.Success(byteArrayOf(), model, 1.0)
-            override suspend fun edit(prompt: String, imageBase64: String, model: String, apiKey: String) =
-                ImageResult.Success(byteArrayOf(), model, 2.0)
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                "BYTES".toByteArray()
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                "BYTES".toByteArray()
         }
         val service = ImageGenerationService(fakeClient, getApiKey = { "key" })
 
