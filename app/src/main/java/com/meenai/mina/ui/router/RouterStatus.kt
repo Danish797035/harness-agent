@@ -312,8 +312,8 @@ class RealRouterStatus(
             if (fallback != null) {
                 val (modelId, providerName) = fallback
                 val used = RouterUsageTracker.getTodayCalls(modelId)
-                val fallbackReason = if (!status.reason.isNullOrBlank() && status.reason != "No model available") {
-                    status.reason
+                val fallbackReason: String = if (!status.reason.isNullOrBlank() && status.reason != "No model available") {
+                    status.reason!!
                 } else {
                     "Configured main model"
                 }
@@ -373,10 +373,10 @@ class RealRouterStatus(
             }
         }
 
-        val effectiveReason = if (status.reason.isNullOrBlank() || status.reason == "No model available") {
+        val effectiveReason: String = if (status.reason.isNullOrBlank() || status.reason == "No model available") {
             router.determineReason(active)
         } else {
-            status.reason
+            status.reason!!
         }
 
         return ActiveModel(

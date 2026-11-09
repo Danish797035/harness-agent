@@ -57,6 +57,10 @@ class MagicubeLedgerTest {
         // Across UTC+8 midnight: daily reset grants new day's login (+200) and Alibaba (+50) bonus
         assertEquals(250.0, MagicubeLedger.getShortTermBalance(tAfterMidnight), 0.001)
         assertEquals(250.0, MagicubeLedger.totalBalance(tAfterMidnight), 0.001)
+        assertFalse(MagicubeLedger.isLoginMarkedToday(tAfterMidnight))
+
+        // When user records login on day 2
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tAfterMidnight)
         assertTrue(MagicubeLedger.isLoginMarkedToday(tAfterMidnight))
     }
 
@@ -286,7 +290,7 @@ class MagicubeLedgerTest {
         MagicubeLedger.attachStorage(mockStorage, nowMs = tDay2)
         assertEquals("Short-term must receive daily grant on UTC+8 reset", 200.0, MagicubeLedger.getShortTermBalance(tDay2), 0.001)
         assertEquals("Total balance should be 200", 200.0, MagicubeLedger.totalBalance(tDay2), 0.001)
-        assertTrue("Day 2 login automatically granted on reset", MagicubeLedger.isLoginMarkedToday(tDay2))
+        assertFalse("Day 2 login not yet marked", MagicubeLedger.isLoginMarkedToday(tDay2))
     }
 
     @Test

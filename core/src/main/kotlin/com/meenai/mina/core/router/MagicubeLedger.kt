@@ -117,7 +117,7 @@ object MagicubeLedger {
         } else if (state.shortTermDayKey != null || state.isLoginMarkedDayKey != null) {
             // Crossed UTC+8 midnight: grant new day's login + Alibaba bonus
             shortTermDayKey = today
-            isLoginMarkedDayKey = today
+            isLoginMarkedDayKey = null
             val grant = if (isAlibabaLinked) (DAILY_LOGIN_GRANT + ALIBABA_LINKED_BONUS) else DAILY_LOGIN_GRANT
             shortTermBalance = grant
             isAlibabaLinkedDayKey = if (isAlibabaLinked) today else null
@@ -168,7 +168,7 @@ object MagicubeLedger {
         if (shortTermDayKey != null && shortTermDayKey != today) {
             // New day in UTC+8: grant daily login + Alibaba bonus
             shortTermDayKey = today
-            isLoginMarkedDayKey = today
+            isLoginMarkedDayKey = null
             val grant = if (isAlibabaLinked) (DAILY_LOGIN_GRANT + ALIBABA_LINKED_BONUS) else DAILY_LOGIN_GRANT
             shortTermBalance = grant
             isAlibabaLinkedDayKey = if (isAlibabaLinked) today else null
