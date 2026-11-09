@@ -31,11 +31,13 @@
     <string name="router_status_cooldown">Cooldown %1$d min</string>
     <string name="router_status_unsupported">Unsupported</string>
     <string name="router_status_bad_key">Bad key</string>
+    <string name="router_status_low_balance">Low balance</string>
     <string name="router_estimate">estimate</string>
     <string name="router_concurrency">Concurrency: %1$d</string>
     <string name="router_magicube_cost">~%1$s Magicube/call</string>
     <string name="router_magicube_total">Today: ~%1$s Magicube</string>
     <string name="router_magicube_balance">Balance: ~%1$s Magicube</string>
+    <string name="router_magicube_balance_unknown">Balance: Unknown</string>
     <string name="router_sync_balance">Sync balance</string>
     <string name="router_sync_balance_title">Sync Magicube Balance</string>
     <string name="router_sync_balance_hint">Enter balance from ModelScope site</string>

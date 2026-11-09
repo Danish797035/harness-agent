@@ -207,4 +207,34 @@ class RouterUiTest {
         assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = false))
         assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = true))
     }
+
+    @Test
+    fun modelStatusKind_lowBalanceLabel() {
+        assertEquals("Low balance", ModelStatusKind.LowBalance.label())
+    }
+
+    @Test
+    fun modelQuotaRow_displaysFullModelId() {
+        val line = ModelQuotaLine(
+            modelId = "Qwen/Qwen3.5-27B",
+            modelName = "Qwen 3.5 27B",
+            todayRequests = 0,
+        )
+        // Full model id is preserved in modelId
+        assertEquals("Qwen/Qwen3.5-27B", line.modelId)
+        val displayText = line.modelId.ifBlank { line.modelName }
+        assertEquals("Qwen/Qwen3.5-27B", displayText)
+    }
+
+    @Test
+    fun unknownBalance_showsNullMagicubeBalance() {
+        MagicubeLedger.clear()
+        assertFalse(MagicubeLedger.isBalanceKnown)
+
+        val usage = ProviderUsage(
+            provider = "ModelScope",
+            magicubeBalance = if (MagicubeLedger.isBalanceKnown) MagicubeLedger.totalBalance() else null,
+        )
+        assertNull("Unknown balance should result in null magicubeBalance", usage.magicubeBalance)
+    }
 }

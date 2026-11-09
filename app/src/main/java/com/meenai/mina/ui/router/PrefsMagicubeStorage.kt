@@ -27,6 +27,7 @@ class PrefsMagicubeStorage(
         val longTerm = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LONG_TERM_BAL, 0L))
         val longExpiry = if (prefs.contains(KEY_LONG_EXPIRY)) prefs.getLong(KEY_LONG_EXPIRY, -1L).takeIf { it >= 0 } else null
         val alibabaLinked = prefs.getBoolean(KEY_ALIBABA_LINKED, false)
+        val isBalanceKnown = prefs.getBoolean(KEY_IS_BALANCE_KNOWN, false)
 
         return MagicubeState(
             shortTermBalance = shortTerm,
@@ -36,6 +37,7 @@ class PrefsMagicubeStorage(
             longTermBalance = longTerm,
             longTermExpiryEpochMs = longExpiry,
             isAlibabaLinked = alibabaLinked,
+            isBalanceKnown = isBalanceKnown,
         )
     }
 
@@ -48,6 +50,7 @@ class PrefsMagicubeStorage(
             .putString(KEY_ALIBABA_DAY, state.isAlibabaLinkedDayKey)
             .putLong(KEY_LONG_TERM_BAL, java.lang.Double.doubleToRawLongBits(state.longTermBalance))
             .putBoolean(KEY_ALIBABA_LINKED, state.isAlibabaLinked)
+            .putBoolean(KEY_IS_BALANCE_KNOWN, state.isBalanceKnown)
 
         val expiry = state.longTermExpiryEpochMs
         if (expiry != null) {
@@ -68,5 +71,6 @@ class PrefsMagicubeStorage(
         private const val KEY_LONG_TERM_BAL = "long_term_bal"
         private const val KEY_LONG_EXPIRY = "long_expiry"
         private const val KEY_ALIBABA_LINKED = "alibaba_linked"
+        private const val KEY_IS_BALANCE_KNOWN = "is_balance_known"
     }
 }

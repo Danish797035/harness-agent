@@ -136,6 +136,9 @@ object AppFreeKeyRouter {
             rankingsRepository = rankingsRepository,
             probeService = probeService,
             statsTracker = statsTracker,
+            configuredMainModelProvider = {
+                store.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
+            },
         )
     }
 

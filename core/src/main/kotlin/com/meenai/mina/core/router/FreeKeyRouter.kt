@@ -95,6 +95,7 @@ class FreeKeyRouter(
     val rankingsRepository: ModelRankingsRepository? = null,
     val probeService: ModelProbeService? = null,
     val statsTracker: ModelStatsTracker? = null,
+    val configuredMainModelProvider: (() -> String?)? = null,
 ) : StreamingChatModel {
 
     val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
@@ -136,12 +137,11 @@ class FreeKeyRouter(
         if (current != null && !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = null
         }
-        val reason = when {
-            pinnedModelId != null -> "Pinned model"
-            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
-            activeCandidate != null -> "Optimal free candidate"
-            else -> "Task reset"
+        if (activeCandidate == null) {
+            val role = difficultyRouter.getRole()
+            activeCandidate = pickBestCandidate(role, isNewTask = true)
         }
+        val reason = determineReason(activeCandidate)
         updateStatus(
             model = activeCandidate?.id,
             provider = activeCandidate?.provider,
@@ -245,13 +245,10 @@ class FreeKeyRouter(
             activeCandidate = pickBestCandidate(role, isNewTask = false)
         }
         val existingReason = _status.value.reason
-        val reason = if (!existingReason.isNullOrBlank() && !existingReason.contains("Candidates updated", ignoreCase = true) && existingReason != "Success") {
+        val reason = if (!existingReason.isNullOrBlank() && !existingReason.contains("Candidates updated", ignoreCase = true) && existingReason != "Success" && existingReason != "No model available") {
             existingReason
-        } else when {
-            pinnedModelId != null -> "Pinned model"
-            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
-            activeCandidate != null -> "Optimal free candidate"
-            else -> "No model available"
+        } else {
+            determineReason(activeCandidate)
         }
         updateStatus(
             model = activeCandidate?.id,
@@ -565,6 +562,17 @@ class FreeKeyRouter(
             return candidates.find { it.id == pinned }
         }
 
+        // Try user's chosen Main model from Settings first when selecting Main role
+        if (targetRole == ModelRole.Main) {
+            val configuredModelId = configuredMainModelProvider?.invoke()
+            if (!configuredModelId.isNullOrBlank()) {
+                val configuredCandidate = candidates.find { it.id == configuredModelId }
+                if (configuredCandidate != null && checkCachedQuota(configuredCandidate, isNewTask = isNewTask)) {
+                    return configuredCandidate
+                }
+            }
+        }
+
         val available = candidates.filter { checkCachedQuota(it, isNewTask = isNewTask) }
         if (available.isEmpty()) return null
 
@@ -626,6 +634,39 @@ class FreeKeyRouter(
         }
 
         return bestCandidate
+    }
+
+    fun determineReason(candidate: RouterCandidate?): String {
+        if (candidate == null) return "No model available"
+        if (pinnedModelId != null && pinnedModelId == candidate.id) return "Pinned model"
+        val configuredModelId = configuredMainModelProvider?.invoke()
+        if (configuredModelId != null && candidate.id == configuredModelId) return "Configured main model"
+
+        // Check if fallback happened
+        val configuredCandidate = configuredModelId?.let { cid -> candidates.find { it.id == cid } }
+        val hasModelScopeCandidates = candidates.any { it.provider.equals("modelscope", ignoreCase = true) }
+        val modelScopeLowBalance = hasModelScopeCandidates && !MagicubeLedger.canAffordModelScope(now())
+
+        if (modelScopeLowBalance && !candidate.provider.equals("modelscope", ignoreCase = true)) {
+            val providerName = candidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            return "ModelScope low balance, $providerName fallback"
+        }
+
+        if (configuredCandidate != null && configuredCandidate.id != candidate.id) {
+            val confProvider = configuredCandidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            val candProvider = candidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            val remainingCooldown = cooldownStore.getRemainingCooldownMs(configuredCandidate.id, now())
+            if (remainingCooldown > 0L) {
+                return "$confProvider cooldown, $candProvider fallback"
+            }
+            if (cooldownStore.isKeyBad(configuredCandidate.provider)) {
+                return "$confProvider bad key, $candProvider fallback"
+            }
+            return "$confProvider unavailable, $candProvider fallback"
+        }
+
+        if (candidate.roles.contains(ModelRole.Light)) return "Light task, cheapest free model"
+        return "Optimal free candidate"
     }
 
     private fun shortestCooldownMs(): Long =

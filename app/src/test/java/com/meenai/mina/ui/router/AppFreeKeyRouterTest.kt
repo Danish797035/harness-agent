@@ -559,4 +559,87 @@ class AppFreeKeyRouterTest {
         assertEquals("User ka chuna model nahi badalna chahiye", userChosenMainId, store.roles.value.main)
         assertEquals(customModel, store.configs.value.first { it.id == store.roles.value.main }.model)
     }
+
+    @Test
+    fun modelScopeLowBalance_fallbackReasonAndStatus() {
+        val msCand = RouterCandidate(
+            id = "Qwen/Qwen2.5-72B-Instruct",
+            provider = "modelscope",
+            model = object : ChatModel {
+                override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit)
+                override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                    ModelReply(emptyList(), StopReason.EndTurn, Usage(1, 1))
+            },
+            curatedRank = 90,
+        )
+        val orCand = RouterCandidate(
+            id = "meta-llama/llama-3.3-70b-instruct:free",
+            provider = "openrouter",
+            model = object : ChatModel {
+                override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit)
+                override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                    ModelReply(emptyList(), StopReason.EndTurn, Usage(1, 1))
+            },
+            curatedRank = 80,
+        )
+
+        // Balance is low (< 5.0)
+        MagicubeLedger.syncBalance(2.0)
+        assertFalse(MagicubeLedger.canAffordModelScope())
+
+        val router = FreeKeyRouter(listOf(msCand, orCand))
+        val realStatus = RealRouterStatus(router)
+
+        // Best candidate should fall back to OpenRouter
+        val picked = router.pickBestCandidate()
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", picked?.id)
+
+        // Reason should reflect ModelScope low balance fallback
+        val reason = router.determineReason(picked)
+        assertEquals("ModelScope low balance, OpenRouter fallback", reason)
+
+        // Active model in realStatus must NOT say "No model available"
+        val active = realStatus.current.value
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", active.id)
+        assertEquals("ModelScope low balance, OpenRouter fallback", active.reason)
+
+        // In usage list, ModelScope models must have status LowBalance
+        val msUsage = realStatus.usage.value.find { it.provider.equals("ModelScope", ignoreCase = true) }
+        assertNotNull(msUsage)
+        assertTrue("ModelScope model status should be LowBalance", msUsage!!.models.all { it.status == ModelStatusKind.LowBalance })
+    }
+
+    @Test
+    fun configuredMainModel_triedFirstWhenAvailable() {
+        val cand1 = RouterCandidate(
+            id = "model-high-rank",
+            provider = "openrouter",
+            model = object : ChatModel {
+                override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit)
+                override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                    ModelReply(emptyList(), StopReason.EndTurn, Usage(1, 1))
+            },
+            curatedRank = 99,
+        )
+        val cand2 = RouterCandidate(
+            id = "model-user-main",
+            provider = "openrouter",
+            model = object : ChatModel {
+                override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit)
+                override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                    ModelReply(emptyList(), StopReason.EndTurn, Usage(1, 1))
+            },
+            curatedRank = 50,
+        )
+
+        val router = FreeKeyRouter(
+            candidates = listOf(cand1, cand2),
+            configuredMainModelProvider = { "model-user-main" },
+        )
+
+        // For ModelRole.Main, user's configured main model should be picked even if another model has higher rank
+        val picked = router.pickBestCandidate(ModelRole.Main)
+        assertEquals("model-user-main", picked?.id)
+        assertEquals("Configured main model", router.determineReason(picked))
+    }
 }

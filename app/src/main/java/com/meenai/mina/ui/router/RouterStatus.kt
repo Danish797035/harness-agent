@@ -64,13 +64,15 @@ enum class ModelStatusKind {
     Ready,
     Cooldown,
     Unsupported,
-    BadKey;
+    BadKey,
+    LowBalance;
 
     fun label(cooldownMin: Int = 0): String = when (this) {
         Ready -> "Ready"
         Cooldown -> "Cooldown $cooldownMin min"
         Unsupported -> "Unsupported"
         BadKey -> "Bad key"
+        LowBalance -> "Low balance"
     }
 }
 
@@ -255,6 +257,10 @@ class RealRouterStatus(
                 }
             }
         }
+        MagicubeLedger.addListener {
+            _current.value = computeActiveModel()
+            _usage.value = computeUsage()
+        }
     }
 
     override fun refresh() {
@@ -306,6 +312,11 @@ class RealRouterStatus(
             if (fallback != null) {
                 val (modelId, providerName) = fallback
                 val used = RouterUsageTracker.getTodayCalls(modelId)
+                val fallbackReason = if (!status.reason.isNullOrBlank() && status.reason != "No model available") {
+                    status.reason
+                } else {
+                    "Configured main model"
+                }
                 return ActiveModel(
                     id = modelId,
                     name = formatModelName(modelId),
@@ -315,7 +326,7 @@ class RealRouterStatus(
                     isEstimate = true,
                     quotaRemaining = 0,
                     quotaTotal = 0,
-                    reason = status.reason ?: "Configured main model",
+                    reason = fallbackReason,
                     isPinned = false,
                     canPin = false,
                     cooldownUntilMs = 0L,
@@ -330,7 +341,7 @@ class RealRouterStatus(
                 isEstimate = false,
                 quotaRemaining = 0,
                 quotaTotal = 0,
-                reason = status.reason ?: "No candidate models available",
+                reason = "No model available",
                 isPinned = false,
                 canPin = false,
                 cooldownUntilMs = 0L,
@@ -362,6 +373,12 @@ class RealRouterStatus(
             }
         }
 
+        val effectiveReason = if (status.reason.isNullOrBlank() || status.reason == "No model available") {
+            router.determineReason(active)
+        } else {
+            status.reason
+        }
+
         return ActiveModel(
             id = id,
             name = formatModelName(id),
@@ -371,7 +388,7 @@ class RealRouterStatus(
             isEstimate = isEstimate,
             quotaRemaining = if (limit != null) (limit - usedToday).coerceAtLeast(0) else 0,
             quotaTotal = limit ?: 0,
-            reason = status.reason ?: (if (isPinned) "Pinned model" else "Optimal free candidate"),
+            reason = effectiveReason,
             isPinned = isPinned,
             canPin = true,
             cooldownUntilMs = cooldownUntil,
@@ -453,10 +470,12 @@ class RealRouterStatus(
                 var todayRequests = RouterUsageTracker.getTodayCalls(mId)
                 val isUnsupported = router.cooldownStore.isUnsupported(mId)
                 val cooldownMs = router.cooldownStore.getRemainingCooldownMs(mId)
+                val isLowBalance = isModelScope && !MagicubeLedger.canAffordModelScope()
 
                 val status = when {
                     isBadKey -> ModelStatusKind.BadKey
                     isUnsupported -> ModelStatusKind.Unsupported
+                    isLowBalance -> ModelStatusKind.LowBalance
                     cooldownMs > 0L -> ModelStatusKind.Cooldown
                     else -> ModelStatusKind.Ready
                 }
@@ -475,9 +494,11 @@ class RealRouterStatus(
                 val costPerCall = if (isModelScope) modelScopeMagicubeCost(mId) else null
                 val costInfo = if (costPerCall != null) "~$costPerCall Magicube/call" else null
 
+                val displayName = if (isModelScope) mId else formatModelName(mId)
+
                 ModelQuotaLine(
                     modelId = mId,
-                    modelName = formatModelName(mId),
+                    modelName = displayName,
                     todayRequests = todayRequests,
                     limit = limit,
                     isEstimate = isEstimate,
@@ -501,7 +522,7 @@ class RealRouterStatus(
             val remQuota = if (providerLimit != null) (providerLimit - todayTotal).coerceAtLeast(0) else 0
             val totQuota = providerLimit ?: 0
 
-            val magicubeBal = if (isModelScope) MagicubeLedger.totalBalance() else null
+            val magicubeBal = if (isModelScope && MagicubeLedger.isBalanceKnown) MagicubeLedger.totalBalance() else null
 
             ProviderUsage(
                 provider = formatProvider(providerKeyName),
@@ -539,7 +560,6 @@ class RealRouterStatus(
         id.contains("Qwen2.5-72B", ignoreCase = true) -> "Qwen 2.5 72B"
         id.contains("Qwen2.5-7B", ignoreCase = true) -> "Qwen 2.5 7B"
         id.contains("Qwen2.5-VL-7B", ignoreCase = true) -> "Qwen 2.5 VL 7B"
-        id.contains("qwen3.5", ignoreCase = true) -> "Qwen3.5"
         id.contains("qwen-plus", ignoreCase = true) -> "Qwen Plus"
         id.contains("deepseek-v3", ignoreCase = true) -> "DeepSeek-V3"
         id.contains("deepseek-v4", ignoreCase = true) -> "DeepSeek-V4"

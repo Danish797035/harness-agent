@@ -35,32 +35,26 @@ class MagicubeLedgerTest {
     }
 
     @Test
-    fun testIstMidnightShortTermReset() {
-        // 2026-05-10 23:59:50 IST
+    fun testUtc8MidnightDailyResetGrantsLoginBonus() {
+        // 2026-05-10 23:59:50 UTC+8
         val tBeforeMidnight = ZonedDateTime.of(
             2026, 5, 10, 23, 59, 50, 0,
-            MagicubeLedger.IST_ZONE,
+            MagicubeLedger.RESET_ZONE,
         ).toInstant().toEpochMilli()
 
-        // 2026-05-11 00:00:10 IST (crossed midnight in Asia/Kolkata)
+        // 2026-05-11 00:00:10 UTC+8 (crossed midnight in UTC+8)
         val tAfterMidnight = ZonedDateTime.of(
             2026, 5, 11, 0, 0, 10, 0,
-            MagicubeLedger.IST_ZONE,
+            MagicubeLedger.RESET_ZONE,
         ).toInstant().toEpochMilli()
 
-        // Login on day 1 gives 200 short-term
-        MagicubeLedger.recordDailyLogin(isAlibabaLinked = false, nowMs = tBeforeMidnight)
-        assertEquals(200.0, MagicubeLedger.getShortTermBalance(tBeforeMidnight), 0.001)
-        assertEquals(200.0, MagicubeLedger.totalBalance(tBeforeMidnight), 0.001)
+        // Login on day 1 with Alibaba linked gives 250 short-term
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tBeforeMidnight)
+        assertEquals(250.0, MagicubeLedger.getShortTermBalance(tBeforeMidnight), 0.001)
+        assertEquals(250.0, MagicubeLedger.totalBalance(tBeforeMidnight), 0.001)
         assertTrue(MagicubeLedger.isLoginMarkedToday(tBeforeMidnight))
 
-        // Across IST midnight: short-term balance resets to 0 (no rollover)
-        assertEquals(0.0, MagicubeLedger.getShortTermBalance(tAfterMidnight), 0.001)
-        assertEquals(0.0, MagicubeLedger.totalBalance(tAfterMidnight), 0.001)
-        assertFalse(MagicubeLedger.isLoginMarkedToday(tAfterMidnight))
-
-        // Login on day 2 with Alibaba linked gives 250
-        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tAfterMidnight)
+        // Across UTC+8 midnight: daily reset grants new day's login (+200) and Alibaba (+50) bonus
         assertEquals(250.0, MagicubeLedger.getShortTermBalance(tAfterMidnight), 0.001)
         assertEquals(250.0, MagicubeLedger.totalBalance(tAfterMidnight), 0.001)
         assertTrue(MagicubeLedger.isLoginMarkedToday(tAfterMidnight))
@@ -259,17 +253,17 @@ class MagicubeLedgerTest {
     }
 
     @Test
-    fun testNextDayLoadResetsShortTermToZero() {
+    fun testNextDayLoadAcrossUtc8MidnightGrantsDailyLogin() {
         // Day 1
         val tDay1 = ZonedDateTime.of(
             2026, 5, 10, 20, 0, 0, 0,
-            MagicubeLedger.IST_ZONE,
+            MagicubeLedger.RESET_ZONE,
         ).toInstant().toEpochMilli()
 
-        // Day 2 (after IST midnight)
+        // Day 2 (after UTC+8 midnight)
         val tDay2 = ZonedDateTime.of(
             2026, 5, 11, 8, 0, 0, 0,
-            MagicubeLedger.IST_ZONE,
+            MagicubeLedger.RESET_ZONE,
         ).toInstant().toEpochMilli()
 
         val mockStorage = object : MagicubeStorage {
@@ -288,11 +282,42 @@ class MagicubeLedgerTest {
         MagicubeLedger.detachStorage()
         MagicubeLedger.clear()
 
-        // Load on Day 2: short-term balance must be 0 (no rollover across IST midnight)
+        // Load on Day 2: reset across UTC+8 midnight grants Day 2 daily login (+200)
         MagicubeLedger.attachStorage(mockStorage, nowMs = tDay2)
-        assertEquals("Short-term must reset to 0 across IST midnight", 0.0, MagicubeLedger.getShortTermBalance(tDay2), 0.001)
-        assertEquals("Total balance should be 0", 0.0, MagicubeLedger.totalBalance(tDay2), 0.001)
-        assertFalse("Day 2 login not yet marked", MagicubeLedger.isLoginMarkedToday(tDay2))
+        assertEquals("Short-term must receive daily grant on UTC+8 reset", 200.0, MagicubeLedger.getShortTermBalance(tDay2), 0.001)
+        assertEquals("Total balance should be 200", 200.0, MagicubeLedger.totalBalance(tDay2), 0.001)
+        assertTrue("Day 2 login automatically granted on reset", MagicubeLedger.isLoginMarkedToday(tDay2))
+    }
+
+    @Test
+    fun testUnknownBalanceDoesNotSkipModelScope() {
+        MagicubeLedger.clear()
+        assertFalse(MagicubeLedger.isBalanceKnown)
+        assertEquals(0.0, MagicubeLedger.totalBalance(), 0.001)
+        assertTrue("When balance is unknown, ModelScope must NOT be skipped", MagicubeLedger.canAffordModelScope())
+    }
+
+    @Test
+    fun testSyncBalanceSavesBalanceAndSplitsDailyGrant() {
+        MagicubeLedger.clear()
+        MagicubeLedger.setAlibabaLinked(true)
+        MagicubeLedger.syncBalance(500.0)
+
+        assertTrue(MagicubeLedger.isBalanceKnown)
+        assertEquals(250.0, MagicubeLedger.getShortTermBalance(), 0.001)
+        assertEquals(250.0, MagicubeLedger.getLongTermBalance(), 0.001)
+        assertEquals(500.0, MagicubeLedger.totalBalance(), 0.001)
+        assertTrue(MagicubeLedger.canAffordModelScope())
+    }
+
+    @Test
+    fun testUnlinkingAlibabaDeductsBonus() {
+        val tNow = System.currentTimeMillis()
+        MagicubeLedger.recordDailyLogin(isAlibabaLinked = true, nowMs = tNow)
+        assertEquals(250.0, MagicubeLedger.totalBalance(tNow), 0.001)
+
+        MagicubeLedger.setAlibabaLinked(false, nowMs = tNow)
+        assertEquals(200.0, MagicubeLedger.totalBalance(tNow), 0.001)
     }
 
     @Test

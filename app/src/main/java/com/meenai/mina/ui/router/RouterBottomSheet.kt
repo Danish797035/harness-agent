@@ -139,7 +139,7 @@ fun RouterBottomSheet(
                             modifier = Modifier.padding(horizontal = 14.dp),
                         )
                     }
-                    ProviderUsageBlock(usage = usage, isFirst = index == 0)
+                    ProviderUsageBlock(usage = usage, isFirst = index == 0, onRefresh = onRefresh)
                 }
             }
 
@@ -172,6 +172,7 @@ fun RouterBottomSheet(
 fun ProviderUsageBlock(
     usage: ProviderUsage,
     isFirst: Boolean,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val colors = MinaTheme.colors
     val isModelScope = usage.provider.equals("ModelScope", ignoreCase = true)
@@ -179,6 +180,11 @@ fun ProviderUsageBlock(
     var syncInputText by remember { mutableStateOf("") }
     var isLoginMarked by remember { mutableStateOf(MagicubeLedger.isLoginMarkedToday()) }
     var isAlibabaLinked by remember { mutableStateOf(MagicubeLedger.isAlibabaLinked) }
+
+    LaunchedEffect(usage.magicubeBalance) {
+        isLoginMarked = MagicubeLedger.isLoginMarkedToday()
+        isAlibabaLinked = MagicubeLedger.isAlibabaLinked
+    }
 
     if (showSyncDialog) {
         AlertDialog(
@@ -206,6 +212,7 @@ fun ProviderUsageBlock(
                     onClick = {
                         syncInputText.toDoubleOrNull()?.let { MagicubeLedger.syncBalance(it) }
                         showSyncDialog = false
+                        onRefresh?.invoke()
                     },
                     modifier = Modifier.testTag("sync-balance-save"),
                 ) {
@@ -258,6 +265,8 @@ fun ProviderUsageBlock(
                         String.format(java.util.Locale.US, "%.1f", usage.magicubeBalance)
                     }
                     metaTexts.add(stringResource(R.string.router_magicube_balance, formattedBal))
+                } else if (isModelScope) {
+                    metaTexts.add(stringResource(R.string.router_magicube_balance_unknown))
                 }
                 if (usage.totalCostToday != null) {
                     val formattedCost = if (usage.totalCostToday % 1.0 == 0.0) {
@@ -294,6 +303,7 @@ fun ProviderUsageBlock(
                     onCheckedChange = { checked ->
                         isAlibabaLinked = checked
                         MagicubeLedger.setAlibabaLinked(checked)
+                        onRefresh?.invoke()
                     },
                     modifier = Modifier.testTag("magicube-alibaba-toggle"),
                 )
@@ -310,6 +320,7 @@ fun ProviderUsageBlock(
                     onClick = {
                         MagicubeLedger.recordDailyLogin(isAlibabaLinked = isAlibabaLinked)
                         isLoginMarked = true
+                        onRefresh?.invoke()
                     },
                     kind = if (isLoginMarked) ButtonKind.Tonal else ButtonKind.Secondary,
                     size = ButtonSize.Small,
@@ -379,6 +390,7 @@ fun ModelQuotaRow(
         ModelStatusKind.Cooldown -> stringResource(R.string.router_status_cooldown, model.cooldownMinutes) to colors.warn
         ModelStatusKind.Unsupported -> stringResource(R.string.router_status_unsupported) to colors.ink3
         ModelStatusKind.BadKey -> stringResource(R.string.router_status_bad_key) to colors.bad
+        ModelStatusKind.LowBalance -> stringResource(R.string.router_status_low_balance) to colors.warn
     }
 
     Row(
@@ -390,7 +402,7 @@ fun ModelQuotaRow(
     ) {
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
-                text = model.modelName.ifBlank { model.modelId },
+                text = model.modelId.ifBlank { model.modelName },
                 style = MinaType.Body.copy(fontSize = 14.sp),
                 color = colors.ink,
                 maxLines = 1,
