@@ -2,6 +2,7 @@ package com.meenai.mina.task
 
 import android.graphics.Bitmap
 import com.meenai.mina.chat.SharedFile
+import com.meenai.mina.ui.image.GeneratedImageUi
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.remote.RemoteSteer
@@ -92,6 +93,8 @@ class TaskCenterState {
     val _runId = MutableStateFlow<String?>(null)
     val _sharedFiles = MutableStateFlow<List<SharedFile>>(emptyList())
     val sharedFiles: StateFlow<List<SharedFile>> = _sharedFiles.asStateFlow()
+    val _generatedImages = MutableStateFlow<List<GeneratedImageUi>>(emptyList())
+    val generatedImages: StateFlow<List<GeneratedImageUi>> = _generatedImages.asStateFlow()
     val _endedRunId = MutableStateFlow<String?>(null)
     val endedRunId: StateFlow<String?> = _endedRunId.asStateFlow()
     val _endedRunIds = MutableStateFlow<Map<String, String?>>(emptyMap())

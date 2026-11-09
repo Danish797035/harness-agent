@@ -162,4 +162,10 @@
     <string name="unverified_nothing_read">इस कार्य के दौरान कोई ऐप नहीं खोला गया और कोई सामग्री नहीं पढ़ी गई।</string>
     <string name="unverified_truncated">उत्तर स्क्रीन पर कटे हुए टेक्स्ट पर आधारित है (… पर समाप्त), पूरी तरह से सत्यापित नहीं किया जा सका।</string>
     <string name="unverified_verifying">परिणामों की पुष्टि की जा रही है…</string>
+    <string name="image_generating">इमेज बन रही है…</string>
+    <string name="image_save">सेव करें</string>
+    <string name="image_share">शेयर करें</string>
+    <string name="image_regenerate">दोबारा बनाएं</string>
+    <string name="image_saved_to_gallery">गैलरी में सेव हो गई</string>
+    <string name="image_save_failed">गैलरी में सेव नहीं हो सकी</string>
 </resources>

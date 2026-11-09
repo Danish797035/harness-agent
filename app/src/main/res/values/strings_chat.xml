@@ -162,4 +162,10 @@
     <string name="unverified_nothing_read">No app was opened and no materials were read during this task.</string>
     <string name="unverified_truncated">The answer is based on truncated text on screen (ending with …); only partially visible and could not be fully verified.</string>
     <string name="unverified_verifying">Verifying results…</string>
+    <string name="image_generating">Generating image…</string>
+    <string name="image_save">Save</string>
+    <string name="image_share">Share</string>
+    <string name="image_regenerate">Regenerate</string>
+    <string name="image_saved_to_gallery">Saved to gallery</string>
+    <string name="image_save_failed">Could not save to gallery</string>
 </resources>

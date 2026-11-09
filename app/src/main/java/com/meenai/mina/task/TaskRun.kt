@@ -18,6 +18,9 @@ import com.meenai.mina.cap.sandbox.SandboxState
 import com.meenai.mina.cap.sandbox.AndroidSandbox
 import com.meenai.mina.cap.sandbox.SandboxDirs
 import com.meenai.mina.chat.SharedFile
+import com.meenai.mina.ui.image.GeneratedImageUi
+import com.meenai.mina.image.ImageStorageManager
+import com.meenai.mina.core.image.ImageIntentRouter
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
@@ -190,6 +193,7 @@ class TaskRun(
 
     private val _runId = Mirrored<String?>(null, service.taskState._runId)
     private val _sharedFiles = Mirrored<List<SharedFile>>(emptyList(), service.taskState._sharedFiles)
+    private val _generatedImages = Mirrored<List<GeneratedImageUi>>(emptyList(), service.taskState._generatedImages)
     private val _state = Mirrored<TaskState>(TaskState.Running(0, TaskService.PREPARING), service.taskState._state)
     /** 同一状态带上对话编号,和 [_state] 一起写:界面据此只收屏上那个对话的状态。 */
     private val _tagged = Mirrored<Pair<String, TaskState>?>(conversationId to _state.value, service.taskState._shownTask)
@@ -213,6 +217,7 @@ class TaskRun(
     val runId: StateFlow<String?> = _runId.flow
     /** 本任务导出的文件;结束时随这一轮存进对话。 */
     val sharedFiles: StateFlow<List<SharedFile>> = _sharedFiles.flow
+    val generatedImages: StateFlow<List<GeneratedImageUi>> = _generatedImages.flow
     val takeoverStage: StateFlow<Takeover.Stage> = _takeoverStage.flow
     val frames: StateFlow<Bitmap?> = _frames.flow
     /** 本任务到此刻的活动(实际做过的事);悬浮胶囊的卡片按任务取,不只看显示中的那个。 */
@@ -224,7 +229,7 @@ class TaskRun(
     /** 本任务进行中插的话和它们的去向;悬浮胶囊的对话卡片按任务取。 */
     val steers: StateFlow<List<SteerNote>> = _steers.flow
     // 带对话编号的那份先写:收不带编号的状态时读到的编号就已经是这个任务的(界面据此不把别的对话的状态接到屏上)
-    private val mirrored = listOf(_runId, _sharedFiles, _tagged, _state, _takeoverStage, _frames, _displayId, _appShown, _webOpen, _activities, _steers)
+    private val mirrored = listOf(_runId, _sharedFiles, _generatedImages, _tagged, _state, _takeoverStage, _frames, _displayId, _appShown, _webOpen, _activities, _steers)
 
     private fun setState(s: TaskState) = synchronized(service.taskState.shownLock) {
         _tagged.value = conversationId to s
@@ -423,6 +428,17 @@ class TaskRun(
 
     /** 沙箱导出了一个文件(share_file 或 `mina share`)。 */
     fun addShared(f: SharedFile) = synchronized(service.taskState.shownLock) { _sharedFiles.value = _sharedFiles.value + f }
+
+    fun updateGeneratedImage(img: GeneratedImageUi) = synchronized(service.taskState.shownLock) {
+        val list = _generatedImages.value.toMutableList()
+        val idx = list.indexOfFirst { it.prompt == img.prompt }
+        if (idx >= 0) {
+            list[idx] = img
+        } else {
+            list.add(img)
+        }
+        _generatedImages.value = list
+    }
 
     fun clearTakeoverStage() { _takeoverStage.value = Takeover.Stage.None }
 
@@ -739,7 +755,30 @@ class TaskRun(
                 // 用户要求时写下或改写个人技能(和自学收下的放在同一处,设置里立刻能看到)
                 personalSkills = memoryRuntime.skills(),
                 // 这个对话之前几轮的运行记录(只读;history_read 只认 runSpec 里这个对话的轮次)
-                runRecords = RunStore(service).reader())
+                runRecords = RunStore(service).reader(),
+                imageService = (service.application as HarnessApp).imageService,
+                onImageProgress = { isGenerating, prompt, modelName ->
+                    updateGeneratedImage(GeneratedImageUi(
+                        filePath = null,
+                        isGenerating = isGenerating,
+                        prompt = prompt,
+                        model = modelName
+                    ))
+                },
+                onImageSaved = { bytes, prompt, modelName ->
+                    val file = ImageStorageManager.saveToPrivateCache(service, bytes)
+                    updateGeneratedImage(GeneratedImageUi(
+                        filePath = file.absolutePath,
+                        isGenerating = false,
+                        prompt = prompt,
+                        model = modelName
+                    ))
+                    file.absolutePath
+                },
+                isSensitivePackage = { pkg ->
+                    if (pkg.isNullOrBlank()) false
+                    else com.meenai.mina.capsule.CapsuleSecurityPolicy.isSensitiveApp(pkg, (service.application as HarnessApp).appAccess.current())
+                })
             dispatcher = tools
             val agent = AgentLoop(
                 model, tools,
@@ -879,6 +918,9 @@ class TaskRun(
                     _takeoverStage.value = it
                     service.refreshNotifications(this@TaskRun)
                 }
+            }
+            if (ImageIntentRouter.isVideoRequest(goal)) {
+                return TaskState.Succeeded(ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG, verified = false, reviewed = false)
             }
             return withContext(tally) { agent.run(runSpec, inbox) }.also { usedGroups = agent.usedGroups.toList() }.let(::withRetestHint)
         } finally {
