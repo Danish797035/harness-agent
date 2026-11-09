@@ -5,7 +5,8 @@ import com.meenai.mina.core.tool.Args
 import com.meenai.mina.core.tool.ToolConfig
 import com.meenai.mina.core.tool.ToolContext
 import com.meenai.mina.core.tool.ToolIndex
-import com.meenai.mina.core.verify.EvidenceLog
+import com.meenai.mina.core.tool.EvidenceLog
+import com.meenai.mina.core.visual.Shots
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -58,7 +59,7 @@ class ImageToolsTest {
                 "/fake/cache/img.jpg"
             },
         )
-        val ctx = ToolContext(config = config, evidenceLog = EvidenceLog(), tools = ToolIndex(emptyList()))
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
 
         assertTrue("GenerateImageTool should be available when imageService is present", GenerateImageTool.available(ctx))
 
@@ -79,7 +80,7 @@ class ImageToolsTest {
         }
         val service = ImageGenerationService(fakeClient, getApiKey = { "key" })
         val config = ToolConfig(imageService = service)
-        val ctx = ToolContext(config = config, evidenceLog = EvidenceLog(), tools = ToolIndex(emptyList()))
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
 
         val videoArgs = Args(GenerateImageTool.def, buildJsonObject { put("prompt", "make a video of fireworks") })
         val videoRes = GenerateImageTool.execute(videoArgs, ctx)
@@ -106,7 +107,7 @@ class ImageToolsTest {
             ),
             isSensitivePackage = { pkg -> pkg == "com.secret.bank" },
         )
-        val ctx = ToolContext(config = config, evidenceLog = EvidenceLog(), tools = ToolIndex(emptyList()))
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
 
         val args = Args(EditImageTool.def, buildJsonObject { put("prompt", "change background") })
         val result = EditImageTool.execute(args, ctx)
