@@ -15,10 +15,12 @@ import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.ModelCandidate
+import com.meenai.mina.core.router.picker.ModelProbeService
 import com.meenai.mina.core.router.picker.ModelRankingsRepository
 import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.core.router.picker.ModelScorer
 import com.meenai.mina.core.router.picker.ModelSizeParser
+import com.meenai.mina.core.router.picker.ModelStatsTracker
 import com.meenai.mina.core.router.picker.OpenRouterApiClient
 import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.CancellationException
@@ -383,7 +385,7 @@ class FreeKeyRouter(
                     healthTracker.recordFailure(currentCandidate.id)
                     statsTracker?.recordFailure(
                         modelId = currentCandidate.id,
-                        isToolCallFailure = (lastError is ModelError.BadResponse || lastError is ModelError.SchemaError),
+                        isToolCallFailure = (lastError is ModelError.BadResponse || lastError is ModelError.ToolsUnsupported),
                     )
                     difficultyRouter.recordFailure()
 
