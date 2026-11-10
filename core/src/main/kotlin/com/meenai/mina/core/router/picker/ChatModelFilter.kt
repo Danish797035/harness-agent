@@ -29,6 +29,7 @@ object ChatModelFilter {
         Regex("""(?i)\b(?:moderation|guard|reward|discriminator|ocr)\b"""),
         Regex("""(?i)^openrouter/(?:free|auto|flavor.*)$"""),
         Regex("""(?i)\blyria\b"""),
+        Regex("""(?i)(?:^|[-_/])(?:pt|base|pretrained)(?:[-_/]|$)"""),
     )
 
     // Token boundary match for "vl": "-vl", "vl-", "_vl", or standalone "vl" token

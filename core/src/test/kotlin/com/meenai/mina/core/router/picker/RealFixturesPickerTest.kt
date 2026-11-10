@@ -150,6 +150,8 @@ class RealFixturesPickerTest {
         assertTrue("google/lyria-3-pro-preview must be excluded", ChatModelFilter.isExcluded("google/lyria-3-pro-preview"))
         assertTrue("Qwen-Image must be excluded", ChatModelFilter.isExcluded("Qwen-Image"))
         assertTrue("Qwen-Image-Edit must be excluded", ChatModelFilter.isExcluded("Qwen-Image-Edit"))
+        assertTrue("ERNIE-4.5-0.3B-PT must be excluded", ChatModelFilter.isExcluded("ERNIE-4.5-0.3B-PT"))
+        assertTrue("meta-llama/Llama-3-8B-Base must be excluded", ChatModelFilter.isExcluded("meta-llama/Llama-3-8B-Base"))
     }
 
     @Test

@@ -45,9 +45,9 @@ enum class ModelCallStatus {
  * Currently active model metadata for Router UI.
  */
 data class ActiveModel(
-    val id: String = "gemini-flash",
-    val name: String = "Gemini Flash",
-    val provider: String = "Gemini",
+    val id: String = "",
+    val name: String = "No model",
+    val provider: String = "",
     val usedToday: Int = 0,
     val limit: Int? = null,
     val isEstimate: Boolean = false,

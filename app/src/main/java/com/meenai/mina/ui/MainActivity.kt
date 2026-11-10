@@ -21,6 +21,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import com.meenai.mina.ui.router.LocalRouterStatus
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import com.meenai.mina.confirm.ConfirmationNotifier
@@ -362,29 +364,31 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 reopen = nav.reopenDrawer,
                 onReopened = nav::drawerReopened,
             ) { openDrawer ->
-                ChatScreen(
-                    vm = app.chat,
-                    check = check,
-                    frames = app.taskState.frames,
-                    webOpen = app.tasks.webScreenOpen,
-                    reduceMotion = HarnessTheme.reduceMotion,
-                    onOpenDrawer = openDrawer,
-                    openSettings = { nav.push(Route.Settings) },
-                    openRun = { runId = it; nav.push(Route.Run) },
-                    phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
-                    openPhoneSetup = { onFix(Fix.OpenPhoneSetup) },
-                    loadSource = { id ->
-                        withContext(Dispatchers.IO) { evidenceSource(RunStore(context).events(id)) { ConfirmationNotifier.appLabel(context, it) } }
-                    },
-                    openSource = { id, legacy ->
-                        sourceRunId = id
-                        sourceLegacyText = legacy
-                        nav.push(Route.Source)
-                    },
-                    voice = app.voice,
-                    openSpeechModel = { nav.push(Route.SpeechModel) },
-                    routerStatus = app.routerStatus,
-                )
+                CompositionLocalProvider(LocalRouterStatus provides app.routerStatus) {
+                    ChatScreen(
+                        vm = app.chat,
+                        check = check,
+                        frames = app.taskState.frames,
+                        webOpen = app.tasks.webScreenOpen,
+                        reduceMotion = HarnessTheme.reduceMotion,
+                        onOpenDrawer = openDrawer,
+                        openSettings = { nav.push(Route.Settings) },
+                        openRun = { runId = it; nav.push(Route.Run) },
+                        phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
+                        openPhoneSetup = { onFix(Fix.OpenPhoneSetup) },
+                        loadSource = { id ->
+                            withContext(Dispatchers.IO) { evidenceSource(RunStore(context).events(id)) { ConfirmationNotifier.appLabel(context, it) } }
+                        },
+                        openSource = { id, legacy ->
+                            sourceRunId = id
+                            sourceLegacyText = legacy
+                            nav.push(Route.Source)
+                        },
+                        voice = app.voice,
+                        openSpeechModel = { nav.push(Route.SpeechModel) },
+                        routerStatus = app.routerStatus,
+                    )
+                }
             }
         }
         Route.Settings -> {

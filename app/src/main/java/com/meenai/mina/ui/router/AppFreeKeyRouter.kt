@@ -278,6 +278,8 @@ object AppFreeKeyRouter {
     fun isModelScopeChatModel(m: ListedModel): Boolean {
         if (m.chat == false) return false
         if (ChatModelFilter.isExcluded(m.id)) return false
+        val paramSize = ModelSizeParser.extractParameterSizeB(m.id)
+        if (paramSize in 0.01..0.99) return false
         val lower = m.id.lowercase()
         return MODEL_SCOPE_NON_CHAT.none { lower.contains(it) }
     }

@@ -643,4 +643,16 @@ class AppFreeKeyRouterTest {
         assertEquals("model-user-main", picked?.id)
         assertEquals("Configured main model", router.determineReason(picked))
     }
+
+    @Test
+    fun pretrainedAndTinyModels_excludedFromModelScopeChat() {
+        val ernie = ListedModel("baidu/ERNIE-4.5-0.3B-PT")
+        assertFalse("ERNIE-4.5-0.3B-PT must be excluded", AppFreeKeyRouter.isModelScopeChatModel(ernie))
+
+        val qwenBase = ListedModel("Qwen/Qwen2.5-7B-Base")
+        assertFalse("Base model must be excluded", AppFreeKeyRouter.isModelScopeChatModel(qwenBase))
+
+        val qwenInstruct = ListedModel("Qwen/Qwen2.5-72B-Instruct")
+        assertTrue("Instruct model must be allowed", AppFreeKeyRouter.isModelScopeChatModel(qwenInstruct))
+    }
 }

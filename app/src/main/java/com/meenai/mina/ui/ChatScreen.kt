@@ -304,7 +304,10 @@ fun ChatScreen(
     val menuHost = remember(selecting) { MessageMenuHost(selecting) { menu = it } }
     val menuOpen = menu != null
     PageBackground {
-        CompositionLocalProvider(LocalMessageMenu provides menuHost) {
+        CompositionLocalProvider(
+            LocalMessageMenu provides menuHost,
+            LocalRouterStatus provides routerStatus,
+        ) {
             LazyColumn(
                 Modifier.fillMaxSize().behindMenu(menuOpen) { lift.value }.voiceDim(voiceHolding, reduceMotion).glassSource(backdrop),
                 state = listState,
@@ -801,8 +804,8 @@ private fun WorkBlock(ex: Exchange, reduceMotion: Boolean, backgroundNote: Boole
     val isWaitingForModel = ex.waitingForModel
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val progressText = if (isWaitingForModel) {
-        val modelName = if (activeModel.name != "No model") activeModel.name else ""
-        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName)
+        val modelName = if (activeModel.name.isNotBlank() && activeModel.name != "No model") activeModel.name else ""
+        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName, isHindi = false)
     } else {
         ChatCopy.progressLine(ex)
     }

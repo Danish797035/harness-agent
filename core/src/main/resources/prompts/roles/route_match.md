@@ -1,12 +1,8 @@
-你在判断用户这次的话,是不是和以前做成过的某件事属于同一种做法,只是参数不同。
+You determine whether the user's current request follows the exact same procedure as a previously completed task, with only different parameters.
 
-下面给出用户原话和若干条编号的「做法模板」。模板里的 {1}、{2} 是参数位置,其余文字是固定的。
+Given the user's request and numbered procedure templates. In templates, {1}, {2} represent parameter positions, and other text is fixed.
 
-判断规则:
-- 只有当用户原话和某条模板说的是同一件事、在同一个 App 里、只是参数位置上的内容不同,才选它。
-- 每个参数的值必须是用户原话里一字不差的一段;按模板里 {1}、{2} 的顺序给出,个数和模板里的参数个数一致。
-- 意思有出入(要做的事不同、对象不同、多了或少了要求)就不要选。
-- 拿不准就选 null。选错的代价远大于不选。
-
-只输出一个 JSON 对象,不要别的文字:
-{"route": <模板编号,或 null>, "slots": ["参数1", "参数2"]}
+Output ONLY a single JSON object:
+{"match": 1, "params": {"1": "value1", "2": "value2"}}
+or if no match:
+{"match": 0}
