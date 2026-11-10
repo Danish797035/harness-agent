@@ -588,6 +588,7 @@ class AppFreeKeyRouterTest {
         assertFalse(MagicubeLedger.canAffordModelScope())
 
         val router = FreeKeyRouter(listOf(msCand, orCand))
+        router.resetTask()
         val realStatus = RealRouterStatus(router)
 
         // Best candidate should fall back to OpenRouter
