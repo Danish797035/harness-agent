@@ -36,11 +36,36 @@ internal object MainScreenCapture {
 
     /** 只查看窗口根的归属,不遍历文本;有未知归属时拒绝分享。 */
     fun sourcePackages(service: ScreenAccessibility): Set<String>? {
-        val windows = service.windowsOn(Display.DEFAULT_DISPLAY).filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-        if (windows.isEmpty()) return null
-        val packages = windows.map { it.root?.packageName?.toString() }
-        if (packages.any { it.isNullOrBlank() }) return null
-        return packages.filterNotNull().toSet()
+        val windows = service.windowsOn(Display.DEFAULT_DISPLAY)
+        val appPackages = windows
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .mapNotNull { it.root?.packageName?.toString() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (appPackages.isNotEmpty()) return appPackages
+
+        val anyPackages = windows
+            .mapNotNull { it.root?.packageName?.toString() }
+            .filter { it.isNotBlank() && it != service.packageName }
+            .toSet()
+        if (anyPackages.isNotEmpty()) return anyPackages
+
+        val activePkg = service.rootInActiveWindow?.packageName?.toString()
+        if (!activePkg.isNullOrBlank() && activePkg != service.packageName) {
+            return setOf(activePkg)
+        }
+
+        val homePkg = runCatching {
+            val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                addCategory(android.content.Intent.CATEGORY_HOME)
+            }
+            service.packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
+        }.getOrNull()
+        if (!homePkg.isNullOrBlank() && homePkg != service.packageName) {
+            return setOf(homePkg)
+        }
+
+        return null
     }
 
     /** 截图(调用方已把浮层藏好)。读树要在截图的同一时刻:截完马上读。 */

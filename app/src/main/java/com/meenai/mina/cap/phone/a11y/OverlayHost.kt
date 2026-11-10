@@ -121,6 +121,7 @@ class OverlayHost internal constructor(private val service: ScreenAccessibility)
         placement: OverlayPlacement,
         onOutside: (() -> Unit)? = null,
         touchable: Boolean = true,
+        focusable: Boolean = false,
         content: @Composable () -> Unit,
     ): OverlayWindow? {
         val owners = OverlayOwners()
@@ -134,14 +135,18 @@ class OverlayHost internal constructor(private val service: ScreenAccessibility)
             )
             this.onOutside = onOutside
         }
+        val focusFlag = if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            focusFlag or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
             PixelFormat.TRANSLUCENT,
         ).apply {
+            if (focusable) {
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+            }
             // 按整块屏幕摆,不让系统再把窗口挤进状态栏、导航栏以内:要避开哪里由调用方按 area() 定
             fitInsetsTypes = 0
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -278,11 +283,12 @@ class OverlayWindow internal constructor(
         if (!isOpen) return
         val flags = if (focusable) params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
             else params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        if (flags == params.flags) return
-        params.flags = flags
-        params.softInputMode = if (focusable) {
-            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        val newSoftInput = if (focusable) {
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
         } else WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
+        if (flags == params.flags && newSoftInput == params.softInputMode) return
+        params.flags = flags
+        params.softInputMode = newSoftInput
         update()
     }
 

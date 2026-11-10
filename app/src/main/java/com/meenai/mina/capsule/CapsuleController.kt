@@ -615,11 +615,13 @@ class CapsuleController(
                 if (!store.current().canShare(pkg) && !com.meenai.mina.cap.phone.a11y.requestScreenShare(service, store, pkg, appLabel(pkg))) return null
             }
             val capture = w.hidden { c.hidden {
-                if (MainScreenCapture.sourcePackages(service) != sources || sources.any { !store.current().canShare(it) }) null
+                val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
+                if (!CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) null
                 else MainScreenCapture.shoot(service)
             } } ?: return null
             val (shot, read) = capture
-            if (MainScreenCapture.sourcePackages(service) != sources || sources.any { !store.current().canShare(it) }) {
+            val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
+            if (!CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) {
                 (shot as? ScreenAccessibility.MainShot.Ok)?.bitmap?.recycle()
                 return null
             }
@@ -627,9 +629,8 @@ class CapsuleController(
             wake()
             val area = service.overlays().area()
             val r = MainScreenCapture.build(service, shot, read, area.insetTop, area.insetBottom) { ConfirmationNotifier.appLabel(context, it) }
-            if (sources.any { !store.current().canShare(it) } || MainScreenCapture.sourcePackages(service) != sources) return null
             val captured = (r as? MainScreenCapture.Result.Captured)?.shot ?: return null
-            return CapturedScreen(captured.jpeg, captured.screen, sources)
+            return CapturedScreen(captured.jpeg, captured.screen, currentSources)
         } finally {
             capturing = false
         }
@@ -1263,8 +1264,8 @@ class CapsuleController(
             }
             val screenshot = shot.bitmap
 
-            val currentSources = MainScreenCapture.sourcePackages(service)
-            if (currentSources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) {
+            val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
+            if (!CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) {
                 screenshot.recycle()
                 showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return@launch
@@ -1278,7 +1279,8 @@ class CapsuleController(
         circleOverlayWindow?.close()
         circleOverlayWindow = service.overlays().open(
             OverlayPlacement(Gravity.FILL),
-            touchable = true
+            touchable = true,
+            focusable = true,
         ) {
             MinaTheme(reduceMotion = animationsOff(context)) {
                 com.meenai.mina.capsule.circle.CircleToAskOverlay(
@@ -1294,6 +1296,7 @@ class CapsuleController(
             }
         }
         circleOverlayWindow?.setFullScreen(true)
+        circleOverlayWindow?.setFocusable(true)
         circleOverlayWindow?.onBack { closeCircleOverlay(screenshot) }
     }
 
@@ -1399,7 +1402,8 @@ class CapsuleController(
         actHerePromptWindow?.close()
         actHerePromptWindow = service.overlays().open(
             OverlayPlacement(Gravity.CENTER),
-            touchable = true
+            touchable = true,
+            focusable = true,
         ) {
             MinaTheme(reduceMotion = animationsOff(context)) {
                 com.meenai.mina.capsule.acthere.ActHerePromptOverlay(
@@ -1415,6 +1419,7 @@ class CapsuleController(
                 )
             }
         }
+        actHerePromptWindow?.setFocusable(true)
         actHerePromptWindow?.onBack {
             actHerePromptWindow?.close()
             actHerePromptWindow = null
