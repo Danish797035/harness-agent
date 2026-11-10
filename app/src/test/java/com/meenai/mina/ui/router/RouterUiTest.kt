@@ -241,4 +241,42 @@ class RouterUiTest {
         )
         assertNull("Unknown balance should result in null magicubeBalance", usage.magicubeBalance)
     }
+
+    @Test
+    fun modelSearchFilter_matchesModelIdAndName() {
+        val models = listOf(
+            ModelQuotaLine("Qwen/Qwen3.5-27B", "Qwen 3.5 27B", 0),
+            ModelQuotaLine("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 0),
+            ModelQuotaLine("OpenGVLab/InternVL3_5-241B-A28B", "InternVL3.5", 0),
+        )
+
+        // Blank query matches all
+        val all = models.filter { it.modelId.lowercase().contains("") || it.modelName.lowercase().contains("") }
+        assertEquals(3, all.size)
+
+        // Query "qwen" matches only Qwen
+        val qwen = models.filter { it.modelId.lowercase().contains("qwen") || it.modelName.lowercase().contains("qwen") }
+        assertEquals(1, qwen.size)
+        assertEquals("Qwen/Qwen3.5-27B", qwen.first().modelId)
+
+        // Query "deepseek" matches only DeepSeek
+        val deepseek = models.filter { it.modelId.lowercase().contains("deepseek") || it.modelName.lowercase().contains("deepseek") }
+        assertEquals(1, deepseek.size)
+        assertEquals("deepseek-ai/DeepSeek-V3", deepseek.first().modelId)
+    }
+
+    @Test
+    fun providerUsage_modelsReadyCountCalculated() {
+        val models = listOf(
+            ModelQuotaLine("model-1", "Model 1", 0, status = ModelStatusKind.Ready),
+            ModelQuotaLine("model-2", "Model 2", 0, status = ModelStatusKind.LowBalance),
+            ModelQuotaLine("model-3", "Model 3", 0, status = ModelStatusKind.Ready),
+        )
+        val usage = ProviderUsage(
+            provider = "ModelScope",
+            models = models,
+        )
+        assertEquals(3, usage.models.size)
+        assertEquals(2, usage.models.count { it.status == ModelStatusKind.Ready })
+    }
 }

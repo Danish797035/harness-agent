@@ -49,4 +49,9 @@
     <string name="router_magicube_login_done">Aaj login kiya ✓</string>
     <string name="router_magicube_alibaba_linked">Alibaba linked (+50)</string>
     <string name="router_magicube_action_login">Login kiya</string>
+    <string name="router_models_header">मॉडल (%1$d)</string>
+    <string name="router_models_ready_summary">%1$d तैयार</string>
+    <string name="router_show_models">दिखाएं</string>
+    <string name="router_hide_models">छिपाएं</string>
+    <string name="router_search_models_hint">मॉडल खोजें…</string>
 </resources>

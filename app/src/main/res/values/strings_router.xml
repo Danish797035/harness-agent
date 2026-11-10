@@ -49,4 +49,9 @@
     <string name="router_magicube_login_done">Logged in today ✓</string>
     <string name="router_magicube_alibaba_linked">Alibaba linked (+50)</string>
     <string name="router_magicube_action_login">Logged in</string>
+    <string name="router_models_header">Models (%1$d)</string>
+    <string name="router_models_ready_summary">%1$d ready</string>
+    <string name="router_show_models">Show</string>
+    <string name="router_hide_models">Hide</string>
+    <string name="router_search_models_hint">Search models…</string>
 </resources>

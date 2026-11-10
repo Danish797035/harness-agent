@@ -1,6 +1,8 @@
 package com.meenai.mina.ui.router
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -28,6 +33,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +53,7 @@ import com.meenai.mina.ui.components.GroupCard
 import com.meenai.mina.ui.components.GroupLabel
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.components.MinaSwitch
+import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
@@ -173,6 +180,7 @@ fun ProviderUsageBlock(
     usage: ProviderUsage,
     isFirst: Boolean,
     onRefresh: (() -> Unit)? = null,
+    initiallyExpanded: Boolean = false,
 ) {
     val colors = MinaTheme.colors
     val isModelScope = usage.provider.equals("ModelScope", ignoreCase = true)
@@ -180,6 +188,8 @@ fun ProviderUsageBlock(
     var syncInputText by remember { mutableStateOf("") }
     var isLoginMarked by remember { mutableStateOf(MagicubeLedger.isLoginMarkedToday()) }
     var isAlibabaLinked by remember { mutableStateOf(MagicubeLedger.isAlibabaLinked) }
+    var isModelsExpanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    var modelSearchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(usage.magicubeBalance) {
         isLoginMarked = MagicubeLedger.isLoginMarkedToday()
@@ -340,20 +350,122 @@ fun ProviderUsageBlock(
             }
         }
 
-        Spacer(Modifier.height(6.dp))
-
         if (usage.models.isNotEmpty()) {
-            usage.models.forEachIndexed { index, model ->
-                if (index > 0) {
-                    HorizontalDivider(
-                        color = colors.hair,
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(vertical = 4.dp),
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(
+                color = colors.hair,
+                thickness = 0.5.dp,
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // Expandable Row to keep models inside provider card and keep Settings UI clean
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { isModelsExpanded = !isModelsExpanded }
+                    .padding(vertical = 6.dp, horizontal = 2.dp)
+                    .testTag("models-expand-toggle"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = MinaIcons.Spark,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = stringResource(R.string.router_models_header, usage.models.size),
+                            style = MinaType.Body.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp),
+                            color = colors.ink,
+                        )
+                        val readyCount = usage.models.count { it.status == ModelStatusKind.Ready }
+                        Text(
+                            text = stringResource(R.string.router_models_ready_summary, readyCount),
+                            style = MinaType.Hint,
+                            color = colors.ink3,
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (isModelsExpanded) stringResource(R.string.router_hide_models) else stringResource(R.string.router_show_models),
+                        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                        color = colors.accent,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (isModelsExpanded) MinaIcons.ChevronUp else MinaIcons.ChevronDown,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(14.dp),
                     )
                 }
-                ModelQuotaRow(model = model)
+            }
+
+            AnimatedVisibility(visible = isModelsExpanded) {
+                Column(Modifier.fillMaxWidth()) {
+                    if (usage.models.size > 5) {
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = modelSearchQuery,
+                            onValueChange = { modelSearchQuery = it },
+                            placeholder = {
+                                Text(
+                                    stringResource(R.string.router_search_models_hint),
+                                    style = MinaType.Caption,
+                                    color = colors.ink3,
+                                )
+                            },
+                            singleLine = true,
+                            textStyle = MinaType.Caption,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .testTag("model-search-input"),
+                        )
+                    }
+
+                    val filteredModels = if (modelSearchQuery.isBlank()) {
+                        usage.models
+                    } else {
+                        val q = modelSearchQuery.trim().lowercase()
+                        usage.models.filter { it.modelId.lowercase().contains(q) || it.modelName.lowercase().contains(q) }
+                    }
+
+                    filteredModels.forEachIndexed { index, model ->
+                        HorizontalDivider(
+                            color = colors.hair,
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                        ModelQuotaRow(model = model)
+                    }
+
+                    if (filteredModels.size > 8) {
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isModelsExpanded = false }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.router_hide_models),
+                                style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                                color = colors.accent,
+                            )
+                        }
+                    }
+                }
             }
         } else {
+            Spacer(Modifier.height(6.dp))
             LegacyProviderUsageRow(usage = usage)
         }
     }

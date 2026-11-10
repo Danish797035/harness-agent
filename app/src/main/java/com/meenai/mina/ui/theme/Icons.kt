@@ -35,6 +35,8 @@ object HarnessIcons {
     val Back = stroke("back", "M15 5 l-7 7 l7 7")
     val Forward = stroke("forward", "M9 5 l7 7 l-7 7")
     val Chevron = stroke("chevron", "M9 6 l6 6 l-6 6", width = 2f)
+    val ChevronDown = stroke("chevron-down", "M6 9 l6 6 l6 -6", width = 2f)
+    val ChevronUp = stroke("chevron-up", "M6 15 l6 -6 l6 6", width = 2f)
     val Plus = stroke("plus", "M12 5 v14 M5 12 h14")
     /** 发送。 */
     val Up = stroke("up", "M12 19 V5 M6 11 l6 -6 l6 6", width = 2.2f)
