@@ -636,6 +636,14 @@ class FreeKeyRouter(
         return bestCandidate
     }
 
+    private fun formatProviderName(provider: String): String = when (provider.lowercase()) {
+        "openrouter" -> "OpenRouter"
+        "zai" -> "Z.ai"
+        "modelscope" -> "ModelScope"
+        "gemini" -> "Gemini"
+        else -> provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
     fun determineReason(candidate: RouterCandidate?): String {
         if (candidate == null) return "No model available"
         if (pinnedModelId != null && pinnedModelId == candidate.id) return "Pinned model"
@@ -648,13 +656,13 @@ class FreeKeyRouter(
         val modelScopeLowBalance = hasModelScopeCandidates && !MagicubeLedger.canAffordModelScope(now())
 
         if (modelScopeLowBalance && !candidate.provider.equals("modelscope", ignoreCase = true)) {
-            val providerName = candidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            val providerName = formatProviderName(candidate.provider)
             return "ModelScope low balance, $providerName fallback"
         }
 
         if (configuredCandidate != null && configuredCandidate.id != candidate.id) {
-            val confProvider = configuredCandidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-            val candProvider = candidate.provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            val confProvider = formatProviderName(configuredCandidate.provider)
+            val candProvider = formatProviderName(candidate.provider)
             val remainingCooldown = cooldownStore.getRemainingCooldownMs(configuredCandidate.id, now())
             if (remainingCooldown > 0L) {
                 return "$confProvider cooldown, $candProvider fallback"
