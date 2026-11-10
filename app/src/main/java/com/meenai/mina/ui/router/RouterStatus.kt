@@ -302,7 +302,7 @@ class RealRouterStatus(
 
     private fun computeActiveModel(): ActiveModel {
         val status = router.status.value
-        val active = router.activeCandidate ?: router.pickBestCandidate() ?: router.candidates.firstOrNull()
+        val active = router.activeCandidate ?: router.candidates.firstOrNull()
         if (active == null) {
             val fallback = getFallbackModel?.invoke()
                 ?: store?.configFor(ModelRole.Main)?.let { cfg ->
