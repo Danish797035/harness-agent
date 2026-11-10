@@ -49,6 +49,7 @@ import com.meenai.mina.cap.phone.a11y.ScreenReader
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import com.meenai.mina.cap.phone.a11y.ScreenAccessibility
+import com.meenai.mina.cap.phone.a11y.ScreenRead
 import com.meenai.mina.confirm.ConfirmationNotifier
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.assembly.knownTools
@@ -1138,11 +1139,27 @@ class CapsuleController(
             is HoldToTalk.State.Done -> scope.launch {
                 idleJob?.let { idle = it.await() }
                 if (drop == CapsuleVoice.Drop.Edit) editSpoken(state.text) else sendSpoken(state.text)
+                if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+                    delay(800L)
+                    if (!talk.active && canTalk() && com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+                        beginTalk(byTouch = false)
+                    }
+                }
             }
             is HoldToTalk.State.Problem -> {
                 idleJob?.cancel()
                 when (val why = state.why) {
-                    null -> showNote(VoiceCopy.NO_MATCH, CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                    null -> {
+                        showNote(VoiceCopy.NO_MATCH, CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                        if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+                            scope.launch {
+                                delay(1000L)
+                                if (!talk.active && canTalk() && com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+                                    beginTalk(byTouch = false)
+                                }
+                            }
+                        }
+                    }
                     SpeechFailure.NoPermission -> showNote(tr(R.string.capsule_voice_need_mic), CapsuleKind.Failed, opensMina = true, NOTE_LONG_MS)
                     is SpeechFailure.Unavailable -> showNote(tr(R.string.capsule_voice_not_ready), CapsuleKind.Failed, opensMina = true, NOTE_LONG_MS)
                     else -> showNote(VoiceCopy.failure(why), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
