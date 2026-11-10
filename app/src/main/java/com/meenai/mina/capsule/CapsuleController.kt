@@ -275,6 +275,26 @@ class CapsuleController(
             @Deprecated("Deprecated in Java")
             override fun onLowMemory() = Unit
         })
+
+        // When live share becomes active, automatically turn on the microphone!
+        scope.launch {
+            com.meenai.mina.capsule.live.LiveShareManager.state.collect { liveState ->
+                when (liveState.status) {
+                    com.meenai.mina.capsule.live.LiveShareStatus.Active -> {
+                        delay(400L)
+                        if (!talk.active && canTalk()) {
+                            beginTalk(byTouch = false)
+                        }
+                    }
+                    com.meenai.mina.capsule.live.LiveShareStatus.Stopped -> {
+                        if (talk.active && !talk.byTouch) {
+                            talk.abort()
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     private data class Snapshot(
@@ -509,7 +529,21 @@ class CapsuleController(
         if (text.isEmpty() && shot == null) return
         inputUi = CardInputUi()
         cardWindow?.setFocusable(false)
-        if (shot != null) deliver(c, kind, shot, text) else submit(c, kind, text, CapsuleCards.conversationOf(c))
+        if (shot != null) {
+            deliver(c, kind, shot, text)
+        } else if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+            scope.launch {
+                val liveShot = captureScreen()
+                if (liveShot != null) {
+                    deliver(c, kind, liveShot, text)
+                } else {
+                    submit(c, kind, text, CapsuleCards.conversationOf(c))
+                }
+                refresh()
+            }
+        } else {
+            submit(c, kind, text, CapsuleCards.conversationOf(c))
+        }
         refresh()
     }
 
@@ -614,10 +648,14 @@ class CapsuleController(
             for (pkg in sources) {
                 if (!store.current().canShare(pkg) && !com.meenai.mina.cap.phone.a11y.requestScreenShare(service, store, pkg, appLabel(pkg))) return null
             }
+            val p = panelWindow
             val capture = w.hidden { c.hidden {
-                val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
-                if (!CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) null
-                else MainScreenCapture.shoot(service)
+                val doShoot: suspend () -> Pair<ScreenAccessibility.MainShot, ScreenRead?>? = {
+                    val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
+                    if (!CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) null
+                    else MainScreenCapture.shoot(service)
+                }
+                if (p != null && p.height > 0) p.hiddenWhile { doShoot() } else doShoot()
             } } ?: return null
             val (shot, read) = capture
             val currentSources = MainScreenCapture.sourcePackages(service) ?: sources
@@ -1127,9 +1165,22 @@ class CapsuleController(
             refresh()
             return
         }
-        submit(target, kind, text, CapsuleCards.conversationOf(target))
-        showNote(CapsuleVoice.sent(kind, text), CapsuleKind.Done, opensMina = false, NOTE_SENT_MS)
-        refresh()
+        if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
+            scope.launch {
+                val liveShot = captureScreen()
+                if (liveShot != null) {
+                    deliver(target, kind, liveShot, text)
+                } else {
+                    submit(target, kind, text, CapsuleCards.conversationOf(target))
+                }
+                showNote(CapsuleVoice.sent(kind, text), CapsuleKind.Done, opensMina = false, NOTE_SENT_MS)
+                refresh()
+            }
+        } else {
+            submit(target, kind, text, CapsuleCards.conversationOf(target))
+            showNote(CapsuleVoice.sent(kind, text), CapsuleKind.Done, opensMina = false, NOTE_SENT_MS)
+            refresh()
+        }
     }
 
     /** 拖到「改一改」松开:展开卡片,字在输入框里、键盘弹出,改完自己发。 */
@@ -1218,6 +1269,7 @@ class CapsuleController(
     private fun requestLiveShare() {
         if (com.meenai.mina.capsule.live.LiveShareManager.engine.isSharing) {
             com.meenai.mina.capsule.live.LiveShareManager.stop(context)
+            if (talk.active && !talk.byTouch) talk.abort()
             showNote(tr(R.string.live_share_stopped), CapsuleKind.Cancelled, opensMina = false, NOTE_SHORT_MS)
             return
         }
@@ -1225,6 +1277,7 @@ class CapsuleController(
         if (!started) {
             showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
         } else {
+            if (expanded) collapse()
             showNote(tr(R.string.live_share_started), CapsuleKind.Running, opensMina = false, NOTE_SHORT_MS)
         }
     }
