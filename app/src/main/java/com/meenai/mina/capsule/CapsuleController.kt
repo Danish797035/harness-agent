@@ -1253,9 +1253,11 @@ class CapsuleController(
 
         // 3. Capture screenshot without capsule windows
         scope.launch {
+            kotlinx.coroutines.delay(150L)
             suspend fun <T> OverlayWindow.hidden(block: suspend () -> T): T = if (height > 0) hiddenWhile(block) else block()
             val shot = w.hidden { c.hidden { service.takeMainScreenshot() } }
             if (shot !is ScreenAccessibility.MainShot.Ok) {
+                Log.w(TAG, "Circle to ask screenshot failed: $shot")
                 showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return@launch
             }
@@ -1871,6 +1873,10 @@ class CapsuleController(
         override fun closeKeptPage() {
             keeper.close(KeptPageClose.User)
             collapse()
+        }
+        override fun openShortcuts() {
+            collapse()
+            openShortcutMenu()
         }
     }
 

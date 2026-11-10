@@ -5,9 +5,12 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.ColorSpace
 import android.graphics.Path
 import android.app.Notification
 import android.os.Build
+import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityWindowInfo
@@ -139,14 +142,20 @@ open class ScreenAccessibility : AccessibilityService() {
      */
     suspend fun takeMainScreenshot(): MainShot {
         val first = screenshotOnce()
-        if (first !is MainShot.Failed || first.code != ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) return first
+        if (first is MainShot.Ok || first is MainShot.Secure) return first
+        Log.w(TAG, "Initial screenshot attempt failed ($first), retrying after interval...")
         kotlinx.coroutines.delay(SCREENSHOT_INTERVAL_MS)
-        return screenshotOnce()
+        val second = screenshotOnce()
+        if (second !is MainShot.Ok && second !is MainShot.Secure) {
+            Log.e(TAG, "Retry screenshot attempt also failed: $second")
+        }
+        return second
     }
 
     private suspend fun screenshotOnce(): MainShot = suspendCancellableCoroutine { cont ->
         val service = instance.value
         if (service == null) {
+            Log.e(TAG, "Screenshot failed: no accessibility service instance")
             cont.resume(MainShot.Failed(ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS))
             return@suspendCancellableCoroutine
         }
@@ -154,14 +163,30 @@ open class ScreenAccessibility : AccessibilityService() {
             override fun onSuccess(result: ScreenshotResult) {
                 val shot = runCatching {
                     result.hardwareBuffer.use { buffer ->
-                        val hw = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) ?: return@runCatching null
-                        hw.copy(Bitmap.Config.ARGB_8888, false).also { hw.recycle() }
+                        val colorSpace = result.colorSpace ?: ColorSpace.get(ColorSpace.Named.SRGB)
+                        val hw = Bitmap.wrapHardwareBuffer(buffer, colorSpace) ?: return@runCatching null
+                        val sw = try {
+                            hw.copy(Bitmap.Config.ARGB_8888, false)
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "HardwareBitmap.copy failed, using Canvas fallback", e)
+                            null
+                        } ?: run {
+                            val copy = Bitmap.createBitmap(hw.width, hw.height, Bitmap.Config.ARGB_8888)
+                            val canvas = Canvas(copy)
+                            canvas.drawBitmap(hw, 0f, 0f, null)
+                            copy
+                        }
+                        hw.recycle()
+                        sw
                     }
+                }.onFailure {
+                    Log.e(TAG, "Failed to wrap and convert hardware buffer screenshot", it)
                 }.getOrNull()
                 if (cont.isActive) cont.resume(shot?.let(MainShot::Ok) ?: MainShot.Failed(ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR))
             }
 
             override fun onFailure(errorCode: Int) {
+                Log.w(TAG, "takeScreenshot onFailure errorCode=$errorCode")
                 // 屏上有防截屏窗口:安卓 14 起有专门的错误码;更早的系统截出来是黑的,由调用方看画面判断
                 val secure = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && errorCode == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW
                 if (cont.isActive) cont.resume(if (secure) MainShot.Secure else MainShot.Failed(errorCode))
@@ -196,6 +221,7 @@ open class ScreenAccessibility : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "ScreenAccessibility"
         private const val EVENT_BUFFER = 64
         /** 两次截图之间系统要求的间隔(安卓原版是一秒)。 */
         private const val SCREENSHOT_INTERVAL_MS = 1_000L

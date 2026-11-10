@@ -163,6 +163,8 @@ interface CardActions {
     fun dropScreen()
     /** 留在后台运行的那一页的卡片上的「关闭网页」。 */
     fun closeKeptPage() {}
+    /** 打开 Capsule 快捷工具菜单 (Circle to ask, Act here, Translate, Summary, etc.) */
+    fun openShortcuts() {}
 }
 
 /** 截下来、挂在输入框上面等着发的一屏:[thumb] 是缩略图(不让截图的页面没有)。 */
@@ -437,7 +439,10 @@ private fun Header(title: String, sub: String, actions: CardActions, handle: Mod
             Text(title, style = Title, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(sub, style = Sub, color = c.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(MinaIcons.Close, CardCopy.COLLAPSE, actions::collapse)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(MinaIcons.Spark, tr(R.string.capsule_menu_title), actions::openShortcuts)
+            IconButton(MinaIcons.Close, CardCopy.COLLAPSE, actions::collapse)
+        }
     }
 }
 
@@ -458,7 +463,10 @@ private fun IdleHeader(card: CardView.Chat, actions: CardActions, handle: Modifi
                 TextLink(if (continuing) CardCopy.NEW_CHAT else CardCopy.CONTINUE_LAST) { actions.freshChat(continuing) }
             }
         }
-        IconButton(MinaIcons.Close, CardCopy.COLLAPSE, actions::collapse)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(MinaIcons.Spark, tr(R.string.capsule_menu_title), actions::openShortcuts)
+            IconButton(MinaIcons.Close, CardCopy.COLLAPSE, actions::collapse)
+        }
     }
 }
 
