@@ -69,15 +69,24 @@ class ResponsesModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply {
         var includeReasoning = true
         var fresh = false
         while (true) {
-            val stream = ResponsesStream(onText, ::errorOf)
+            val stream = ResponsesStream(onText, ::errorOf, onActivity)
             val bearer = token.get(fresh)
             val (status, retryAfter, text) = HttpSupport.stream(http, request(bearer, system, messages, tools, includeReasoning), stream::accept)
             if (status in 200..299) {
                 if (text.isNotEmpty()) return stream.fromBody(text).also { reply ->
+                    onActivity()
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                 }
                 return stream.finish()
@@ -225,6 +234,7 @@ private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.ta
 private class ResponsesStream(
     private val onText: (String) -> Unit,
     private val errorOf: (String?, String, String?) -> ModelError?,
+    private val onActivity: () -> Unit = {},
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val visible = StringBuilder()
@@ -236,6 +246,7 @@ private class ResponsesStream(
         if (data == "[DONE]") return
         val root = try { json.parseToJsonElement(data) as? JsonObject } catch (e: Exception) { null }
             ?: throw ModelError.BadResponse("流式响应不是合法 JSON")
+        onActivity()
         when (root.str("type")) {
             "response.output_text.delta" -> root.str("delta")?.takeIf { it.isNotEmpty() }?.let {
                 visible.append(it)

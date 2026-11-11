@@ -192,4 +192,47 @@ class StreamingModelsTest {
         assertTrue(retried.contains("\"stream\":true"))
         assertTrue(!retried.contains("stream_options"))
     }
+
+    @Test fun openAiTriggersOnActivityWhenToolCallArrivesWithoutText() = runTest {
+        server.enqueue(stream(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"tap","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}""",
+            "[DONE]",
+        ))
+        var activityCount = 0
+        var textCount = 0
+        val reply = openAi().completeStreaming("s", user, emptyList(), onText = { textCount++ }, onActivity = { activityCount++ })
+        assertEquals(1, reply.parts.size)
+        assertTrue(reply.parts[0] is Part.ToolCall)
+        assertEquals(0, textCount)
+        assertTrue(activityCount > 0)
+    }
+
+    @Test fun anthropicTriggersOnActivityWhenToolCallArrivesWithoutText() = runTest {
+        server.enqueue(stream(
+            """{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}""",
+            """{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"tap","input":{}}}""",
+            """{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}""",
+            """{"type":"message_stop"}""",
+        ))
+        var activityCount = 0
+        var textCount = 0
+        val reply = anthropic().completeStreaming("s", user, emptyList(), onText = { textCount++ }, onActivity = { activityCount++ })
+        assertEquals(1, reply.parts.size)
+        assertTrue(reply.parts[0] is Part.ToolCall)
+        assertEquals(0, textCount)
+        assertTrue(activityCount > 0)
+    }
+
+    @Test fun geminiTriggersOnActivityWhenToolCallArrivesWithoutText() = runTest {
+        server.enqueue(stream(
+            """{"candidates":[{"content":{"parts":[{"functionCall":{"id":"call1","name":"tap","args":{}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}""",
+        ))
+        var activityCount = 0
+        var textCount = 0
+        val reply = gemini().completeStreaming("s", user, emptyList(), onText = { textCount++ }, onActivity = { activityCount++ })
+        assertEquals(1, reply.parts.size)
+        assertTrue(reply.parts[0] is Part.ToolCall)
+        assertEquals(0, textCount)
+        assertTrue(activityCount > 0)
+    }
 }

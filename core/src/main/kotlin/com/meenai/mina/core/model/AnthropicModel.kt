@@ -76,14 +76,23 @@ class AnthropicModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply {
-        val stream = AnthropicStream(endpoint, onText, ::parseUsage)
+        val stream = AnthropicStream(endpoint, onText, ::parseUsage, onActivity)
         // 被拒的那次没有事件(不是 2xx 时 HttpSupport.stream 不调 accept),重发接着用这个 stream
         val (status, retryAfter, text) = dropStaleThinking(messages) {
             HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
         }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            onActivity()
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -277,6 +286,7 @@ private class AnthropicStream(
     private val endpoint: String,
     private val onText: (String) -> Unit,
     private val usageOf: (JsonElement?) -> Usage?,
+    private val onActivity: () -> Unit = {},
 ) {
     private data class Block(
         val type: String, val id: String = "", val name: String = "",
@@ -294,6 +304,7 @@ private class AnthropicStream(
     fun accept(data: String) {
         val root = try { json.parseToJsonElement(data).jsonObject }
         catch (e: Exception) { throw ModelError.BadResponse("流式响应不是合法 JSON", e) }
+        onActivity()
         when ((root["type"] as? JsonPrimitive)?.contentOrNull) {
             "message_start" -> usage = usageOf((root["message"] as? JsonObject)?.get("usage"))
             "content_block_start" -> {

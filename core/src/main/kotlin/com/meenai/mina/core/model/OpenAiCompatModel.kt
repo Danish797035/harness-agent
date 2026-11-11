@@ -67,23 +67,33 @@ class OpenAiCompatModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply {
-        var stream = OpenAiStream(onText, ::parseUsage, ::thinking)
+        var stream = OpenAiStream(onText, ::parseUsage, ::thinking, onActivity)
         var response = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
         if (response.status == 400 && response.body.contains("stream_options")) {
             // 一些兼容端点能流式生成，却没有用量选项。
-            stream = OpenAiStream(onText, ::parseUsage, ::thinking)
+            stream = OpenAiStream(onText, ::parseUsage, ::thinking, onActivity)
             response = HttpSupport.stream(http, request(system, messages, tools, stream = true, includeUsage = false), stream::accept)
         }
         val (status, retryAfter, text) = response
         if (status !in 200..299) {
             // 不支持流式传输的兼容端点仍可按原接口完成任务。
             if (status == 400 && text.contains("stream", ignoreCase = true)) return complete(system, messages, tools).also {
+                onActivity()
                 it.parts.filterIsInstance<Part.Text>().joinToString("") { part -> part.text }.takeIf(String::isNotEmpty)?.let(onText)
             }
             throw mapError(status, retryAfter, text)
         }
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            onActivity()
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -325,6 +335,7 @@ private class OpenAiStream(
     private val onText: (String) -> Unit,
     private val usageOf: (JsonElement?) -> Usage?,
     private val thinkingOf: (String, ReasoningVia) -> Part.Thinking,
+    private val onActivity: () -> Unit = {},
 ) {
     private data class Call(val id: StringBuilder = StringBuilder(), val name: StringBuilder = StringBuilder(),
         val args: StringBuilder = StringBuilder())
@@ -345,6 +356,7 @@ private class OpenAiStream(
         catch (e: Exception) { throw ModelError.BadResponse("流式响应不是合法 JSON", e) }
         if (root["error"] != null) throw ModelError.BadResponse(root["error"].toString().take(200))
         chunks++
+        onActivity()
         usageOf(root["usage"])?.let { usage = it }
         val choice = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return
         (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotEmpty)?.let { reason = it }

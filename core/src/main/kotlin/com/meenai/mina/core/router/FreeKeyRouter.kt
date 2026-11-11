@@ -285,6 +285,14 @@ class FreeKeyRouter(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply {
         var lastError: Throwable? = null
         val hasImages = messages.any { m -> m.parts.any { it is Part.Image } }
@@ -354,7 +362,7 @@ class FreeKeyRouter(
 
             while (true) {
                 try {
-                    val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText)
+                    val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText, onActivity)
                     val latency = now() - beganTime
                     healthTracker.recordSuccess(currentCandidate.id, latency)
                     statsTracker?.recordSuccess(
@@ -507,12 +515,14 @@ class FreeKeyRouter(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+        onActivity: () -> Unit = {},
     ): ModelReply {
         if (firstTokenTimeoutMs <= 0L) {
             return if (model is StreamingChatModel) {
-                model.completeStreaming(system, messages, tools, onText)
+                model.completeStreaming(system, messages, tools, onText, onActivity)
             } else {
                 model.complete(system, messages, tools).also { reply ->
+                    onActivity()
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                 }
             }
@@ -527,18 +537,30 @@ class FreeKeyRouter(
                 }
             }
 
+            fun markActive() {
+                if (!firstTokenArrived.getAndSet(true)) {
+                    watchdog.cancel()
+                }
+                onActivity()
+            }
+
             try {
                 if (model is StreamingChatModel) {
-                    model.completeStreaming(system, messages, tools) { chunk ->
-                        if (chunk.isNotEmpty() && !firstTokenArrived.getAndSet(true)) {
-                            watchdog.cancel()
-                        }
-                        onText(chunk)
-                    }
+                    val reply = model.completeStreaming(
+                        system = system,
+                        messages = messages,
+                        tools = tools,
+                        onText = { chunk ->
+                            markActive()
+                            onText(chunk)
+                        },
+                        onActivity = ::markActive,
+                    )
+                    markActive()
+                    reply
                 } else {
                     val reply = model.complete(system, messages, tools)
-                    firstTokenArrived.set(true)
-                    watchdog.cancel()
+                    markActive()
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                     reply
                 }

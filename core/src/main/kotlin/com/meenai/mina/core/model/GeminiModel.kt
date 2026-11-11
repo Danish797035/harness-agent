@@ -54,11 +54,20 @@ class GeminiModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply {
-        val stream = GeminiStream(onText, ::parse, ::parseUsage)
+        val stream = GeminiStream(onText, ::parse, ::parseUsage, onActivity)
         val (status, retryAfter, text) = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            onActivity()
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -246,6 +255,7 @@ private class GeminiStream(
     private val onText: (String) -> Unit,
     private val parseChunk: (String) -> ModelReply,
     private val usageOf: (JsonElement?) -> Usage?,
+    private val onActivity: () -> Unit = {},
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val visible = StringBuilder()
@@ -257,6 +267,7 @@ private class GeminiStream(
     fun accept(data: String) {
         val root = try { json.parseToJsonElement(data).jsonObject }
         catch (e: Exception) { throw ModelError.BadResponse("流式响应不是合法 JSON", e) }
+        onActivity()
         usageOf(root["usageMetadata"])?.let { usage = it }
         val candidate = (root["candidates"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return
         (candidate["finishReason"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotEmpty)?.let { finishReason = it }

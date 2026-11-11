@@ -35,10 +35,12 @@ object CircleCropGeometry {
         screenWidth: Float,
         screenHeight: Float,
     ): CropRect {
-        val l = rect.left.coerceIn(0f, screenWidth)
-        val t = rect.top.coerceIn(0f, screenHeight)
-        val r = rect.right.coerceIn(0f, screenWidth)
-        val b = rect.bottom.coerceIn(0f, screenHeight)
+        val maxW = maxOf(0f, screenWidth)
+        val maxH = maxOf(0f, screenHeight)
+        val l = rect.left.coerceIn(0f, maxW)
+        val t = rect.top.coerceIn(0f, maxH)
+        val r = rect.right.coerceIn(0f, maxW)
+        val b = rect.bottom.coerceIn(0f, maxH)
         return CropRect(
             left = minOf(l, r),
             top = minOf(t, b),
@@ -56,7 +58,7 @@ object CircleCropGeometry {
         density: Float,
         minDp: Float = MIN_SIZE_DP,
     ): Boolean {
-        val minPx = minDp * density
+        val minPx = maxOf(0f, minDp * maxOf(0f, density))
         return rect.width >= minPx && rect.height >= minPx
     }
 
@@ -74,7 +76,9 @@ object CircleCropGeometry {
         density: Float,
         minDp: Float = MIN_SIZE_DP,
     ): CropRect {
-        val minPx = minDp * density
+        val maxW = maxOf(0f, screenWidth)
+        val maxH = maxOf(0f, screenHeight)
+        val minPx = maxOf(0f, minDp * maxOf(0f, density))
         var l = current.left
         var t = current.top
         var r = current.right
@@ -82,23 +86,31 @@ object CircleCropGeometry {
 
         when (handle) {
             ResizeHandle.TopLeft -> {
-                l = (l + dx).coerceIn(0f, r - minPx)
-                t = (t + dy).coerceIn(0f, b - minPx)
+                val maxL = maxOf(0f, minOf(maxW, r - minPx))
+                val maxT = maxOf(0f, minOf(maxH, b - minPx))
+                l = (l + dx).coerceIn(0f, maxL)
+                t = (t + dy).coerceIn(0f, maxT)
             }
             ResizeHandle.TopRight -> {
-                r = (r + dx).coerceIn(l + minPx, screenWidth)
-                t = (t + dy).coerceIn(0f, b - minPx)
+                val minR = minOf(maxW, maxOf(0f, l + minPx))
+                val maxT = maxOf(0f, minOf(maxH, b - minPx))
+                r = (r + dx).coerceIn(minR, maxW)
+                t = (t + dy).coerceIn(0f, maxT)
             }
             ResizeHandle.BottomLeft -> {
-                l = (l + dx).coerceIn(0f, r - minPx)
-                b = (b + dy).coerceIn(t + minPx, screenHeight)
+                val maxL = maxOf(0f, minOf(maxW, r - minPx))
+                val minB = minOf(maxH, maxOf(0f, t + minPx))
+                l = (l + dx).coerceIn(0f, maxL)
+                b = (b + dy).coerceIn(minB, maxH)
             }
             ResizeHandle.BottomRight -> {
-                r = (r + dx).coerceIn(l + minPx, screenWidth)
-                b = (b + dy).coerceIn(t + minPx, screenHeight)
+                val minR = minOf(maxW, maxOf(0f, l + minPx))
+                val minB = minOf(maxH, maxOf(0f, t + minPx))
+                r = (r + dx).coerceIn(minR, maxW)
+                b = (b + dy).coerceIn(minB, maxH)
             }
         }
-        return clamp(CropRect(l, t, r, b), screenWidth, screenHeight)
+        return clamp(CropRect(l, t, r, b), maxW, maxH)
     }
 
     /**
@@ -114,9 +126,11 @@ object CircleCropGeometry {
         density: Float,
         minDp: Float = MIN_SIZE_DP,
     ): CropRect {
-        val minPx = minDp * density
-        val clampedX = newX.coerceIn(0f, screenWidth)
-        val clampedY = newY.coerceIn(0f, screenHeight)
+        val maxW = maxOf(0f, screenWidth)
+        val maxH = maxOf(0f, screenHeight)
+        val minPx = maxOf(0f, minDp * maxOf(0f, density))
+        val clampedX = newX.coerceIn(0f, maxW)
+        val clampedY = newY.coerceIn(0f, maxH)
 
         var l = current.left
         var t = current.top
@@ -125,23 +139,31 @@ object CircleCropGeometry {
 
         when (handle) {
             ResizeHandle.TopLeft -> {
-                l = minOf(clampedX, r - minPx)
-                t = minOf(clampedY, b - minPx)
+                val maxL = maxOf(0f, minOf(maxW, r - minPx))
+                val maxT = maxOf(0f, minOf(maxH, b - minPx))
+                l = minOf(clampedX, maxL)
+                t = minOf(clampedY, maxT)
             }
             ResizeHandle.TopRight -> {
-                r = maxOf(clampedX, l + minPx)
-                t = minOf(clampedY, b - minPx)
+                val minR = minOf(maxW, maxOf(0f, l + minPx))
+                val maxT = maxOf(0f, minOf(maxH, b - minPx))
+                r = maxOf(clampedX, minR)
+                t = minOf(clampedY, maxT)
             }
             ResizeHandle.BottomLeft -> {
-                l = minOf(clampedX, r - minPx)
-                b = maxOf(clampedY, t + minPx)
+                val maxL = maxOf(0f, minOf(maxW, r - minPx))
+                val minB = minOf(maxH, maxOf(0f, t + minPx))
+                l = minOf(clampedX, maxL)
+                b = maxOf(clampedY, minB)
             }
             ResizeHandle.BottomRight -> {
-                r = maxOf(clampedX, l + minPx)
-                b = maxOf(clampedY, t + minPx)
+                val minR = minOf(maxW, maxOf(0f, l + minPx))
+                val minB = minOf(maxH, maxOf(0f, t + minPx))
+                r = maxOf(clampedX, minR)
+                b = maxOf(clampedY, minB)
             }
         }
-        return clamp(CropRect(l, t, r, b), screenWidth, screenHeight)
+        return clamp(CropRect(l, t, r, b), maxW, maxH)
     }
 
     /**
@@ -152,10 +174,12 @@ object CircleCropGeometry {
         height: Int,
         maxLongestSide: Int = 1080,
     ): Pair<Int, Int> {
-        val longest = maxOf(width, height)
-        val factor = if (longest > maxLongestSide) maxLongestSide.toDouble() / longest else 1.0
-        val targetW = (width * factor).toInt().coerceAtLeast(1)
-        val targetH = (height * factor).toInt().coerceAtLeast(1)
+        val safeW = maxOf(1, width)
+        val safeH = maxOf(1, height)
+        val longest = maxOf(safeW, safeH)
+        val factor = if (longest > maxLongestSide && maxLongestSide > 0) maxLongestSide.toDouble() / longest else 1.0
+        val targetW = (safeW * factor).toInt().coerceAtLeast(1)
+        val targetH = (safeH * factor).toInt().coerceAtLeast(1)
         return Pair(targetW, targetH)
     }
 }

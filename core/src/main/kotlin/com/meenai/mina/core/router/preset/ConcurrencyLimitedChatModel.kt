@@ -34,11 +34,20 @@ class ConcurrencyLimitedChatModel(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText, onActivity = {})
+
+    override suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
     ): ModelReply = semaphore.withPermit {
         if (delegate is StreamingChatModel) {
-            delegate.completeStreaming(system, messages, tools, onText)
+            delegate.completeStreaming(system, messages, tools, onText, onActivity)
         } else {
             val reply = delegate.complete(system, messages, tools)
+            onActivity()
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
             reply
         }

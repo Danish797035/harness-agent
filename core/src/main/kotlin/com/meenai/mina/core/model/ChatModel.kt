@@ -16,4 +16,19 @@ interface StreamingChatModel : ChatModel {
     suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
     ): ModelReply
+
+    /**
+     * 收到任何有效流事件(文字、思考、工具调用等)时通知 [onActivity]。
+     * 默认实现将任何文字回调视作活动。
+     */
+    suspend fun completeStreaming(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onActivity: () -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools) { chunk ->
+        onActivity()
+        onText(chunk)
+    }
 }
