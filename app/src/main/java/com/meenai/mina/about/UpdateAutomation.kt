@@ -29,9 +29,11 @@ object UpdateAutomation {
     /** App 每次打开时调:后台查一次版本,查到新版就接着自动下载、下好提醒。 */
     fun onAppOpened(context: Context, checker: UpdateChecker) {
         if (!running.compareAndSet(false, true)) return
+        val appContext = context.applicationContext
         scope.launch {
             try {
                 runCatching { checker.autoCheck() }
+                runCatching { drive(appContext, ApkUpdater(appContext), checker) }
             } finally {
                 running.set(false)
             }
@@ -46,7 +48,11 @@ object UpdateAutomation {
         if (prefs.getBoolean(key, false)) return
         val state = runCatching { updater.state(release) }.getOrNull() ?: return
         when (state.phase) {
-            DownloadPhase.Ready -> notify(app, release)
+            DownloadPhase.Ready -> {
+                prefs.edit().putBoolean(key, true).commit()
+                notify(app, release)
+                return
+            }
             DownloadPhase.Downloading, DownloadPhase.Paused -> {}
             else -> runCatching { updater.download(release) }
         }
@@ -57,8 +63,8 @@ object UpdateAutomation {
             val s = runCatching { updater.state(release) }.getOrNull()
             when (s?.phase) {
                 DownloadPhase.Ready -> {
-                    notify(app, release)
                     prefs.edit().putBoolean(key, true).commit()
+                    notify(app, release)
                     return
                 }
                 DownloadPhase.Idle, DownloadPhase.Failed, null -> return

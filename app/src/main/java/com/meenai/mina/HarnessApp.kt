@@ -136,8 +136,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             baseUrl = "https://api-inference.modelscope.ai",
             logger = { msg -> Log.d("ImageGen", msg) }
         )
-        val openRouterClient = com.meenai.mina.core.image.ModelScopeImageClient(
-            baseUrl = "https://openrouter.ai/api",
+        val openRouterClient = com.meenai.mina.core.image.OpenRouterImageClient(
+            baseUrl = "https://openrouter.ai/api/v1",
             logger = { msg -> Log.d("ImageGen", msg) }
         )
         com.meenai.mina.core.image.ImageGenerationService(

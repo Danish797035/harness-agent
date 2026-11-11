@@ -125,7 +125,8 @@ class AppFreeKeyRouterTest {
         assertFalse(msCandidates.isEmpty())
         assertTrue("Sirf ModelScope candidates hone chahiye", msCandidates.all { it.provider == "modelscope" })
         assertTrue("Koi aur provider nahi hona chahiye", msCandidates.none { it.provider == "openrouter" || it.provider == "zai" })
-        assertFalse("ModelScope ab permanent backup nahi hai, dynamic compete karta hai", msCandidates.all { it.isBackup })
+        assertTrue("ModelScope backup-only hona chahiye taaki paid credits na jalein", msCandidates.all { it.isBackup })
+        assertTrue("Qwen2.5-72B must be included unconditionally as fallback", msCandidates.any { it.id == "Qwen/Qwen2.5-72B-Instruct" })
 
         // All three keys
         val allCandidates = AppFreeKeyRouter.createCandidates(

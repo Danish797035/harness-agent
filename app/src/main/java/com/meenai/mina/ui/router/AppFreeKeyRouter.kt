@@ -437,7 +437,7 @@ object AppFreeKeyRouter {
                     model = model,
                     curatedRank = 0,
                     isFree = true,
-                    isBackup = false,
+                    isBackup = true,
                     roles = roles,
                 )
             }
@@ -445,26 +445,24 @@ object AppFreeKeyRouter {
 
         // Hardcoded fallback list if no dynamic models provided
         val candidates = mutableListOf<RouterCandidate>()
-        if (RouterUsageTracker.getTodayCalls("Qwen/Qwen2.5-72B-Instruct") > 0) {
-            val qwen72b = OpenAiCompatModel(
-                baseUrl = ModelScopePreset.BASE_URL,
-                apiKey = apiKey,
-                model = "Qwen/Qwen2.5-72B-Instruct",
-                capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
-                http = http,
+        val qwen72b = OpenAiCompatModel(
+            baseUrl = ModelScopePreset.BASE_URL,
+            apiKey = apiKey,
+            model = "Qwen/Qwen2.5-72B-Instruct",
+            capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
+            http = http,
+        )
+        candidates.add(
+            RouterCandidate(
+                id = "Qwen/Qwen2.5-72B-Instruct",
+                provider = ModelScopePreset.PROVIDER_ID,
+                model = qwen72b,
+                curatedRank = 75,
+                isFree = true,
+                isBackup = true,
+                roles = setOf(ModelRole.Main),
             )
-            candidates.add(
-                RouterCandidate(
-                    id = "Qwen/Qwen2.5-72B-Instruct",
-                    provider = ModelScopePreset.PROVIDER_ID,
-                    model = qwen72b,
-                    curatedRank = 75,
-                    isFree = true,
-                    isBackup = false,
-                    roles = setOf(ModelRole.Main),
-                )
-            )
-        }
+        )
         val qwen7b = OpenAiCompatModel(
             baseUrl = ModelScopePreset.BASE_URL,
             apiKey = apiKey,
@@ -487,7 +485,7 @@ object AppFreeKeyRouter {
                 model = qwen7b,
                 curatedRank = 50,
                 isFree = true,
-                isBackup = false,
+                isBackup = true,
                 roles = setOf(ModelRole.Light),
             )
         )
@@ -498,7 +496,7 @@ object AppFreeKeyRouter {
                 model = qwenVl,
                 curatedRank = 55,
                 isFree = true,
-                isBackup = false,
+                isBackup = true,
                 roles = setOf(ModelRole.Vision),
             )
         )
