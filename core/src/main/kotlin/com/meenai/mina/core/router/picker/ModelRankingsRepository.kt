@@ -84,7 +84,7 @@ class ModelRankingsRepository(
 ) {
     companion object {
         const val DEFAULT_DOWNLOAD_URL =
-            "https://raw.githubusercontent.com/Danish797035/harness-agent/smart-picker/model-rankings.json"
+            "https://raw.githubusercontent.com/Danish797035/harness-agent/main/model-rankings.json"
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
 
         fun loadBundledDefault(): String? {
