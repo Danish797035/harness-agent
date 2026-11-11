@@ -81,11 +81,13 @@ class ModelRankingsRepository(
     private val httpClient: OkHttpClient = OkHttpClient(),
     private val downloadUrl: String = DEFAULT_DOWNLOAD_URL,
     private val bundledResourceSupplier: (() -> String?)? = { loadBundledDefault() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     companion object {
         const val DEFAULT_DOWNLOAD_URL =
             "https://raw.githubusercontent.com/Danish797035/harness-agent/main/model-rankings.json"
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
+        const val FAILED_RETRY_BACKOFF_MS = 60 * 60 * 1000L
 
         fun loadBundledDefault(): String? {
             return runCatching {
@@ -100,12 +102,17 @@ class ModelRankingsRepository(
     @Volatile
     private var inMemoryData: ModelRankingsData? = null
 
+    @Volatile
+    var lastFailedAttemptMs: Long = 0L
+        internal set
+
     /**
      * Retrieves current rankings. If cached within 24 hours, returns cached data immediately.
      * Otherwise fetches fresh JSON from GitHub, falling back to cache if offline.
+     * Failed attempts use a 1-hour backoff (negative caching) to avoid hammering the network.
      */
     suspend fun getRankings(forceRefresh: Boolean = false): ModelRankingsData = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         val cached = cacheStore.load()
 
         if (!forceRefresh && cached != null && (now - cached.timestampMs) < ONE_DAY_MS) {
@@ -113,13 +120,35 @@ class ModelRankingsRepository(
             return@withContext cached.data
         }
 
+        // Negative caching: if download failed recently, back off for ~1 hour before retrying
+        if (!forceRefresh && (now - lastFailedAttemptMs) < FAILED_RETRY_BACKOFF_MS) {
+            if (cached != null) {
+                inMemoryData = cached.data
+                return@withContext cached.data
+            }
+            inMemoryData?.let { return@withContext it }
+            val bundled = bundledResourceSupplier?.invoke()
+            if (!bundled.isNullOrBlank()) {
+                val parsed = ModelRankingsParser.parse(bundled)
+                if (parsed.models.isNotEmpty()) {
+                    inMemoryData = parsed
+                    return@withContext parsed
+                }
+            }
+            return@withContext inMemoryData ?: ModelRankingsData()
+        }
+
         // Attempt download
         val downloaded = downloadRankings()
         if (downloaded != null && downloaded.models.isNotEmpty()) {
             cacheStore.save(CachedRankings(timestampMs = now, data = downloaded))
             inMemoryData = downloaded
+            lastFailedAttemptMs = 0L
             return@withContext downloaded
         }
+
+        // Record failed attempt for negative caching backoff
+        lastFailedAttemptMs = now
 
         // Fallback to existing cache even if older than 24h
         if (cached != null) {

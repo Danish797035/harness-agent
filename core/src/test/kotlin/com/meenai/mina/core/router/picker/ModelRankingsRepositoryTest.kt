@@ -112,4 +112,42 @@ class ModelRankingsRepositoryTest {
         assertNotNull(coder)
         assertEquals("qwen-2.5-coder-32b-instruct", coder?.model)
     }
+
+    @Test
+    fun negativeCachingBacksOffFailedDownloadsForOneHour() = runBlocking {
+        var currentTime = 10_000_000L
+        val cacheStore = InMemoryModelRankingsCacheStore()
+        val repo = ModelRankingsRepository(
+            cacheStore = cacheStore,
+            httpClient = OkHttpClient(),
+            downloadUrl = "http://invalid-host-for-testing-1234.local",
+            bundledResourceSupplier = { sampleJson },
+            nowMs = { currentTime },
+        )
+
+        // First call fails download, sets lastFailedAttemptMs, falls back to bundled
+        val first = repo.getRankings()
+        assertEquals(2, first.models.size)
+        assertEquals(currentTime, repo.lastFailedAttemptMs)
+
+        // Advance 10 minutes (within 1 hour backoff)
+        currentTime += 10 * 60 * 1000L
+        val second = repo.getRankings()
+        assertEquals(2, second.models.size)
+        // Should not update failed attempt timestamp because it backed off
+        assertEquals(10_000_000L, repo.lastFailedAttemptMs)
+
+        // Force refresh should bypass backoff
+        currentTime += 5 * 60 * 1000L
+        val forced = repo.getRankings(forceRefresh = true)
+        assertEquals(2, forced.models.size)
+        assertEquals(currentTime, repo.lastFailedAttemptMs)
+
+        // Advance past 1 hour (65 minutes later)
+        currentTime += 65 * 60 * 1000L
+        val third = repo.getRankings()
+        assertEquals(2, third.models.size)
+        // Backoff expired, retried and updated timestamp
+        assertEquals(currentTime, repo.lastFailedAttemptMs)
+    }
 }
