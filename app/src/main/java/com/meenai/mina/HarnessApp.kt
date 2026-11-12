@@ -401,14 +401,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
         }
         // Background download of fresh model rankings (once per day)
-        val rankingsRepo = com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                rankingsRepo.getRankings()
-            }.onFailure {
-                Log.w("HarnessApp", "Failed to download model rankings at app start", it)
-            }
-        }
+        // (init + warm-up already done at the top of onCreate)
     }
 }
 
