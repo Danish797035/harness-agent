@@ -207,4 +207,76 @@ class RouterUiTest {
         assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = false))
         assertEquals("Model slow tha, dusra try kar raha hoon", event.formatMessage(isHindi = true))
     }
+
+    @Test
+    fun resolveDisplayModel_chipAndWaitLineUseActualRunningModel_noEstimateDuringTask() {
+        val routerPick = ActiveModel(
+            id = "liquid/lfm-3-1.7b:free",
+            name = "lfm-3-1.7b",
+            provider = "OpenRouter",
+            usedToday = 0,
+            limit = null,
+            isEstimate = true,
+            reason = "Optimal free candidate",
+        )
+        val usages = listOf(
+            ProviderUsage(
+                provider = "Gemini",
+                models = listOf(
+                    ModelQuotaLine(
+                        modelId = "google/gemini-2.0-flash-exp:free",
+                        modelName = "Gemini 2.0 Flash",
+                        todayRequests = 3,
+                        limit = 50,
+                        isEstimate = false,
+                    )
+                ),
+            )
+        )
+
+        // When task is active on Gemini 2.0 Flash, chip & wait line MUST both show Gemini 2.0 Flash (never lfm/estimate)
+        val resolvedRunning = resolveDisplayModel(
+            routerModel = routerPick,
+            runningModelId = "google/gemini-2.0-flash-exp:free",
+            isTaskRunning = true,
+            usages = usages,
+        )
+        assertEquals("Gemini 2.0 Flash", waitModelName(resolvedRunning))
+        assertEquals("Gemini 2.0 Flash · 3/50 today", formatChipText(resolvedRunning, todayLabel = "today"))
+        assertEquals(
+            "Waiting for model reply · 1s · Gemini 2.0 Flash",
+            ChatCopy.modelWaitLabel(1, waitModelName(resolvedRunning), isHindi = false),
+        )
+        assertFalse(resolvedRunning.isEstimate)
+
+        // While task is running and model ID matches router pick with isEstimate=true, strip estimate flag
+        val samePick = resolveDisplayModel(
+            routerModel = routerPick,
+            runningModelId = "liquid/lfm-3-1.7b:free",
+            isTaskRunning = true,
+            usages = emptyList(),
+        )
+        assertFalse(samePick.isEstimate)
+        assertEquals("lfm-3-1.7b · OpenRouter · 0 today", formatChipText(samePick, todayLabel = "today"))
+        assertEquals("lfm-3-1.7b", waitModelName(samePick))
+
+        // While task is running and runningModelId is not yet set, never show estimate/fallback model
+        val suppressedFallback = resolveDisplayModel(
+            routerModel = routerPick,
+            runningModelId = null,
+            isTaskRunning = true,
+            usages = usages,
+        )
+        assertEquals("", waitModelName(suppressedFallback))
+        assertFalse(suppressedFallback.isEstimate)
+
+        // When idle (no task running), chip shows router's current pick as before
+        val idleModel = resolveDisplayModel(
+            routerModel = routerPick,
+            runningModelId = "google/gemini-2.0-flash-exp:free",
+            isTaskRunning = false,
+            usages = usages,
+        )
+        assertEquals("lfm-3-1.7b · OpenRouter · 0 today (estimate)", formatChipText(idleModel, todayLabel = "today"))
+    }
 }

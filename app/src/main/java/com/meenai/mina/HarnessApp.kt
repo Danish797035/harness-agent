@@ -341,6 +341,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             removeConversation = conversationDeleter::delete,
             keptPage = pageKeeper.page,
             closeKept = { pageKeeper.close(com.meenai.mina.core.cap.web.KeptPageClose.User) },
+            runningModel = taskState.activeModel,
         )
     }
 

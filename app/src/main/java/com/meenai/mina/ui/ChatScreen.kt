@@ -12,6 +12,8 @@ import com.meenai.mina.ui.router.RouterChip
 import com.meenai.mina.ui.router.RouterStatus
 import com.meenai.mina.ui.router.SwitchEvent
 import com.meenai.mina.ui.router.SwitchNoticeToast
+import com.meenai.mina.ui.router.resolveDisplayModel
+import com.meenai.mina.ui.router.waitModelName
 import com.meenai.mina.ui.image.GeneratedImageCard
 import com.meenai.mina.ui.image.GeneratedImageUi
 import com.meenai.mina.image.ImageStorageManager
@@ -188,11 +190,21 @@ fun ChatScreen(
     openSpeechModel: () -> Unit = {},
     routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
-    val activeModel by routerStatus.current.collectAsState()
+    val routerActiveModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
     var sheetOpen by remember { mutableStateOf(false) }
     var latestSwitchEvent by remember { mutableStateOf<SwitchEvent?>(null) }
     val ui by vm.ui.collectAsState()
+    val last = ui.exchanges.lastOrNull()
+    val isTaskRunning = last?.status?.isActive() == true
+    val activeModel = remember(routerActiveModel, routerUsages, isTaskRunning, last?.activeModel) {
+        resolveDisplayModel(
+            routerModel = routerActiveModel,
+            runningModelId = last?.activeModel,
+            isTaskRunning = isTaskRunning,
+            usages = routerUsages,
+        )
+    }
     val others by vm.otherRunning.collectAsState()
     val keptAny by vm.keptPage.collectAsState()
     // 只管这个对话留下的那一页
@@ -234,7 +246,6 @@ fun ChatScreen(
     }
 
     // 返回聊天时同一条内容不重新滚动；新进展仅在跟随末尾时滚动。
-    val last = ui.exchanges.lastOrNull()
     val scrollMarker = "${ui.conversationId}:${ui.exchanges.size}:${last?.steps?.size}:${last?.steers?.size}:${last?.status?.hashCode()}:${ui.blocked?.hashCode()}"
     LaunchedEffect(scrollMarker) {
         if (previousScrollMarker == scrollMarker) return@LaunchedEffect
@@ -304,7 +315,10 @@ fun ChatScreen(
     val menuHost = remember(selecting) { MessageMenuHost(selecting) { menu = it } }
     val menuOpen = menu != null
     PageBackground {
-        CompositionLocalProvider(LocalMessageMenu provides menuHost) {
+        CompositionLocalProvider(
+            LocalMessageMenu provides menuHost,
+            LocalRouterStatus provides routerStatus,
+        ) {
             LazyColumn(
                 Modifier.fillMaxSize().behindMenu(menuOpen) { lift.value }.voiceDim(voiceHolding, reduceMotion).glassSource(backdrop),
                 state = listState,
@@ -317,9 +331,10 @@ fun ChatScreen(
                 if (ui.exchanges.isEmpty() && ui.blocked == null) {
                     item(key = "empty", contentType = "empty") { EmptyState(ui.conversationId) { input = it } }
                 }
+                val activeModelName = waitModelName(activeModel)
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
+                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName)
                 }
                 if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
@@ -525,13 +540,13 @@ private fun ExampleRow(icon: ImageVector, text: String, first: Boolean, onClick:
 private fun LazyListScope.exchange(
     ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
-    kept: KeptPage? = null,
+    kept: KeptPage? = null, activeModelName: String = "",
 ) {
     if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
     if (active) {
-        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun) }
+        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName) }
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
     }
@@ -593,8 +608,8 @@ private fun LazyListScope.exchange(
 private fun LazyListScope.exchange(
     index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
-    kept: KeptPage? = null,
-) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
+    kept: KeptPage? = null, activeModelName: String = "",
+) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName)
 
 /**
  * 插话分成两段:第一句还没交给模型的([SteerState.unconsumed])之前的,和它连同之后的。
@@ -792,17 +807,21 @@ private fun Modifier.answerSurface(): Modifier =
  * 在后台操作手机时最下面一行小字。
  */
 @Composable
-private fun WorkBlock(ex: Exchange, reduceMotion: Boolean, backgroundNote: Boolean, openRun: (String) -> Unit) {
+private fun WorkBlock(
+    ex: Exchange,
+    reduceMotion: Boolean,
+    backgroundNote: Boolean,
+    openRun: (String) -> Unit,
+    activeModelName: String = "",
+) {
     val c = MinaTheme.colors
     val paused = ChatCopy.paused(ex.status)
     val elapsed = rememberElapsed(ex.startedAt)
-    val router = LocalRouterStatus.current
-    val activeModel by router.current.collectAsState()
     val isWaitingForModel = ex.waitingForModel
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val progressText = if (isWaitingForModel) {
-        val modelName = if (activeModel.name != "No model") activeModel.name else ""
-        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName)
+        val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
+        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
     } else {
         ChatCopy.progressLine(ex)
     }

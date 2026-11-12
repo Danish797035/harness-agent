@@ -195,6 +195,7 @@ class TaskRun(
     private val _sharedFiles = Mirrored<List<SharedFile>>(emptyList(), service.taskState._sharedFiles)
     private val _generatedImages = Mirrored<List<GeneratedImageUi>>(emptyList(), service.taskState._generatedImages)
     private val _state = Mirrored<TaskState>(TaskState.Running(0, TaskService.PREPARING), service.taskState._state)
+    private val _activeModel = Mirrored<String?>(null, service.taskState._activeModel)
     /** 同一状态带上对话编号,和 [_state] 一起写:界面据此只收屏上那个对话的状态。 */
     private val _tagged = Mirrored<Pair<String, TaskState>?>(conversationId to _state.value, service.taskState._shownTask)
     private val _takeoverStage = Mirrored(Takeover.Stage.None, service.taskState._takeoverStage)
@@ -214,6 +215,7 @@ class TaskRun(
     private val _webOpen = Mirrored(false, env.webScreenOpen)
 
     val state: StateFlow<TaskState> = _state.flow
+    val activeModel: StateFlow<String?> = _activeModel.flow
     val runId: StateFlow<String?> = _runId.flow
     /** 本任务导出的文件;结束时随这一轮存进对话。 */
     val sharedFiles: StateFlow<List<SharedFile>> = _sharedFiles.flow
@@ -229,7 +231,7 @@ class TaskRun(
     /** 本任务进行中插的话和它们的去向;悬浮胶囊的对话卡片按任务取。 */
     val steers: StateFlow<List<SteerNote>> = _steers.flow
     // 带对话编号的那份先写:收不带编号的状态时读到的编号就已经是这个任务的(界面据此不把别的对话的状态接到屏上)
-    private val mirrored = listOf(_runId, _sharedFiles, _generatedImages, _tagged, _state, _takeoverStage, _frames, _displayId, _appShown, _webOpen, _activities, _steers)
+    private val mirrored = listOf(_runId, _sharedFiles, _generatedImages, _tagged, _state, _activeModel, _takeoverStage, _frames, _displayId, _appShown, _webOpen, _activities, _steers)
 
     private fun setState(s: TaskState) = synchronized(service.taskState.shownLock) {
         _tagged.value = conversationId to s
@@ -486,6 +488,7 @@ class TaskRun(
         sideScope = side
         try {
             val model = env.modelFactory(service, session) ?: return TaskState.Failed(tr(R.string.fail_no_main_model), FailKind.Environment)
+            _activeModel.value = model.name
             // 用户在浏览器页上对着一页问的:那一页借给这个任务当当前网页标签(见 PageLoans);开跑时页面还开着才借得到
             val pageLoan = if (provenance.origin == RunOrigin.Ui) withContext(Dispatchers.Main) { UserBrowser.existing()?.claim(conversationId, key) } else null
             val light = env.lightModelFactory(service, session)
@@ -911,6 +914,11 @@ class TaskRun(
                     env.evalHooks.decisionFor(it)?.let { approved -> agent.answerConfirmation(approved) }
                 }
             }
+            side.launch {
+                agent.activeModelName.collect { name ->
+                    if (!name.isNullOrBlank()) _activeModel.value = name
+                }
+            }
             // 别的任务的接管进出队时,本任务的接管通知要跟着换(排到最前、或后面多了一个)
             if (parallel) side.launch { service.takeoverQueue.changes.collect { service.refreshNotifications(this@TaskRun) } }
             side.launch {
@@ -926,6 +934,7 @@ class TaskRun(
         } finally {
             handoffUnconsumed()
             side.cancel()
+            _activeModel.value = null
             _frames.value = null
             _webOpen.value = false
             synchronized(publishLock) { ended = true }

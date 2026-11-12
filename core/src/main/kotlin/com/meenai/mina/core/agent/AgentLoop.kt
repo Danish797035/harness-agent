@@ -69,6 +69,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -175,7 +176,13 @@ class AgentLoop(
         tools.observer = { record { order.observed(RunEvent.Observed.of(it)) } }
     }
 
-    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous, trace)
+    private val _activeModelName = MutableStateFlow<String?>(null)
+    /** Name/ID of the model currently answering the active request. */
+    val activeModelName: StateFlow<String?> = _activeModelName.asStateFlow()
+
+    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous, trace) { usingName ->
+        _activeModelName.value = activeRouter?.status?.value?.currentModel ?: activeRouter?.activeCandidate?.id ?: usingName
+    }
     private val intentGate = intentJudge?.let { IntentGate(it, model.takeUnless { main -> main === it }) }
     private val routeMatcher = routes
     /** 本任务的上下文生成器(外壳、预算、已给过的参考资料)。 */
@@ -245,6 +252,7 @@ class AgentLoop(
         })
         caller.reset(basePrompt)
         activeRouter?.resetTask()
+        _activeModelName.value = activeRouter?.status?.value?.currentModel ?: activeRouter?.activeCandidate?.id ?: model.name
         // 同意只在一次任务内有效
         confirmations?.reset()
         utterances?.clear()
@@ -261,6 +269,7 @@ class AgentLoop(
             end = TaskState.Cancelled
             throw e
         } finally {
+            _activeModelName.value = null
             emit(ended(end))
             inbox?.close()
         }
@@ -269,11 +278,18 @@ class AgentLoop(
     private suspend fun runLoop(task: String, priorTurns: List<Turn>, inbox: RunInbox?): TaskState {
         val end = try {
             coroutineScope {
+                val routerWatch = activeRouter?.status?.let { s ->
+                    launch { s.collect { rs -> rs.currentModel?.let { _activeModelName.value = it } } }
+                }
                 // 插话的信号装在整个运行的上下文里:撤掉也不丢东西的等待据此提前结束(见 waitOrSteer)
                 val body = async(inbox?.signal ?: EmptyCoroutineContext) { loop(task, priorTurns, inbox) }
                 job = body
                 if (cancelRequested) body.cancel()
-                body.await()
+                try {
+                    body.await()
+                } finally {
+                    routerWatch?.cancel()
+                }
             }
         } catch (e: CancellationException) {
             if (!cancelRequested) throw e

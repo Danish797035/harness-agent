@@ -800,4 +800,23 @@ class AgentLoopTest {
         assertTrue(m.requests.all { omitted(it) == 0 })
         m.requests.zipWithNext().forEach { (a, b) -> assertEquals(a, b.subList(0, a.size)) }
     }
+
+    @Test fun activeModelNameTracksExecutingModelAndClearsOnFinish() = runTest {
+        val observed = mutableListOf<String?>()
+        val inner = FakeModel(finish())
+        lateinit var loop: AgentLoop
+        val spy = object : ChatModel {
+            override val name = "gemini-2.0-flash"
+            override val capabilities = inner.capabilities
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                observed += loop.activeModelName.value
+                return inner.complete(system, messages, tools)
+            }
+        }
+        loop = AgentLoop(spy, toolDispatcher(FakeScreen()), "BASE")
+        assertNull(loop.activeModelName.value)
+        loop.run("t")
+        assertEquals(listOf<String?>("gemini-2.0-flash"), observed)
+        assertNull(loop.activeModelName.value)
+    }
 }

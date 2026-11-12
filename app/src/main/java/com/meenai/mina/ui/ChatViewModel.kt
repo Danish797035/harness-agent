@@ -182,6 +182,8 @@ data class Exchange(
     val stepActions: Map<Int, List<StepAction>> = emptyMap(),
     /** 界面用于 LazyColumn 稳定 key 的唯一编号。 */
     val id: String = runId ?: java.util.UUID.randomUUID().toString(),
+    /** Model name/ID currently answering this live exchange. */
+    val activeModel: String? = null,
 )
 
 /** 在跑时的一行进展:等你时说等什么;模型请求在途时只给中性状态;否则是这一步的话,没有就是最近做的事。 */
@@ -360,6 +362,8 @@ class ChatViewModel(
     val keptPage: StateFlow<KeptPage?> = MutableStateFlow(null),
     /** 关掉留着的那一页(用户点了那一行上的「关闭」)。 */
     private val closeKept: () -> Unit = {},
+    /** Model name/ID currently answering the shown running task. */
+    private val runningModel: StateFlow<String?> = MutableStateFlow(null),
 ) {
     /** 用户在对话页上关掉留在后台的那一页。 */
     fun closeKeptPage() = closeKept()
@@ -464,6 +468,18 @@ class ChatViewModel(
         // 任务登记进任务列表(原话可以取了)可能晚于它的第一个状态:那时接上的那一问一答补上原话
         scope.launch { activeConversations.collect { fillGoal() } }
         scope.launch { summarizing.collect { set -> _ui.update { ui -> ui.copy(exchanges = ui.exchanges.map { withSummarizing(it, set) }) } } }
+        scope.launch { runningModel.collect { if (ownTask()) onRunningModel(it) } }
+    }
+
+    private fun onRunningModel(modelId: String?) {
+        if (liveIndex < 0) return
+        _ui.update { ui ->
+            val ex = ui.exchanges.getOrNull(liveIndex) ?: return@update ui
+            if (!ex.status.active() || ex.activeModel == modelId) return@update ui
+            val exchanges = ui.exchanges.toMutableList()
+            exchanges[liveIndex] = ex.copy(activeModel = modelId)
+            ui.copy(exchanges = exchanges)
+        }
     }
 
     /** 停止的那一轮:交代还在写时标上「正在整理」;写好了、写不成就去掉。 */
@@ -862,7 +878,7 @@ class ChatViewModel(
         if (fresh) {
             // 先把这个对话的那一问一答摆好,再让服务显示它:服务一换显示,状态可能当场就送进来(onShown),
             // 那时这一问一答必须已经在,不然会另起一条没有原话的
-            val live = p?.exchange ?: Exchange(runGoal(conversationId).orEmpty(), emptyList(), ExchangeStatus.Working, live = true, startedAt = clock(), generatedImages = if (ownTask()) generatedImages.value else emptyList())
+            val live = p?.exchange ?: Exchange(runGoal(conversationId).orEmpty(), emptyList(), ExchangeStatus.Working, live = true, startedAt = clock(), generatedImages = if (ownTask()) generatedImages.value else emptyList(), activeModel = if (ownTask()) runningModel.value else null)
             screenSeen = p?.screenSeen ?: false
             pipClosed = p?.pipClosed ?: false
             _ui.update {
@@ -881,6 +897,7 @@ class ChatViewModel(
         onGeneratedImages(generatedImages.value)
         onActivities(activities.value)
         onSteers(steers.value)
+        onRunningModel(runningModel.value)
         onState(shown.second)
     }
 
@@ -1103,7 +1120,8 @@ class ChatViewModel(
                 val goal = it.conversationId?.let(runGoal).orEmpty()
                 val files = if (ownTask()) sharedFiles.value else emptyList()
                 val images = if (ownTask()) generatedImages.value else emptyList()
-                val ex = Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, files = files, generatedImages = images, startedAt = clock())
+                val model = if (ownTask()) runningModel.value else null
+                val ex = Exchange(goal, emptyList(), ExchangeStatus.Working, live = true, files = files, generatedImages = images, startedAt = clock(), activeModel = model)
                 it.copy(exchanges = it.exchanges + ex)
             }
         }
@@ -1113,11 +1131,16 @@ class ChatViewModel(
                 if (it.status.active() || !old.status.active()) {
                     // 跑的时候就挂上这个对话的任务的编号,「运行过程」当场可用;结束那一下仍走下面那一支
                     val live = if (it.status.active() && it.runId == null) ui.conversationId?.let(liveRunId) else null
-                    if (live != null) it.copy(runId = live) else it
+                    val withRunId = if (live != null) it.copy(runId = live) else it
+                    if (withRunId.status.active() && withRunId.activeModel == null && ownTask()) {
+                        runningModel.value?.let { m -> withRunId.copy(activeModel = m) } ?: withRunId
+                    } else {
+                        withRunId
+                    }
                 }
                 // 收尾时还没交到任务手里的插话:服务把它当成这个对话的下一件事
                 else withSummarizing(withNotes(it.copy(runId = endedRunFor(ui.conversationId), elapsedMs = elapsedOf(old),
-                    steers = it.steers.map { n -> if (n.state.unconsumed) n.copy(state = SteerState.Next) else n }), runNotes.value))
+                    steers = it.steers.map { n -> if (n.state.unconsumed) n.copy(state = SteerState.Next) else n }, activeModel = null), runNotes.value))
             }
             val exchanges = ui.exchanges.toMutableList().also { it[liveIndex] = ex }
             ui.copy(

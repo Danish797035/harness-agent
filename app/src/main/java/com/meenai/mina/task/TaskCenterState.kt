@@ -84,6 +84,8 @@ class TaskCenterState {
 
     val _state = MutableStateFlow<TaskState>(TaskState.Idle)
     val state: StateFlow<TaskState> = _state.asStateFlow()
+    val _activeModel = MutableStateFlow<String?>(null)
+    val activeModel: StateFlow<String?> = _activeModel.asStateFlow()
     val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
     val _takeoverStage = MutableStateFlow(Takeover.Stage.None)

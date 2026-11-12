@@ -141,4 +141,37 @@ class ChatCopyTest {
         assertEquals("Answer Harness Agent’s question", ChatCopy.placeholder(ComposerMode.Answer, hasHistory = true))
         assertEquals("Add or change details…", ChatCopy.placeholder(ComposerMode.Busy, hasHistory = true))
     }
+
+    @Test fun modelWaitLabelFollowsAppLocaleForEnglishAndHindi() {
+        // EnglishTexts @Rule is active by default: ui_locale = "en"
+        assertEquals(
+            "Waiting for model reply · 1s · Gemini Flash",
+            ChatCopy.modelWaitLabelForLocale(1, "Gemini Flash"),
+        )
+        assertEquals(
+            "Waiting for model reply · 5s",
+            ChatCopy.modelWaitLabelForLocale(5, ""),
+        )
+        assertEquals(false, ChatCopy.isHindiLocale("en"))
+        assertEquals(false, ChatCopy.isHindiLocale("en-US"))
+
+        // Switch UiText to Hindi resource bundle ("values-hi" -> ui_locale = "hi")
+        val previous = com.meenai.mina.i18n.UiText.source
+        try {
+            com.meenai.mina.i18n.UiText.source =
+                com.meenai.mina.i18n.ResFileTexts("values-hi", java.util.Locale.forLanguageTag("hi"))
+            assertEquals(
+                "Model ka jawab aa raha hai · 1s · Gemini Flash",
+                ChatCopy.modelWaitLabelForLocale(1, "Gemini Flash"),
+            )
+            assertEquals(
+                "Model ka jawab aa raha hai · 5s",
+                ChatCopy.modelWaitLabelForLocale(5, ""),
+            )
+            assertTrue(ChatCopy.isHindiLocale("hi"))
+            assertTrue(ChatCopy.isHindiLocale("hi-IN"))
+        } finally {
+            com.meenai.mina.i18n.UiText.source = previous
+        }
+    }
 }
