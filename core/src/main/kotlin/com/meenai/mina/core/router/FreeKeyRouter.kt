@@ -357,12 +357,21 @@ class FreeKeyRouter(
 
             while (true) {
                 try {
-                    val reply = executeWithWatchdog(currentCandidate.model, system, cleanMessages, preparedTools, onText)
+                    var firstTokenTime: Long? = null
+                    val reply = executeWithWatchdog(
+                        model = currentCandidate.model,
+                        system = system,
+                        messages = cleanMessages,
+                        tools = preparedTools,
+                        onText = onText,
+                        onFirstToken = { ts -> if (firstTokenTime == null) firstTokenTime = ts },
+                    )
                     val latency = now() - beganTime
+                    val firstTokenLatency = firstTokenTime?.let { it - beganTime } ?: latency
                     healthTracker.recordSuccess(currentCandidate.id, latency)
                     statsTracker?.recordSuccess(
                         modelId = currentCandidate.id,
-                        firstTokenMs = latency,
+                        firstTokenMs = firstTokenLatency,
                         hasValidToolCall = reply.parts.any { it is Part.ToolCall },
                     )
                     difficultyRouter.recordSuccess()
@@ -510,12 +519,21 @@ class FreeKeyRouter(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+        onFirstToken: ((Long) -> Unit)? = null,
     ): ModelReply {
         if (firstTokenTimeoutMs <= 0L) {
             return if (model is StreamingChatModel) {
-                model.completeStreaming(system, messages, tools, onText)
+                var firstRecorded = false
+                model.completeStreaming(system, messages, tools) { chunk ->
+                    if (chunk.isNotEmpty() && !firstRecorded) {
+                        firstRecorded = true
+                        onFirstToken?.invoke(now())
+                    }
+                    onText(chunk)
+                }
             } else {
                 model.complete(system, messages, tools).also { reply ->
+                    onFirstToken?.invoke(now())
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                 }
             }
@@ -535,6 +553,7 @@ class FreeKeyRouter(
                     model.completeStreaming(system, messages, tools) { chunk ->
                         if (chunk.isNotEmpty() && !firstTokenArrived.getAndSet(true)) {
                             watchdog.cancel()
+                            onFirstToken?.invoke(now())
                         }
                         onText(chunk)
                     }
@@ -542,6 +561,7 @@ class FreeKeyRouter(
                     val reply = model.complete(system, messages, tools)
                     firstTokenArrived.set(true)
                     watchdog.cancel()
+                    onFirstToken?.invoke(now())
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                     reply
                 }

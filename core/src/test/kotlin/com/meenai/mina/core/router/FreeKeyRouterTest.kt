@@ -359,6 +359,36 @@ class FreeKeyRouterTest {
         assertEquals(0, m2Fast.calls)
         assertEquals("Model slow tha, dobara try karo", router.status.value.reason)
     }
+
+    @Test
+    fun recordsFirstTokenLatencySeparatelyFromTotalLatency() = runTest {
+        var simulatedNow = 1000L
+        val testClock = object : com.meenai.mina.core.router.picker.Clock {
+            override fun currentTimeMillis(): Long = simulatedNow
+        }
+        val statsTracker = com.meenai.mina.core.router.picker.ModelStatsTracker(clock = testClock)
+
+        val model = mockModel("m1") { _, _, _, onText ->
+            simulatedNow += 500L
+            onText("first chunk")
+            simulatedNow += 10_000L
+            simpleReply
+        }
+
+        val candidate = RouterCandidate("m1", "p1", model, curatedRank = 1)
+        val router = FreeKeyRouter(
+            candidates = listOf(candidate),
+            clock = testClock,
+            statsTracker = statsTracker,
+            delayMs = {},
+        )
+
+        router.completeStreaming("sys", userMsg, emptyList()) {}
+
+        val stats = statsTracker.getStats("m1")
+        assertNotNull(stats)
+        assertEquals(500.0, stats!!.avgFirstTokenMs, 1.0)
+    }
 }
 
 class MockChatModel(
