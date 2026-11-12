@@ -25,6 +25,8 @@ object LiveShareManager {
             putExtra(LiveShareConsentActivity.EXTRA_SESSION_ID, sessionId)
         }
         ctx.startActivity(intent)
+    }.apply {
+        deviceLockChecker = { appCtx?.let { CapsuleSecurityPolicy.isDeviceLocked(it) } ?: false }
     }
 
     val state: StateFlow<LiveShareState> get() = engine.state
@@ -43,10 +45,12 @@ object LiveShareManager {
         val accessState = app?.appAccess?.current()
         val service = ScreenAccessibility.instance.value
 
-        // Check if currently on a blocked / sensitive app
+        // Check if currently on a blocked / sensitive app or device locked
         val packages = service?.let { MainScreenCapture.sourcePackages(it) }
+        val locked = CapsuleSecurityPolicy.isDeviceLocked(context)
+        if (locked) return false
         if (accessState != null && packages != null) {
-            if (!CapsuleSecurityPolicy.canPerformScreenAction(packages, false, accessState)) {
+            if (!CapsuleSecurityPolicy.canPerformScreenAction(packages, locked, accessState)) {
                 return false
             }
         }

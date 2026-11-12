@@ -74,10 +74,13 @@ data class ScreenSnapshotData(
  */
 class ActHereCoordinator(
     val maxSteps: Int = 15,
-    private val securityChecker: (packages: Collection<String>?, state: AppAccessState) -> Boolean = { pkgs, st ->
-        CapsuleSecurityPolicy.canPerformScreenAction(pkgs, false, st)
-    },
+    private val isDeviceLocked: () -> Boolean = { false },
+    securityChecker: ((packages: Collection<String>?, state: AppAccessState) -> Boolean)? = null,
 ) {
+    private val securityChecker: (packages: Collection<String>?, state: AppAccessState) -> Boolean =
+        securityChecker ?: { pkgs, st ->
+            CapsuleSecurityPolicy.canPerformScreenAction(pkgs, isDeviceLocked(), st)
+        }
     var isStopped: Boolean = false
         private set
 
