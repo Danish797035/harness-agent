@@ -136,8 +136,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             baseUrl = "https://api-inference.modelscope.ai",
             logger = { msg -> Log.d("ImageGen", msg) }
         )
-        val openRouterClient = com.meenai.mina.core.image.ModelScopeImageClient(
-            baseUrl = "https://openrouter.ai/api",
+        val openRouterClient = com.meenai.mina.core.image.OpenRouterImageClient(
+            baseUrl = "https://openrouter.ai/api/v1",
             logger = { msg -> Log.d("ImageGen", msg) }
         )
         com.meenai.mina.core.image.ImageGenerationService(
@@ -346,6 +346,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
 
     override fun onCreate() {
         super.onCreate()
+        val rankingsRepo = com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
+        com.meenai.mina.ui.router.AppFreeKeyRouter.initStatsTracker(filesDir)
+        com.meenai.mina.ui.router.AppFreeKeyRouter.initCooldownStore(this)
+        scope.launch(Dispatchers.IO) { runCatching { rankingsRepo.getRankings() } }
         // 界面以外的文字(通知、服务、悬浮胶囊)按 App 语言取
         AppLanguage.applyDefaultLocale(this)
         UiText.source = ResourceTexts { AppLanguage.resources(this) }

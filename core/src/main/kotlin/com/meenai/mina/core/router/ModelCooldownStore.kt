@@ -111,7 +111,9 @@ class ModelCooldownStore(
             badKeys.addAll(state.badKeys)
             knownQuotaRemaining.clear()
             knownQuotaRemaining.putAll(state.knownQuotaRemaining)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            System.err.println("Failed to load ModelCooldownStore from JSON: ${e.message}")
+        }
     }
 
     private fun notifyChanged() {

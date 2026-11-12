@@ -69,4 +69,12 @@ object CapsuleSecurityPolicy {
         }
         return true
     }
+
+    /**
+     * Reads the real lock status of the device via KeyguardManager.
+     */
+    fun isDeviceLocked(context: android.content.Context): Boolean {
+        val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        return km?.isDeviceLocked == true
+    }
 }

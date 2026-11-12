@@ -1,8 +1,12 @@
 package com.meenai.mina.about
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -163,5 +167,33 @@ class UpdateCheckerTest {
         assertFalse(UpdateSchedule.due(1_000, 1_000 + UpdateSchedule.MIN_GAP_MS - 1))
         assertTrue(UpdateSchedule.due(1_000, 1_000 + UpdateSchedule.MIN_GAP_MS))
         assertTrue("clock moved back", UpdateSchedule.due(10_000, 5_000))
+    }
+
+    @Test
+    fun loadDoesNotStallBehindSlowNetworkFetch() = runBlocking {
+        val fetchStarted = java.util.concurrent.CountDownLatch(1)
+        val releaseFetch = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                fetchStarted.countDown()
+                releaseFetch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                return release("v0.2.0")
+            }
+        }
+
+        val c = checker()
+        val checkJob = launch(Dispatchers.IO) {
+            c.check(manual = true)
+        }
+        assertTrue("Network fetch should start", fetchStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+
+        // While network fetch is in flight, load() must acquire mutex immediately without stalling
+        withTimeout(1500L) {
+            c.load()
+        }
+
+        releaseFetch.countDown()
+        checkJob.join()
+        assertEquals("0.2.0", c.state.value.update?.version)
     }
 }

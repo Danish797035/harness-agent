@@ -114,4 +114,26 @@ class LiveShareEngineTest {
         assertEquals(LiveShareStatus.Active, engine.state.value.status)
         assertTrue(engine.isSharing)
     }
+
+    @Test
+    fun deviceLockCheckerBlocksSafeAppWhenDeviceLocked() {
+        var locked = false
+        val engine = LiveShareEngine { }.apply {
+            deviceLockChecker = { locked }
+        }
+
+        val sessionId = engine.startSession()
+        engine.onConsentGranted(sessionId)
+        assertEquals(LiveShareStatus.Active, engine.state.value.status)
+
+        val safeState = AppAccessState(available = true)
+        engine.onForegroundPackagesChanged(listOf("com.android.chrome"), safeState)
+        assertEquals(LiveShareStatus.Active, engine.state.value.status)
+
+        // Now device is locked -> CapsuleSecurityPolicy must disallow screen action
+        locked = true
+        engine.onForegroundPackagesChanged(listOf("com.android.chrome"), safeState)
+        assertEquals(LiveShareStatus.Paused, engine.state.value.status)
+        assertEquals(PauseReason.SensitiveApp, engine.state.value.pauseReason)
+    }
 }

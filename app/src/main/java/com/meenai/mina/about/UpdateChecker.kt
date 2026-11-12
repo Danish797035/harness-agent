@@ -103,7 +103,9 @@ class UpdateChecker(
         mutex.withLock {
             loadLocked()
             if (manual) _state.update { it.copy(status = CheckStatus.Checking) }
-            val found = withContext(Dispatchers.IO) { fetchLatest() }
+        }
+        val found = withContext(Dispatchers.IO) { fetchLatest() }
+        mutex.withLock {
             if (found != null) {
                 _state.update { it.withLatest(found) }
             }

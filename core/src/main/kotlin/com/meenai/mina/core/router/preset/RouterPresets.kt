@@ -185,7 +185,7 @@ object ModelScopePreset {
                 model = chatModel,
                 curatedRank = candidate.tierRank,
                 isFree = true,
-                isBackup = false,
+                isBackup = true,
                 roles = roles,
                 candidateInfo = candidate,
             )

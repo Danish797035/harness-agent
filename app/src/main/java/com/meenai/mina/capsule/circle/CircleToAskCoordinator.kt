@@ -8,13 +8,16 @@ import com.meenai.mina.core.model.ChatModel
  * Coordinates security checks, selection validation, and Vision model querying for "Circle to ask".
  */
 class CircleToAskCoordinator(
-    private val securityChecker: (packages: Collection<String>?, state: AppAccessState) -> Boolean = { pkgs, st ->
-        CapsuleSecurityPolicy.canPerformScreenAction(pkgs, false, st)
-    },
+    securityChecker: ((packages: Collection<String>?, state: AppAccessState) -> Boolean)? = null,
     private val visionModelProvider: () -> ChatModel?,
     private val sendQuery: suspend (jpeg: ByteArray, width: Int, height: Int, query: String) -> String,
     private val onWarning: (String) -> Unit,
+    private val isDeviceLocked: () -> Boolean = { false },
 ) {
+    private val securityChecker: (packages: Collection<String>?, state: AppAccessState) -> Boolean =
+        securityChecker ?: { pkgs, st ->
+            CapsuleSecurityPolicy.canPerformScreenAction(pkgs, isDeviceLocked(), st)
+        }
     sealed interface StartResult {
         data object Allowed : StartResult
         data object Blocked : StartResult

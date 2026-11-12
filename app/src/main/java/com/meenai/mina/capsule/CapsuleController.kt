@@ -534,7 +534,8 @@ class CapsuleController(
      */
     private fun deliver(c: CardView, kind: CardInputKind, shot: CapturedScreen, words: String) {
         val access = (context.applicationContext as HarnessApp).appAccess.current()
-        if (shot.sourcePackages.isEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(shot.sourcePackages, false, access)) {
+        val isLocked = CapsuleSecurityPolicy.isDeviceLocked(context)
+        if (shot.sourcePackages.isEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(shot.sourcePackages, isLocked, access)) {
             inputUi = inputUi.copy(screen = null)
             showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
             return
@@ -607,7 +608,8 @@ class CapsuleController(
             val store = (context.applicationContext as HarnessApp).appAccess
             val sources = MainScreenCapture.sourcePackages(service) ?: return null
             if (context.packageName in sources || !store.current().available) return null
-            if (!CapsuleSecurityPolicy.canPerformScreenAction(sources, false, store.current())) {
+            val isLocked = CapsuleSecurityPolicy.isDeviceLocked(context)
+            if (!CapsuleSecurityPolicy.canPerformScreenAction(sources, isLocked, store.current())) {
                 showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return null
             }
@@ -1239,7 +1241,8 @@ class CapsuleController(
 
         // 1. Blocked apps / sensitive apps check
         val sources = MainScreenCapture.sourcePackages(service)
-        if (sources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(sources, false, store.current())) {
+        val isLockedBefore = CapsuleSecurityPolicy.isDeviceLocked(context)
+        if (sources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(sources, isLockedBefore, store.current())) {
             showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
             return
         }
@@ -1262,7 +1265,8 @@ class CapsuleController(
             val screenshot = shot.bitmap
 
             val currentSources = MainScreenCapture.sourcePackages(service)
-            if (currentSources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, false, store.current())) {
+            val isLockedAfter = CapsuleSecurityPolicy.isDeviceLocked(context)
+            if (currentSources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, isLockedAfter, store.current())) {
                 screenshot.recycle()
                 showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return@launch
@@ -1371,7 +1375,9 @@ class CapsuleController(
         }
     }
 
-    private val actHereCoordinator = com.meenai.mina.capsule.acthere.ActHereCoordinator()
+    private val actHereCoordinator = com.meenai.mina.capsule.acthere.ActHereCoordinator(
+        isDeviceLocked = { CapsuleSecurityPolicy.isDeviceLocked(context) },
+    )
     private var actHereJob: Job? = null
     private var actHerePromptWindow: OverlayWindow? = null
     private var actHereConfirmWindow: OverlayWindow? = null
@@ -1455,7 +1461,7 @@ class CapsuleController(
             } else {
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(app.providers)
                 if (candidates.isNotEmpty()) {
-                    com.meenai.mina.core.router.FreeKeyRouter(candidates)
+                    com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(candidates)
                 } else {
                     val main = app.providers.modelFor(ModelRole.Main)
                     val light = app.providers.modelFor(ModelRole.Light)
@@ -1480,7 +1486,7 @@ class CapsuleController(
                                 )
                             )
                         }
-                        com.meenai.mina.core.router.FreeKeyRouter(list)
+                        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(list)
                     } else null
                 }
             }

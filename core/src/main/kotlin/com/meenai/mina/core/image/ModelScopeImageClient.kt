@@ -1,5 +1,6 @@
 package com.meenai.mina.core.image
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
@@ -128,6 +129,7 @@ class ModelScopeImageClient(
     private suspend fun pollTask(root: String, apiKey: String, taskId: String): ByteArray {
         val pollUrl = "$root/v1/tasks/$taskId"
         val startTime = System.currentTimeMillis()
+        var consecutiveFailures = 0
 
         while (true) {
             val elapsed = System.currentTimeMillis() - startTime
@@ -147,12 +149,20 @@ class ModelScopeImageClient(
                 .get()
                 .build()
 
-            val respBody = executeHttp(pollReq)
             val parsed = try {
-                json.parseToJsonElement(respBody).jsonObject
+                val respBody = executeHttp(pollReq)
+                val obj = json.parseToJsonElement(respBody).jsonObject
+                consecutiveFailures = 0
+                obj
             } catch (e: Exception) {
-                throw ImageClientException("Failed to parse poll response", e)
-            }
+                if (e is CancellationException) throw e
+                consecutiveFailures++
+                log("Transient poll error ($consecutiveFailures/5): ${e.message}")
+                if (consecutiveFailures >= 5) {
+                    throw ImageClientException("ModelScope task polling failed after 5 consecutive errors", e)
+                }
+                null
+            } ?: continue
 
             val status = parsed["task_status"]?.jsonPrimitive?.content
                 ?: parsed["status"]?.jsonPrimitive?.content

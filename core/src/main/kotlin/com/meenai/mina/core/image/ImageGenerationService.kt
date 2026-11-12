@@ -1,6 +1,7 @@
 package com.meenai.mina.core.image
 
 import com.meenai.mina.core.router.MagicubeLedger
+import kotlinx.coroutines.CancellationException
 
 sealed class ImageResult {
     data class Success(
@@ -67,12 +68,7 @@ class ImageGenerationService(
         role: ImageRole,
         action: suspend (client: ImageClient, apiKey: String, model: String) -> ByteArray,
     ): ImageResult {
-        // 1. Quota check: if ModelScope is used, check Magicube balance (minimum 5.0 required)
-        if (!MagicubeLedger.canAffordModelScope()) {
-            return ImageResult.Error(INSUFFICIENT_MAGICUBE_MSG)
-        }
-
-        // 2. Resolve candidate models
+        // 1. Resolve candidate models
         val candidates = resolveCandidates(role)
         if (candidates.isEmpty()) {
             return ImageResult.Error("Koi image model uplabdh nahi hai")
@@ -80,8 +76,20 @@ class ImageGenerationService(
 
         var switches = 0
         var lastError: Throwable? = null
+        var hadModelScopeCandidate = false
+        var skippedDueToMagicube = false
 
         for (candidate in candidates) {
+            val isModelScope = candidate.provider == ImageModelCatalog.PROVIDER_MODELSCOPE
+            if (isModelScope) {
+                hadModelScopeCandidate = true
+                if (!MagicubeLedger.canAffordModelScope()) {
+                    skippedDueToMagicube = true
+                    logger?.invoke("Skipping ModelScope candidate ${candidate.id}: insufficient Magicube balance")
+                    continue
+                }
+            }
+
             val apiKey = getApiKey(candidate.provider)
             if (apiKey.isNullOrBlank()) {
                 continue
@@ -107,6 +115,8 @@ class ImageGenerationService(
                 }
 
                 return ImageResult.Success(bytes, candidate.id, cost)
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 lastError = t
                 switches++
@@ -116,6 +126,10 @@ class ImageGenerationService(
                 }
                 // Silent failover: chupke se agla model, no toast/error shown
             }
+        }
+
+        if (lastError == null && skippedDueToMagicube && hadModelScopeCandidate) {
+            return ImageResult.Error(INSUFFICIENT_MAGICUBE_MSG)
         }
 
         return ImageResult.Error(

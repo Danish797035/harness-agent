@@ -1,19 +1,38 @@
 package com.meenai.mina.core.router.picker
 
+import java.io.File
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+/**
+ * Individual usage event recorded within the 7-day rolling window.
+ */
+@Serializable
+data class UsageEvent(
+    val timestampMs: Long,
+    val isSuccess: Boolean,
+    val firstTokenMs: Long? = null,
+    val hasValidToolCall: Boolean? = null,
+    val isToolCallFailure: Boolean = false,
+)
+
 /**
  * 7-day usage statistics for a specific model candidate.
  * Tracks real execution success, correct tool calling, and first-token latency.
  */
+@Serializable
 data class ModelUsageRecord(
     val modelId: String,
-    val successCount: Int = 0,
-    val failureCount: Int = 0,
-    val validToolCalls: Int = 0,
-    val totalToolCalls: Int = 0,
-    val totalFirstTokenMs: Long = 0L,
-    val firstTokenSamples: Int = 0,
-    val lastUsedEpochMs: Long = 0L,
-    val timestamps: List<Long> = emptyList(),
+    val events: List<UsageEvent> = emptyList(),
+    val successCount: Int = events.count { it.isSuccess },
+    val failureCount: Int = events.count { !it.isSuccess },
+    val validToolCalls: Int = events.count { it.hasValidToolCall == true },
+    val totalToolCalls: Int = events.count { it.hasValidToolCall != null || it.isToolCallFailure },
+    val totalFirstTokenMs: Long = events.mapNotNull { it.firstTokenMs }.filter { it > 0 }.sum(),
+    val firstTokenSamples: Int = events.count { it.firstTokenMs != null && it.firstTokenMs > 0 },
+    val lastUsedEpochMs: Long = events.maxOfOrNull { it.timestampMs } ?: 0L,
+    val timestamps: List<Long> = events.map { it.timestampMs },
 ) {
     val totalCalls: Int get() = successCount + failureCount
 
@@ -54,6 +73,28 @@ class InMemoryModelStatsStore(
 }
 
 /**
+ * File-backed persistent storage for 7-day model usage statistics.
+ */
+class FileModelStatsStore(
+    private val file: File,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+) : ModelStatsStore {
+    override fun load(): Map<String, ModelUsageRecord> {
+        return runCatching {
+            if (!file.exists() || !file.isFile) return emptyMap()
+            json.decodeFromString<Map<String, ModelUsageRecord>>(file.readText())
+        }.getOrDefault(emptyMap())
+    }
+
+    override fun save(records: Map<String, ModelUsageRecord>) {
+        runCatching {
+            file.parentFile?.mkdirs()
+            file.writeText(json.encodeToString(records))
+        }
+    }
+}
+
+/**
  * Tracks model performance over a 7-day rolling window and computes real-usage score adjustments.
  * Also enforces the 10%+ hysteresis rule for model switching.
  */
@@ -64,10 +105,23 @@ class ModelStatsTracker(
     companion object {
         const val SEVEN_DAYS_MS: Long = 7 * 24 * 60 * 60 * 1000L
         const val DEFAULT_HYSTERESIS_PERCENT: Double = 10.0
+
+        private fun migrateLegacyRecord(record: ModelUsageRecord): ModelUsageRecord {
+            if (record.events.isNotEmpty() || record.timestamps.isEmpty()) return record
+            val events = record.timestamps.mapIndexed { idx, ts ->
+                UsageEvent(
+                    timestampMs = ts,
+                    isSuccess = idx < record.successCount,
+                    firstTokenMs = if (record.firstTokenSamples > 0) record.totalFirstTokenMs / record.firstTokenSamples else null,
+                    hasValidToolCall = if (idx < record.validToolCalls) true else (if (idx < record.totalToolCalls) false else null),
+                )
+            }
+            return record.copy(events = events)
+        }
     }
 
     private val records = mutableMapOf<String, ModelUsageRecord>().apply {
-        putAll(store.load())
+        store.load().forEach { (k, v) -> put(k, migrateLegacyRecord(v)) }
     }
 
     @Synchronized
@@ -90,27 +144,23 @@ class ModelStatsTracker(
     ) {
         val now = clock.currentTimeMillis()
         val current = records[modelId] ?: ModelUsageRecord(modelId = modelId)
-        val newTimestamps = (current.timestamps + now).filter { now - it <= SEVEN_DAYS_MS }
-
-        val newTotalFirstToken = if (firstTokenMs != null && firstTokenMs > 0) {
-            current.totalFirstTokenMs + firstTokenMs
-        } else current.totalFirstTokenMs
-
-        val newSamples = if (firstTokenMs != null && firstTokenMs > 0) {
-            current.firstTokenSamples + 1
-        } else current.firstTokenSamples
-
-        val newValidTools = if (hasValidToolCall == true) current.validToolCalls + 1 else current.validToolCalls
-        val newTotalTools = if (hasValidToolCall != null) current.totalToolCalls + 1 else current.totalToolCalls
-
+        val event = UsageEvent(
+            timestampMs = now,
+            isSuccess = true,
+            firstTokenMs = firstTokenMs,
+            hasValidToolCall = hasValidToolCall,
+        )
+        val validEvents = (current.events + event).filter { now - it.timestampMs <= SEVEN_DAYS_MS }
         val updated = current.copy(
-            successCount = current.successCount + 1,
-            validToolCalls = newValidTools,
-            totalToolCalls = newTotalTools,
-            totalFirstTokenMs = newTotalFirstToken,
-            firstTokenSamples = newSamples,
+            events = validEvents,
+            successCount = validEvents.count { it.isSuccess },
+            failureCount = validEvents.count { !it.isSuccess },
+            validToolCalls = validEvents.count { it.hasValidToolCall == true },
+            totalToolCalls = validEvents.count { it.hasValidToolCall != null || it.isToolCallFailure },
+            totalFirstTokenMs = validEvents.mapNotNull { it.firstTokenMs }.filter { it > 0 }.sum(),
+            firstTokenSamples = validEvents.count { it.firstTokenMs != null && it.firstTokenMs > 0 },
             lastUsedEpochMs = now,
-            timestamps = newTimestamps,
+            timestamps = validEvents.map { it.timestampMs },
         )
         records[modelId] = updated
         store.save(records)
@@ -123,15 +173,23 @@ class ModelStatsTracker(
     ) {
         val now = clock.currentTimeMillis()
         val current = records[modelId] ?: ModelUsageRecord(modelId = modelId)
-        val newTimestamps = (current.timestamps + now).filter { now - it <= SEVEN_DAYS_MS }
-
-        val newTotalTools = if (isToolCallFailure) current.totalToolCalls + 1 else current.totalToolCalls
-
+        val event = UsageEvent(
+            timestampMs = now,
+            isSuccess = false,
+            isToolCallFailure = isToolCallFailure,
+            hasValidToolCall = if (isToolCallFailure) false else null,
+        )
+        val validEvents = (current.events + event).filter { now - it.timestampMs <= SEVEN_DAYS_MS }
         val updated = current.copy(
-            failureCount = current.failureCount + 1,
-            totalToolCalls = newTotalTools,
+            events = validEvents,
+            successCount = validEvents.count { it.isSuccess },
+            failureCount = validEvents.count { !it.isSuccess },
+            validToolCalls = validEvents.count { it.hasValidToolCall == true },
+            totalToolCalls = validEvents.count { it.hasValidToolCall != null || it.isToolCallFailure },
+            totalFirstTokenMs = validEvents.mapNotNull { it.firstTokenMs }.filter { it > 0 }.sum(),
+            firstTokenSamples = validEvents.count { it.firstTokenMs != null && it.firstTokenMs > 0 },
             lastUsedEpochMs = now,
-            timestamps = newTimestamps,
+            timestamps = validEvents.map { it.timestampMs },
         )
         records[modelId] = updated
         store.save(records)
@@ -144,12 +202,22 @@ class ModelStatsTracker(
         val keys = records.keys.toList()
         for (k in keys) {
             val record = records[k] ?: continue
-            val validTimestamps = record.timestamps.filter { now - it <= SEVEN_DAYS_MS }
-            if (validTimestamps.size != record.timestamps.size) {
-                if (validTimestamps.isEmpty()) {
+            val validEvents = record.events.filter { now - it.timestampMs <= SEVEN_DAYS_MS }
+            if (validEvents.size != record.events.size) {
+                if (validEvents.isEmpty()) {
                     records.remove(k)
                 } else {
-                    records[k] = record.copy(timestamps = validTimestamps)
+                    records[k] = record.copy(
+                        events = validEvents,
+                        successCount = validEvents.count { it.isSuccess },
+                        failureCount = validEvents.count { !it.isSuccess },
+                        validToolCalls = validEvents.count { it.hasValidToolCall == true },
+                        totalToolCalls = validEvents.count { it.hasValidToolCall != null || it.isToolCallFailure },
+                        totalFirstTokenMs = validEvents.mapNotNull { it.firstTokenMs }.filter { it > 0 }.sum(),
+                        firstTokenSamples = validEvents.count { it.firstTokenMs != null && it.firstTokenMs > 0 },
+                        lastUsedEpochMs = validEvents.maxOfOrNull { it.timestampMs } ?: 0L,
+                        timestamps = validEvents.map { it.timestampMs },
+                    )
                 }
                 changed = true
             }

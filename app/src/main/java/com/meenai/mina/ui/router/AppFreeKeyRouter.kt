@@ -24,6 +24,11 @@ import com.meenai.mina.core.router.preset.ZaiPreset
 import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
+import android.content.Context
+import java.io.File
+import com.meenai.mina.core.router.ModelCooldownStore
+import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
+import com.meenai.mina.core.router.picker.FileModelStatsStore
 import okhttp3.OkHttpClient
 
 /**
@@ -96,44 +101,63 @@ object AppFreeKeyRouter {
         return list
     }
 
-    @Volatile
     private var sharedRankingsRepo: ModelRankingsRepository? = null
-
-    fun initRankingsRepository(filesDir: java.io.File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
-        val cacheFile = java.io.File(filesDir, "model-rankings.json")
-        val repo = ModelRankingsRepository(
-            cacheStore = FileModelRankingsCacheStore(cacheFile),
-            httpClient = http,
-        )
-        sharedRankingsRepo = repo
-        return repo
-    }
-
-    private val sharedProbeService: ModelProbeService by lazy {
-        ModelProbeService()
-    }
-
-    private val sharedStatsTracker: ModelStatsTracker by lazy {
-        ModelStatsTracker()
-    }
+    private var sharedProbeService: ModelProbeService? = null
+    private var sharedStatsTracker: ModelStatsTracker? = null
+    private var sharedCooldownStore: ModelCooldownStore? = null
 
     fun getRankingsRepository(): ModelRankingsRepository =
         sharedRankingsRepo ?: ModelRankingsRepository().also { sharedRankingsRepo = it }
 
-    fun getProbeService(): ModelProbeService = sharedProbeService
-    fun getStatsTracker(): ModelStatsTracker = sharedStatsTracker
+    fun getProbeService(): ModelProbeService =
+        sharedProbeService ?: ModelProbeService().also { sharedProbeService = it }
+
+    fun getStatsTracker(): ModelStatsTracker =
+        sharedStatsTracker ?: ModelStatsTracker().also { sharedStatsTracker = it }
+
+    fun getCooldownStore(): ModelCooldownStore =
+        sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
+
+    fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
+        val cacheFile = File(filesDir, "model-rankings.json")
+        val repo = ModelRankingsRepository(cacheStore = FileModelRankingsCacheStore(cacheFile), httpClient = http)
+        sharedRankingsRepo = repo
+        return repo
+    }
+
+    fun initStatsTracker(filesDir: File): ModelStatsTracker {
+        val statsFile = File(filesDir, "model-stats.json")
+        val tracker = ModelStatsTracker(store = FileModelStatsStore(statsFile))
+        sharedStatsTracker = tracker
+        return tracker
+    }
+
+    fun initCooldownStore(context: Context): ModelCooldownStore {
+        val prefs = context.getSharedPreferences("model_cooldown_store", Context.MODE_PRIVATE)
+        val store = ModelCooldownStore(
+            persistCallback = { json ->
+                prefs.edit().putString("cooldown_state", json).apply()
+            }
+        )
+        val saved = prefs.getString("cooldown_state", null)
+        if (!saved.isNullOrBlank()) {
+            store.loadFromJson(saved)
+        }
+        sharedCooldownStore = store
+        return store
+    }
 
     /**
-     * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
+     * Creates a new [FreeKeyRouter] wired with shared rankings, probe, stats, and cooldown stores.
      */
-    fun createRouter(
-        store: ProviderStore,
+    fun createRouterForCandidates(
+        candidates: List<RouterCandidate>,
         http: OkHttpClient = OkHttpClient(),
         rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
-        probeService: ModelProbeService = sharedProbeService,
-        statsTracker: ModelStatsTracker = sharedStatsTracker,
+        probeService: ModelProbeService = getProbeService(),
+        statsTracker: ModelStatsTracker = getStatsTracker(),
+        cooldownStore: ModelCooldownStore = getCooldownStore(),
     ): FreeKeyRouter {
-        val candidates = createCandidates(store, http)
         val picker = AutoModelPicker(
             apiClient = HttpOpenRouterApiClient(http),
             rankingsRepository = rankingsRepository,
@@ -144,12 +168,32 @@ object AppFreeKeyRouter {
         return FreeKeyRouter(
             candidates = candidates,
             difficultyRouter = diffRouter,
+            cooldownStore = cooldownStore,
             firstTokenTimeoutMs = 15_000L,
             rankingsRepository = rankingsRepository,
             probeService = probeService,
             statsTracker = statsTracker,
         )
     }
+
+    /**
+     * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
+     */
+    fun createRouter(
+        store: ProviderStore,
+        http: OkHttpClient = OkHttpClient(),
+        rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
+        probeService: ModelProbeService = getProbeService(),
+        statsTracker: ModelStatsTracker = getStatsTracker(),
+        cooldownStore: ModelCooldownStore = getCooldownStore(),
+    ): FreeKeyRouter = createRouterForCandidates(
+        candidates = createCandidates(store, http),
+        http = http,
+        rankingsRepository = rankingsRepository,
+        probeService = probeService,
+        statsTracker = statsTracker,
+        cooldownStore = cooldownStore,
+    )
 
     /**
      * Auto-populates unconfigured roles in Settings (Main, Light, Vision) from Smart Model Picker.
@@ -449,7 +493,7 @@ object AppFreeKeyRouter {
                     model = model,
                     curatedRank = 0,
                     isFree = true,
-                    isBackup = false,
+                    isBackup = true,
                     roles = roles,
                 )
             }
@@ -457,26 +501,24 @@ object AppFreeKeyRouter {
 
         // Hardcoded fallback list if no dynamic models provided
         val candidates = mutableListOf<RouterCandidate>()
-        if (RouterUsageTracker.getTodayCalls("Qwen/Qwen2.5-72B-Instruct") > 0) {
-            val qwen72b = OpenAiCompatModel(
-                baseUrl = ModelScopePreset.BASE_URL,
-                apiKey = apiKey,
-                model = "Qwen/Qwen2.5-72B-Instruct",
-                capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
-                http = http,
+        val qwen72b = OpenAiCompatModel(
+            baseUrl = ModelScopePreset.BASE_URL,
+            apiKey = apiKey,
+            model = "Qwen/Qwen2.5-72B-Instruct",
+            capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit),
+            http = http,
+        )
+        candidates.add(
+            RouterCandidate(
+                id = "Qwen/Qwen2.5-72B-Instruct",
+                provider = ModelScopePreset.PROVIDER_ID,
+                model = qwen72b,
+                curatedRank = 75,
+                isFree = true,
+                isBackup = true,
+                roles = setOf(ModelRole.Main),
             )
-            candidates.add(
-                RouterCandidate(
-                    id = "Qwen/Qwen2.5-72B-Instruct",
-                    provider = ModelScopePreset.PROVIDER_ID,
-                    model = qwen72b,
-                    curatedRank = 75,
-                    isFree = true,
-                    isBackup = false,
-                    roles = setOf(ModelRole.Main),
-                )
-            )
-        }
+        )
         val qwen7b = OpenAiCompatModel(
             baseUrl = ModelScopePreset.BASE_URL,
             apiKey = apiKey,
@@ -499,7 +541,7 @@ object AppFreeKeyRouter {
                 model = qwen7b,
                 curatedRank = 50,
                 isFree = true,
-                isBackup = false,
+                isBackup = true,
                 roles = setOf(ModelRole.Light),
             )
         )
@@ -510,7 +552,7 @@ object AppFreeKeyRouter {
                 model = qwenVl,
                 curatedRank = 55,
                 isFree = true,
-                isBackup = false,
+                isBackup = true,
                 roles = setOf(ModelRole.Vision),
             )
         )

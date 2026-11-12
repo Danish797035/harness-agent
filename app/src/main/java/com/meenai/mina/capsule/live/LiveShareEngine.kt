@@ -21,6 +21,8 @@ fun interface ConsentRequester {
 class LiveShareEngine(
     private val consentRequester: ConsentRequester,
 ) {
+    var deviceLockChecker: () -> Boolean = { false }
+
     private val _state = MutableStateFlow(LiveShareState())
     val state: StateFlow<LiveShareState> = _state.asStateFlow()
 
@@ -79,7 +81,7 @@ class LiveShareEngine(
             return
         }
 
-        val isSensitive = packages.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(packages, false, appAccessState)
+        val isSensitive = packages.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(packages, deviceLockChecker(), appAccessState)
         if (isSensitive) {
             if (currentStatus == LiveShareStatus.Active) {
                 _state.value = _state.value.copy(
