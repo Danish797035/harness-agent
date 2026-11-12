@@ -1,6 +1,7 @@
 package com.meenai.mina.core.image
 
 import com.meenai.mina.core.router.MagicubeLedger
+import kotlinx.coroutines.CancellationException
 
 sealed class ImageResult {
     data class Success(
@@ -114,6 +115,8 @@ class ImageGenerationService(
                 }
 
                 return ImageResult.Success(bytes, candidate.id, cost)
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 lastError = t
                 switches++

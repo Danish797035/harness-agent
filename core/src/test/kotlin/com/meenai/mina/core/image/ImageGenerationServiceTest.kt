@@ -433,4 +433,32 @@ class ImageGenerationServiceTest {
         assertTrue("Expected ImageClientException after 5 consecutive poll errors", threw)
         assertEquals(5, pollAttempts.get())
     }
+
+    @Test
+    fun cancellationExceptionIsRethrownWithoutFailover() = runBlocking {
+        val calls = AtomicInteger(0)
+        val cancellingClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                calls.incrementAndGet()
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray =
+                throw kotlinx.coroutines.CancellationException("cancelled")
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = cancellingClient,
+            getApiKey = { "test-key" },
+        )
+
+        var caughtCancellation = false
+        try {
+            service.generateImage("sunset")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            caughtCancellation = true
+        }
+        assertTrue("CancellationException must propagate immediately", caughtCancellation)
+        assertEquals("Must not fail over to second candidate after cancellation", 1, calls.get())
+    }
 }
