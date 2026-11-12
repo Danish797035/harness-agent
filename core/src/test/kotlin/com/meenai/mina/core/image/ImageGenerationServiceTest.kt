@@ -327,13 +327,20 @@ class ImageGenerationServiceTest {
         MagicubeLedger.syncBalance(2.0)
         val imageBytes = "OPENROUTER_IMAGE".toByteArray()
 
+        val failingModelScopeClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray =
+                throw AssertionError("ModelScope should not be called when balance < 5")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray =
+                throw AssertionError("ModelScope should not be called when balance < 5")
+        }
+
         val fakeOpenRouterClient = object : ImageClient {
-            override suspend fun generate(apiKey: String, model: String, prompt: String): ByteArray = imageBytes
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray = imageBytes
             override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray = imageBytes
         }
 
         val service = ImageGenerationService(
-            modelScopeClient = null,
+            modelScopeClient = failingModelScopeClient,
             openRouterClient = fakeOpenRouterClient,
             getApiKey = { "or-key" },
             isPaidAllowed = { true },

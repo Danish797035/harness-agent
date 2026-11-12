@@ -378,7 +378,7 @@ class FreeKeyRouterTest {
         val candidate = RouterCandidate("m1", "p1", model, curatedRank = 1)
         val router = FreeKeyRouter(
             candidates = listOf(candidate),
-            clock = testClock,
+            now = { simulatedNow },
             statsTracker = statsTracker,
             delayMs = {},
         )
