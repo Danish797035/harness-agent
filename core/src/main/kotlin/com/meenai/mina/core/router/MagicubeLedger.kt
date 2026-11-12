@@ -38,6 +38,7 @@ object MagicubeLedger {
     const val DAILY_LOGIN_GRANT: Double = 200.0
     const val ALIBABA_LINKED_BONUS: Double = 50.0
     const val MINIMUM_BALANCE_FOR_MODELSCOPE: Double = 5.0
+    const val DEFAULT_LONG_TERM_EXPIRY_MS: Long = 30L * 24 * 60 * 60 * 1000L
 
     @Volatile
     private var storage: MagicubeStorage? = null
@@ -214,7 +215,11 @@ object MagicubeLedger {
     }
 
     @Synchronized
-    fun syncBalance(totalAmount: Double, nowMs: Long = System.currentTimeMillis()) {
+    fun syncBalance(
+        totalAmount: Double,
+        nowMs: Long = System.currentTimeMillis(),
+        longTermExpiryMs: Long? = null,
+    ) {
         val today = todayKey(nowMs)
         isLoginMarkedDayKey = today
         shortTermDayKey = today
@@ -222,9 +227,11 @@ object MagicubeLedger {
         if (target <= DAILY_LOGIN_GRANT) {
             shortTermBalance = target
             longTermBalance = 0.0
+            longTermExpiryEpochMs = null
         } else {
             shortTermBalance = DAILY_LOGIN_GRANT
             longTermBalance = target - DAILY_LOGIN_GRANT
+            longTermExpiryEpochMs = longTermExpiryMs ?: (nowMs + DEFAULT_LONG_TERM_EXPIRY_MS)
         }
         persist()
     }

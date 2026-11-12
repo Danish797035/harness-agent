@@ -373,4 +373,29 @@ class MagicubeLedgerTest {
         assertEquals("balance must stay 4.0 when payment fails", 4.0, MagicubeLedger.totalBalance(tNow), 0.001)
         assertEquals(4.0, MagicubeLedger.getLongTermBalance(tNow), 0.001)
     }
+
+    @Test
+    fun testSyncBalanceSetsAndClearsLongTermExpiry() {
+        val tNow = ZonedDateTime.of(
+            2026, 5, 10, 12, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        // 1. Syncing above daily grant (250) sets default 30-day long-term expiry
+        MagicubeLedger.syncBalance(250.0, nowMs = tNow)
+        val stateAbove = MagicubeLedger.toState()
+        assertEquals(200.0, stateAbove.shortTermBalance, 0.001)
+        assertEquals(50.0, stateAbove.longTermBalance, 0.001)
+        assertEquals(tNow + MagicubeLedger.DEFAULT_LONG_TERM_EXPIRY_MS, stateAbove.longTermExpiryEpochMs)
+        assertEquals(50.0, MagicubeLedger.getLongTermBalance(tNow), 0.001)
+        // After default expiry, long-term balance must expire to 0
+        assertEquals(0.0, MagicubeLedger.getLongTermBalance(tNow + MagicubeLedger.DEFAULT_LONG_TERM_EXPIRY_MS), 0.001)
+
+        // 2. Syncing <= daily grant (150) clears the previously stored longTermExpiryEpochMs
+        MagicubeLedger.syncBalance(150.0, nowMs = tNow)
+        val stateBelow = MagicubeLedger.toState()
+        assertEquals(150.0, stateBelow.shortTermBalance, 0.001)
+        assertEquals(0.0, stateBelow.longTermBalance, 0.001)
+        assertNull("Stale longTermExpiryEpochMs must be cleared when total <= DAILY_LOGIN_GRANT", stateBelow.longTermExpiryEpochMs)
+    }
 }
