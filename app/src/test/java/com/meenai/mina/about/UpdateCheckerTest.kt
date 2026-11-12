@@ -164,4 +164,32 @@ class UpdateCheckerTest {
         assertTrue(UpdateSchedule.due(1_000, 1_000 + UpdateSchedule.MIN_GAP_MS))
         assertTrue("clock moved back", UpdateSchedule.due(10_000, 5_000))
     }
+
+    @Test
+    fun loadDoesNotStallBehindSlowNetworkFetch() = kotlinx.coroutines.runBlocking {
+        val fetchStarted = java.util.concurrent.CountDownLatch(1)
+        val releaseFetch = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                fetchStarted.countDown()
+                releaseFetch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                return release("v0.2.0")
+            }
+        }
+
+        val c = checker()
+        val checkJob = kotlinx.coroutines.launch(kotlinx.coroutines.Dispatchers.IO) {
+            c.check(manual = true)
+        }
+        assertTrue("Network fetch should start", fetchStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+
+        // While network fetch is in flight, load() must acquire mutex immediately without stalling
+        kotlinx.coroutines.withTimeout(1500L) {
+            c.load()
+        }
+
+        releaseFetch.countDown()
+        checkJob.join()
+        assertEquals("0.2.0", c.state.value.update?.version)
+    }
 }
