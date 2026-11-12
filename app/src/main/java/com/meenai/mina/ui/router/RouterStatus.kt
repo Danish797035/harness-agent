@@ -528,25 +528,92 @@ class RealRouterStatus(
         else -> provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 
-    private fun formatModelName(id: String): String = when {
-        id.isEmpty() -> ""
-        id.contains("glm-4.7-flash", ignoreCase = true) -> "GLM-4.7 Flash"
-        id.contains("glm-4.6v-flash", ignoreCase = true) -> "GLM-4.6V Flash"
-        id.contains("gemini-2.0-flash", ignoreCase = true) -> "Gemini 2.0 Flash"
-        id.contains("llama-3.3-70b", ignoreCase = true) -> "Llama 3.3 70B"
-        id.contains("llama-3.1-8b", ignoreCase = true) -> "Llama 3.1 8B"
-        id.contains("qwen-2.5-coder-32b", ignoreCase = true) -> "Qwen 2.5 Coder 32B"
-        id.contains("Qwen2.5-72B", ignoreCase = true) -> "Qwen 2.5 72B"
-        id.contains("Qwen2.5-7B", ignoreCase = true) -> "Qwen 2.5 7B"
-        id.contains("Qwen2.5-VL-7B", ignoreCase = true) -> "Qwen 2.5 VL 7B"
-        id.contains("qwen3.5", ignoreCase = true) -> "Qwen3.5"
-        id.contains("qwen-plus", ignoreCase = true) -> "Qwen Plus"
-        id.contains("deepseek-v3", ignoreCase = true) -> "DeepSeek-V3"
-        id.contains("deepseek-v4", ignoreCase = true) -> "DeepSeek-V4"
-        id.contains("deepseek-r1", ignoreCase = true) -> "DeepSeek-R1"
-        else -> id.substringAfterLast('/').removeSuffix(":free")
-    }
+    private fun formatModelName(id: String): String = formatRouterModelName(id)
 }
+
+/** Formats a raw model ID into a concise display name for chip and wait line. */
+internal fun formatRouterModelName(id: String): String = when {
+    id.isEmpty() -> ""
+    id.contains("glm-4.7-flash", ignoreCase = true) -> "GLM-4.7 Flash"
+    id.contains("glm-4.6v-flash", ignoreCase = true) -> "GLM-4.6V Flash"
+    id.contains("gemini-2.0-flash", ignoreCase = true) -> "Gemini 2.0 Flash"
+    id.contains("llama-3.3-70b", ignoreCase = true) -> "Llama 3.3 70B"
+    id.contains("llama-3.1-8b", ignoreCase = true) -> "Llama 3.1 8B"
+    id.contains("qwen-2.5-coder-32b", ignoreCase = true) -> "Qwen 2.5 Coder 32B"
+    id.contains("Qwen2.5-72B", ignoreCase = true) -> "Qwen 2.5 72B"
+    id.contains("Qwen2.5-7B", ignoreCase = true) -> "Qwen 2.5 7B"
+    id.contains("Qwen2.5-VL-7B", ignoreCase = true) -> "Qwen 2.5 VL 7B"
+    id.contains("qwen3.5", ignoreCase = true) -> "Qwen3.5"
+    id.contains("qwen-plus", ignoreCase = true) -> "Qwen Plus"
+    id.contains("deepseek-v3", ignoreCase = true) -> "DeepSeek-V3"
+    id.contains("deepseek-v4", ignoreCase = true) -> "DeepSeek-V4"
+    id.contains("deepseek-r1", ignoreCase = true) -> "DeepSeek-R1"
+    else -> id.substringAfterLast('/').removeSuffix(":free")
+}
+
+/**
+ * Single source of truth for the model displayed in both [RouterChip] and the wait line.
+ * - While a task is active, always shows the actual model answering the task (never an estimate/fallback model).
+ * - When no task is active, shows [routerModel] (the router's current pick).
+ */
+fun resolveDisplayModel(
+    routerModel: ActiveModel,
+    runningModelId: String?,
+    isTaskRunning: Boolean,
+    usages: List<ProviderUsage> = emptyList(),
+): ActiveModel {
+    if (!isTaskRunning) return routerModel
+    val liveId = runningModelId?.takeIf { it.isNotBlank() }
+    if (liveId == null) {
+        if (routerModel.isEstimate || routerModel.reason == "Configured main model") {
+            return ActiveModel(
+                id = "",
+                name = "No model",
+                provider = "",
+                usedToday = 0,
+                limit = null,
+                isEstimate = false,
+                quotaRemaining = 0,
+                quotaTotal = 0,
+                reason = routerModel.reason,
+                isPinned = false,
+                canPin = false,
+                cooldownUntilMs = 0L,
+            )
+        }
+        return routerModel
+    }
+    if (routerModel.id.equals(liveId, ignoreCase = true)) {
+        return if (routerModel.isEstimate) routerModel.copy(isEstimate = false) else routerModel
+    }
+    val matchedProvider = usages.firstOrNull { u ->
+        u.models.any { it.modelId.equals(liveId, ignoreCase = true) }
+    }
+    val matchedLine = matchedProvider?.models?.firstOrNull {
+        it.modelId.equals(liveId, ignoreCase = true)
+    }
+    val usedToday = matchedLine?.todayRequests ?: RouterUsageTracker.getTodayCalls(liveId)
+    val limit = matchedLine?.limit
+    return ActiveModel(
+        id = liveId,
+        name = formatRouterModelName(liveId),
+        provider = matchedProvider?.provider ?: "",
+        usedToday = usedToday,
+        limit = limit,
+        isEstimate = false,
+        quotaRemaining = if (limit != null) (limit - usedToday).coerceAtLeast(0) else 0,
+        quotaTotal = limit ?: 0,
+        reason = "Active task model",
+        isPinned = false,
+        canPin = routerModel.canPin,
+        cooldownUntilMs = 0L,
+        callStatus = ModelCallStatus.Untested,
+    )
+}
+
+/** Extracts the display name for the wait line from the same [ActiveModel] shown by [RouterChip]. */
+fun waitModelName(activeModel: ActiveModel): String =
+    if (activeModel.name != "No model" && activeModel.id.isNotBlank()) activeModel.name else ""
 
 /**
  * Fake implementation of [RouterStatus] for previews and unit tests.

@@ -1972,4 +1972,28 @@ class ChatViewModelTest {
         // 结束后还是它:胶囊不会跳回上一个对话
         assertEquals(CurrentChat.Open(id), store.currentChat())
     }
+
+    @Test fun activeExchangeTracksRunningModelAndClearsOnCompletion() = runTest {
+        val runningModel = MutableStateFlow<String?>(null)
+        val vm = ChatViewModel(
+            backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            runningModel = runningModel,
+        ).also { runCurrent() }
+        assertTrue(vm.send("Hello", ok))
+        emit(TaskState.Running(1, ""))
+        assertNull(vm.ui.value.exchanges.single().activeModel)
+
+        runningModel.value = "google/gemini-2.0-flash-exp:free"
+        runCurrent()
+        assertEquals("google/gemini-2.0-flash-exp:free", vm.ui.value.exchanges.single().activeModel)
+
+        // Switching model mid-task updates activeModel on the running exchange
+        runningModel.value = "Qwen/Qwen2.5-72B-Instruct"
+        runCurrent()
+        assertEquals("Qwen/Qwen2.5-72B-Instruct", vm.ui.value.exchanges.single().activeModel)
+
+        runningModel.value = null
+        emit(TaskState.Succeeded("Done"))
+        assertNull(vm.ui.value.exchanges.single().activeModel)
+    }
 }

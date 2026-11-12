@@ -38,6 +38,7 @@ internal class ModelCaller(
     private val now: () -> Long,
     private val autonomous: Boolean = false,
     private val trace: RunTrace? = null,
+    private val onActiveModel: (String) -> Unit = {},
 ) {
     /** 每个模型一份压缩状态:各自的上下文、各自发出的那份历史,轻量模型那次压缩不连累主模型的请求前缀。 */
     private val compressors = java.util.IdentityHashMap<ChatModel, ContextCompressor>()
@@ -188,6 +189,7 @@ internal class ModelCaller(
                 if (tools.inlineScreen) tools.setVisibleObservations(visibleReads(sent.messages))
                 // 这一次之前花掉的(失败的请求、退避)都算重试等待
                 lastRetryWaitMs = now() - began
+                onActiveModel(using.name)
                 suspend fun send(): ModelReply = if (onText == null) using.complete(systemPrompt, sent.messages, specs)
                     else if (using is StreamingChatModel) using.completeStreaming(systemPrompt, sent.messages, specs, onText)
                     else using.complete(systemPrompt, sent.messages, specs).also { result ->

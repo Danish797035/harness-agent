@@ -333,6 +333,12 @@ class FreeKeyRouter(
                         reason = reason,
                         switchEvent = RouterSwitchEvent(prev, next.id, next.provider, reason, now()),
                     )
+                } else if (_status.value.currentModel != next.id) {
+                    updateStatus(
+                        model = next.id,
+                        provider = next.provider,
+                        reason = _status.value.reason ?: "Optimal free candidate",
+                    )
                 }
                 previousCandidate = next
             }
