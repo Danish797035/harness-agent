@@ -11,6 +11,7 @@ import com.meenai.mina.core.router.picker.AutoModelPicker
 import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
+import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
 import com.meenai.mina.core.router.picker.ModelCandidate
 import com.meenai.mina.core.router.picker.ModelProbeService
@@ -95,8 +96,17 @@ object AppFreeKeyRouter {
         return list
     }
 
-    private val sharedRankingsRepo: ModelRankingsRepository by lazy {
-        ModelRankingsRepository()
+    @Volatile
+    private var sharedRankingsRepo: ModelRankingsRepository? = null
+
+    fun initRankingsRepository(filesDir: java.io.File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
+        val cacheFile = java.io.File(filesDir, "model-rankings.json")
+        val repo = ModelRankingsRepository(
+            cacheStore = FileModelRankingsCacheStore(cacheFile),
+            httpClient = http,
+        )
+        sharedRankingsRepo = repo
+        return repo
     }
 
     private val sharedProbeService: ModelProbeService by lazy {
@@ -107,7 +117,9 @@ object AppFreeKeyRouter {
         ModelStatsTracker()
     }
 
-    fun getRankingsRepository(): ModelRankingsRepository = sharedRankingsRepo
+    fun getRankingsRepository(): ModelRankingsRepository =
+        sharedRankingsRepo ?: ModelRankingsRepository().also { sharedRankingsRepo = it }
+
     fun getProbeService(): ModelProbeService = sharedProbeService
     fun getStatsTracker(): ModelStatsTracker = sharedStatsTracker
 
@@ -117,7 +129,7 @@ object AppFreeKeyRouter {
     fun createRouter(
         store: ProviderStore,
         http: OkHttpClient = OkHttpClient(),
-        rankingsRepository: ModelRankingsRepository = sharedRankingsRepo,
+        rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
         probeService: ModelProbeService = sharedProbeService,
         statsTracker: ModelStatsTracker = sharedStatsTracker,
     ): FreeKeyRouter {
