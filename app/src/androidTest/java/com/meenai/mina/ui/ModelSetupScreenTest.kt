@@ -26,6 +26,7 @@ import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.RoleChoice
 import com.meenai.mina.settings.RoleChoices
+import com.meenai.mina.ui.router.ProviderUsage
 import com.meenai.mina.ui.theme.MinaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -102,6 +103,7 @@ class ModelSetupScreenTest {
     @Test fun connectedProvidersAreListedAndNextEnables() {
         show(connected())
         compose.onNodeWithTag("context-main").assertDoesNotExist()
+        compose.onNodeWithTag("switch-notice-toggle").assertDoesNotExist()
         compose.onNodeWithText(ModelsCopy.PROVIDERS).assertIsDisplayed()
         compose.onNodeWithText("已连接 · 2 个模型 · 主模型、轻量模型在用").assertIsDisplayed()
         // 轻量卡「用主模型」下面也写着主模型名,所以只在主模型卡里找
@@ -125,6 +127,26 @@ class ModelSetupScreenTest {
         compose.onNodeWithText(ModelsCopy.SAME_AS_MAIN).assertIsDisplayed()
         compose.onNodeWithTag("role-light").performClick()
         assertEquals(listOf("role Light"), calls)
+    }
+
+    @Test fun settingsPageShowsRouterUsageCardAndTogglesSwitchNotice() {
+        var toggledTo: Boolean? = null
+        compose.setContent {
+            MinaTheme {
+                ModelSetupContent(
+                    connected(),
+                    onboarding = false,
+                    actions = actions,
+                    onBack = {},
+                    routerUsages = listOf(ProviderUsage(provider = "ModelScope")),
+                    showSwitchNotice = true,
+                    onToggleSwitchNotice = { toggledTo = it },
+                )
+            }
+        }
+        compose.onNodeWithText("ModelScope").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("switch-notice-toggle").performScrollTo().performClick()
+        assertEquals(false, toggledTo)
     }
 
     @Test fun contextFormValidatesPreviewsAndSavesTheModelUsedForNewTasks() {

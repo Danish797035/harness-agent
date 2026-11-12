@@ -402,10 +402,9 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
                 updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
                 onCheckUpdates = app.updates::checkInBackground,
-                updateState = updateState,
-                routerStatus = app.routerStatus)
+                updateState = updateState)
         }
-        Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) })
+        Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, routerStatus = app.routerStatus)
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)
         Route.About -> AboutScreen(
             versionName = BuildConfig.VERSION_NAME, build = BuildConfig.GIT_HASH, beta = BuildConfig.BETA,

@@ -91,13 +91,27 @@ import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaSize
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
+import com.meenai.mina.ui.router.LocalRouterStatus
+import com.meenai.mina.ui.router.RouterStatus
 import com.meenai.mina.voice.SpeechChoice
 import com.meenai.mina.voice.SpeechOptions
 
 /** 设置 › 模型:和上手时的配置模型是同一页([ModelSetupScreen]),不在引导流程里。 */
 @Composable
-fun ModelsScreen(store: ProviderStore, onBack: () -> Unit, onOpenSpeech: (() -> Unit)? = null) {
-    ModelSetupScreen(store, onboarding = false, onBack = onBack, onDone = onBack, onOpenSpeech = onOpenSpeech)
+fun ModelsScreen(
+    store: ProviderStore,
+    onBack: () -> Unit,
+    onOpenSpeech: (() -> Unit)? = null,
+    routerStatus: RouterStatus = LocalRouterStatus.current,
+) {
+    ModelSetupScreen(
+        store,
+        onboarding = false,
+        onBack = onBack,
+        onDone = onBack,
+        onOpenSpeech = onOpenSpeech,
+        routerStatus = routerStatus,
+    )
 }
 
 /** 子页面共用的骨架:顶栏 + 可滚动内容。 */
