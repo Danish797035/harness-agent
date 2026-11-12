@@ -1,8 +1,12 @@
 package com.meenai.mina.about
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -166,7 +170,7 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun loadDoesNotStallBehindSlowNetworkFetch() = kotlinx.coroutines.runBlocking {
+    fun loadDoesNotStallBehindSlowNetworkFetch() = runBlocking {
         val fetchStarted = java.util.concurrent.CountDownLatch(1)
         val releaseFetch = java.util.concurrent.CountDownLatch(1)
         server.dispatcher = object : Dispatcher() {
@@ -178,13 +182,13 @@ class UpdateCheckerTest {
         }
 
         val c = checker()
-        val checkJob = kotlinx.coroutines.launch(kotlinx.coroutines.Dispatchers.IO) {
+        val checkJob = launch(Dispatchers.IO) {
             c.check(manual = true)
         }
         assertTrue("Network fetch should start", fetchStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
 
         // While network fetch is in flight, load() must acquire mutex immediately without stalling
-        kotlinx.coroutines.withTimeout(1500L) {
+        withTimeout(1500L) {
             c.load()
         }
 
