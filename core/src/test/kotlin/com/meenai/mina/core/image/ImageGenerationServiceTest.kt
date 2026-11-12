@@ -321,4 +321,109 @@ class ImageGenerationServiceTest {
         assertEquals(2.0, MagicubeLedger.costForModel("Qwen/Qwen-Image"), 0.001)
         assertEquals(2.0, MagicubeLedger.costForModel("Qwen/Qwen-Image-Edit"), 0.001)
     }
+
+    @Test
+    fun magicubeBalanceBelowFiveAllowsOpenRouterCandidate() = runBlocking {
+        MagicubeLedger.syncBalance(2.0)
+        val imageBytes = "OPENROUTER_IMAGE".toByteArray()
+
+        val fakeOpenRouterClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String): ByteArray = imageBytes
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray = imageBytes
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = null,
+            openRouterClient = fakeOpenRouterClient,
+            getApiKey = { "or-key" },
+            isPaidAllowed = { true },
+        )
+
+        val result = service.generateImage("cat")
+        assertTrue(result is ImageResult.Success)
+        val success = result as ImageResult.Success
+        assertEquals(0.0, success.costMagicube, 0.001)
+        assertTrue(success.bytes.contentEquals(imageBytes))
+    }
+
+    @Test
+    fun transientPollErrorsRetriedBeforeSucceeding() = runBlocking {
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        val imageBytes = "RETRY_SUCCESS_BYTES".toByteArray()
+        val pollAttempts = AtomicInteger(0)
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return when {
+                    path.contains("/v1/images/generations") -> {
+                        MockResponse().setResponseCode(200).setBody("""{"task_id": "retry-task"}""")
+                    }
+                    path.contains("/v1/tasks/retry-task") -> {
+                        val attempt = pollAttempts.incrementAndGet()
+                        if (attempt <= 3) {
+                            MockResponse().setResponseCode(502).setBody("Bad Gateway")
+                        } else {
+                            MockResponse().setResponseCode(200).setBody(
+                                """{"task_status": "SUCCEED", "output_images": ["$serverUrl/images/retry.jpg"]}"""
+                            )
+                        }
+                    }
+                    path.contains("/images/retry.jpg") -> {
+                        MockResponse().setResponseCode(200).setBody(okio.Buffer().write(imageBytes))
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val client = ModelScopeImageClient(
+            baseUrl = serverUrl,
+            http = OkHttpClient(),
+            pollIntervalMs = 1L,
+            maxTimeoutMs = 5000L,
+        )
+
+        val result = client.generate("test-key", "Qwen/Qwen-Image-2.1", "sunset")
+        assertTrue("Task should succeed after 3 transient poll failures", result.contentEquals(imageBytes))
+        assertEquals(4, pollAttempts.get())
+    }
+
+    @Test
+    fun fiveConsecutivePollErrorsFailTask() = runBlocking {
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        val pollAttempts = AtomicInteger(0)
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return when {
+                    path.contains("/v1/images/generations") -> {
+                        MockResponse().setResponseCode(200).setBody("""{"task_id": "fail-task"}""")
+                    }
+                    path.contains("/v1/tasks/fail-task") -> {
+                        pollAttempts.incrementAndGet()
+                        MockResponse().setResponseCode(500).setBody("Server Error")
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val client = ModelScopeImageClient(
+            baseUrl = serverUrl,
+            http = OkHttpClient(),
+            pollIntervalMs = 1L,
+            maxTimeoutMs = 5000L,
+        )
+
+        var threw = false
+        try {
+            client.generate("test-key", "Qwen/Qwen-Image-2.1", "sunset")
+        } catch (e: ImageClientException) {
+            threw = true
+        }
+        assertTrue("Expected ImageClientException after 5 consecutive poll errors", threw)
+        assertEquals(5, pollAttempts.get())
+    }
 }
