@@ -198,11 +198,6 @@ object MagicubeLedger {
 
         val total = shortTermBalance + longTermBalance
         if (total < cost) {
-            val fromShort = minOf(shortTermBalance, cost)
-            shortTermBalance -= fromShort
-            val rem = cost - fromShort
-            longTermBalance = (longTermBalance - rem).coerceAtLeast(0.0)
-            persist()
             return false
         }
 

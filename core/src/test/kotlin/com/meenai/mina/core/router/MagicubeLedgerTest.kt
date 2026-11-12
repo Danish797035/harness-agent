@@ -357,4 +357,20 @@ class MagicubeLedgerTest {
 
         assertEquals(expectedTomorrow9, MagicubeLedger.nextNineAmIst(tAfter9))
     }
+
+    @Test
+    fun testAtomicDeductOrNothingWhenInsufficientBalance() {
+        val tNow = ZonedDateTime.of(
+            2026, 5, 10, 12, 0, 0, 0,
+            MagicubeLedger.IST_ZONE,
+        ).toInstant().toEpochMilli()
+
+        MagicubeLedger.setLongTermBalance(4.0, expiryEpochMs = tNow + 86400 * 1000L)
+        assertEquals(4.0, MagicubeLedger.totalBalance(tNow), 0.001)
+
+        val success = MagicubeLedger.deduct(5.0, nowMs = tNow)
+        assertFalse("deduct must return false when balance < cost", success)
+        assertEquals("balance must stay 4.0 when payment fails", 4.0, MagicubeLedger.totalBalance(tNow), 0.001)
+        assertEquals(4.0, MagicubeLedger.getLongTermBalance(tNow), 0.001)
+    }
 }
