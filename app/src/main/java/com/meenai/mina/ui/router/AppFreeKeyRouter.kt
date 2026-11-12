@@ -147,17 +147,16 @@ object AppFreeKeyRouter {
     }
 
     /**
-     * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
+     * Creates a new [FreeKeyRouter] wired with shared rankings, probe, stats, and cooldown stores.
      */
-    fun createRouter(
-        store: ProviderStore,
+    fun createRouterForCandidates(
+        candidates: List<RouterCandidate>,
         http: OkHttpClient = OkHttpClient(),
         rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
         probeService: ModelProbeService = getProbeService(),
         statsTracker: ModelStatsTracker = getStatsTracker(),
         cooldownStore: ModelCooldownStore = getCooldownStore(),
     ): FreeKeyRouter {
-        val candidates = createCandidates(store, http)
         val picker = AutoModelPicker(
             apiClient = HttpOpenRouterApiClient(http),
             rankingsRepository = rankingsRepository,
@@ -175,6 +174,25 @@ object AppFreeKeyRouter {
             statsTracker = statsTracker,
         )
     }
+
+    /**
+     * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
+     */
+    fun createRouter(
+        store: ProviderStore,
+        http: OkHttpClient = OkHttpClient(),
+        rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
+        probeService: ModelProbeService = getProbeService(),
+        statsTracker: ModelStatsTracker = getStatsTracker(),
+        cooldownStore: ModelCooldownStore = getCooldownStore(),
+    ): FreeKeyRouter = createRouterForCandidates(
+        candidates = createCandidates(store, http),
+        http = http,
+        rankingsRepository = rankingsRepository,
+        probeService = probeService,
+        statsTracker = statsTracker,
+        cooldownStore = cooldownStore,
+    )
 
     /**
      * Auto-populates unconfigured roles in Settings (Main, Light, Vision) from Smart Model Picker.

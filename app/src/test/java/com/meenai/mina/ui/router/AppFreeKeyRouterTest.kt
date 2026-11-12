@@ -560,4 +560,29 @@ class AppFreeKeyRouterTest {
         assertEquals("User ka chuna model nahi badalna chahiye", userChosenMainId, store.roles.value.main)
         assertEquals(customModel, store.configs.value.first { it.id == store.roles.value.main }.model)
     }
+
+    @Test
+    fun createRouterForCandidatesSharesSharedStores() {
+        val dummyModel = object : ChatModel {
+            override val name: String = "dummy"
+            override val capabilities: Capabilities = Capabilities(
+                toolCalls = true,
+                vision = false,
+                contextTokens = 32_000,
+                reasoning = false,
+                promptCaching = PromptCaching.Implicit,
+            )
+
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                ModelReply(listOf(Part.Text("ok")), StopReason.EndTurn, Usage(1, 1))
+        }
+        val candidates = listOf(
+            RouterCandidate(id = "dummy", provider = "configured", model = dummyModel, isFree = false)
+        )
+        val router = AppFreeKeyRouter.createRouterForCandidates(candidates)
+        org.junit.Assert.assertSame(AppFreeKeyRouter.getCooldownStore(), router.cooldownStore)
+        org.junit.Assert.assertSame(AppFreeKeyRouter.getRankingsRepository(), router.rankingsRepository)
+        org.junit.Assert.assertSame(AppFreeKeyRouter.getProbeService(), router.probeService)
+        org.junit.Assert.assertSame(AppFreeKeyRouter.getStatsTracker(), router.statsTracker)
+    }
 }
