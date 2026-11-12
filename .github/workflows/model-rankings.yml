@@ -21,6 +21,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow
+
       - name: Update model rankings
         run: |
           python3 tools/update_model_rankings.py
@@ -30,10 +34,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           HAS_MODELS=$(python3 -c 'import json; d=json.load(open("model-rankings.json")); print(1 if len(d.get("models", [])) > 0 else 0)' 2>/dev/null || echo 0)
-          if [[ "$HAS_MODELS" -eq 1 ]] && [[ -n $(git status --porcelain model-rankings.json core/src/main/resources/model-rankings.json) ]]; then
+          if [[ "$HAS_MODELS" -ne 1 ]]; then
+            echo "::error::model-rankings.json has no models - generator output is empty, failing loudly instead of silently keeping the old file"
+            exit 1
+          fi
+          if [[ -n $(git status --porcelain model-rankings.json core/src/main/resources/model-rankings.json) ]]; then
             git add model-rankings.json core/src/main/resources/model-rankings.json
             git commit -m "Automated: update model-rankings.json from public leaderboards"
             git push
           else
-            echo "No models fetched or no changes, keeping existing rankings file"
+            echo "Rankings already up to date, nothing to commit"
           fi

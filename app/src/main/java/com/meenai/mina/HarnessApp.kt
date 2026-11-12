@@ -249,6 +249,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     }
 
     val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {
+        com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
         com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers)
     }
 
@@ -398,6 +399,15 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             SandboxState.get(this@HarnessApp).status.first { it is SandboxStatus.Ready }
             val state = SandboxState.get(this@HarnessApp)
             runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
+        }
+        // Background download of fresh model rankings (once per day)
+        val rankingsRepo = com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                rankingsRepo.getRankings()
+            }.onFailure {
+                Log.w("HarnessApp", "Failed to download model rankings at app start", it)
+            }
         }
     }
 }

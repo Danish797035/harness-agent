@@ -11,6 +11,7 @@ import com.meenai.mina.core.router.picker.AutoModelPicker
 import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
+import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
 import com.meenai.mina.core.router.picker.ModelCandidate
 import com.meenai.mina.core.router.picker.ModelProbeService

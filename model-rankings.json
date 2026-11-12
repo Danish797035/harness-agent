@@ -1,6 +1,2937 @@
 {
-  "updatedAt": "2026-11-08T12:32:25Z",
+  "updatedAt": "2026-11-11T10:08:39Z",
   "version": 1,
-  "sources": [],
-  "models": []
+  "sources": [
+    "LMArena leaderboard-dataset (huggingface.co/datasets/lmarena-ai/leaderboard-dataset), boards text/coding/vision/agent, snapshots 2026-11-08, 2026-11-09, each board min-max scaled to 0-100; speedScore not measured by source (0.0 = no data)"
+  ],
+  "models": [
+    {
+      "model": "Gemini 4 Carbon",
+      "overallScore": 100.0,
+      "codingScore": 100.0,
+      "toolUseScore": 92.2,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 4 Argon",
+      "overallScore": 98.8,
+      "codingScore": 97.3,
+      "toolUseScore": 78.7,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 5.5",
+      "overallScore": 96.4,
+      "codingScore": 97.6,
+      "toolUseScore": 100.0,
+      "visionScore": 99.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Fable 5.1",
+      "overallScore": 96.3,
+      "codingScore": 95.9,
+      "toolUseScore": 86.9,
+      "visionScore": 99.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 5",
+      "overallScore": 95.5,
+      "codingScore": 96.4,
+      "toolUseScore": 70.9,
+      "visionScore": 98.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Wonder",
+      "overallScore": 95.0,
+      "codingScore": 94.8,
+      "toolUseScore": 57.9,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4.6",
+      "overallScore": 94.8,
+      "codingScore": 96.6,
+      "toolUseScore": 0.0,
+      "visionScore": 98.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.8 Flash",
+      "overallScore": 94.6,
+      "codingScore": 94.0,
+      "toolUseScore": 58.9,
+      "visionScore": 98.3,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2.6-Pro",
+      "overallScore": 93.4,
+      "codingScore": 96.6,
+      "toolUseScore": 58.8,
+      "visionScore": 88.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Fable 5",
+      "overallScore": 93.4,
+      "codingScore": 94.9,
+      "toolUseScore": 71.4,
+      "visionScore": 100.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Spark 1.3",
+      "overallScore": 93.4,
+      "codingScore": 93.7,
+      "toolUseScore": 58.5,
+      "visionScore": 96.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4.7",
+      "overallScore": 93.1,
+      "codingScore": 94.9,
+      "toolUseScore": 0.0,
+      "visionScore": 98.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.7 Flash",
+      "overallScore": 93.0,
+      "codingScore": 92.9,
+      "toolUseScore": 48.9,
+      "visionScore": 97.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.8-Max",
+      "overallScore": 92.5,
+      "codingScore": 93.1,
+      "toolUseScore": 54.1,
+      "visionScore": 97.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Spark 1.2",
+      "overallScore": 92.3,
+      "codingScore": 93.6,
+      "toolUseScore": 34.6,
+      "visionScore": 96.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.5 Flash",
+      "overallScore": 92.1,
+      "codingScore": 92.0,
+      "toolUseScore": 0.0,
+      "visionScore": 96.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.1 Pro Preview",
+      "overallScore": 91.7,
+      "codingScore": 90.8,
+      "toolUseScore": 43.3,
+      "visionScore": 94.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3 Pro",
+      "overallScore": 91.7,
+      "codingScore": 90.7,
+      "toolUseScore": 0.0,
+      "visionScore": 96.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.6 Flash",
+      "overallScore": 91.6,
+      "codingScore": 91.8,
+      "toolUseScore": 0.0,
+      "visionScore": 94.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Spark 1.1",
+      "overallScore": 91.6,
+      "codingScore": 92.5,
+      "toolUseScore": 35.0,
+      "visionScore": 93.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5.3",
+      "overallScore": 91.2,
+      "codingScore": 92.7,
+      "toolUseScore": 55.7,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.7-Max-Preview",
+      "overallScore": 91.0,
+      "codingScore": 92.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K3",
+      "overallScore": 90.9,
+      "codingScore": 93.4,
+      "toolUseScore": 54.7,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Spark",
+      "overallScore": 90.9,
+      "codingScore": 90.7,
+      "toolUseScore": 0.0,
+      "visionScore": 96.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.5",
+      "overallScore": 90.5,
+      "codingScore": 92.1,
+      "toolUseScore": 0.0,
+      "visionScore": 94.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-Max-Preview",
+      "overallScore": 90.4,
+      "codingScore": 91.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5.3-Flash",
+      "overallScore": 90.4,
+      "codingScore": 93.9,
+      "toolUseScore": 46.8,
+      "visionScore": 94.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5.2",
+      "overallScore": 90.2,
+      "codingScore": 91.4,
+      "toolUseScore": 54.3,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.4",
+      "overallScore": 90.2,
+      "codingScore": 92.4,
+      "toolUseScore": 0.0,
+      "visionScore": 95.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Sonnet 5.5",
+      "overallScore": 90.1,
+      "codingScore": 92.8,
+      "toolUseScore": 90.7,
+      "visionScore": 92.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ERNIE 5.1",
+      "overallScore": 90.0,
+      "codingScore": 91.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3 Flash",
+      "overallScore": 89.7,
+      "codingScore": 88.2,
+      "toolUseScore": 0.0,
+      "visionScore": 92.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2.5-Pro",
+      "overallScore": 89.5,
+      "codingScore": 92.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V4.1-Flash-20260910",
+      "overallScore": 89.4,
+      "codingScore": 93.2,
+      "toolUseScore": 0.0,
+      "visionScore": 91.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5.1",
+      "overallScore": 89.3,
+      "codingScore": 91.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4.8",
+      "overallScore": 89.1,
+      "codingScore": 91.7,
+      "toolUseScore": 0.0,
+      "visionScore": 94.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.5 Pro",
+      "overallScore": 88.6,
+      "codingScore": 87.3,
+      "toolUseScore": 0.0,
+      "visionScore": 87.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Sonnet 4.6",
+      "overallScore": 88.6,
+      "codingScore": 93.2,
+      "toolUseScore": 0.0,
+      "visionScore": 91.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K3.1 Pro",
+      "overallScore": 88.5,
+      "codingScore": 90.1,
+      "toolUseScore": 65.6,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.6 Sol",
+      "overallScore": 88.5,
+      "codingScore": 92.3,
+      "toolUseScore": 63.9,
+      "visionScore": 91.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K2.6",
+      "overallScore": 88.2,
+      "codingScore": 91.5,
+      "toolUseScore": 0.0,
+      "visionScore": 91.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.7-Plus",
+      "overallScore": 88.1,
+      "codingScore": 89.7,
+      "toolUseScore": 35.0,
+      "visionScore": 90.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V4-Pro",
+      "overallScore": 87.7,
+      "codingScore": 89.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.20 Beta",
+      "overallScore": 87.7,
+      "codingScore": 88.2,
+      "toolUseScore": 0.0,
+      "visionScore": 87.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4.5",
+      "overallScore": 87.6,
+      "codingScore": 93.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.20 Multi-Agent Beta",
+      "overallScore": 87.6,
+      "codingScore": 88.0,
+      "toolUseScore": 0.0,
+      "visionScore": 87.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2.6-Flash",
+      "overallScore": 87.5,
+      "codingScore": 92.5,
+      "toolUseScore": 53.6,
+      "visionScore": 87.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.6 Terra",
+      "overallScore": 87.3,
+      "codingScore": 91.2,
+      "toolUseScore": 49.0,
+      "visionScore": 89.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Dola Seed 2.0 Pro",
+      "overallScore": 87.3,
+      "codingScore": 89.6,
+      "toolUseScore": 0.0,
+      "visionScore": 90.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "amazon-nova-experimental-chat",
+      "overallScore": 87.3,
+      "codingScore": 90.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.5",
+      "overallScore": 87.2,
+      "codingScore": 89.9,
+      "toolUseScore": 0.0,
+      "visionScore": 92.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.6-Max-Preview",
+      "overallScore": 86.9,
+      "codingScore": 89.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5",
+      "overallScore": 86.9,
+      "codingScore": 88.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-6.1 Sol",
+      "overallScore": 86.9,
+      "codingScore": 91.2,
+      "toolUseScore": 82.6,
+      "visionScore": 92.3,
+      "speedScore": 0.0
+    },
+    {
+      "model": "NVIDIA-Nemotron-3-Ultra-550B-A55B",
+      "overallScore": 86.8,
+      "codingScore": 89.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V4-Pro Preview",
+      "overallScore": 86.8,
+      "codingScore": 87.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K2.5",
+      "overallScore": 86.7,
+      "codingScore": 91.0,
+      "toolUseScore": 0.0,
+      "visionScore": 89.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.20 Beta 1",
+      "overallScore": 86.7,
+      "codingScore": 86.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ERNIE 5.0",
+      "overallScore": 86.7,
+      "codingScore": 87.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Inkling",
+      "overallScore": 86.6,
+      "codingScore": 89.0,
+      "toolUseScore": 13.5,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Step 5 Preview",
+      "overallScore": 86.5,
+      "codingScore": 90.7,
+      "toolUseScore": 45.4,
+      "visionScore": 87.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ERNIE-5.0-Preview",
+      "overallScore": 86.4,
+      "codingScore": 84.4,
+      "toolUseScore": 0.0,
+      "visionScore": 84.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.1",
+      "overallScore": 86.4,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 85.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 4 31B",
+      "overallScore": 86.4,
+      "codingScore": 88.1,
+      "toolUseScore": 0.0,
+      "visionScore": 91.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Sonnet 5",
+      "overallScore": 86.3,
+      "codingScore": 90.9,
+      "toolUseScore": 58.2,
+      "visionScore": 89.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.6",
+      "overallScore": 86.1,
+      "codingScore": 87.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-6 Astra",
+      "overallScore": 86.0,
+      "codingScore": 92.2,
+      "toolUseScore": 86.6,
+      "visionScore": 90.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-Max-Preview",
+      "overallScore": 85.9,
+      "codingScore": 87.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hy3",
+      "overallScore": 85.9,
+      "codingScore": 89.1,
+      "toolUseScore": 35.4,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Sonnet 4.5",
+      "overallScore": 85.9,
+      "codingScore": 91.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.2 Chat",
+      "overallScore": 85.8,
+      "codingScore": 86.7,
+      "toolUseScore": 0.0,
+      "visionScore": 88.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-5V-Turbo",
+      "overallScore": 85.8,
+      "codingScore": 89.1,
+      "toolUseScore": 0.0,
+      "visionScore": 88.3,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-397B-A17B",
+      "overallScore": 85.7,
+      "codingScore": 88.7,
+      "toolUseScore": 0.0,
+      "visionScore": 87.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.1",
+      "overallScore": 85.6,
+      "codingScore": 86.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2-Pro",
+      "overallScore": 85.6,
+      "codingScore": 90.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.6-Plus",
+      "overallScore": 85.5,
+      "codingScore": 89.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.8-27B",
+      "overallScore": 85.5,
+      "codingScore": 90.4,
+      "toolUseScore": 42.6,
+      "visionScore": 89.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.7",
+      "overallScore": 85.4,
+      "codingScore": 87.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.5 Flash-Lite",
+      "overallScore": 85.3,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 88.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 4 26B A4B",
+      "overallScore": 85.2,
+      "codingScore": 86.7,
+      "toolUseScore": 0.0,
+      "visionScore": 87.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V4-Flash",
+      "overallScore": 84.9,
+      "codingScore": 87.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.6 Luna",
+      "overallScore": 84.8,
+      "codingScore": 89.0,
+      "toolUseScore": 0.0,
+      "visionScore": 86.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.5",
+      "overallScore": 84.7,
+      "codingScore": 85.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.6",
+      "overallScore": 84.6,
+      "codingScore": 88.7,
+      "toolUseScore": 53.0,
+      "visionScore": 88.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Large 3",
+      "overallScore": 84.4,
+      "codingScore": 87.0,
+      "toolUseScore": 0.0,
+      "visionScore": 79.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ChatGPT-4o Latest",
+      "overallScore": 84.4,
+      "codingScore": 82.9,
+      "toolUseScore": 0.0,
+      "visionScore": 84.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M3",
+      "overallScore": 84.4,
+      "codingScore": 89.2,
+      "toolUseScore": 29.0,
+      "visionScore": 85.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-R1",
+      "overallScore": 84.3,
+      "codingScore": 84.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2.5",
+      "overallScore": 84.3,
+      "codingScore": 89.3,
+      "toolUseScore": 0.0,
+      "visionScore": 84.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "LongCat-Flash-Chat Exp",
+      "overallScore": 84.1,
+      "codingScore": 89.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 3 Preview",
+      "overallScore": 84.0,
+      "codingScore": 85.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V3.2-Exp",
+      "overallScore": 83.9,
+      "codingScore": 85.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Beam 1.0 501B A23B",
+      "overallScore": 83.9,
+      "codingScore": 89.9,
+      "toolUseScore": 38.4,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V4-Flash Preview",
+      "overallScore": 83.9,
+      "codingScore": 86.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Medium 3.1",
+      "overallScore": 83.9,
+      "codingScore": 85.3,
+      "toolUseScore": 0.0,
+      "visionScore": 70.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V3.2",
+      "overallScore": 83.9,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2-Omni",
+      "overallScore": 83.6,
+      "codingScore": 88.9,
+      "toolUseScore": 0.0,
+      "visionScore": 81.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "LongCat-Flash-Chat",
+      "overallScore": 83.6,
+      "codingScore": 89.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Medium 3.5",
+      "overallScore": 83.4,
+      "codingScore": 88.4,
+      "toolUseScore": 20.8,
+      "visionScore": 79.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-VL-235B-A22B-Instruct",
+      "overallScore": 83.2,
+      "codingScore": 85.8,
+      "toolUseScore": 0.0,
+      "visionScore": 84.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V3.1",
+      "overallScore": 83.2,
+      "codingScore": 83.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.5 Instant",
+      "overallScore": 83.1,
+      "codingScore": 85.2,
+      "toolUseScore": 0.0,
+      "visionScore": 85.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4.1",
+      "overallScore": 83.1,
+      "codingScore": 90.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V3.1-Terminus",
+      "overallScore": 83.1,
+      "codingScore": 84.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-235B-A22B-Instruct",
+      "overallScore": 83.1,
+      "codingScore": 86.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4.5 Preview",
+      "overallScore": 82.8,
+      "codingScore": 81.0,
+      "toolUseScore": 0.0,
+      "visionScore": 74.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-122B-A10B",
+      "overallScore": 82.8,
+      "codingScore": 85.5,
+      "toolUseScore": 0.0,
+      "visionScore": 84.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-Next-80B-A3B-Instruct",
+      "overallScore": 82.8,
+      "codingScore": 86.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.5 Flash",
+      "overallScore": 82.8,
+      "codingScore": 84.1,
+      "toolUseScore": 0.0,
+      "visionScore": 82.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.2",
+      "overallScore": 82.7,
+      "codingScore": 86.2,
+      "toolUseScore": 0.0,
+      "visionScore": 84.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 3.1 Flash-Lite Preview",
+      "overallScore": 82.6,
+      "codingScore": 81.5,
+      "toolUseScore": 0.0,
+      "visionScore": 83.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-235B-A22B-Thinking",
+      "overallScore": 82.6,
+      "codingScore": 84.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K2 Thinking Turbo",
+      "overallScore": 82.4,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Large 4",
+      "overallScore": 82.4,
+      "codingScore": 87.9,
+      "toolUseScore": 39.1,
+      "visionScore": 84.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Inkling-Small",
+      "overallScore": 82.4,
+      "codingScore": 87.3,
+      "toolUseScore": 12.0,
+      "visionScore": 82.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-Max",
+      "overallScore": 82.2,
+      "codingScore": 85.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.4 mini",
+      "overallScore": 82.1,
+      "codingScore": 85.8,
+      "toolUseScore": 0.0,
+      "visionScore": 84.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4",
+      "overallScore": 82.0,
+      "codingScore": 82.4,
+      "toolUseScore": 0.0,
+      "visionScore": 77.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiMo-V2-Flash",
+      "overallScore": 82.0,
+      "codingScore": 86.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o3",
+      "overallScore": 81.8,
+      "codingScore": 82.3,
+      "toolUseScore": 0.0,
+      "visionScore": 78.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-27B",
+      "overallScore": 81.6,
+      "codingScore": 84.5,
+      "toolUseScore": 0.0,
+      "visionScore": 83.3,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.1 Fast",
+      "overallScore": 81.5,
+      "codingScore": 82.8,
+      "toolUseScore": 0.0,
+      "visionScore": 75.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+      "overallScore": 81.5,
+      "codingScore": 85.2,
+      "toolUseScore": 15.4,
+      "visionScore": 78.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4 Fast",
+      "overallScore": 81.4,
+      "codingScore": 84.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.5 Flash Preview",
+      "overallScore": 81.3,
+      "codingScore": 81.5,
+      "toolUseScore": 0.0,
+      "visionScore": 85.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5",
+      "overallScore": 81.3,
+      "codingScore": 85.6,
+      "toolUseScore": 0.0,
+      "visionScore": 77.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Vision 1.5 Thinking",
+      "overallScore": 81.2,
+      "codingScore": 83.8,
+      "toolUseScore": 0.0,
+      "visionScore": 71.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M2.7",
+      "overallScore": 81.0,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5 Chat",
+      "overallScore": 80.9,
+      "codingScore": 81.3,
+      "toolUseScore": 0.0,
+      "visionScore": 81.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Inkling 2 Small",
+      "overallScore": 80.8,
+      "codingScore": 87.9,
+      "toolUseScore": 53.6,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Step-3.5-Flash",
+      "overallScore": 80.8,
+      "codingScore": 85.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hy3 preview",
+      "overallScore": 80.6,
+      "codingScore": 83.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan T1",
+      "overallScore": 80.5,
+      "codingScore": 80.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-VL-235B-A22B-Thinking",
+      "overallScore": 80.5,
+      "codingScore": 84.3,
+      "toolUseScore": 0.0,
+      "visionScore": 76.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Haiku 5.5",
+      "overallScore": 80.2,
+      "codingScore": 87.6,
+      "toolUseScore": 54.4,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.7",
+      "overallScore": 80.2,
+      "codingScore": 84.3,
+      "toolUseScore": 59.6,
+      "visionScore": 81.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-Flash",
+      "overallScore": 80.0,
+      "codingScore": 82.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 4.3",
+      "overallScore": 80.0,
+      "codingScore": 83.1,
+      "toolUseScore": 0.0,
+      "visionScore": 81.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-6 Sol",
+      "overallScore": 79.9,
+      "codingScore": 86.9,
+      "toolUseScore": 69.7,
+      "visionScore": 81.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Haiku 4.5",
+      "overallScore": 79.9,
+      "codingScore": 87.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3.5-35B-A3B",
+      "overallScore": 79.6,
+      "codingScore": 82.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-235B-A22B",
+      "overallScore": 79.5,
+      "codingScore": 81.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M2.1 Preview",
+      "overallScore": 79.3,
+      "codingScore": 83.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.3 Chat",
+      "overallScore": 78.8,
+      "codingScore": 82.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Muse Glimmer",
+      "overallScore": 78.8,
+      "codingScore": 83.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-6 Luna",
+      "overallScore": 78.7,
+      "codingScore": 85.1,
+      "toolUseScore": 56.9,
+      "visionScore": 77.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Solar Pro 4",
+      "overallScore": 78.7,
+      "codingScore": 85.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-30B-A3B-Instruct",
+      "overallScore": 78.1,
+      "codingScore": 83.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.5-Air",
+      "overallScore": 78.1,
+      "codingScore": 81.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4.1",
+      "overallScore": 78.0,
+      "codingScore": 80.4,
+      "toolUseScore": 0.0,
+      "visionScore": 77.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Kimi K2 Preview",
+      "overallScore": 77.5,
+      "codingScore": 81.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.5 Flash-Lite Preview",
+      "overallScore": 77.5,
+      "codingScore": 78.3,
+      "toolUseScore": 0.0,
+      "visionScore": 75.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "NVIDIA-Nemotron-3-Super-120B-A12B",
+      "overallScore": 77.2,
+      "codingScore": 81.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan TurboS",
+      "overallScore": 77.1,
+      "codingScore": 77.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Opus 4",
+      "overallScore": 77.1,
+      "codingScore": 86.2,
+      "toolUseScore": 0.0,
+      "visionScore": 74.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.6V",
+      "overallScore": 77.0,
+      "codingScore": 80.3,
+      "toolUseScore": 0.0,
+      "visionScore": 68.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V3",
+      "overallScore": 76.8,
+      "codingScore": 77.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5 mini",
+      "overallScore": 76.6,
+      "codingScore": 82.1,
+      "toolUseScore": 0.0,
+      "visionScore": 76.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5.4 nano",
+      "overallScore": 76.4,
+      "codingScore": 81.9,
+      "toolUseScore": 0.0,
+      "visionScore": 74.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Medium 3",
+      "overallScore": 76.1,
+      "codingScore": 79.8,
+      "toolUseScore": 0.0,
+      "visionScore": 67.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 3 Mini",
+      "overallScore": 76.1,
+      "codingScore": 79.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-Next-80B-A3B-Thinking",
+      "overallScore": 75.9,
+      "codingScore": 80.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen2.5-Max",
+      "overallScore": 75.7,
+      "codingScore": 76.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o1",
+      "overallScore": 75.5,
+      "codingScore": 77.7,
+      "toolUseScore": 0.0,
+      "visionScore": 69.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "gpt-oss-120b",
+      "overallScore": 75.5,
+      "codingScore": 79.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 3 Mini Beta",
+      "overallScore": 75.3,
+      "codingScore": 77.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Amazon Nova 2 Lite",
+      "overallScore": 75.0,
+      "codingScore": 79.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 4.2 30B",
+      "overallScore": 74.9,
+      "codingScore": 80.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Ling-flash-2.0",
+      "overallScore": 74.8,
+      "codingScore": 80.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M2.5",
+      "overallScore": 74.6,
+      "codingScore": 79.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 3 27B IT",
+      "overallScore": 74.4,
+      "codingScore": 72.6,
+      "toolUseScore": 0.0,
+      "visionScore": 68.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-Coder-480B-A35B-Instruct",
+      "overallScore": 74.2,
+      "codingScore": 82.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "INTELLECT-3",
+      "overallScore": 74.1,
+      "codingScore": 78.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mercury 2",
+      "overallScore": 74.0,
+      "codingScore": 80.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.0 Flash",
+      "overallScore": 73.9,
+      "codingScore": 75.8,
+      "toolUseScore": 0.0,
+      "visionScore": 67.3,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o4-mini",
+      "overallScore": 73.7,
+      "codingScore": 77.8,
+      "toolUseScore": 0.0,
+      "visionScore": 74.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o1-preview",
+      "overallScore": 73.7,
+      "codingScore": 77.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude Sonnet 4",
+      "overallScore": 73.4,
+      "codingScore": 83.1,
+      "toolUseScore": 0.0,
+      "visionScore": 73.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.7-Flash",
+      "overallScore": 73.4,
+      "codingScore": 79.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Step-3",
+      "overallScore": 73.3,
+      "codingScore": 77.7,
+      "toolUseScore": 0.0,
+      "visionScore": 70.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "NVIDIA-Nemotron-3-Nano-30B-A3B",
+      "overallScore": 73.0,
+      "codingScore": 79.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M1",
+      "overallScore": 72.2,
+      "codingScore": 76.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4.1 mini",
+      "overallScore": 71.9,
+      "codingScore": 77.7,
+      "toolUseScore": 0.0,
+      "visionScore": 71.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MiniMax-M2",
+      "overallScore": 71.9,
+      "codingScore": 78.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Trinity Large Thinking",
+      "overallScore": 71.9,
+      "codingScore": 76.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-32B",
+      "overallScore": 71.9,
+      "codingScore": 76.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Trinity Large Preview",
+      "overallScore": 71.7,
+      "codingScore": 79.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Small 3.2",
+      "overallScore": 71.6,
+      "codingScore": 77.2,
+      "toolUseScore": 0.0,
+      "visionScore": 64.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.3 Nemotron Super 49B v1.5",
+      "overallScore": 71.6,
+      "codingScore": 76.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o3-mini",
+      "overallScore": 71.4,
+      "codingScore": 78.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Step-1o Turbo",
+      "overallScore": 71.2,
+      "codingScore": 74.5,
+      "toolUseScore": 0.0,
+      "visionScore": 72.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 3 12B IT",
+      "overallScore": 71.0,
+      "codingScore": 67.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Ring-flash-2.0",
+      "overallScore": 71.0,
+      "codingScore": 77.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4.5V",
+      "overallScore": 70.8,
+      "codingScore": 75.5,
+      "toolUseScore": 0.0,
+      "visionScore": 66.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Command A",
+      "overallScore": 70.6,
+      "codingScore": 73.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4-Plus",
+      "overallScore": 70.6,
+      "codingScore": 69.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 2.0 Flash-Lite Preview",
+      "overallScore": 70.4,
+      "codingScore": 72.6,
+      "toolUseScore": 0.0,
+      "visionScore": 56.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B",
+      "overallScore": 70.4,
+      "codingScore": 79.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "QwQ-32B",
+      "overallScore": 70.3,
+      "codingScore": 73.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen-Plus",
+      "overallScore": 69.9,
+      "codingScore": 73.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Step-2 16K Exp",
+      "overallScore": 69.2,
+      "codingScore": 71.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-5 nano",
+      "overallScore": 69.0,
+      "codingScore": 75.9,
+      "toolUseScore": 0.0,
+      "visionScore": 67.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 Nemotron Ultra 253B v1",
+      "overallScore": 69.0,
+      "codingScore": 71.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 1.5 Pro",
+      "overallScore": 68.9,
+      "codingScore": 69.4,
+      "toolUseScore": 0.0,
+      "visionScore": 68.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 4.2 8B",
+      "overallScore": 68.9,
+      "codingScore": 78.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "o1-mini",
+      "overallScore": 68.6,
+      "codingScore": 77.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen3-30B-A3B",
+      "overallScore": 68.6,
+      "codingScore": 74.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3.7 Sonnet",
+      "overallScore": 68.2,
+      "codingScore": 77.0,
+      "toolUseScore": 0.0,
+      "visionScore": 69.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Turbo",
+      "overallScore": 67.8,
+      "codingScore": 72.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Olmo 3.1 32B Instruct",
+      "overallScore": 67.8,
+      "codingScore": 75.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.3 Nemotron Super 49B v1",
+      "overallScore": 67.4,
+      "codingScore": 69.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 3n E4B IT",
+      "overallScore": 67.0,
+      "codingScore": 66.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 2",
+      "overallScore": 66.8,
+      "codingScore": 68.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Yi Lightning",
+      "overallScore": 66.4,
+      "codingScore": 71.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4o",
+      "overallScore": 66.3,
+      "codingScore": 69.7,
+      "toolUseScore": 0.0,
+      "visionScore": 63.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen2.5-Plus",
+      "overallScore": 66.1,
+      "codingScore": 71.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Olmo 3 32B Think",
+      "overallScore": 66.1,
+      "codingScore": 72.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3.5 Sonnet",
+      "overallScore": 65.9,
+      "codingScore": 74.9,
+      "toolUseScore": 0.0,
+      "visionScore": 61.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-V2.5",
+      "overallScore": 65.3,
+      "codingScore": 71.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 4.2 3B",
+      "overallScore": 65.1,
+      "codingScore": 76.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Athene V2 Chat",
+      "overallScore": 65.0,
+      "codingScore": 71.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 4.1 8B",
+      "overallScore": 64.9,
+      "codingScore": 71.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 3 4B IT",
+      "overallScore": 64.9,
+      "codingScore": 62.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Large",
+      "overallScore": 64.5,
+      "codingScore": 70.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "gpt-oss-20b",
+      "overallScore": 64.4,
+      "codingScore": 70.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 4 Maverick 17B 128E Instruct",
+      "overallScore": 64.4,
+      "codingScore": 70.2,
+      "toolUseScore": 0.0,
+      "visionScore": 64.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Molmo 2 8B",
+      "overallScore": 64.3,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 52.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 1.5 Flash",
+      "overallScore": 64.3,
+      "codingScore": 65.7,
+      "toolUseScore": 0.0,
+      "visionScore": 64.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4o mini",
+      "overallScore": 64.3,
+      "codingScore": 68.9,
+      "toolUseScore": 0.0,
+      "visionScore": 49.4,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4.1 nano",
+      "overallScore": 64.0,
+      "codingScore": 70.7,
+      "toolUseScore": 0.0,
+      "visionScore": 48.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 405B Instruct",
+      "overallScore": 63.9,
+      "codingScore": 69.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 Nemotron 70B Instruct",
+      "overallScore": 63.7,
+      "codingScore": 66.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen-Max",
+      "overallScore": 63.6,
+      "codingScore": 68.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mercury",
+      "overallScore": 63.6,
+      "codingScore": 72.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Grok 2 mini",
+      "overallScore": 63.5,
+      "codingScore": 66.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 4 Scout 17B 16E Instruct",
+      "overallScore": 63.2,
+      "codingScore": 68.5,
+      "toolUseScore": 0.0,
+      "visionScore": 59.7,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini Advanced",
+      "overallScore": 63.1,
+      "codingScore": 64.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Small 3.1 24B Instruct",
+      "overallScore": 62.9,
+      "codingScore": 71.1,
+      "toolUseScore": 0.0,
+      "visionScore": 63.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.3 70B Instruct",
+      "overallScore": 62.5,
+      "codingScore": 66.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Standard",
+      "overallScore": 62.5,
+      "codingScore": 66.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4 Turbo",
+      "overallScore": 62.2,
+      "codingScore": 66.5,
+      "toolUseScore": 0.0,
+      "visionScore": 54.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Olmo 3.1 32B Think",
+      "overallScore": 62.1,
+      "codingScore": 68.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen2.5-72B-Instruct",
+      "overallScore": 61.8,
+      "codingScore": 69.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Large 2",
+      "overallScore": 61.4,
+      "codingScore": 67.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Large",
+      "overallScore": 61.3,
+      "codingScore": 67.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Athene 70B",
+      "overallScore": 61.2,
+      "codingScore": 66.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4 Turbo Preview",
+      "overallScore": 61.0,
+      "codingScore": 64.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Large Vision",
+      "overallScore": 60.9,
+      "codingScore": 71.0,
+      "toolUseScore": 0.0,
+      "visionScore": 71.6,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3 Opus",
+      "overallScore": 60.8,
+      "codingScore": 66.0,
+      "toolUseScore": 0.0,
+      "visionScore": 41.1,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 70B Instruct",
+      "overallScore": 60.6,
+      "codingScore": 65.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Amazon Nova Pro 1.0",
+      "overallScore": 60.3,
+      "codingScore": 66.7,
+      "toolUseScore": 0.0,
+      "visionScore": 32.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 Tulu 3 70B",
+      "overallScore": 59.9,
+      "codingScore": 62.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3.5 Haiku",
+      "overallScore": 59.9,
+      "codingScore": 68.5,
+      "toolUseScore": 0.0,
+      "visionScore": 54.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Magistral Medium",
+      "overallScore": 59.8,
+      "codingScore": 72.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Reka Core",
+      "overallScore": 58.9,
+      "codingScore": 62.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite-4.0-H-Small",
+      "overallScore": 57.9,
+      "codingScore": 64.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Jamba 1.5 Large",
+      "overallScore": 57.3,
+      "codingScore": 61.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Small 24B Instruct",
+      "overallScore": 56.8,
+      "codingScore": 63.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 2 27B IT",
+      "overallScore": 56.5,
+      "codingScore": 60.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen2.5-Coder-32B-Instruct",
+      "overallScore": 56.3,
+      "codingScore": 67.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Command R+",
+      "overallScore": 56.1,
+      "codingScore": 57.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Amazon Nova Lite 1.0",
+      "overallScore": 56.0,
+      "codingScore": 63.1,
+      "toolUseScore": 0.0,
+      "visionScore": 34.8,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 Nemotron 51B Instruct",
+      "overallScore": 56.0,
+      "codingScore": 61.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 2 9B IT SimPO",
+      "overallScore": 55.8,
+      "codingScore": 57.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GLM-4",
+      "overallScore": 55.7,
+      "codingScore": 61.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini 1.5 Flash-8B",
+      "overallScore": 55.7,
+      "codingScore": 60.7,
+      "toolUseScore": 0.0,
+      "visionScore": 45.2,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Nemotron-4 340B Instruct",
+      "overallScore": 55.5,
+      "codingScore": 59.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Aya Expanse 32B",
+      "overallScore": 55.4,
+      "codingScore": 58.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3 70B Instruct",
+      "overallScore": 55.0,
+      "codingScore": 59.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3 Sonnet",
+      "overallScore": 54.6,
+      "codingScore": 61.3,
+      "toolUseScore": 0.0,
+      "visionScore": 33.5,
+      "speedScore": 0.0
+    },
+    {
+      "model": "OLMo 2 32B Instruct",
+      "overallScore": 54.5,
+      "codingScore": 59.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Reka Flash",
+      "overallScore": 54.5,
+      "codingScore": 57.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Phi-4",
+      "overallScore": 54.4,
+      "codingScore": 62.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Amazon Nova Micro 1.0",
+      "overallScore": 53.2,
+      "codingScore": 60.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 2 9B IT",
+      "overallScore": 53.1,
+      "codingScore": 55.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-4",
+      "overallScore": 52.9,
+      "codingScore": 59.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen2-72B-Instruct",
+      "overallScore": 52.5,
+      "codingScore": 58.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Hunyuan Standard 256K",
+      "overallScore": 52.3,
+      "codingScore": 62.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Claude 3 Haiku",
+      "overallScore": 51.2,
+      "codingScore": 58.6,
+      "toolUseScore": 0.0,
+      "visionScore": 26.9,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 Tulu 3 8B",
+      "overallScore": 51.1,
+      "codingScore": 56.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek-Coder-V2",
+      "overallScore": 50.8,
+      "codingScore": 64.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Ministral 8B",
+      "overallScore": 50.7,
+      "codingScore": 58.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Command R",
+      "overallScore": 50.2,
+      "codingScore": 55.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Jamba 1.5 Mini",
+      "overallScore": 50.1,
+      "codingScore": 56.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.1 8B Instruct",
+      "overallScore": 50.1,
+      "codingScore": 58.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Aya Expanse 8B",
+      "overallScore": 49.9,
+      "codingScore": 54.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-110B-Chat",
+      "overallScore": 48.4,
+      "codingScore": 56.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Yi 1.5 34B Chat",
+      "overallScore": 48.2,
+      "codingScore": 55.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Reka Flash 21B",
+      "overallScore": 47.8,
+      "codingScore": 54.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-72B-Chat",
+      "overallScore": 47.2,
+      "codingScore": 54.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3 8B Instruct",
+      "overallScore": 47.1,
+      "codingScore": 53.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral Medium",
+      "overallScore": 47.1,
+      "codingScore": 54.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mixtral 8x22B Instruct v0.1",
+      "overallScore": 46.6,
+      "codingScore": 54.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "QwQ-32B-Preview",
+      "overallScore": 46.6,
+      "codingScore": 53.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "InternLM2.5 20B Chat",
+      "overallScore": 46.1,
+      "codingScore": 54.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 2 2B IT",
+      "overallScore": 45.7,
+      "codingScore": 48.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 3.1 8B Instruct",
+      "overallScore": 44.8,
+      "codingScore": 57.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemini Pro",
+      "overallScore": 44.7,
+      "codingScore": 48.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Zephyr ORPO 141B A35B v0.1",
+      "overallScore": 44.0,
+      "codingScore": 50.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Phi-3 Medium 4K Instruct",
+      "overallScore": 43.1,
+      "codingScore": 50.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-32B-Chat",
+      "overallScore": 43.1,
+      "codingScore": 53.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Starling LM 7B Beta",
+      "overallScore": 42.4,
+      "codingScore": 52.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mixtral 8x7B Instruct v0.1",
+      "overallScore": 42.3,
+      "codingScore": 50.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Yi 34B Chat",
+      "overallScore": 41.9,
+      "codingScore": 48.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-14B-Chat",
+      "overallScore": 41.7,
+      "codingScore": 51.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 3.1 2B Instruct",
+      "overallScore": 41.7,
+      "codingScore": 53.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT-3.5 Turbo",
+      "overallScore": 41.3,
+      "codingScore": 51.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Tulu 2 DPO 70B",
+      "overallScore": 40.8,
+      "codingScore": 49.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "WizardLM 70B",
+      "overallScore": 40.6,
+      "codingScore": 45.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DBRX Instruct Preview",
+      "overallScore": 40.5,
+      "codingScore": 51.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 2 70B Chat",
+      "overallScore": 40.0,
+      "codingScore": 45.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Nous Hermes 2 Mixtral 8x7B DPO",
+      "overallScore": 39.5,
+      "codingScore": 45.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Phi-3 Small 8K Instruct",
+      "overallScore": 39.2,
+      "codingScore": 47.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.2 3B Instruct",
+      "overallScore": 39.2,
+      "codingScore": 47.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Starling LM 7B Alpha",
+      "overallScore": 38.9,
+      "codingScore": 47.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "OpenChat 3.5",
+      "overallScore": 38.8,
+      "codingScore": 48.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Vicuna 33B",
+      "overallScore": 38.6,
+      "codingScore": 44.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "DeepSeek LLM 67B Chat",
+      "overallScore": 38.5,
+      "codingScore": 46.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Snowflake Arctic Instruct",
+      "overallScore": 38.0,
+      "codingScore": 46.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 2 70B SteerLM Chat",
+      "overallScore": 37.5,
+      "codingScore": 38.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 3.0 8B Instruct",
+      "overallScore": 37.3,
+      "codingScore": 48.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 1.1 7B IT",
+      "overallScore": 37.0,
+      "codingScore": 45.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "OpenHermes 2.5 Mistral 7B",
+      "overallScore": 36.7,
+      "codingScore": 43.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral 7B Instruct v0.2",
+      "overallScore": 36.3,
+      "codingScore": 45.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 2 13B Chat",
+      "overallScore": 35.6,
+      "codingScore": 43.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-7B-Chat",
+      "overallScore": 35.5,
+      "codingScore": 48.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "SOLAR 10.7B Instruct v1.0",
+      "overallScore": 35.4,
+      "codingScore": 43.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Dolphin 2.2.1 Mistral 7B",
+      "overallScore": 35.1,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Phi-3 Mini 4K Instruct",
+      "overallScore": 35.0,
+      "codingScore": 46.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Granite 3.0 2B Instruct",
+      "overallScore": 35.0,
+      "codingScore": 46.3,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "WizardLM 13B",
+      "overallScore": 34.5,
+      "codingScore": 40.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Zephyr 7B Beta",
+      "overallScore": 33.5,
+      "codingScore": 41.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MPT 30B Chat",
+      "overallScore": 33.4,
+      "codingScore": 40.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Code Llama 34B Instruct",
+      "overallScore": 32.9,
+      "codingScore": 41.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Zephyr 7B Alpha",
+      "overallScore": 31.9,
+      "codingScore": 42.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Vicuna 13B",
+      "overallScore": 31.8,
+      "codingScore": 40.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Code Llama 70B Instruct",
+      "overallScore": 31.7,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 7B IT",
+      "overallScore": 31.6,
+      "codingScore": 41.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 3.2 1B Instruct",
+      "overallScore": 31.4,
+      "codingScore": 44.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Falcon 180B Chat",
+      "overallScore": 31.3,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Llama 2 7B Chat",
+      "overallScore": 31.2,
+      "codingScore": 36.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Guanaco 33B",
+      "overallScore": 31.2,
+      "codingScore": 35.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen-14B-Chat",
+      "overallScore": 30.9,
+      "codingScore": 44.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Phi-3 Mini 128K Instruct",
+      "overallScore": 30.8,
+      "codingScore": 40.5,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "SmolLM2 1.7B Instruct",
+      "overallScore": 29.6,
+      "codingScore": 41.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "StripedHyena Nous 7B",
+      "overallScore": 29.1,
+      "codingScore": 36.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "OLMo 7B Instruct",
+      "overallScore": 28.1,
+      "codingScore": 37.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Vicuna 7B",
+      "overallScore": 28.0,
+      "codingScore": 37.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "PaLM 2",
+      "overallScore": 27.5,
+      "codingScore": 35.4,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Mistral 7B Instruct",
+      "overallScore": 27.0,
+      "codingScore": 38.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 1.1 2B IT",
+      "overallScore": 26.8,
+      "codingScore": 39.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Gemma 2B IT",
+      "overallScore": 23.9,
+      "codingScore": 37.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Qwen1.5-4B-Chat",
+      "overallScore": 23.2,
+      "codingScore": 35.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Koala 13B",
+      "overallScore": 22.1,
+      "codingScore": 29.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ChatGLM3 6B",
+      "overallScore": 19.7,
+      "codingScore": 31.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "GPT4All 13B Snoozy",
+      "overallScore": 17.4,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "MPT 7B Chat",
+      "overallScore": 17.3,
+      "codingScore": 26.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "RWKV-4 Raven 14B",
+      "overallScore": 16.3,
+      "codingScore": 27.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ChatGLM2 6B",
+      "overallScore": 14.9,
+      "codingScore": 24.9,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Alpaca 13B",
+      "overallScore": 14.1,
+      "codingScore": 13.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "ChatGLM 6B",
+      "overallScore": 12.1,
+      "codingScore": 26.8,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "OpenAssistant Pythia 12B",
+      "overallScore": 11.7,
+      "codingScore": 24.7,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "FastChat-T5 3B",
+      "overallScore": 8.6,
+      "codingScore": 9.2,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "StableLM Tuned Alpha 7B",
+      "overallScore": 4.7,
+      "codingScore": 23.1,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "Dolly 2.0 12B",
+      "overallScore": 2.5,
+      "codingScore": 10.6,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    },
+    {
+      "model": "LLaMA 13B",
+      "overallScore": 0.0,
+      "codingScore": 0.0,
+      "toolUseScore": 0.0,
+      "visionScore": 0.0,
+      "speedScore": 0.0
+    }
+  ]
 }
