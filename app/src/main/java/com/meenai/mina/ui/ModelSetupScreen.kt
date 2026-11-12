@@ -83,6 +83,11 @@ import com.meenai.mina.ui.components.SelectChip
 import com.meenai.mina.ui.components.TagTone
 import com.meenai.mina.ui.components.TileTone
 import com.meenai.mina.ui.components.TopBar
+import com.meenai.mina.settings.FeatureFlags
+import com.meenai.mina.ui.router.LocalRouterStatus
+import com.meenai.mina.ui.router.ProviderUsage as RouterProviderUsage
+import com.meenai.mina.ui.router.RouterStatus
+import com.meenai.mina.ui.router.RouterUsageCard
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
@@ -97,9 +102,13 @@ fun ModelSetupScreen(
     store: ProviderStore, onboarding: Boolean, onBack: () -> Unit, onDone: () -> Unit,
     /** 设置里点「语音转文字」卡片去选择页;上手流程不传,卡片就不出现。 */
     onOpenSpeech: (() -> Unit)? = null,
+    routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val flags = remember { FeatureFlags.get(context) }
+    var showSwitchNotice by remember { mutableStateOf(flags.showSwitchNotice()) }
+    val routerUsages by routerStatus.usage.collectAsState()
     val vm = remember {
         val signIns = (context.applicationContext as? HarnessApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
         ModelSetupViewModel(
@@ -203,6 +212,9 @@ fun ModelSetupScreen(
                     setModelContext = vm::setModelContext,
                 ),
                 onBack,
+                routerUsages = routerUsages,
+                showSwitchNotice = showSwitchNotice,
+                onToggleSwitchNotice = { flags.setShowSwitchNotice(it); showSwitchNotice = it },
             )
         }
     }
@@ -261,7 +273,15 @@ class ModelSetupActions(
  * 所以设置里进来只有返回;上手时底部留「下一步」,键盘弹出时藏起来,把地方让给表单。
  */
 @Composable
-fun ModelSetupContent(ui: ModelSetupUi, onboarding: Boolean, actions: ModelSetupActions, onBack: () -> Unit) {
+fun ModelSetupContent(
+    ui: ModelSetupUi,
+    onboarding: Boolean,
+    actions: ModelSetupActions,
+    onBack: () -> Unit,
+    routerUsages: List<RouterProviderUsage> = emptyList(),
+    showSwitchNotice: Boolean = true,
+    onToggleSwitchNotice: (Boolean) -> Unit = {},
+) {
     val c = MinaTheme.colors
     // 表单收起(测试通过存好了,或取消)后页面上没有要打字的地方,顺手收起键盘
     val focus = LocalFocusManager.current
@@ -289,6 +309,11 @@ fun ModelSetupContent(ui: ModelSetupUi, onboarding: Boolean, actions: ModelSetup
                     }
                     ImageRolesSection(imageSettings)
                     ProvidersSection(ui, actions)
+                    RouterUsageCard(
+                        usages = routerUsages,
+                        showSwitchNotice = showSwitchNotice,
+                        onToggleSwitchNotice = onToggleSwitchNotice,
+                    )
                 }
                 Spacer(Modifier.height(16.dp))
             }

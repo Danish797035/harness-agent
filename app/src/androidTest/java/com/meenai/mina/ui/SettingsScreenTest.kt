@@ -92,6 +92,7 @@ class SettingsScreenTest {
             compose.onNodeWithText(t).performClick()
         }
         assertEquals(listOf("models", "usage", "phone", "work", "capsule", "notifications", "memory", "web", "sandbox", "routes", "recovery", "dev", "about"), opened)
+        compose.onNodeWithTag("switch-notice-toggle").assertDoesNotExist()
     }
 
     /** 「Token 用量」写近 7 天的合计;一点没有时写「还没有」,还没统计出来时不显示这一行。 */
