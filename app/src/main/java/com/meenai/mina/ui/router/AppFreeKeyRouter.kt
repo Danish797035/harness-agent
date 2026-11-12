@@ -27,7 +27,6 @@ import com.meenai.mina.settings.ProviderStore
 import android.content.Context
 import java.io.File
 import com.meenai.mina.core.router.ModelCooldownStore
-import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
 import com.meenai.mina.core.router.picker.FileModelStatsStore
 import okhttp3.OkHttpClient
 
