@@ -23,6 +23,11 @@ import com.meenai.mina.core.router.preset.ZaiPreset
 import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
+import android.content.Context
+import java.io.File
+import com.meenai.mina.core.router.ModelCooldownStore
+import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
+import com.meenai.mina.core.router.picker.FileModelStatsStore
 import okhttp3.OkHttpClient
 
 /**
@@ -95,21 +100,51 @@ object AppFreeKeyRouter {
         return list
     }
 
-    private val sharedRankingsRepo: ModelRankingsRepository by lazy {
-        ModelRankingsRepository()
+    private var sharedRankingsRepo: ModelRankingsRepository? = null
+    private var sharedProbeService: ModelProbeService? = null
+    private var sharedStatsTracker: ModelStatsTracker? = null
+    private var sharedCooldownStore: ModelCooldownStore? = null
+
+    fun getRankingsRepository(): ModelRankingsRepository =
+        sharedRankingsRepo ?: ModelRankingsRepository().also { sharedRankingsRepo = it }
+
+    fun getProbeService(): ModelProbeService =
+        sharedProbeService ?: ModelProbeService().also { sharedProbeService = it }
+
+    fun getStatsTracker(): ModelStatsTracker =
+        sharedStatsTracker ?: ModelStatsTracker().also { sharedStatsTracker = it }
+
+    fun getCooldownStore(): ModelCooldownStore =
+        sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
+
+    fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
+        val cacheFile = File(filesDir, "model-rankings.json")
+        val repo = ModelRankingsRepository(cacheStore = FileModelRankingsCacheStore(cacheFile), httpClient = http)
+        sharedRankingsRepo = repo
+        return repo
     }
 
-    private val sharedProbeService: ModelProbeService by lazy {
-        ModelProbeService()
+    fun initStatsTracker(filesDir: File): ModelStatsTracker {
+        val statsFile = File(filesDir, "model-stats.json")
+        val tracker = ModelStatsTracker(store = FileModelStatsStore(statsFile))
+        sharedStatsTracker = tracker
+        return tracker
     }
 
-    private val sharedStatsTracker: ModelStatsTracker by lazy {
-        ModelStatsTracker()
+    fun initCooldownStore(context: Context): ModelCooldownStore {
+        val prefs = context.getSharedPreferences("model_cooldown_store", Context.MODE_PRIVATE)
+        val store = ModelCooldownStore(
+            persistCallback = { json ->
+                prefs.edit().putString("cooldown_state", json).apply()
+            }
+        )
+        val saved = prefs.getString("cooldown_state", null)
+        if (!saved.isNullOrBlank()) {
+            store.loadFromJson(saved)
+        }
+        sharedCooldownStore = store
+        return store
     }
-
-    fun getRankingsRepository(): ModelRankingsRepository = sharedRankingsRepo
-    fun getProbeService(): ModelProbeService = sharedProbeService
-    fun getStatsTracker(): ModelStatsTracker = sharedStatsTracker
 
     /**
      * Creates a new [FreeKeyRouter] with candidates derived from user's configured API keys.
@@ -117,9 +152,10 @@ object AppFreeKeyRouter {
     fun createRouter(
         store: ProviderStore,
         http: OkHttpClient = OkHttpClient(),
-        rankingsRepository: ModelRankingsRepository = sharedRankingsRepo,
-        probeService: ModelProbeService = sharedProbeService,
-        statsTracker: ModelStatsTracker = sharedStatsTracker,
+        rankingsRepository: ModelRankingsRepository = getRankingsRepository(),
+        probeService: ModelProbeService = getProbeService(),
+        statsTracker: ModelStatsTracker = getStatsTracker(),
+        cooldownStore: ModelCooldownStore = getCooldownStore(),
     ): FreeKeyRouter {
         val candidates = createCandidates(store, http)
         val picker = AutoModelPicker(
@@ -132,6 +168,7 @@ object AppFreeKeyRouter {
         return FreeKeyRouter(
             candidates = candidates,
             difficultyRouter = diffRouter,
+            cooldownStore = cooldownStore,
             firstTokenTimeoutMs = 15_000L,
             rankingsRepository = rankingsRepository,
             probeService = probeService,

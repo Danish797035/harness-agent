@@ -192,7 +192,7 @@ class ModelProbeService(
                 }
             }
 
-            // Execute probe
+            // Execute probe: if no executor, never manufacture fake passes
             val probeResult = if (executor != null) {
                 try {
                     executor.executeProbe(candidate, isVision)
@@ -206,15 +206,7 @@ class ModelProbeService(
                     )
                 }
             } else {
-                // Default probe simulation
-                ProbeResult(
-                    modelId = candidate.id,
-                    provider = candidate.provider,
-                    passed = true,
-                    firstTokenMs = 1200L,
-                    totalDurationMs = 2500L,
-                    dayKey = today,
-                )
+                continue
             }
 
             // Track budget usage

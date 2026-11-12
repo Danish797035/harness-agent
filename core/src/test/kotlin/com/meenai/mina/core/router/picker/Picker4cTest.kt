@@ -345,7 +345,16 @@ class Picker4cTest {
 
     @Test
     fun probeBudgetsRespected() = runTest {
-        val probeService = ModelProbeService()
+        val testExecutor = ModelProbeExecutor { candidate, _ ->
+            ProbeResult(
+                modelId = candidate.id,
+                provider = candidate.provider,
+                passed = true,
+                firstTokenMs = 1200L,
+                totalDurationMs = 2500L,
+            )
+        }
+        val probeService = ModelProbeService(executor = testExecutor)
 
         // 1. OpenRouter budget limit: max 6 probes per day
         // probeCandidates evaluates top 5 candidates per role; provide across 2 roles to test cap 6
@@ -403,5 +412,76 @@ class Picker4cTest {
             3,
             probeService.getModelScopeProbeCount(),
         )
+    }
+
+    @Test
+    fun noExecutorProducesZeroProbesAndZeroSpend() = runTest {
+        val probeService = ModelProbeService(executor = null)
+        MagicubeLedger.syncBalance(50.0)
+
+        val candidates = mapOf(
+            ModelRole.Main to listOf(
+                ModelCandidate(
+                    provider = "openrouter",
+                    id = "openrouter/test:free",
+                    contextTokens = 32_000,
+                    supportsTools = true,
+                    supportsImages = false,
+                    isFree = true,
+                    totalParamsB = 70.0,
+                ),
+                ModelCandidate(
+                    provider = "modelscope",
+                    id = "Qwen/Qwen2.5-72B-Instruct",
+                    contextTokens = 32_000,
+                    supportsTools = true,
+                    supportsImages = false,
+                    isFree = false,
+                    totalParamsB = 72.0,
+                ),
+            )
+        )
+
+        val results = probeService.probeCandidates(candidates)
+        assertTrue("No executor must yield zero probe results", results.isEmpty())
+        assertEquals(0, probeService.getOpenRouterProbeCount())
+        assertEquals(0, probeService.getModelScopeProbeCount())
+        assertEquals("Magicube balance must remain untouched", 50.0, MagicubeLedger.totalBalance(), 0.001)
+    }
+
+    @Test
+    fun statsTrackerPrunesExpiredCountsAndPersistsToFile() {
+        var fakeNow = 1_000_000_000L
+        val testClock = object : Clock {
+            override fun currentTimeMillis(): Long = fakeNow
+        }
+        val tempFile = java.io.File.createTempFile("model-stats-test", ".json")
+        tempFile.deleteOnExit()
+
+        try {
+            val store1 = FileModelStatsStore(tempFile)
+            val tracker1 = ModelStatsTracker(store = store1, clock = testClock)
+
+            // Day 0: record 2 failures
+            tracker1.recordFailure("model-a")
+            tracker1.recordFailure("model-a")
+            assertEquals(2, tracker1.getStats("model-a")?.failureCount)
+            assertEquals(0.0, tracker1.getStats("model-a")!!.successRate, 0.001)
+
+            // Advance 8 days -> day 0 failures must expire cleanly
+            fakeNow += 8 * 24 * 60 * 60 * 1000L
+
+            // Record 1 fresh success on Day 8
+            tracker1.recordSuccess("model-a", firstTokenMs = 800L, hasValidToolCall = true)
+
+            val reloadedTracker = ModelStatsTracker(store = FileModelStatsStore(tempFile), clock = testClock)
+            val stats = reloadedTracker.getStats("model-a")
+            assertNotNull(stats)
+            assertEquals("Expired failureCount must decay to 0", 0, stats!!.failureCount)
+            assertEquals("Fresh successCount must be 1", 1, stats.successCount)
+            assertEquals("7-day successRate must be 1.0", 1.0, stats.successRate, 0.001)
+        } finally {
+            tempFile.delete()
+        }
     }
 }
