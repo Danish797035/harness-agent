@@ -120,10 +120,21 @@ object ChatCopy {
         ComposerMode.Idle -> tr(R.string.voice_placeholder_idle)
     }
 
+    /** Returns true when the resolved app UI locale tag represents Hindi. */
+    fun isHindiLocale(uiLocaleTag: String): Boolean =
+        java.util.Locale.forLanguageTag(uiLocaleTag).language.equals("hi", ignoreCase = true)
+
     /** Model response wait label showing elapsed seconds and optional model name */
     fun modelWaitLabel(seconds: Int, modelName: String = "", isHindi: Boolean = true): String {
         val s = seconds.coerceAtLeast(0)
         val base = if (isHindi) "Model ka jawab aa raha hai · ${s}s" else "Waiting for model reply · ${s}s"
         return if (modelName.isNotBlank()) "$base · $modelName" else base
     }
+
+    /** Model response wait label resolved from the active UI locale tag (R.string.ui_locale). */
+    fun modelWaitLabelForLocale(
+        seconds: Int,
+        modelName: String = "",
+        uiLocaleTag: String = tr(R.string.ui_locale),
+    ): String = modelWaitLabel(seconds, modelName, isHindi = isHindiLocale(uiLocaleTag))
 }

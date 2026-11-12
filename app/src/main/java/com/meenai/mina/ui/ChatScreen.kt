@@ -802,7 +802,8 @@ private fun WorkBlock(ex: Exchange, reduceMotion: Boolean, backgroundNote: Boole
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val progressText = if (isWaitingForModel) {
         val modelName = if (activeModel.name != "No model") activeModel.name else ""
-        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName)
+        val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
+        ChatCopy.modelWaitLabel(modelWaitSeconds, modelName, isHindi = isHindi)
     } else {
         ChatCopy.progressLine(ex)
     }
