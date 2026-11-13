@@ -2,6 +2,42 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
+}
+
+// google-services.json ko repo me commit mat karo — CI me GitHub Secret se generate hota hai.
+// Agar file na ho to build/tests ke liye fallback mock config generate karo.
+val gmsFile = file("google-services.json")
+if (!gmsFile.exists()) {
+    gmsFile.writeText(
+        """
+        {
+          "project_info": {
+            "project_number": "123456789012",
+            "project_id": "harness-agent",
+            "storage_bucket": "harness-agent.appspot.com"
+          },
+          "client": [
+            {
+              "client_info": {
+                "mobilesdk_app_id": "1:123456789012:android:abcdef1234567890",
+                "android_client_info": {
+                  "package_name": "com.danish.harnessagent"
+                }
+              },
+              "oauth_client": [],
+              "api_key": [
+                {
+                  "current_key": "dummy_api_key_for_build"
+                }
+              ],
+              "services": {}
+            }
+          ],
+          "configuration_version": "1"
+        }
+        """.trimIndent()
+    )
 }
 
 // 关于页上的构建编号:当前提交的短哈希;没有 git(如从源码包编译)时写 dev
@@ -112,6 +148,8 @@ dependencies {
     // 两种识别模型都随 APK 安装；首次使用不依赖 Play 服务下载。
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.chinese)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

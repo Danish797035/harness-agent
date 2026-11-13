@@ -40,6 +40,27 @@ object UpdateAutomation {
         }
     }
 
+    /**
+     * FCM push notification milne par: bina 6 ghante wait kiye seedha latest release check karo,
+     * aur naya version milte hi maujooda drive automation ko chalao (download + install notification).
+     */
+    fun onPushReceived(context: Context, checker: UpdateChecker) {
+        val appContext = context.applicationContext
+        scope.launch {
+            val start = System.currentTimeMillis()
+            while (!running.compareAndSet(false, true)) {
+                if (System.currentTimeMillis() - start > 15_000L) return@launch
+                delay(500)
+            }
+            try {
+                runCatching { checker.check(manual = false) }
+                runCatching { drive(appContext, ApkUpdater(appContext), checker) }
+            } finally {
+                running.set(false)
+            }
+        }
+    }
+
     private suspend fun drive(app: Context, updater: ApkUpdater, checker: UpdateChecker) {
         val release = checker.state.value.update ?: return
         if (release.apkUrl == null) return
