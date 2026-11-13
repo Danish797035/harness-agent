@@ -6,6 +6,7 @@ import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.ModelHealthTracker
 import com.meenai.mina.core.router.RouterUsageTracker
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.preset.ZaiPreset
 import com.meenai.mina.settings.ProviderStore
@@ -74,6 +75,12 @@ enum class ModelStatusKind {
     }
 }
 
+enum class QuotaState {
+    Ready,
+    Low,
+    Exhausted;
+}
+
 /**
  * Per-model quota, usage line and status.
  */
@@ -87,6 +94,13 @@ data class ModelQuotaLine(
     val cooldownMinutes: Int = 0,
     val costPerCall: Double? = null,
     val costInfo: String? = null,
+    val provider: String = "",
+    val supportsVision: Boolean = false,
+    val supportsTools: Boolean = true,
+    val contextTokens: Int = 32_000,
+    val isFree: Boolean = true,
+    val quotaState: QuotaState = QuotaState.Ready,
+    val exhaustedReason: String? = null,
 )
 
 /**
@@ -449,6 +463,8 @@ class RealRouterStatus(
                 }
             }
 
+            val magicubeBal = if (isModelScope) MagicubeLedger.totalBalance() else null
+
             val lines = modelIds.map { mId ->
                 var todayRequests = RouterUsageTracker.getTodayCalls(mId)
                 val isUnsupported = router.cooldownStore.isUnsupported(mId)
@@ -475,6 +491,32 @@ class RealRouterStatus(
                 val costPerCall = if (isModelScope) modelScopeMagicubeCost(mId) else null
                 val costInfo = if (costPerCall != null) "~$costPerCall Magicube/call" else null
 
+                val candidate = router.candidates.find { it.id.equals(mId, ignoreCase = true) }
+                val listed = providerObj?.models?.find { it.id.equals(mId, ignoreCase = true) }
+
+                val supportsVision = candidate?.model?.capabilities?.vision
+                    ?: (listed?.vision == true)
+                    ?: ChatModelFilter.supportsVision(mId, false)
+                val supportsTools = candidate?.model?.capabilities?.toolCalls
+                    ?: listed?.toolCalls
+                    ?: true
+                val contextTokens = candidate?.model?.capabilities?.contextTokens
+                    ?: listed?.contextTokens
+                    ?: 32_000
+                val isFree = candidate?.isFree
+                    ?: (mId.endsWith(":free") || isModelScope || isZai)
+
+                val (quotaState, exhaustedReason) = ModelPickerLogic.computeQuotaState(
+                    isBadKey = isBadKey,
+                    isUnsupported = isUnsupported,
+                    cooldownMs = cooldownMs,
+                    limit = limit,
+                    todayRequests = todayRequests,
+                    isModelScope = isModelScope,
+                    magicubeBalance = magicubeBal,
+                    costPerCall = costPerCall,
+                )
+
                 ModelQuotaLine(
                     modelId = mId,
                     modelName = formatModelName(mId),
@@ -485,6 +527,13 @@ class RealRouterStatus(
                     cooldownMinutes = cooldownMin,
                     costPerCall = costPerCall,
                     costInfo = costInfo,
+                    provider = formatProvider(providerKeyName),
+                    supportsVision = supportsVision,
+                    supportsTools = supportsTools,
+                    contextTokens = contextTokens,
+                    isFree = isFree,
+                    quotaState = quotaState,
+                    exhaustedReason = exhaustedReason,
                 )
             }
 
@@ -500,8 +549,6 @@ class RealRouterStatus(
             val providerLimit = if (isOpenRouter && cachedOpenRouterKeyInfo?.limit != null) cachedOpenRouterKeyInfo?.limit else null
             val remQuota = if (providerLimit != null) (providerLimit - todayTotal).coerceAtLeast(0) else 0
             val totQuota = providerLimit ?: 0
-
-            val magicubeBal = if (isModelScope) MagicubeLedger.totalBalance() else null
 
             ProviderUsage(
                 provider = formatProvider(providerKeyName),
