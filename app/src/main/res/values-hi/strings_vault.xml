@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vault_title">पासवर्ड वॉल्ट</string>
+    <string name="vault_empty">अभी कोई पासवर्ड सहेजा नहीं गया है</string>
+    <string name="vault_empty_sub">अपनी वेबसाइट और ऐप क्रेडेंशियल्स जोड़ें ताकि वे आपके डिवाइस पर सुरक्षित रहें।</string>
+    <string name="vault_add">पासवर्ड जोड़ें</string>
+    <string name="vault_edit">पासवर्ड संपादित करें</string>
+    <string name="vault_title_label">शीर्षक / ऐप / वेबसाइट</string>
+    <string name="vault_username_label">यूज़रनेम या ईमेल</string>
+    <string name="vault_password_label">पासवर्ड</string>
+    <string name="vault_url_label">वेबसाइट / डोमेन (वैकल्पिक)</string>
+    <string name="vault_notes_label">टिप्पणी (वैकल्पिक)</string>
+    <string name="vault_save">सहेजें</string>
+    <string name="vault_view_password">पासवर्ड देखें</string>
+    <string name="vault_hide_password">पासवर्ड छुपाएं</string>
+    <string name="vault_copy_password">पासवर्ड कॉपी करें</string>
+    <string name="vault_copy_username">यूज़रनेम कॉपी करें</string>
+    <string name="vault_copied">क्लिपबोर्ड पर कॉपी किया गया</string>
+    <string name="vault_delete">हटाएं</string>
+    <string name="vault_delete_confirm">क्या आप “%1$s” को पासवर्ड वॉल्ट से हटाना चाहते हैं?</string>
+    <string name="vault_auth_prompt">पासवर्ड वॉल्ट अनलॉक करें</string>
+    <string name="vault_auth_desc">पासवर्ड देखने के लिए अपना बायोमेट्रिक या स्क्रीन लॉक दर्ज करें</string>
+    <string name="vault_search_hint">पासवर्ड खोजें</string>
+    <string name="vault_close">बंद करें</string>
+</resources>

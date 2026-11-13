@@ -19,6 +19,12 @@
         <item quantity="one">%1$d site</item>
         <item quantity="other">%1$d sites</item>
     </plurals>
+    <string name="settings_vault">Password vault</string>
+    <string name="settings_vault_sub">On-device encrypted passwords for websites and apps</string>
+    <plurals name="settings_count_vault">
+        <item quantity="one">%1$d password</item>
+        <item quantity="other">%1$d passwords</item>
+    </plurals>
     <string name="settings_advanced">Advanced</string>
     <string name="settings_sandbox">Files &amp; computing environment</string>
     <string name="settings_routes">Saved routes</string>

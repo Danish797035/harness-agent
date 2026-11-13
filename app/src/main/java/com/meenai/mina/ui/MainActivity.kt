@@ -397,13 +397,16 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 onLogoutAll = { WebSites.logoutAll(context) },
             )
             val autonomous by app.approvals.autonomous.collectAsState()
+            val vaultEntries by app.vault.entries.collectAsState()
             SettingsScreen(store, status, release, onFix, onBack = back, onOpenMemory = { nav.push(Route.Memory) },
+                onOpenVault = { nav.push(Route.Vault) }, vaultCount = vaultEntries.size,
                 onOpenModels = { nav.push(Route.Models) }, webSites = webSites,
                 autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
                 updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
                 onCheckUpdates = app.updates::checkInBackground,
                 updateState = updateState)
         }
+        Route.Vault -> VaultScreen(vault = app.vault, onBack = back)
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, routerStatus = app.routerStatus)
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)
         Route.About -> AboutScreen(

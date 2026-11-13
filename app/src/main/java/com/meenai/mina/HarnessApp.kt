@@ -69,8 +69,12 @@ import com.meenai.mina.task.TriggerRuntime
  * 其余代码经构造参数拿到。助手进程(HelperMain、ShellService)没有这个对象,不用这里的任何服务。
  */
 class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, PhoneServices.Owner,
-    MemoryRuntime.Owner, ProviderStore.Owner, FileRouteStore.Owner, TaskRecovery.Owner {
+    MemoryRuntime.Owner, ProviderStore.Owner, FileRouteStore.Owner, TaskRecovery.Owner,
+    com.meenai.mina.vault.PasswordVaultStore.Owner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** 本地密码保险库:独立于 API keys,使用 harness-password-vault Keystore 别名 */
+    override val vault: com.meenai.mina.vault.PasswordVaultStore by lazy { com.meenai.mina.vault.PasswordVaultStore.create(this) }
 
     /** 手机能力的服务:内置助手、共用的 shell 连接、配对、「去设置」提示。 */
     override val phone: PhoneServices by lazy { PhoneServices(this) }

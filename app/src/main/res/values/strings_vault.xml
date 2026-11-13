@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vault_title">Password Vault</string>
+    <string name="vault_empty">No passwords saved yet</string>
+    <string name="vault_empty_sub">Add your website and app credentials to keep them securely on-device.</string>
+    <string name="vault_add">Add Password</string>
+    <string name="vault_edit">Edit Password</string>
+    <string name="vault_title_label">Title / App / Website</string>
+    <string name="vault_username_label">Username or Email</string>
+    <string name="vault_password_label">Password</string>
+    <string name="vault_url_label">Website / Domain (optional)</string>
+    <string name="vault_notes_label">Notes (optional)</string>
+    <string name="vault_save">Save</string>
+    <string name="vault_view_password">View password</string>
+    <string name="vault_hide_password">Hide password</string>
+    <string name="vault_copy_password">Copy password</string>
+    <string name="vault_copy_username">Copy username</string>
+    <string name="vault_copied">Copied to clipboard</string>
+    <string name="vault_delete">Delete</string>
+    <string name="vault_delete_confirm">Delete “%1$s” from your password vault?</string>
+    <string name="vault_auth_prompt">Unlock Password Vault</string>
+    <string name="vault_auth_desc">Confirm your biometric or screen lock to access password</string>
+    <string name="vault_search_hint">Search passwords</string>
+    <string name="vault_close">Close</string>
+</resources>

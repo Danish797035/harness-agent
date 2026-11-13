@@ -26,6 +26,23 @@ object Redactor {
     private val AADHAAR = Regex("""(?<!\d)(?:\d{12}|(?<!\d[\s\-]|\d)\d{4}[\s\-]\d{4}[\s\-]\d{4}(?![\s\-]?\d))(?!\d)""")
     private val INDIAN_MOBILE = Regex("""(?<![\w+])(?:\+91[\s\-]*|0[\s\-]*)?[6-9](?:\d{9}|\d{4}[\s\-]\d{5})(?!\d)""")
 
+    private val dynamicSecrets = java.util.concurrent.CopyOnWriteArraySet<String>()
+
+    /** 注册需要全流程脱敏的敏感字符串(如 Password Vault 中的密码)。长度过短(少于 4 个字符)的不注册，避免误伤。 */
+    fun registerSecret(secret: String) {
+        if (secret.length >= 4) {
+            dynamicSecrets.add(secret)
+        }
+    }
+
+    fun unregisterSecret(secret: String) {
+        dynamicSecrets.remove(secret)
+    }
+
+    fun clearSecrets() {
+        dynamicSecrets.clear()
+    }
+
     /** [secretField]:端口报告这次输入的目标是密码框。 */
     /** [verb]:调用的工具做的动作(不认识的工具为 null)。 */
     fun args(verb: Verb?, argsJson: String, secretField: Boolean): String {
@@ -33,14 +50,27 @@ object Redactor {
         if (verb == Verb.Script) return script(argsJson)
         if (verb == Verb.PhoneCommand) return maskFields(argsJson, setOf("command"))
         if (verb == Verb.PhoneRun) return phoneRun(argsJson)
-        if (verb != Verb.TypeText || !secretField) return text(argsJson)
+        val masked = maskSecretFields(argsJson)
+        if (verb != Verb.TypeText || !secretField) return text(masked)
         val o = try {
-            Json.parseToJsonElement(argsJson) as? JsonObject
+            Json.parseToJsonElement(masked) as? JsonObject
         } catch (e: SerializationException) {
             null
         } ?: return MASK // 解析不了就整段不记,宁可丢信息
-        val masked = if ("text" in o) JsonObject(o + ("text" to JsonPrimitive(MASK))) else o
-        return text(masked.toString())
+        val withText = if ("text" in o) JsonObject(o + ("text" to JsonPrimitive(MASK))) else o
+        return text(withText.toString())
+    }
+
+    private fun maskSecretFields(argsJson: String): String {
+        val o = try { Json.parseToJsonElement(argsJson) as? JsonObject } catch (e: SerializationException) { null } ?: return argsJson
+        var changed = false
+        val newMap = o.mapValues { (k, v) ->
+            if (secretName(k) && v is JsonPrimitive && v.isString) {
+                changed = true
+                JsonPrimitive(MASK)
+            } else v
+        }
+        return if (changed) JsonObject(newMap).toString() else argsJson
     }
 
     /** 条件式手机命令里的输入内容可能是密码,整段按字段打码。 */
@@ -126,6 +156,11 @@ object Redactor {
     fun text(s: String): String {
         var out = s
         for (re in listOf(SK_KEY, GOOGLE_KEY, GOOGLE_AUTH_KEY, GITHUB_TOKEN, GROQ_KEY, UPI, PAN, INDIAN_MOBILE, AADHAAR)) out = re.replace(out, MASK)
+        for (secret in dynamicSecrets) {
+            if (out.contains(secret)) {
+                out = out.replace(secret, MASK)
+            }
+        }
         return BEARER.replace(out, "Bearer $MASK")
     }
 
