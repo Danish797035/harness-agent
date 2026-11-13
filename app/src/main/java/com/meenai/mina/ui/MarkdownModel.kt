@@ -161,11 +161,17 @@ object MarkdownModel {
 
         for (node in children(p)) {
             if (node is Image) {
+                while (currentInlines.isNotEmpty() && (currentInlines.last() is SoftLineBreak || currentInlines.last() is HardLineBreak)) {
+                    currentInlines.removeAt(currentInlines.size - 1)
+                }
                 flushInlines()
                 val dest = node.destination.orEmpty()
                 val alt = plainText(node)
                 result.add(MdBlock.Image(dest, alt))
             } else {
+                if (currentInlines.isEmpty() && result.lastOrNull() is MdBlock.Image && (node is SoftLineBreak || node is HardLineBreak)) {
+                    continue
+                }
                 currentInlines.add(node)
             }
         }
