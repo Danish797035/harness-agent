@@ -24,7 +24,7 @@ class RedactorVaultTest {
 
     @Test
     fun registeredSecretIsMaskedInText() {
-        val vaultPass = "SuperSecretP@ssw0rd!"
+        val vaultPass = "SuperSecretPassword123!"
         Redactor.registerSecret(vaultPass)
 
         val result = Redactor.text("Logging into account with $vaultPass right now")

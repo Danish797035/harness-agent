@@ -84,7 +84,7 @@ fun VaultScreen(
             if (entries.isNotEmpty()) {
                 BarIconButton(
                     icon = MinaIcons.Search,
-                    description = stringResource(R.string.vault_search_hint),
+                    label = stringResource(R.string.vault_search_hint),
                     onClick = {
                         searching = !searching
                         if (!searching) searchQuery = ""
@@ -93,7 +93,7 @@ fun VaultScreen(
             }
             BarIconButton(
                 icon = MinaIcons.Plus,
-                description = stringResource(R.string.vault_add),
+                label = stringResource(R.string.vault_add),
                 onClick = { addingEntry = true },
             )
         },
@@ -102,7 +102,7 @@ fun VaultScreen(
             SearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                hint = stringResource(R.string.vault_search_hint),
+                placeholder = stringResource(R.string.vault_search_hint),
                 modifier = Modifier.testTag("vault-search"),
             )
         }
@@ -110,8 +110,7 @@ fun VaultScreen(
         if (displayedEntries.isEmpty()) {
             GroupLabel("")
             EmptyNote(
-                title = if (searchQuery.isBlank()) stringResource(R.string.vault_empty) else stringResource(R.string.not_found),
-                detail = if (searchQuery.isBlank()) stringResource(R.string.vault_empty_sub) else "",
+                if (searchQuery.isBlank()) stringResource(R.string.vault_empty) else stringResource(R.string.not_found),
             )
             GroupLabel("")
             GroupCard {
@@ -265,7 +264,7 @@ private fun AddVaultEntryDialog(
                             Icon(
                                 imageVector = if (passwordVisible) MinaIcons.EyeOff else MinaIcons.Eye,
                                 contentDescription = null,
-                                tint = MinaTheme.colors.icon,
+                                tint = MinaTheme.colors.ink2,
                             )
                         }
                     },
@@ -347,7 +346,7 @@ private fun VaultEntryDetailDialog(
                     Text(
                         text = stringResource(R.string.vault_username_label),
                         style = MinaType.Caption,
-                        color = MinaTheme.colors.subtext,
+                        color = MinaTheme.colors.ink2,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -359,7 +358,7 @@ private fun VaultEntryDetailDialog(
                             Icon(
                                 imageVector = MinaIcons.Copy,
                                 contentDescription = stringResource(R.string.vault_copy_username),
-                                tint = MinaTheme.colors.icon,
+                                tint = MinaTheme.colors.ink2,
                             )
                         }
                     }
@@ -370,7 +369,7 @@ private fun VaultEntryDetailDialog(
                     Text(
                         text = stringResource(R.string.vault_password_label),
                         style = MinaType.Caption,
-                        color = MinaTheme.colors.subtext,
+                        color = MinaTheme.colors.ink2,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -404,14 +403,14 @@ private fun VaultEntryDetailDialog(
                                 Icon(
                                     imageVector = if (isRevealed) MinaIcons.EyeOff else MinaIcons.Eye,
                                     contentDescription = stringResource(if (isRevealed) R.string.vault_hide_password else R.string.vault_view_password),
-                                    tint = MinaTheme.colors.icon,
+                                    tint = MinaTheme.colors.ink2,
                                 )
                             }
                             IconButton(onClick = onCopyPassword) {
                                 Icon(
                                     imageVector = MinaIcons.Copy,
                                     contentDescription = stringResource(R.string.vault_copy_password),
-                                    tint = MinaTheme.colors.icon,
+                                    tint = MinaTheme.colors.ink2,
                                 )
                             }
                         }
@@ -423,7 +422,7 @@ private fun VaultEntryDetailDialog(
                         Text(
                             text = stringResource(R.string.vault_url_label),
                             style = MinaType.Caption,
-                            color = MinaTheme.colors.subtext,
+                            color = MinaTheme.colors.ink2,
                         )
                         Text(entry.url, style = MinaType.Body)
                     }
@@ -434,7 +433,7 @@ private fun VaultEntryDetailDialog(
                         Text(
                             text = stringResource(R.string.vault_notes_label),
                             style = MinaType.Caption,
-                            color = MinaTheme.colors.subtext,
+                            color = MinaTheme.colors.ink2,
                         )
                         Text(entry.notes, style = MinaType.Body)
                     }
