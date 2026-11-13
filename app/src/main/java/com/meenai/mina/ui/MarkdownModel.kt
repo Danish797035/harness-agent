@@ -53,6 +53,7 @@ sealed interface MdBlock {
     data class ListBlock(val start: Int?, val tight: Boolean, val items: List<List<MdBlock>>) : MdBlock
     /** 每行的格数都补齐到表头的列数。 */
     data class Table(val header: List<AnnotatedString>, val rows: List<List<AnnotatedString>>) : MdBlock
+    data class Image(val destination: String, val alt: String) : MdBlock
     data object Rule : MdBlock
 }
 
@@ -106,6 +107,7 @@ object MarkdownModel {
                 mark + blocksText(item, "\n").lines().joinToString("\n" + " ".repeat(mark.length))
             }.joinToString("\n")
             is MdBlock.Table -> (listOf(b.header) + b.rows).joinToString("\n") { r -> r.joinToString("\t") { it.text } }
+            is MdBlock.Image -> b.alt.takeIf { it.isNotBlank() } ?: b.destination
             MdBlock.Rule -> null
         }?.takeIf { it.isNotBlank() }
     }.joinToString(sep)
@@ -114,27 +116,67 @@ object MarkdownModel {
 
     private fun children(n: Node): Sequence<Node> = generateSequence(n.firstChild) { it.next }
 
-    private fun blocks(parent: Node, depth: Int, s: Styles): List<MdBlock> = children(parent).mapNotNull { block(it, depth, s) }.toList()
+    private fun blocks(parent: Node, depth: Int, s: Styles): List<MdBlock> = children(parent).flatMap { blockList(it, depth, s) }.toList()
 
-    private fun block(n: Node, depth: Int, s: Styles): MdBlock? {
-        if (depth > MAX_DEPTH) return MdBlock.Para(AnnotatedString(plainText(n)))
+    private fun blockList(n: Node, depth: Int, s: Styles): List<MdBlock> {
+        if (depth > MAX_DEPTH) return listOf(MdBlock.Para(AnnotatedString(plainText(n))))
         return when (n) {
-            is Paragraph -> MdBlock.Para(inlines(n, s))
-            is org.commonmark.node.Heading -> MdBlock.Heading(n.level, inlines(n, s))
-            is FencedCodeBlock -> MdBlock.Code(n.info.orEmpty().trim(), n.literal.orEmpty().trimEnd('\n'))
-            is IndentedCodeBlock -> MdBlock.Code("", n.literal.orEmpty().trimEnd('\n'))
-            is HtmlBlock -> MdBlock.Para(AnnotatedString(n.literal.orEmpty().trimEnd('\n')))
-            is BlockQuote -> MdBlock.Quote(blocks(n, depth + 1, s))
-            is ListBlock -> MdBlock.ListBlock(
+            is Paragraph -> paragraphBlocks(n, s)
+            is org.commonmark.node.Heading -> listOf(MdBlock.Heading(n.level, inlines(n, s)))
+            is FencedCodeBlock -> listOf(MdBlock.Code(n.info.orEmpty().trim(), n.literal.orEmpty().trimEnd('\n')))
+            is IndentedCodeBlock -> listOf(MdBlock.Code("", n.literal.orEmpty().trimEnd('\n')))
+            is HtmlBlock -> listOf(MdBlock.Para(AnnotatedString(n.literal.orEmpty().trimEnd('\n'))))
+            is BlockQuote -> listOf(MdBlock.Quote(blocks(n, depth + 1, s)))
+            is ListBlock -> listOf(MdBlock.ListBlock(
                 start = (n as? OrderedList)?.let { it.markerStartNumber ?: 1 },
                 tight = n.isTight,
                 items = children(n).filterIsInstance<ListItem>().map { blocks(it, depth + 1, s) }.toList(),
-            )
-            is TableBlock -> table(n, s)
-            is ThematicBreak -> MdBlock.Rule
-            is LinkReferenceDefinition -> null
-            else -> plainText(n).takeIf { it.isNotBlank() }?.let { MdBlock.Para(AnnotatedString(it)) }
+            ))
+            is TableBlock -> listOf(table(n, s))
+            is ThematicBreak -> listOf(MdBlock.Rule)
+            is LinkReferenceDefinition -> emptyList()
+            else -> plainText(n).takeIf { it.isNotBlank() }?.let { listOf(MdBlock.Para(AnnotatedString(it))) } ?: emptyList()
         }
+    }
+
+    private fun paragraphBlocks(p: Paragraph, s: Styles): List<MdBlock> {
+        val hasImage = children(p).any { it is Image }
+        if (!hasImage) {
+            val t = inlines(p, s)
+            return if (t.isNotEmpty()) listOf(MdBlock.Para(t)) else emptyList()
+        }
+        val result = mutableListOf<MdBlock>()
+        val currentInlines = mutableListOf<Node>()
+
+        fun flushInlines() {
+            if (currentInlines.isEmpty()) return
+            val t = buildAnnotatedString {
+                for (node in currentInlines) appendInlineNode(node, s)
+            }
+            if (t.text.isNotBlank()) {
+                result.add(MdBlock.Para(t))
+            }
+            currentInlines.clear()
+        }
+
+        for (node in children(p)) {
+            if (node is Image) {
+                while (currentInlines.isNotEmpty() && (currentInlines.last() is SoftLineBreak || currentInlines.last() is HardLineBreak)) {
+                    currentInlines.removeAt(currentInlines.size - 1)
+                }
+                flushInlines()
+                val dest = node.destination.orEmpty()
+                val alt = plainText(node)
+                result.add(MdBlock.Image(dest, alt))
+            } else {
+                if (currentInlines.isEmpty() && result.lastOrNull() is MdBlock.Image && (node is SoftLineBreak || node is HardLineBreak)) {
+                    continue
+                }
+                currentInlines.add(node)
+            }
+        }
+        flushInlines()
+        return result
     }
 
     private fun table(t: TableBlock, s: Styles): MdBlock.Table {
@@ -152,7 +194,11 @@ object MarkdownModel {
     private fun inlines(parent: Node, s: Styles): AnnotatedString = buildAnnotatedString { appendInlines(parent, s) }
 
     private fun AnnotatedString.Builder.appendInlines(parent: Node, s: Styles) {
-        for (n in children(parent)) when (n) {
+        for (n in children(parent)) appendInlineNode(n, s)
+    }
+
+    private fun AnnotatedString.Builder.appendInlineNode(n: Node, s: Styles) {
+        when (n) {
             is Text -> append(n.literal)
             is SoftLineBreak, is HardLineBreak -> append('\n')
             is Code -> withStyle(s.code) { append(n.literal) }

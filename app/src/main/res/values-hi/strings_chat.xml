@@ -168,4 +168,6 @@
     <string name="image_regenerate">दोबारा बनाएं</string>
     <string name="image_saved_to_gallery">गैलरी में सेव हो गई</string>
     <string name="image_save_failed">गैलरी में सेव नहीं हो सकी</string>
+    <string name="image_load_failed">इमेज लोड नहीं हो सकी</string>
+    <string name="image_generation_failed">इमेज नहीं बन पाई</string>
 </resources>

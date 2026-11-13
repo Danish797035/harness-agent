@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -144,5 +145,39 @@ class ImageChatWiringTest {
         assertTrue(ImageIntentRouter.isVideoRequest("generate video of dancing robot"))
         assertFalse(ImageIntentRouter.isVideoRequest("ek billi ki photo banao"))
         assertEquals("Video abhi support nahi hai", ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
+    }
+
+    @Test
+    fun updateGeneratedImagePreservesFilePathWhenProgressCalledAfterSave() {
+        val list = mutableListOf<GeneratedImageUi>()
+        fun update(img: GeneratedImageUi) {
+            val idx = list.indexOfFirst { it.prompt == img.prompt }
+            if (idx >= 0) {
+                val existing = list[idx]
+                list[idx] = img.copy(
+                    filePath = img.filePath ?: existing.filePath,
+                    model = if (img.model.isNotBlank()) img.model else existing.model
+                )
+            } else {
+                list.add(img)
+            }
+        }
+
+        // 1. Progress start
+        update(GeneratedImageUi(filePath = null, isGenerating = true, prompt = "a dog", model = "Qwen"))
+        assertEquals(1, list.size)
+        assertTrue(list.first().isGenerating)
+        assertNull(list.first().filePath)
+
+        // 2. Saved callback
+        update(GeneratedImageUi(filePath = "/path/to/dog.jpg", isGenerating = false, prompt = "a dog", model = "Qwen"))
+        assertEquals("/path/to/dog.jpg", list.first().filePath)
+        assertFalse(list.first().isGenerating)
+
+        // 3. Progress finish callback (isGenerating=false, filePath=null)
+        update(GeneratedImageUi(filePath = null, isGenerating = false, prompt = "a dog", model = "Qwen"))
+        // MUST NOT wipe out the saved filePath!
+        assertEquals("/path/to/dog.jpg", list.first().filePath)
+        assertFalse(list.first().isGenerating)
     }
 }
