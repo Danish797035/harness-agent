@@ -37,16 +37,16 @@ object PushUpdateSubscriber {
 
         val available = runCatching { isPlayServicesAvailable(context) }.getOrDefault(false)
         if (!available) {
-            Log.d(TAG, "Google Play Services not available; silently falling back to polling")
+            runCatching { Log.d(TAG, "Google Play Services not available; silently falling back to polling") }
             return false
         }
 
         topicSubscriber(TOPIC_RELEASES) { success ->
             if (success) {
                 prefs.edit().putBoolean(KEY_SUBSCRIBED, true).apply()
-                Log.i(TAG, "Subscribed to FCM topic: $TOPIC_RELEASES")
+                runCatching { Log.i(TAG, "Subscribed to FCM topic: $TOPIC_RELEASES") }
             } else {
-                Log.w(TAG, "Failed to subscribe to FCM topic: $TOPIC_RELEASES")
+                runCatching { Log.w(TAG, "Failed to subscribe to FCM topic: $TOPIC_RELEASES") }
             }
         }
         return true

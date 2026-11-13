@@ -15,7 +15,7 @@ class HarnessFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.i(TAG, "New FCM token received, ensuring topic subscription is refreshed")
+        runCatching { Log.i(TAG, "New FCM token received, ensuring topic subscription is refreshed") }
         runCatching {
             getSharedPreferences(PushUpdateSubscriber.PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
@@ -28,7 +28,7 @@ class HarnessFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         val data = remoteMessage.data
-        Log.i(TAG, "FCM release message received: data=$data")
+        runCatching { Log.i(TAG, "FCM release message received: data=$data") }
         val app = applicationContext as? HarnessApp ?: return
         handleMessage(app, data)
     }
@@ -48,7 +48,7 @@ class HarnessFirebaseMessagingService : FirebaseMessagingService() {
         ): Boolean {
             val tag = data["tag"]
             val version = data["version"]
-            Log.d(TAG, "Handling release push for version=$version tag=$tag")
+            runCatching { Log.d(TAG, "Handling release push for version=$version tag=$tag") }
             onTrigger(context)
             return true
         }
