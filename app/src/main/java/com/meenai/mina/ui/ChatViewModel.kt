@@ -1373,16 +1373,23 @@ fun evidenceSource(events: List<RunEvent>, appLabel: (String) -> String = { it }
     val shots = events.filterIsInstance<RunEvent.Media>()
     val lastStep = shots.maxOfOrNull { it.step } ?: return EvidenceSource(null, emptyList())
     val final = shots.filter { it.step == lastStep }
-    val place = shots.lastOrNull { it.place != null }?.place?.let { if (it.startsWith(SITE_PREFIX)) it.removePrefix(SITE_PREFIX) else appLabel(it) }
+    val place = shots.lastOrNull { it.place != null }?.place?.let {
+        when {
+            it.startsWith(SITE_PREFIX) -> it.removePrefix(SITE_PREFIX)
+            it.startsWith("网站 ") -> it.removePrefix("网站 ")
+            else -> appLabel(it)
+        }
+    }
     return EvidenceSource(place, final.map { it.mediaId }.distinct())
 }
 
-/** 运行记录里网页那一屏的「地方」写成「网站 <域名>」。 */
-private const val SITE_PREFIX = "网站 "
+/** 运行记录里网页那一屏的「地方」写成「Site <域名>」。 */
+private const val SITE_PREFIX = "Site "
 
-/** 来源里的地方:「网站 域名」和网址显示域名,包名换成 App 名,别的(命令、文件)原样。 */
+/** 来源里的地方:「Site 域名」和网址显示域名,包名换成 App 名,别的(命令、文件)原样。 */
 private fun placeLabel(place: String, appLabel: (String) -> String): String = when {
     place.startsWith(SITE_PREFIX) -> place.removePrefix(SITE_PREFIX)
+    place.startsWith("网站 ") -> place.removePrefix("网站 ")
     place.startsWith("http://") || place.startsWith("https://") -> runCatching { java.net.URI(place).host }.getOrNull() ?: place
     com.meenai.mina.core.tool.PACKAGE_NAME_RE.matches(place) -> appLabel(place)
     else -> place
@@ -1422,66 +1429,66 @@ class ToolLabels(private val tools: ToolIndex, private val legacy: LegacyNames =
     companion object {
         /** 工具声明里的 label → 界面文字;中文资源与 label 一字不差(ToolLabelsTest 核对每个工具都有)。 */
         val TOOL_LABELS: Map<String, Int> = mapOf(
-            "查看已装的 App" to R.string.tool_list_apps,
-            "打开 App" to R.string.tool_open_app,
-            "分享文字到 App" to R.string.tool_share_text,
-            "设闹钟" to R.string.tool_set_alarm,
-            "设计时器" to R.string.tool_set_timer,
-            "查看闹钟" to R.string.tool_show_alarms,
-            "添加日程" to R.string.tool_add_calendar_event,
-            "拨滚轮" to R.string.tool_set_wheel,
-            "滚动查找" to R.string.tool_scroll_find,
-            "等待界面条件" to R.string.tool_wait_condition,
-            "等待界面事件" to R.string.tool_wait_event,
-            "提取界面数据" to R.string.tool_extract,
-            "检查弹窗" to R.string.tool_check_dialog,
-            "多点手势" to R.string.tool_gesture,
-            "系统命令" to R.string.tool_shell,
-            "查找界面控件" to R.string.tool_find_element,
-            "采集多屏内容" to R.string.tool_collect,
-            "连续操作手机" to R.string.tool_phone_run,
-            "处理文件" to R.string.tool_process_files,
-            "运行自带脚本" to R.string.tool_run_script,
-            "读文件" to R.string.tool_read_file,
-            "写文件" to R.string.tool_write_file,
-            "搜索文件" to R.string.tool_search_files,
-            "导出文件" to R.string.tool_export_file,
-            "打开网页" to R.string.tool_open_page,
-            "切换网页标签" to R.string.tool_switch_tab,
-            "切换网页版本" to R.string.tool_switch_version,
-            "保持网页开着" to R.string.tool_keep_page,
-            "定下 App 做完后留着还是关掉" to R.string.tool_app_after_task,
-            "读网页" to R.string.tool_read_page,
-            "查看下载" to R.string.tool_downloads,
-            "查看网页收到的数据" to R.string.tool_network,
-            "等网页变化" to R.string.tool_wait_page,
-            "读取网页数据" to R.string.tool_read_script,
-            "运行站点命令" to R.string.tool_site_command,
-            "上传文件" to R.string.tool_upload,
-            "遇到障碍" to R.string.tool_obstacle,
-            "查找 App/网站知识" to R.string.tool_find_knowledge,
-            "查找技能" to R.string.tool_find_skill,
-            "查看 App/网站知识" to R.string.tool_read_knowledge,
-            "查看技能" to R.string.tool_read_skill,
-            "保存技能" to R.string.tool_save_skill,
-            "查看设置" to R.string.tool_list_settings,
-            "改设置" to R.string.tool_set_setting,
-            "说明没办成的原因" to R.string.tool_explain_failure,
-            "问你一个问题" to R.string.tool_ask_user,
-            "请你接手" to R.string.tool_takeover,
-            "请你同意" to R.string.tool_confirm,
-            "等待" to R.string.tool_wait,
-            "检查屏幕" to R.string.tool_diagnose,
-            "返回" to R.string.tool_back,
-            "按键" to R.string.tool_press_key,
-            "看屏幕" to R.string.tool_observe,
-            "读取界面元素" to R.string.tool_list_elements,
-            "截图" to R.string.tool_screenshot,
-            "滚动" to R.string.tool_scroll,
-            "滑动" to R.string.tool_swipe,
-            "点击" to R.string.tool_tap,
-            "输入文字" to R.string.tool_type,
-            "清空输入框" to R.string.tool_clear,
+            "List installed apps" to R.string.tool_list_apps,
+            "Open app" to R.string.tool_open_app,
+            "Share text to app" to R.string.tool_share_text,
+            "Set alarm" to R.string.tool_set_alarm,
+            "Set timer" to R.string.tool_set_timer,
+            "Show alarms" to R.string.tool_show_alarms,
+            "Add calendar event" to R.string.tool_add_calendar_event,
+            "Turn picker wheel" to R.string.tool_set_wheel,
+            "Scroll to find" to R.string.tool_scroll_find,
+            "Wait for screen condition" to R.string.tool_wait_condition,
+            "Wait for screen event" to R.string.tool_wait_event,
+            "Extract screen data" to R.string.tool_extract,
+            "Check for dialogs" to R.string.tool_check_dialog,
+            "Multi-touch gesture" to R.string.tool_gesture,
+            "System command" to R.string.tool_shell,
+            "Find on screen" to R.string.tool_find_element,
+            "Collect across screens" to R.string.tool_collect,
+            "Several phone actions" to R.string.tool_phone_run,
+            "Work with files" to R.string.tool_process_files,
+            "Run built-in script" to R.string.tool_run_script,
+            "Read file" to R.string.tool_read_file,
+            "Write file" to R.string.tool_write_file,
+            "Search files" to R.string.tool_search_files,
+            "Export file" to R.string.tool_export_file,
+            "Open web page" to R.string.tool_open_page,
+            "Switch tab" to R.string.tool_switch_tab,
+            "Switch page version" to R.string.tool_switch_version,
+            "Keep page open" to R.string.tool_keep_page,
+            "Choose whether the app stays open afterwards" to R.string.tool_app_after_task,
+            "Read web page" to R.string.tool_read_page,
+            "Check downloads" to R.string.tool_downloads,
+            "Check page network data" to R.string.tool_network,
+            "Wait for page change" to R.string.tool_wait_page,
+            "Read page data" to R.string.tool_read_script,
+            "Run site command" to R.string.tool_site_command,
+            "Upload file" to R.string.tool_upload,
+            "Hit an obstacle" to R.string.tool_obstacle,
+            "Look up app/site knowledge" to R.string.tool_find_knowledge,
+            "Look up skills" to R.string.tool_find_skill,
+            "Read app/site knowledge" to R.string.tool_read_knowledge,
+            "Read skill" to R.string.tool_read_skill,
+            "Save skill" to R.string.tool_save_skill,
+            "Read settings" to R.string.tool_list_settings,
+            "Change a setting" to R.string.tool_set_setting,
+            "Explain why it didn’t work" to R.string.tool_explain_failure,
+            "Ask you a question" to R.string.tool_ask_user,
+            "Ask you to take over" to R.string.tool_takeover,
+            "Ask for your OK" to R.string.tool_confirm,
+            "Wait" to R.string.tool_wait,
+            "Check screen" to R.string.tool_diagnose,
+            "Back" to R.string.tool_back,
+            "Press key" to R.string.tool_press_key,
+            "Look at screen" to R.string.tool_observe,
+            "Read screen elements" to R.string.tool_list_elements,
+            "Screenshot" to R.string.tool_screenshot,
+            "Scroll" to R.string.tool_scroll,
+            "Swipe" to R.string.tool_swipe,
+            "Tap" to R.string.tool_tap,
+            "Type text" to R.string.tool_type,
+            "Clear field" to R.string.tool_clear,
         )
     }
 }

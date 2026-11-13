@@ -49,7 +49,7 @@ private val LOCAL_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM
 
 internal object SetAlarm : PhoneTool {
     override val verb = Verb.SetAlarm
-    override val label = "设闹钟"
+    override val label = "Set alarm"
     override val risk = Risk.Write
     override val entry = Entry.Alone
     override val logged = true
@@ -105,7 +105,7 @@ internal object SetAlarm : PhoneTool {
 
 internal object SetTimer : PhoneTool {
     override val verb = Verb.SetTimer
-    override val label = "设计时器"
+    override val label = "Set timer"
     override val risk = Risk.Write
     override val entry = Entry.Alone
     override val logged = true
@@ -138,7 +138,7 @@ internal object SetTimer : PhoneTool {
 /** 在 Mina 的屏上打开时钟的闹钟列表:核对、删除、改闹钟都在那一页上操作。 */
 internal object ShowAlarms : PhoneTool {
     override val verb = Verb.ShowAlarms
-    override val label = "查看闹钟"
+    override val label = "Show alarms"
     override val risk = Risk.Write
     override val showsScreenAfter = true
     override val logged = true
@@ -157,7 +157,7 @@ internal object ShowAlarms : PhoneTool {
 /** 打开日历预填好的新日程页:保存由模型在那一页上点,这里不存任何东西;不要日历权限。 */
 internal object AddCalendarEvent : PhoneTool {
     override val verb = Verb.AddCalendarEvent
-    override val label = "添加日程"
+    override val label = "Add calendar event"
     override val risk = Risk.Write
     override val entry = Entry.Opens
     override val showsScreenAfter = true

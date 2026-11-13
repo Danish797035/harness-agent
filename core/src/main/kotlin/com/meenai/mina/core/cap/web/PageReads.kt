@@ -44,7 +44,7 @@ internal fun webRead(text: String, url: String?, title: String? = null) =
  */
 internal object ReadPage : WebTool {
     override val verb = Verb.ReadPage
-    override val label = "读网页"
+    override val label = "Read web page"
     override val risk = Risk.Read
     override val entry = Entry.Alone
     override val def = ToolDef("web_read_page",
@@ -105,7 +105,7 @@ internal object ReadPage : WebTool {
 
 internal object Downloads : WebTool {
     override val verb = Verb.Downloads
-    override val label = "查看下载"
+    override val label = "Check downloads"
     override val risk = Risk.Read
     override val concurrency = Concurrency.ParallelSafe
     override val def = ToolDef("web_downloads",
@@ -140,7 +140,7 @@ internal object Downloads : WebTool {
 /** 网络响应:列表不带正文;给 id 时取正文。网址和正文先经 [Redactor.network] 脱敏再出去(运行记录在记录处还会再脱敏一次)。 */
 internal object Capture : WebTool {
     override val verb = Verb.Capture
-    override val label = "查看网页收到的数据"
+    override val label = "Check page network data"
     override val risk = Risk.Read
     override val def = ToolDef("web_capture",
         Prompts.tool("web_capture", "list_max" to CAPTURE_LIST_MAX),
@@ -208,7 +208,7 @@ internal object Capture : WebTool {
 
 internal object WebWaitFor : WebTool {
     override val verb = Verb.WaitFor
-    override val label = "等网页变化"
+    override val label = "Wait for page change"
     override val yieldsToSteer = true
     override val risk = Risk.Read
     override val def = ToolDef("web_wait_for",

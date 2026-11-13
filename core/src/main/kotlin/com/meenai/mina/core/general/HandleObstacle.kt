@@ -17,7 +17,7 @@ import kotlinx.serialization.json.put
 /** 说出挡住当前 App 或网页的是什么,拿到该怎么处理的下一步。 */
 internal object HandleObstacle : SurfaceAware {
     override val verb = Verb.HandleObstacle
-    override val label = "遇到障碍"
+    override val label = "Hit an obstacle"
     override val risk = Risk.Read
     override val withScreens = true
     override val def = ToolDef("handle_obstacle",

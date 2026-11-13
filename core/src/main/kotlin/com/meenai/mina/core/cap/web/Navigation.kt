@@ -33,7 +33,7 @@ import com.meenai.mina.core.uistate.dwellStopped
 /** 打开网页。跳 App 的链接(含应用商店的网页链接)不在内置浏览器里打开。 */
 internal object Navigate : WebTool {
     override val verb = Verb.Navigate
-    override val label = "打开网页"
+    override val label = "Open web page"
     override val risk = Risk.Write
     override val entry = Entry.Opens
     override val logged = true
@@ -114,7 +114,7 @@ internal fun webFact(text: String) = Observation(ObsKind.Fact, text, source = WE
 
 internal object Tabs : WebTool {
     override val verb = Verb.Tabs
-    override val label = "切换网页标签"
+    override val label = "Switch tab"
     override val risk = Risk.Write
     override val logged = true
     override val def = ToolDef("web_tabs",
@@ -169,7 +169,7 @@ internal object Tabs : WebTool {
 
 internal object SiteMode : WebTool {
     override val verb = Verb.SiteMode
-    override val label = "切换网页版本"
+    override val label = "Switch page version"
     override val risk = Risk.Write
     override val def = ToolDef("web_site_mode",
         Prompts.tool("web_site_mode"),

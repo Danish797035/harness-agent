@@ -320,9 +320,9 @@ class SkillDrafterTest {
         val lines = ActionDigest.of(runEvents(extra = web), TOOLS)
         val nav = lines.single { it.tool == "web_navigate" }
         assertEquals("shop.example.com", nav.target) // 只记站点,不记查询串
-        assertEquals("网站 shop.example.com", nav.where)
+        assertEquals("Site shop.example.com", nav.where)
         val tapOnPage = lines.single { it.step == 12 }
-        assertEquals("网站 shop.example.com", tapOnPage.where)
+        assertEquals("Site shop.example.com", tapOnPage.where)
         assertEquals("李四的订单 2024-001", tapOnPage.target)
         // 回到手机:又记在 App 下
         assertEquals("com.tencent.mm", lines.single { it.step == 13 }.where)

@@ -350,7 +350,7 @@ class ChatViewModelTest {
     @Test fun evidenceSourceUsesRecordedSources() {
         val events = listOf(
             RunEvent.Media(1, 1, 1, "com.chat"),
-            RunEvent.Media(2, 2, 3, "网站 www.12306.cn"),
+            RunEvent.Media(2, 2, 3, "Site www.12306.cn"),
             RunEvent.Sources(3, listOf(
                 com.meenai.mina.core.verify.AnswerSource(1, "screen", "com.chat", null, 1, listOf(1)),
                 com.meenai.mina.core.verify.AnswerSource(4, "web", "https://www.12306.cn/index", "车次查询", 3, emptyList()),
@@ -364,7 +364,7 @@ class ChatViewModelTest {
     @Test fun evidenceSourceIsTheLastSavedScreen() {
         val events = listOf(
             RunEvent.Media(1, 1, 1, "com.chat"),
-            RunEvent.Media(2, 2, 3, "网站 www.12306.cn"),
+            RunEvent.Media(2, 2, 3, "Site www.12306.cn"),
             RunEvent.Media(3, 3, 3, null),
         )
         val source = evidenceSource(events) { if (it == "com.chat") "聊天" else it }
