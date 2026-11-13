@@ -85,6 +85,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenModels: () -> Unit,
     onOpenMemory: (() -> Unit)? = null,
+    onOpenVault: (() -> Unit)? = null,
+    vaultCount: Int? = null,
     webSites: WebSitesState? = null,
     /** 开发者选项里的「自主模式」:当前值和换它的办法。 */
     autonomous: Boolean = false,
@@ -194,6 +196,7 @@ fun SettingsScreen(
             onOpenNotifications = { notificationsFrom = SettingsPage.Home; page = SettingsPage.Notifications },
             language = language, onOpenLanguage = { page = SettingsPage.Language },
             onOpenMemory = onOpenMemory,
+            onOpenVault = onOpenVault, vaultCount = vaultCount,
             webSitesCount = webSites?.sites?.size, onOpenWebSites = { page = SettingsPage.WebSites },
             sandbox = sandboxStatus, onOpenSandbox = { page = SettingsPage.Sandbox },
             routes = routeCount, onOpenRoutes = { page = SettingsPage.Routes },
@@ -304,6 +307,8 @@ fun SettingsContent(
     language: AppLanguage = AppLanguage.System,
     onOpenLanguage: () -> Unit = {},
     onOpenMemory: (() -> Unit)? = null,
+    onOpenVault: (() -> Unit)? = null,
+    vaultCount: Int? = null,
     webSitesCount: Int? = null,
     onOpenWebSites: () -> Unit = {},
     sandbox: SandboxStatus? = null,
@@ -367,7 +372,7 @@ fun SettingsContent(
             }
         }
 
-        val privacyRows = onOpenMemory != null || webSitesCount != null
+        val privacyRows = onOpenMemory != null || webSitesCount != null || onOpenVault != null
         if (privacyRows) {
             GroupLabel(stringResource(R.string.settings_privacy))
             GroupCard {
@@ -375,6 +380,12 @@ fun SettingsContent(
                 fun take(): Boolean = first.also { first = false }
                 onOpenMemory?.let {
                     ListRow(MinaIcons.Heart, stringResource(R.string.memory_and_skills), stringResource(R.string.settings_memory_sub), first = take(), onClick = it) { RowChevron() }
+                }
+                onOpenVault?.let {
+                    ListRow(MinaIcons.Lock, stringResource(R.string.settings_vault), stringResource(R.string.settings_vault_sub), first = take(), onClick = it) {
+                        vaultCount?.let { count -> RowValue(trPlural(R.plurals.settings_count_vault, count)) }
+                        RowChevron()
+                    }
                 }
                 webSitesCount?.let {
                     ListRow(MinaIcons.Globe, stringResource(R.string.settings_web_logins), first = take(), onClick = onOpenWebSites) { RowValue(trPlural(R.plurals.settings_count_sites, it)); RowChevron() }

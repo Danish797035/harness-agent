@@ -17,6 +17,12 @@
         <item quantity="one">%1$d साइट</item>
         <item quantity="other">%1$d साइटें</item>
     </plurals>
+    <string name="settings_vault">पासवर्ड वॉल्ट</string>
+    <string name="settings_vault_sub">वेबसाइट्स और ऐप्स के लिए ऑन-डिवाइस एन्क्रिप्टेड पासवर्ड</string>
+    <plurals name="settings_count_vault">
+        <item quantity="one">%1$d पासवर्ड</item>
+        <item quantity="other">%1$d पासवर्ड</item>
+    </plurals>
     <string name="settings_advanced">विकसित</string>
     <string name="settings_sandbox">फ़ाइलें और कंप्यूटिंग वातावरण</string>
     <string name="settings_routes">सहेजे गए मार्ग</string>
