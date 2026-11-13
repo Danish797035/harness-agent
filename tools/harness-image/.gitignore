@@ -1,0 +1,9 @@
+/node_modules/
+/dist/
+/tmp/
+/media/
+/debug/
+/profiles/
+*.sqlite
+*.sqlite-journal
+.env
