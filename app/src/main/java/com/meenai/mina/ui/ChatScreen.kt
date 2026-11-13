@@ -463,7 +463,18 @@ fun ChatScreen(
                 activeModel = activeModel,
                 usages = routerUsages,
                 onPinClick = {
-                    routerStatus.pinModel(activeModel.id)
+                    if (activeModel.isPinned) {
+                        routerStatus.pinModel(null)
+                    } else {
+                        routerStatus.pinModel(activeModel.id)
+                    }
+                },
+                onSelectModel = { modelId ->
+                    if (activeModel.isPinned && activeModel.id == modelId) {
+                        routerStatus.pinModel(null)
+                    } else {
+                        routerStatus.pinModel(modelId)
+                    }
                 },
                 onDismiss = { sheetOpen = false },
                 onRefresh = { routerStatus.refresh() },

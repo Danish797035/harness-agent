@@ -47,4 +47,23 @@
     <string name="router_magicube_login_done">Logged in today ✓</string>
     <string name="router_magicube_alibaba_linked">Alibaba linked (+50)</string>
     <string name="router_magicube_action_login">Logged in</string>
+    <string name="router_search_hint">Search models or providers</string>
+    <string name="router_filter_all">All</string>
+    <string name="router_filter_free">Free</string>
+    <string name="router_filter_vision">Vision</string>
+    <string name="router_filter_tools">Tools</string>
+    <string name="router_filter_long_context">Long Context</string>
+    <string name="router_badge_vision">Vision</string>
+    <string name="router_badge_tools">Tools</string>
+    <string name="router_badge_free">Free</string>
+    <string name="router_badge_paid">Paid</string>
+    <string name="router_quota_ready">Ready</string>
+    <string name="router_quota_low">Low</string>
+    <string name="router_quota_exhausted">Exhausted</string>
+    <string name="router_section_favorites">Favourites</string>
+    <string name="router_section_recent">Recent</string>
+    <string name="router_section_all">All Models</string>
+    <string name="router_no_models_found">No models found</string>
+    <string name="router_model_unavailable_title">Model Unavailable</string>
+    <string name="router_model_unavailable_ok">OK</string>
 </resources>
