@@ -6,6 +6,7 @@ import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.ModelHealthTracker
 import com.meenai.mina.core.router.RouterUsageTracker
+import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.preset.ZaiPreset
 import com.meenai.mina.settings.ProviderStore
