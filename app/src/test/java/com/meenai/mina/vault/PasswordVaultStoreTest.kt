@@ -180,8 +180,9 @@ class PasswordVaultStoreTest {
         val secretsFile = File(tmp.root, "vault-secrets.json")
         secretsFile.writeText("""{"${saved.id}":"invalid_not_encrypted_data"}""")
 
-        // Loading or getting password must not crash, returns null
-        val pass = store.getPassword(saved.id)
+        // Create a new store instance to load tampered disk file
+        val reloadedStore = createStore()
+        val pass = reloadedStore.getPassword(saved.id)
         assertNull(pass)
     }
 }
