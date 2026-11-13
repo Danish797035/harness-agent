@@ -24,4 +24,5 @@ __pycache__/
 download_temp/
 *.jks
 *.idsig
+google-services.json
 hitrans_cache.json

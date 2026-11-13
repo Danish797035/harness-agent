@@ -1,0 +1,132 @@
+name: Notify Release Push
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validate payload without sending to devices)'
+        required: false
+        default: false
+        type: boolean
+      tag_name:
+        description: 'Release tag (for manual test, e.g. v0.1.48-161)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  notify-fcm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine Release Info
+        id: release_info
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="v0.1.48-test"
+          fi
+          # Strip leading 'v' and extract base version
+          VERSION=$(echo "$TAG" | sed -E 's/^v//; s/-.*//')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Validate Payload Schema (Dry-Run Check)
+        env:
+          TAG: ${{ steps.release_info.outputs.tag }}
+          VERSION: ${{ steps.release_info.outputs.version }}
+        run: |
+          python3 -c "
+          import json
+          tag = '$TAG'
+          version = '$VERSION'
+          payload = {
+              'validate_only': True,
+              'message': {
+                  'topic': 'harness-releases',
+                  'data': {
+                      'version': version,
+                      'tag': tag
+                  }
+              }
+          }
+          # Enforce data-only payload: no display notification block so onMessageReceived processes directly
+          assert 'notification' not in payload['message'], 'Payload must not include display notification block'
+          assert payload['message']['topic'] == 'harness-releases', 'Topic must be harness-releases'
+          assert payload['message']['data']['version'] == version, 'Version mismatch'
+          assert payload['message']['data']['tag'] == tag, 'Tag mismatch'
+          print('FCM payload schema dry-run check: PASSED')
+          print(json.dumps(payload, indent=2))
+          "
+
+      - name: Check Service Account Secret
+        id: check_secret
+        env:
+          FCM_SA: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FCM_SA" ]; then
+            echo "has_secret=false" >> $GITHUB_OUTPUT
+            echo "::warning::FCM_SERVICE_ACCOUNT_JSON secret is not set in repository secrets. Skipping live FCM push."
+          else
+            echo "has_secret=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to Google Cloud
+        if: steps.check_secret.outputs.has_secret == 'true'
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          token_format: 'access_token'
+          access_token_scopes: 'https://www.googleapis.com/auth/firebase.messaging'
+
+      - name: Send FCM Notification
+        if: steps.check_secret.outputs.has_secret == 'true'
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PROJECT_ID: ${{ steps.auth.outputs.project_id }}
+          TAG: ${{ steps.release_info.outputs.tag }}
+          VERSION: ${{ steps.release_info.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          VALIDATE_ONLY="false"
+          if [ "$DRY_RUN" = "true" ]; then
+            VALIDATE_ONLY="true"
+            echo "Executing FCM push in validate_only (dry run) mode"
+          fi
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "validate_only": $VALIDATE_ONLY,
+            "message": {
+              "topic": "harness-releases",
+              "data": {
+                "version": "$VERSION",
+                "tag": "$TAG"
+              }
+            }
+          }
+          EOF
+          )
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send" \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json; UTF-8" \
+            -d "$PAYLOAD")
+
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "FCM push successfully processed!"
+          else
+            echo "::error::FCM push failed with HTTP $HTTP_STATUS: $HTTP_BODY"
+            exit 1
+          fi

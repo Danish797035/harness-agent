@@ -401,6 +401,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             val state = SandboxState.get(this@HarnessApp)
             runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
         }
+        // FCM push updates: pehli run par topic subscribe karo; Google Play Services na ho to silently skip
+        scope.launch(Dispatchers.IO) {
+            runCatching { com.meenai.mina.about.PushUpdateSubscriber.ensureSubscribed(this@HarnessApp) }
+        }
         // Background download of fresh model rankings (once per day)
         // (init + warm-up already done at the top of onCreate)
     }
