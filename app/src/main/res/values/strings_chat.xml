@@ -168,4 +168,6 @@
     <string name="image_regenerate">Regenerate</string>
     <string name="image_saved_to_gallery">Saved to gallery</string>
     <string name="image_save_failed">Could not save to gallery</string>
+    <string name="image_load_failed">Could not load image</string>
+    <string name="image_generation_failed">Image generation failed</string>
 </resources>

@@ -115,4 +115,33 @@ class MarkdownModelTest {
         assertEquals("名称 · 价格", pendingTable.text)
         assertTrue(MarkdownModel.parseStreaming("| 名称 | 价格 |\n|---|---|\n| 苹果 | 5 |").single() is MdBlock.Table)
     }
+
+    @Test
+    fun imageBlockParsed() {
+        val blocks = MarkdownModel.parse("![A cute golden retriever](/data/user/0/cache/dog.jpg)")
+        assertEquals(1, blocks.size)
+        val img = blocks.single() as MdBlock.Image
+        assertEquals("/data/user/0/cache/dog.jpg", img.destination)
+        assertEquals("A cute golden retriever", img.alt)
+        assertEquals("A cute golden retriever", MarkdownModel.toPlainText("![A cute golden retriever](/data/user/0/cache/dog.jpg)"))
+    }
+
+    @Test
+    fun mixedTextAndImageBlocks() {
+        val md = "Your dog photo is ready:\n![Golden retriever](/cache/dog.jpg)\nHope you like it!"
+        val blocks = MarkdownModel.parse(md)
+        assertEquals(3, blocks.size)
+        assertEquals("Your dog photo is ready:", (blocks[0] as MdBlock.Para).text.text)
+        assertEquals(MdBlock.Image("/cache/dog.jpg", "Golden retriever"), blocks[1])
+        assertEquals("Hope you like it!", (blocks[2] as MdBlock.Para).text.text)
+    }
+
+    @Test
+    fun imageWithoutAltUsesDestinationAsPlainText() {
+        val blocks = MarkdownModel.parse("![](/cache/photo.jpg)")
+        val img = blocks.single() as MdBlock.Image
+        assertEquals("/cache/photo.jpg", img.destination)
+        assertEquals("", img.alt)
+        assertEquals("/cache/photo.jpg", MarkdownModel.toPlainText("![](/cache/photo.jpg)"))
+    }
 }

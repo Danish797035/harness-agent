@@ -4,10 +4,14 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,31 +21,44 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.ui.theme.MinaTheme
+import com.meenai.mina.ui.viewer.FileViewer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.meenai.mina.ui.theme.MinaTheme
+import java.io.File
 
 /** 按 Markdown 显示一段回答；流式草稿用临时闭合的语法预览。 */
 @Composable
@@ -112,8 +129,92 @@ private fun Block(b: MdBlock, style: TextStyle, depth: Int) {
             }
         }
         is MdBlock.Table -> TableBlock(b, style)
+        is MdBlock.Image -> MarkdownImage(b, style)
         MdBlock.Rule -> Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(0.5.dp).background(MinaTheme.colors.hair))
     }
+}
+
+@Composable
+private fun MarkdownImage(image: MdBlock.Image, style: TextStyle) {
+    val context = LocalContext.current
+    val rawDest = image.destination.trim()
+    val localPath = if (rawDest.startsWith("file://")) rawDest.removePrefix("file://") else rawDest
+    val file = remember(localPath) { File(localPath) }
+    val exists = remember(file) { file.exists() && file.isFile && file.canRead() }
+
+    val bitmap = remember(file.absolutePath, if (exists) file.lastModified() else 0L) {
+        if (exists) {
+            runCatching { decodeSampledBitmap(file.absolutePath, 2048) }.getOrNull()
+        } else null
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = image.alt.ifBlank { null },
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    val uri = try {
+                        FileProvider.getUriForFile(context, "${context.packageName}.attachfiles", file)
+                    } catch (_: Exception) {
+                        Uri.fromFile(file)
+                    }
+                    FileViewer.open(context, uri, file.name)
+                }
+        )
+    } else {
+        // Placeholder / error state — NEVER an empty container!
+        val c = MinaTheme.colors
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.fill, RoundedCornerShape(10.dp))
+                .border(0.5.dp, c.hair, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = MinaIcons.Exclaim,
+                contentDescription = null,
+                tint = c.ink3,
+                modifier = Modifier.size(20.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                if (image.alt.isNotBlank()) {
+                    Text(
+                        text = image.alt,
+                        style = style.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
+                        color = c.ink2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.image_load_failed),
+                    style = style.copy(fontSize = 12.sp),
+                    color = c.ink3
+                )
+            }
+        }
+    }
+}
+
+private fun decodeSampledBitmap(filePath: String, maxDimension: Int): Bitmap? {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(filePath, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+    var sampleSize = 1
+    val longest = maxOf(options.outWidth, options.outHeight)
+    while (longest / sampleSize > maxDimension) {
+        sampleSize *= 2
+    }
+    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    return BitmapFactory.decodeFile(filePath, decodeOptions)
 }
 
 /** 表格:各列取本列最宽的格(有上限,超了换行),各行取本行最高的格;整张表可左右滑动。 */

@@ -1,7 +1,9 @@
 package com.meenai.mina.ui.image
 
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,10 +30,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
+import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.ui.viewer.FileViewer
 import java.io.File
 
 data class GeneratedImageUi(
@@ -49,6 +56,7 @@ fun GeneratedImageCard(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val context = LocalContext.current
 
     Card(
         shape = shape,
@@ -75,15 +83,15 @@ fun GeneratedImageCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            } else if (!imageUi.filePath.isNullOrBlank()) {
-                val file = remember(imageUi.filePath) { File(imageUi.filePath) }
+            } else {
+                val file = remember(imageUi.filePath) { imageUi.filePath?.takeIf { it.isNotBlank() }?.let { File(it) } }
                 val bitmap = remember(imageUi.filePath) {
-                    if (file.exists()) {
+                    if (file?.exists() == true) {
                         BitmapFactory.decodeFile(file.absolutePath)
                     } else null
                 }
 
-                if (bitmap != null) {
+                if (file != null && bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = imageUi.prompt,
@@ -92,6 +100,14 @@ fun GeneratedImageCard(
                             .fillMaxWidth()
                             .heightIn(max = 360.dp)
                             .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                val uri = try {
+                                    FileProvider.getUriForFile(context, "${context.packageName}.attachfiles", file)
+                                } catch (_: Exception) {
+                                    Uri.fromFile(file)
+                                }
+                                FileViewer.open(context, uri, file.name)
+                            }
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -122,6 +138,36 @@ fun GeneratedImageCard(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Text(text = tr(R.string.image_regenerate), fontSize = 13.sp)
+                        }
+                    }
+                } else {
+                    // Failed or missing image state — NEVER an empty container!
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = MinaIcons.Exclaim,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = tr(R.string.image_generation_failed),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (imageUi.prompt.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = { onRegenerate(imageUi.prompt) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = tr(R.string.image_regenerate), fontSize = 13.sp)
+                            }
                         }
                     }
                 }

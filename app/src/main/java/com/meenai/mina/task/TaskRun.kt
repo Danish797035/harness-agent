@@ -435,7 +435,11 @@ class TaskRun(
         val list = _generatedImages.value.toMutableList()
         val idx = list.indexOfFirst { it.prompt == img.prompt }
         if (idx >= 0) {
-            list[idx] = img
+            val existing = list[idx]
+            list[idx] = img.copy(
+                filePath = img.filePath ?: existing.filePath,
+                model = if (img.model.isNotBlank()) img.model else existing.model
+            )
         } else {
             list.add(img)
         }
