@@ -131,7 +131,7 @@ object ActionDigest {
                     }
                     val result = parse(e.resultJson)
                     val error = (result?.get("error") as? JsonPrimitive)?.contentOrNull
-                    val where = if (onWeb) site?.let { "网站 $it" } else app
+                    val where = if (onWeb) site?.let { "Site $it" } else app
                     out += ActionLine(e.step, e.tool, target, where, e.changed, error, typed = verb == Verb.TypeText)
                 }
                 else -> Unit

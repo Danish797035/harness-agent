@@ -100,10 +100,10 @@ class PlaceTrackingTest {
 
     @Test fun navigatingIsASwitch() {
         val t = StepTrack()
-        t.after(verb("phone_tap"), true, false, true, false, "网站 a.com")
-        t.after(verb("phone_tap"), true, false, true, false, "网站 a.com")
+        t.after(verb("phone_tap"), true, false, true, false, "Site a.com")
+        t.after(verb("phone_tap"), true, false, true, false, "Site a.com")
         org.junit.Assert.assertTrue(t.context(3, false).sameAppAsLast)
-        t.after(verb("web_navigate"), true, false, true, false, "网站 a.com")
+        t.after(verb("web_navigate"), true, false, true, false, "Site a.com")
         org.junit.Assert.assertFalse(t.context(4, false).sameAppAsLast)
     }
 }

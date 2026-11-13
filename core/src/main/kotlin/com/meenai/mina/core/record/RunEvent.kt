@@ -259,13 +259,13 @@ sealed interface RunEvent {
         /** 一行记录;改名前的事件(screen_text、screen_saved)先换成现在的写法再读。 */
         fun decode(line: String): RunEvent = json.decodeFromJsonElement(serializer(), LegacyEvents.upgrade(json.parseToJsonElement(line)))
 
-        /** 运行记录里写的地方:App 是包名,站点是「网站 域名」(和以往的记录同一写法)。 */
-        fun placeLabel(p: Place?): String? = p?.let { if (it.kind == com.meenai.mina.core.observation.PlaceKind.Site) "网站 ${it.name}" else it.name }
+        /** 运行记录里写的地方:App 是包名,站点是「Site 域名」(和以往的记录同一写法)。 */
+        fun placeLabel(p: Place?): String? = p?.let { if (it.kind == com.meenai.mina.core.observation.PlaceKind.Site) "Site ${it.name}" else it.name }
 
-        fun clip(s: String): String = if (s.length <= MAX_FIELD) s else s.take(MAX_FIELD) + "…(已截短)"
+        fun clip(s: String): String = if (s.length <= MAX_FIELD) s else s.take(MAX_FIELD) + "…(truncated)"
 
         fun clipResult(s: String): String =
-            if (s.length <= MAX_RESULT) s else s.take(MAX_RESULT) + "…(已截短,原长 ${s.length} 字)"
+            if (s.length <= MAX_RESULT) s else s.take(MAX_RESULT) + "…(truncated, originally ${s.length} chars)"
     }
 }
 

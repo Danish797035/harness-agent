@@ -50,7 +50,7 @@ private suspend fun readScript(ctx: ToolContext, code: String, args: JsonObject?
 /** 读数据脚本:在当前页面的读取世界里只读地跑(真实 DOM、同源 GET);要动页面走动作工具。 */
 internal object EvaluateJs : WebTool {
     override val verb = Verb.EvaluateJs
-    override val label = "读取网页数据"
+    override val label = "Read page data"
     override val risk = Risk.Read
     override val def = ToolDef("web_evaluate_js",
         Prompts.tool("web_evaluate_js", "result_max" to EVAL_RESULT_MAX_CHARS, "default_seconds" to READ_SCRIPT_DEFAULT_TIMEOUT_MS / 1000),
@@ -74,7 +74,7 @@ internal object EvaluateJs : WebTool {
  */
 internal object RunSiteCommand : WebTool {
     override val verb = Verb.SiteCommand
-    override val label = "运行站点命令"
+    override val label = "Run site command"
     override val risk = Risk.Read
     override fun available(ctx: ToolContext) = ctx.web != null && ctx.config.skills?.hasSiteCommands() == true
     override val def = ToolDef("web_run_site_command",

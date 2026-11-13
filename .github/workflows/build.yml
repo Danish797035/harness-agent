@@ -2,7 +2,7 @@ name: Build Debug APK
 
 on:
   push:
-    branches: [ "main", "feat/password-vault", "feature/push-update", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "router-fix", "capsule-live", "smart-picker", "zh-cleanup", "zh-cleanup-2", "image-gen", "auto-update", "fix-rankings-pipeline" ]
+    branches: [ "main", "chore/english-only", "feat/password-vault", "feature/push-update", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "router-fix", "capsule-live", "smart-picker", "zh-cleanup", "zh-cleanup-2", "image-gen", "auto-update", "fix-rankings-pipeline" ]
   workflow_dispatch:
 
 permissions:

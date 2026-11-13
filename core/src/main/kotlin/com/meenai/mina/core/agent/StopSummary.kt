@@ -135,16 +135,17 @@ class StopSummary(
         private fun where(target: String, appLabel: (String) -> String): String? = when {
             target.isBlank() -> null
             target.startsWith(SITE_PREFIX) -> target.removePrefix(SITE_PREFIX).trim()
+            target.startsWith("网站 ") -> target.removePrefix("网站 ").trim()
             PACKAGE_NAME_RE.matches(target) -> appLabel(target)
             else -> target
         }.takeUnless { it.isNullOrBlank() }
 
         /** 活动对象是 App 或网站时它的名字;别的(网址、查询词、文件)为 null。 */
         private fun placeOf(target: String, appLabel: (String) -> String): String? =
-            if (target.startsWith(SITE_PREFIX) || PACKAGE_NAME_RE.matches(target)) where(target, appLabel) else null
+            if (target.startsWith(SITE_PREFIX) || target.startsWith("网站 ") || PACKAGE_NAME_RE.matches(target)) where(target, appLabel) else null
 
-        /** 运行记录里网页那一屏的对象写成「网站 <域名>」。 */
-        private const val SITE_PREFIX = "网站 "
+        /** 运行记录里网页那一屏的对象写成「Site <域名>」。 */
+        private const val SITE_PREFIX = "Site "
 
         private fun list(items: List<String>, max: Int) =
             items.take(max).joinToString(", ") + if (items.size > max) " and ${items.size} more" else ""
