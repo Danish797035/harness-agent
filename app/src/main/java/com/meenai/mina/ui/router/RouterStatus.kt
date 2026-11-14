@@ -208,6 +208,7 @@ interface RouterStatus {
     val current: StateFlow<ActiveModel>
     val usage: StateFlow<List<ProviderUsage>>
     val events: Flow<SwitchEvent>
+    val switchHistory: List<SwitchEvent> get() = emptyList()
     fun pinModel(modelId: String?)
     fun refresh()
 }
@@ -237,6 +238,9 @@ class RealRouterStatus(
     )
     override val events: Flow<SwitchEvent> = _events.asSharedFlow()
 
+    private val _history = mutableListOf<SwitchEvent>()
+    override val switchHistory: List<SwitchEvent> get() = synchronized(_history) { _history.toList() }
+
     init {
         scope.launch {
             var lastEventCount = router.status.value.switchEvents.size
@@ -248,15 +252,18 @@ class RealRouterStatus(
                 if (currentEvents.size > lastEventCount) {
                     for (i in lastEventCount until currentEvents.size) {
                         val se = currentEvents[i]
-                        _events.tryEmit(
-                            SwitchEvent(
-                                fromModel = formatModelName(se.oldModel ?: ""),
-                                toModel = formatModelName(se.newModel),
-                                toProvider = formatProvider(se.provider),
-                                reason = se.reason,
-                                timestamp = se.timestampMs,
-                            ),
+                        val event = SwitchEvent(
+                            fromModel = formatModelName(se.oldModel ?: ""),
+                            toModel = formatModelName(se.newModel),
+                            toProvider = formatProvider(se.provider),
+                            reason = se.reason,
+                            timestamp = se.timestampMs,
                         )
+                        synchronized(_history) {
+                            _history.add(event)
+                            if (_history.size > 20) _history.removeAt(0)
+                        }
+                        _events.tryEmit(event)
                     }
                     lastEventCount = currentEvents.size
                 }
@@ -700,6 +707,9 @@ class FakeRouterStatus(
     )
     override val events: Flow<SwitchEvent> = _events.asSharedFlow()
 
+    private val _history = mutableListOf<SwitchEvent>()
+    override val switchHistory: List<SwitchEvent> get() = _history.toList()
+
     var pinnedModelId: String? = null
         private set
 
@@ -713,6 +723,7 @@ class FakeRouterStatus(
     override fun refresh() {}
 
     fun emitSwitch(event: SwitchEvent) {
+        _history.add(event)
         _events.tryEmit(event)
     }
 

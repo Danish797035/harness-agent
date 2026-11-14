@@ -69,4 +69,27 @@
     <string name="router_rank_badge">#%1$d</string>
     <string name="router_active_card_title">Active Model</string>
     <string name="router_models_list_title">Candidate Models</string>
+    <string name="model_specialist_title">Model Specialist</string>
+    <string name="model_specialist_sub">Smart router auto &amp; difficulty routing</string>
+    <string name="router_mode_auto">Auto</string>
+    <string name="router_mode_manual">Manual</string>
+    <string name="router_strategy_free_only">Free only</string>
+    <string name="router_strategy_best_quality">Best quality</string>
+    <string name="router_strategy_fastest">Fastest</string>
+    <string name="router_failover_title">Auto Failover</string>
+    <string name="router_failover_sub">Switch candidate on rate limit or empty reply</string>
+    <string name="router_max_switches_title">Max switches per task</string>
+    <string name="router_free_only_title">Free models only</string>
+    <string name="router_free_only_sub">Only route through 100% free models</string>
+    <string name="router_preferred_providers_title">Preferred Providers</string>
+    <string name="router_timeline_title">Recent Switches</string>
+    <string name="router_timeline_empty">No recent model switches</string>
+    <string name="router_role_main">Main Task</string>
+    <string name="router_role_coding">Coding</string>
+    <string name="router_role_light">Light &amp; Fast</string>
+    <string name="router_role_vision">Vision &amp; Screen</string>
+    <string name="router_role_long">Long Context</string>
+    <string name="router_customizations_title">Customizations</string>
+    <string name="router_roles_title">Specialist Roles</string>
 </resources>
+

@@ -69,4 +69,27 @@
     <string name="router_rank_badge">#%1$d</string>
     <string name="router_active_card_title">सक्रिय मॉडल</string>
     <string name="router_models_list_title">मॉडल सूची</string>
+    <string name="model_specialist_title">मॉडल स्पेशलिस्ट</string>
+    <string name="model_specialist_sub">स्मार्ट राउटर ऑटो और टास्क रूटिंग</string>
+    <string name="router_mode_auto">ऑटो</string>
+    <string name="router_mode_manual">मैनुअल</string>
+    <string name="router_strategy_free_only">सिर्फ फ्री</string>
+    <string name="router_strategy_best_quality">बेस्ट क्वालिटी</string>
+    <string name="router_strategy_fastest">सबसे तेज़</string>
+    <string name="router_failover_title">ऑटो फेलओवर</string>
+    <string name="router_failover_sub">रेट लिमिट या खाली जवाब पर तुरंत मॉडल स्विच</string>
+    <string name="router_max_switches_title">प्रति टास्क अधिकतम स्विच</string>
+    <string name="router_free_only_title">सिर्फ फ्री मॉडल</string>
+    <string name="router_free_only_sub">केवल 100% फ्री मॉडल्स इस्तेमाल करें</string>
+    <string name="router_preferred_providers_title">पसंदीदा प्रोवाइडर्स</string>
+    <string name="router_timeline_title">हालिया स्विच</string>
+    <string name="router_timeline_empty">कोई हालिया मॉडल स्विच नहीं</string>
+    <string name="router_role_main">मुख्य कार्य</string>
+    <string name="router_role_coding">कोडिंग</string>
+    <string name="router_role_light">हल्का और तेज़</string>
+    <string name="router_role_vision">विज़न और स्क्रीन</string>
+    <string name="router_role_long">लंबा संदर्भ</string>
+    <string name="router_customizations_title">कस्टमाइज़ेशन</string>
+    <string name="router_roles_title">स्पेशलिस्ट रोल्स</string>
 </resources>
+

@@ -73,7 +73,7 @@ fun AiLogo(
     val brand = AiBrand.detect(providerOrModel)
     val colors = MinaTheme.colors
     val containerBg = if (showContainer) {
-        if (MinaTheme.isDark) brand.brandColor.copy(alpha = 0.22f) else brand.containerColor
+        if (colors.isDark) brand.brandColor.copy(alpha = 0.22f) else brand.containerColor
     } else Color.Transparent
 
     Box(

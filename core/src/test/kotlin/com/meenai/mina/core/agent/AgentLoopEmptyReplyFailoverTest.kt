@@ -1,6 +1,7 @@
 package com.meenai.mina.core.agent
 
 import com.meenai.mina.core.assembly.toolDispatcher
+import com.meenai.mina.core.agent.FailKind
 import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.record.RunEvent
@@ -25,8 +26,8 @@ class AgentLoopEmptyReplyFailoverTest {
     @Test
     fun emptyReplyAfterNudgeSwitchesToNextCandidateAndSucceeds() = runTest {
         val model1 = FakeModel(
-            ModelReply(emptyList(), StopReason.Stop, null), // 1st turn: empty
-            ModelReply(emptyList(), StopReason.Stop, null), // 2nd turn: empty after nudge
+            ModelReply(emptyList(), StopReason.EndTurn, null), // 1st turn: empty
+            ModelReply(emptyList(), StopReason.EndTurn, null), // 2nd turn: empty after nudge
         )
         val model2 = FakeModel(
             finish("Successfully answered by model 2")
@@ -68,23 +69,23 @@ class AgentLoopEmptyReplyFailoverTest {
         // Check that model_switched event was emitted
         val switchEvents = sink.list.filterIsInstance<RunEvent.State>().filter { it.name == "model_switched" }
         assertEquals(1, switchEvents.size)
-        assertTrue(switchEvents[0].value.contains("Switched to test-model-2"))
+        assertTrue(switchEvents[0].detail.contains("Switched to test-model-2"))
     }
 
     @Test
     fun emptyReplyFailsWhenMaxSwitchesExceeded() = runTest {
         // 3 models that all return empty replies repeatedly
         val model1 = FakeModel(
-            ModelReply(emptyList(), StopReason.Stop, null),
-            ModelReply(emptyList(), StopReason.Stop, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
         )
         val model2 = FakeModel(
-            ModelReply(emptyList(), StopReason.Stop, null),
-            ModelReply(emptyList(), StopReason.Stop, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
         )
         val model3 = FakeModel(
-            ModelReply(emptyList(), StopReason.Stop, null),
-            ModelReply(emptyList(), StopReason.Stop, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
+            ModelReply(emptyList(), StopReason.EndTurn, null),
         )
 
         val c1 = RouterCandidate(id = "m1", provider = "p1", model = model1, curatedRank = 1)
@@ -100,7 +101,7 @@ class AgentLoopEmptyReplyFailoverTest {
 
         val result = loop.run("test task")
         // After 2 switches (m1 -> m2, m2 -> m3), when m3 also returns empty twice, it cannot switch a 3rd time (max 2 switches per task)
-        assertTrue("Task should end with no answer after exceeding switch limit, but was $result", result is TaskState.EndedNotDone)
-        assertEquals(StopReason.NoAnswer, (result as TaskState.EndedNotDone).reason)
+        assertTrue("Task should end with no answer after exceeding switch limit, but was $result", result is TaskState.Failed)
+        assertEquals(FailKind.Model, (result as TaskState.Failed).kind)
     }
 }
