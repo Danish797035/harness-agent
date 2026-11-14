@@ -320,4 +320,47 @@ class AutoModelPickerTest {
         assertNotNull(degradedPick)
         assertEquals("google/gemini-2.0-flash-exp:free", degradedPick!!.id)
     }
+
+    @Test
+    fun sub3bTinyModelsFilteredOut() {
+        val tinyLfm = ModelCandidate(
+            provider = "openrouter",
+            id = "liquid/lfm-3-1.7b:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            tierRank = Int.MAX_VALUE,
+            parameterSizeB = 1.7,
+            totalParamsB = 1.7,
+        )
+        val tiny05b = ModelCandidate(
+            provider = "openrouter",
+            id = "qwen/qwen-2.5-0.5b-instruct:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            tierRank = Int.MAX_VALUE,
+            parameterSizeB = 0.5,
+            totalParamsB = 0.5,
+        )
+        val valid8b = ModelCandidate(
+            provider = "openrouter",
+            id = "meta-llama/llama-3.1-8b-instruct:free",
+            contextTokens = 65536,
+            supportsTools = true,
+            supportsImages = false,
+            isFree = true,
+            tierRank = 17,
+            parameterSizeB = 8.0,
+            totalParamsB = 8.0,
+        )
+        val picker = AutoModelPicker(apiClient = { "" })
+        val filtered = picker.filterCandidates(listOf(tinyLfm, tiny05b, valid8b), ModelRole.Light)
+        assertEquals(listOf(valid8b), filtered)
+        assertFalse(AutoModelPicker.isLightModel(tinyLfm))
+        assertFalse(AutoModelPicker.isLightModel(tiny05b))
+        assertTrue(AutoModelPicker.isLightModel(valid8b))
+    }
 }

@@ -94,6 +94,15 @@ class DifficultyRouterTest {
         assertEquals(TaskDifficulty.Heavy, classifier.classify("Kuch bhi sawal", hasImage = true))
         assertEquals(TaskDifficulty.Heavy, classifier.classify("Kuch bhi sawal", plannedSteps = 5))
         assertEquals(TaskDifficulty.Light, classifier.classify("France ki capital kya hai?", plannedSteps = 2))
+
+        // Image generation requests must be classified as Heavy and ModelRole.Main
+        val imagePrompt1 = "he harness generate image flying in sky many bird arround delhi park and many people walking in park use best image generation model"
+        assertEquals(TaskDifficulty.Heavy, classifier.classify(imagePrompt1))
+        assertEquals(ModelRole.Main, classifier.classifyToRole(imagePrompt1))
+
+        val imagePrompt2 = "ek billi ki photo banao"
+        assertEquals(TaskDifficulty.Heavy, classifier.classify(imagePrompt2))
+        assertEquals(ModelRole.Main, classifier.classifyToRole(imagePrompt2))
     }
 
     @Test

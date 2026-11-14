@@ -29,6 +29,9 @@ object ChatModelFilter {
         Regex("""(?i)\b(?:moderation|guard|reward|discriminator|ocr)\b"""),
         Regex("""(?i)^openrouter/(?:free|auto|flavor.*)$"""),
         Regex("""(?i)\blyria\b"""),
+        // Sub-3B tiny models (like liquid/lfm-3-1.7b, 1b, 0.5b) cannot perform multi-tool agentic calling
+        Regex("""(?i)\b(?:liquid|lfm)[-_/]?.*1\.7b\b"""),
+        Regex("""(?i)\b(?:lfm-3-1\.7b|liquid/lfm)\b"""),
     )
 
     // Token boundary match for "vl": "-vl", "vl-", "_vl", or standalone "vl" token
@@ -53,13 +56,20 @@ object ChatModelFilter {
 
     /**
      * Checks if a model should be excluded from chat/routing candidates.
-     * Excludes: embedding, rerank, tts, asr, speech, video, audio, moderation, image-gen, image-edit, etc.
+     * Excludes: embedding, rerank, tts, asr, speech, video, audio, moderation, image-gen, image-edit,
+     * and sub-3B tiny models incapable of reliable tool calling.
      */
     fun isExcluded(modelId: String, name: String = ""): Boolean {
         if (isImageEditOrGen(modelId, name)) return true
         val cleanId = modelId.substringBefore(':').trim()
         val combined = "$modelId $name"
-        return NON_CHAT_PATTERNS.any { it.containsMatchIn(cleanId) || it.containsMatchIn(combined) }
+        if (NON_CHAT_PATTERNS.any { it.containsMatchIn(cleanId) || it.containsMatchIn(combined) }) return true
+
+        // Sub-3B models (< 3.0B parameters) lack the capacity for multi-tool agent loops
+        val size = ModelSizeParser.parse(cleanId, name).totalParamsB
+        if (size != null && size in 0.01..2.9) return true
+
+        return false
     }
 
     /**

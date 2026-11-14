@@ -162,7 +162,8 @@ class FreeKeyRouter(
         val role = difficultyRouter.getRole(hasImage)
 
         val current = activeCandidate
-        if (current == null || !checkCachedQuota(current, isNewTask = true)) {
+        val roleMismatch = current != null && role == ModelRole.Main && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)
+        if (current == null || roleMismatch || !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = pickBestCandidate(role, isNewTask = true)
         }
         val reason = when {
@@ -623,7 +624,10 @@ class FreeKeyRouter(
             return candidates.find { it.id == pinned }
         }
 
-        val available = candidates.filter { checkCachedQuota(it, isNewTask = isNewTask) }
+        val available = candidates.filter {
+            val size = ModelSizeParser.extractParameterSizeB(it.id)
+            (size <= 0.0 || size >= 3.0) && !ChatModelFilter.isExcluded(it.id) && checkCachedQuota(it, isNewTask = isNewTask)
+        }
         if (available.isEmpty()) return null
 
         val (primary, backup) = available.partition { !it.isBackup }
@@ -646,7 +650,7 @@ class FreeKeyRouter(
             ModelRole.Light -> {
                 compareBy<RouterCandidate> { candidate ->
                     val size = ModelSizeParser.extractParameterSizeB(candidate.id)
-                    if (size > 0.0) size else 8.0
+                    if (size in 3.0..14.0) size else 8.0
                 }.thenByDescending { healthTracker.score(it.id) }
                  .thenByDescending { it.model.capabilities.contextTokens }
             }

@@ -406,7 +406,11 @@ object AppFreeKeyRouter {
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
     ): List<RouterCandidate> {
-        val freeListed = listedModels?.filter { it.id.endsWith(":free") && !ChatModelFilter.isExcluded(it.id) }.orEmpty()
+        val freeListed = listedModels?.filter {
+            it.id.endsWith(":free") &&
+                !ChatModelFilter.isExcluded(it.id) &&
+                (ModelSizeParser.parse(it.id).totalParamsB?.let { s -> s >= 3.0 } ?: true)
+        }.orEmpty()
         if (freeListed.isNotEmpty()) {
             return freeListed.sortedWith(
                 compareByDescending<ListedModel> { ModelSizeParser.parse(it.id).totalParamsB ?: 20.0 }
@@ -432,7 +436,7 @@ object AppFreeKeyRouter {
                     if (supportsImages) add(ModelRole.Vision)
                     if (listed.id.contains("coder", ignoreCase = true)) add(ModelRole.Coding)
                     val size = ModelSizeParser.parse(listed.id).totalParamsB
-                    if ((size != null && size in 0.1..10.0) || (listed.contextTokens ?: 0) <= 32_000) add(ModelRole.Light)
+                    if ((size != null && size in 3.0..10.0) || ((listed.contextTokens ?: 0) in 32_000..64_000 && (size == null || size >= 3.0))) add(ModelRole.Light)
                 }
                 RouterCandidate(
                     id = listed.id,

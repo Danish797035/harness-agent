@@ -41,6 +41,14 @@ object TaskDifficultyClassifier {
         Regex("""\b(?:script|algorithm)\b""", RegexOption.IGNORE_CASE),
     )
 
+    // Heavy Image Generation & Creation Keywords
+    private val HEAVY_IMAGE_GEN_PATTERNS = listOf(
+        Regex("""\b(?:generate\s+image|create\s+image|make\s+image|draw|paint|painting|sketch)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:image\s+banao|photo\s+banao|tasveer\s+banao|chitra\s+banao|picture\s+banao)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:picture\s+of|photo\s+of|image\s+of)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:image\s+generation|image\s+model)\b""", RegexOption.IGNORE_CASE),
+    )
+
     // Heavy Workflow / Multi-step patterns
     private val HEAVY_WORKFLOW_PATTERNS = listOf(
         Regex("""\b(?:and\s+then|aur\s+phir|uske\s+baad|phir|after\s+that)\b""", RegexOption.IGNORE_CASE),
@@ -92,6 +100,11 @@ object TaskDifficultyClassifier {
             return TaskDifficulty.Heavy
         }
 
+        // Rule 4b: Image generation requirements are Heavy (require capable generative model and tool execution)
+        if (HEAVY_IMAGE_GEN_PATTERNS.any { it.containsMatchIn(trimmed) }) {
+            return TaskDifficulty.Heavy
+        }
+
         // Rule 5: Screen/phone control and workflow verbs are Heavy
         val hasControlAction = HEAVY_CONTROL_PATTERNS.any { it.containsMatchIn(trimmed) }
         val hasWorkflow = HEAVY_WORKFLOW_PATTERNS.any { it.containsMatchIn(trimmed) }
@@ -116,6 +129,7 @@ object TaskDifficultyClassifier {
      * - [ModelRole.Vision]: If image input is attached
      * - [ModelRole.Long]: If context length is very large (charCount >= 50,000)
      * - [ModelRole.Coding]: If coding/scripting patterns match
+     * - [ModelRole.Main]: If image generation or heavy action patterns match
      * - [ModelRole.Light]: If classified as [TaskDifficulty.Light]
      * - [ModelRole.Main]: If classified as [TaskDifficulty.Heavy] (phone control, multi-step, fallback)
      */
@@ -132,6 +146,9 @@ object TaskDifficultyClassifier {
         }
         if (HEAVY_CODING_PATTERNS.any { it.containsMatchIn(trimmed) }) {
             return ModelRole.Coding
+        }
+        if (HEAVY_IMAGE_GEN_PATTERNS.any { it.containsMatchIn(trimmed) }) {
+            return ModelRole.Main
         }
         val difficulty = classify(task, hasImage, plannedSteps)
         return when (difficulty) {
