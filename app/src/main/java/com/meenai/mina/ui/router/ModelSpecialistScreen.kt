@@ -559,7 +559,7 @@ private fun ManualRolePickerRow(
 
         Box {
             Icon(
-                painter = painterResource(MinaIcons.ChevronDown),
+                imageVector = MinaIcons.ChevronDown,
                 contentDescription = null,
                 tint = MinaTheme.colors.ink2,
                 modifier = Modifier.size(16.dp),
