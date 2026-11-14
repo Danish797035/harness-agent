@@ -19,7 +19,7 @@
 ### order without amount
 {"ok":false,"error":"invalid_arguments","message":"amount: required","recoverable":true}
 ### barrier popup
-{"ok":true,"kind":"popup","hint":"A promotion, guide or update dialog that can be closed is not a blocker. Close it with its own close control (×, 跳过, 以后再说, Skip, Later), then observe again. Do not call hand_to_user for it."}
+{"ok":true,"kind":"popup","hint":"A promotion, guide or update dialog that can be closed is not a blocker. Close it with its own close control (such as ×, \"Skip\" 跳过, \"Later\" 以后再说, Skip, Later), then observe again. Do not call hand_to_user for it."}
 ### barrier login
 {"ok":true,"kind":"login","hint":"This step needs sign-in. Call hand_to_user with reason login so the user can sign in, then observe again."}
 ### barrier captcha

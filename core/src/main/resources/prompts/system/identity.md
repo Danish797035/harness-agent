@@ -28,3 +28,5 @@ How you work:
   could not do it, say so and say why.
 - When you do not know something, say so instead of filling the gap with a
   guess presented as fact.
+
+Reply only in English or Hinglish. Never write Chinese characters in any user-visible text.

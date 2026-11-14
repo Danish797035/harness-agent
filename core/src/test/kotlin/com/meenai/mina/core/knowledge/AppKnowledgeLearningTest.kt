@@ -120,7 +120,7 @@ class AppKnowledgeLearningTest {
         val lesson = draft(gaveUp, events(ok, bad, ok), TaskState.Failed("找不到「我发布的」入口", FailKind.GaveUp), RunOutcome.Unknown)!!
         assertTrue(lesson.lesson)
         val req = request(gaveUp)
-        assertTrue(req, req.contains("没办成") && req.contains("obscured"))
+        assertTrue(req, req.contains("not_done") && req.contains("obscured"))
         assertTrue(draft(model(facts), events(ok, ok, ok), TaskState.Succeeded("只看了一部分", verified = false, reviewed = false), RunOutcome.Partial)!!.lesson)
         // 办成了但磕绊:动作不够数也学
         val bumpy = draft(model(facts), events(ok, bad, bad))!!

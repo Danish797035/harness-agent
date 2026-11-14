@@ -238,7 +238,7 @@ class LocatorTest {
         val msg = m.requests.single().single()
         assertEquals("What I want to do now: 打开 WLAN", (msg.parts[0] as Part.Text).text)
         assertTrue(msg.parts[1] is Part.Image)
-        assertTrue(m.system!!, "[可交互元素]" in m.system!!)
+        assertTrue(m.system!!, "[Interactive elements]" in m.system!!)
     }
 
     /** 定位准度没验证过的看图模型。 */

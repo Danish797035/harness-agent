@@ -13,7 +13,7 @@ Write in the user's language, plain text, at most five short lines; a short
   give the concrete results that were already in hand;
 - for repeated actions on a list (sending, greeting, applying, submitting),
   how many were done and which ones, named as the record names them; lines
-  marked 对外发出 are the ones actually sent or submitted, lines marked 没成功
+  marked "sent out" are the ones actually sent or submitted, lines marked "failed"
   did not go through;
 - what of the request was not done yet.
 
