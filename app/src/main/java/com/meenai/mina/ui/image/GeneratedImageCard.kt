@@ -33,6 +33,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
+import com.meenai.mina.ui.components.AiLogo
+import com.meenai.mina.ui.theme.MinaTheme
+import com.meenai.mina.ui.theme.MinaType
 import androidx.core.content.FileProvider
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
@@ -47,12 +57,25 @@ data class GeneratedImageUi(
     val model: String = "",
 )
 
+fun formatImageModelName(model: String): String {
+    val clean = model.substringAfterLast("/")
+    return when {
+        clean.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
+        clean.contains("flux", ignoreCase = true) -> "FLUX.1-schnell"
+        clean.contains("qwen-image-2.1", ignoreCase = true) -> "Qwen-Image-2.1"
+        clean.contains("qwen-image", ignoreCase = true) -> "Qwen-Image"
+        clean.contains("cogview", ignoreCase = true) -> "CogView-3-Plus"
+        else -> clean.ifBlank { "seedream-5.0-lite" }
+    }
+}
+
 @Composable
 fun GeneratedImageCard(
     imageUi: GeneratedImageUi,
     onSave: (File) -> Unit,
     onShare: (File) -> Unit,
     onRegenerate: (String) -> Unit,
+    onRegenerateWithModel: ((prompt: String, model: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -66,6 +89,86 @@ fun GeneratedImageCard(
             .padding(vertical = 8.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            val displayModel = imageUi.model.ifBlank { "seedream-5.0-lite" }
+            var showModelMenu by remember { mutableStateOf(false) }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    AiLogo(
+                        providerOrModel = displayModel,
+                        size = 18.dp,
+                        showContainer = true,
+                    )
+                    Text(
+                        text = tr(R.string.image_generated_by, formatImageModelName(displayModel)),
+                        style = MinaType.Hint.copy(fontWeight = FontWeight.Medium, fontSize = 12.sp),
+                        color = MinaTheme.colors.ink2,
+                    )
+                }
+
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showModelMenu = true }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = tr(R.string.image_switch_model),
+                            style = MinaType.Hint.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp),
+                            color = MinaTheme.colors.accent,
+                        )
+                        Icon(
+                            imageVector = MinaIcons.ChevronDown,
+                            contentDescription = null,
+                            tint = MinaTheme.colors.accent,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showModelMenu,
+                        onDismissRequest = { showModelMenu = false },
+                    ) {
+                        listOf(
+                            "seedream-5.0-lite" to "seedream-5.0-lite (Fast / Free)",
+                            "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Free)",
+                            "black-forest-labs/flux-1-schnell" to "FLUX.1-schnell (Quality)",
+                        ).forEach { (modelId, label) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        AiLogo(providerOrModel = modelId, size = 16.dp, showContainer = false)
+                                        Text(label, fontSize = 13.sp)
+                                    }
+                                },
+                                onClick = {
+                                    showModelMenu = false
+                                    if (onRegenerateWithModel != null) {
+                                        onRegenerateWithModel(imageUi.prompt, modelId)
+                                    } else {
+                                        onRegenerate("Generate with $modelId: ${imageUi.prompt}")
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
             if (imageUi.isGenerating) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

@@ -170,4 +170,6 @@
     <string name="image_save_failed">गैलरी में सेव नहीं हो सकी</string>
     <string name="image_load_failed">इमेज लोड नहीं हो सकी</string>
     <string name="image_generation_failed">इमेज नहीं बन पाई</string>
+    <string name="image_generated_by">%1$s द्वारा जनरेटेड</string>
+    <string name="image_switch_model">मॉडल बदलें</string>
 </resources>

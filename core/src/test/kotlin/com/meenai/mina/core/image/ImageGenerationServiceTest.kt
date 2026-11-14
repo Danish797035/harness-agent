@@ -461,4 +461,29 @@ class ImageGenerationServiceTest {
         assertTrue("CancellationException must propagate immediately", caughtCancellation)
         assertEquals("Must not fail over to second candidate after cancellation", 1, calls.get())
     }
+
+    @Test
+    fun resolveCandidatesPrioritizesRequestedModel() {
+        val dummyClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) = ByteArray(0)
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) = ByteArray(0)
+        }
+        val service = ImageGenerationService(
+            modelScopeClient = dummyClient,
+            getApiKey = { "test-key" },
+        )
+
+        // Default: seedream is first
+        val defaultCandidates = service.resolveCandidates(ImageRole.Image)
+        assertEquals("seedream-5.0-lite", defaultCandidates[0].id)
+
+        // When user asks for Qwen: Qwen candidate is prioritized to top
+        val qwenCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "qwen-image-2.1")
+        assertEquals("Qwen/Qwen-Image-2.1", qwenCandidates[0].id)
+
+        // When user asks for flux: FLUX candidate is prioritized and enabled
+        val fluxCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "flux")
+        assertEquals("black-forest-labs/flux-1-schnell", fluxCandidates[0].id)
+    }
 }
+

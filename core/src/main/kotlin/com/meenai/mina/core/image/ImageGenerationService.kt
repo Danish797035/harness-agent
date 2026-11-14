@@ -50,8 +50,9 @@ class ImageGenerationService(
     suspend fun generateImage(
         prompt: String,
         size: String? = null,
+        requestedModel: String? = null,
     ): ImageResult {
-        return executeWithFailover(ImageRole.Image) { client, apiKey, model ->
+        return executeWithFailover(ImageRole.Image, requestedModel) { client, apiKey, model ->
             client.generate(apiKey, model, prompt, size)
         }
     }
@@ -67,10 +68,11 @@ class ImageGenerationService(
 
     private suspend fun executeWithFailover(
         role: ImageRole,
+        requestedModel: String? = null,
         action: suspend (client: ImageClient, apiKey: String, model: String) -> ByteArray,
     ): ImageResult {
         // 1. Resolve candidate models
-        val candidates = resolveCandidates(role)
+        val candidates = resolveCandidates(role, requestedModel)
         if (candidates.isEmpty()) {
             return ImageResult.Error("Koi image model uplabdh nahi hai")
         }
@@ -141,17 +143,32 @@ class ImageGenerationService(
         )
     }
 
-    fun resolveCandidates(role: ImageRole): List<ImageModelCandidate> {
+    fun resolveCandidates(role: ImageRole, requestedModel: String? = null): List<ImageModelCandidate> {
         val baseList = when (role) {
             ImageRole.Image -> ImageModelCatalog.DEFAULT_IMAGE_MODELS
             ImageRole.ImageEdit -> ImageModelCatalog.DEFAULT_IMAGE_EDIT_MODELS
         }
 
-        val paidAllowed = isPaidAllowed()
+        val isFluxRequested = requestedModel?.contains("flux", ignoreCase = true) == true
+        val paidAllowed = isPaidAllowed() || isFluxRequested
         val allList = if (paidAllowed && role == ImageRole.Image) {
             baseList + ImageModelCatalog.OPENROUTER_PAID_IMAGE_MODELS
         } else {
             baseList
+        }
+
+        if (!requestedModel.isNullOrBlank()) {
+            val req = requestedModel.trim()
+            val match = allList.find { candidate ->
+                candidate.id.equals(req, ignoreCase = true) ||
+                candidate.id.contains(req, ignoreCase = true) ||
+                (req.contains("seedream", ignoreCase = true) && candidate.id.contains("seedream", ignoreCase = true)) ||
+                (req.contains("flux", ignoreCase = true) && candidate.id.contains("flux", ignoreCase = true)) ||
+                (req.contains("qwen", ignoreCase = true) && candidate.id.contains("qwen", ignoreCase = true))
+            }
+            if (match != null) {
+                return listOf(match) + allList.filter { it.id != match.id }
+            }
         }
 
         val pinned = getPinnedModel(role)

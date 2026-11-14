@@ -944,7 +944,12 @@ class TaskRun(
             if (ImageIntentRouter.isVideoRequest(goal)) {
                 return TaskState.Succeeded(ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG, verified = false, reviewed = false)
             }
-            return withContext(tally) { agent.run(runSpec, inbox) }.also { usedGroups = agent.usedGroups.toList() }.let(::withRetestHint)
+            val runResult = withContext(tally) { agent.run(runSpec, inbox) }.also { usedGroups = agent.usedGroups.toList() }.let(::withRetestHint)
+            return if (runResult is TaskState.Failed && _generatedImages.flow.value.any { !it.filePath.isNullOrBlank() }) {
+                TaskState.Succeeded("", verified = false, reviewed = false)
+            } else {
+                runResult
+            }
         } finally {
             handoffUnconsumed()
             side.cancel()

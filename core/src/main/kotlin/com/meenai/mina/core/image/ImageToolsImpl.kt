@@ -29,7 +29,8 @@ internal object GenerateImageTool : AgentTool {
         Prompts.tool(ImageTools.GENERATE_IMAGE_NAME),
         mapOf(
             "prompt" to str("Detailed text description of the image to generate"),
-            "size" to str("Optional image dimensions, e.g. 1024*1024")
+            "size" to str("Optional image dimensions, e.g. 1024*1024"),
+            "model" to str("Optional image model name requested by user, e.g. 'seedream-5.0-lite', 'flux', 'qwen-image'")
         ),
         listOf("prompt")
     )
@@ -52,13 +53,20 @@ internal object GenerateImageTool : AgentTool {
             return fail("video_not_supported", ImageIntentRouter.VIDEO_NOT_SUPPORTED_MSG)
         }
         val size = a.str("size")
+        var requestedModel = a.str("model")?.takeIf { it.isNotBlank() }
+        if (requestedModel == null) {
+            val modelDetect = Regex("""\b(seedream(?:-5\.0-lite)?|flux(?:-1-schnell|\.1-schnell)?|qwen(?:-image(?:-2\.1)?)?|cogview)\b""", RegexOption.IGNORE_CASE).find(prompt)
+            if (modelDetect != null) {
+                requestedModel = modelDetect.value
+            }
+        }
 
         val service: ImageGenerationService = ctx.config.imageService
             ?: return fail("no_image_service", "Image generation service is not available")
 
         ctx.config.onImageProgress?.invoke(true, prompt, "")
 
-        val result = service.generateImage(prompt, size)
+        val result = service.generateImage(prompt, size, requestedModel)
 
         return when (result) {
             is ImageResult.Success -> {

@@ -71,6 +71,45 @@ class ImageToolsTest {
     }
 
     @Test
+    fun generateImageToolPassesRequestedModel() = runBlocking {
+        var requestedModelUsed: String? = null
+        val fakeClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                requestedModelUsed = model
+                return "FAKE_IMAGE_BYTES".toByteArray()
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                return "FAKE_IMAGE_BYTES".toByteArray()
+            }
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = fakeClient,
+            getApiKey = { "key" },
+        )
+
+        val config = ToolConfig(imageService = service)
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
+
+        // Explicit model argument
+        val argsExplicit = Args(GenerateImageTool.def, buildJsonObject {
+            put("prompt", "a mountain landscape")
+            put("model", "Qwen/Qwen-Image-2.1")
+        })
+        val res1 = GenerateImageTool.execute(argsExplicit, ctx)
+        assertEquals(true, res1.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("Qwen/Qwen-Image-2.1", requestedModelUsed)
+
+        // Model detected in prompt
+        val argsPrompt = Args(GenerateImageTool.def, buildJsonObject {
+            put("prompt", "generate a cat with qwen-image-2.1")
+        })
+        val res2 = GenerateImageTool.execute(argsPrompt, ctx)
+        assertEquals(true, res2.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("Qwen/Qwen-Image-2.1", requestedModelUsed)
+    }
+
+    @Test
     fun generateImageToolRejectsEmptyPromptOrVideo() = runBlocking {
         val fakeClient = object : ImageClient {
             override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =

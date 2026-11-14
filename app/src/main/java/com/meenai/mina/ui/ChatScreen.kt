@@ -580,7 +580,10 @@ private fun LazyListScope.exchange(
     }
     waiting.forEach(::steer)
     if (ex.status != ExchangeStatus.Working) {
-        item(key = "r:${ex.id}", contentType = "assistant") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r:${ex.id}") }
+        val suppressErrorCard = ex.status is ExchangeStatus.Failed && ex.generatedImages.any { !it.filePath.isNullOrBlank() }
+        if (!suppressErrorCard) {
+            item(key = "r:${ex.id}", contentType = "assistant") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r:${ex.id}") }
+        }
     }
     // 这一轮结束后留在后台运行的那一页:还开着是绿色一行(能关),关了是一句原因
     keptPageRow(ex, kept, vm::closeKeptPage)
@@ -609,6 +612,15 @@ private fun LazyListScope.exchange(
                         if (targetPrompt.isNotBlank()) {
                             vm.send(targetPrompt, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
                         }
+                    },
+                    onRegenerateWithModel = { prompt, model ->
+                        val basePrompt = ex.goal.takeIf { it.isNotBlank() } ?: prompt
+                        val promptWithoutModel = basePrompt
+                            .replace(Regex("""\bwith\s+[\w./-]+\b""", RegexOption.IGNORE_CASE), "")
+                            .replace(Regex("""\busing\s+[\w./-]+\b""", RegexOption.IGNORE_CASE), "")
+                            .trim()
+                        val target = "Generate with $model: $promptWithoutModel"
+                        vm.send(target, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
                     }
                 )
             }
