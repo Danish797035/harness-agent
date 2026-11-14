@@ -108,6 +108,7 @@ fun ModelSetupScreen(
     val context = LocalContext.current
     val flags = remember { FeatureFlags.get(context) }
     var showSwitchNotice by remember { mutableStateOf(flags.showSwitchNotice()) }
+    val activeModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
     val vm = remember {
         val signIns = (context.applicationContext as? HarnessApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
@@ -215,6 +216,9 @@ fun ModelSetupScreen(
                 routerUsages = routerUsages,
                 showSwitchNotice = showSwitchNotice,
                 onToggleSwitchNotice = { flags.setShowSwitchNotice(it); showSwitchNotice = it },
+                activeModel = activeModel,
+                onSelectModel = { routerStatus.pinModel(it) },
+                onPinClick = { routerStatus.pinModel(if (activeModel.isPinned) null else activeModel.id) },
             )
         }
     }
@@ -281,6 +285,9 @@ fun ModelSetupContent(
     routerUsages: List<RouterProviderUsage> = emptyList(),
     showSwitchNotice: Boolean = true,
     onToggleSwitchNotice: (Boolean) -> Unit = {},
+    activeModel: com.meenai.mina.ui.router.ActiveModel? = null,
+    onSelectModel: ((String) -> Unit)? = null,
+    onPinClick: (() -> Unit)? = null,
 ) {
     val c = MinaTheme.colors
     // 表单收起(测试通过存好了,或取消)后页面上没有要打字的地方,顺手收起键盘
@@ -313,6 +320,9 @@ fun ModelSetupContent(
                         usages = routerUsages,
                         showSwitchNotice = showSwitchNotice,
                         onToggleSwitchNotice = onToggleSwitchNotice,
+                        activeModel = activeModel,
+                        onSelectModel = onSelectModel,
+                        onPinClick = onPinClick,
                     )
                 }
                 Spacer(Modifier.height(16.dp))

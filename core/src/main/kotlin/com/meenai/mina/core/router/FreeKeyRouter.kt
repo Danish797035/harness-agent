@@ -234,6 +234,38 @@ class FreeKeyRouter(
         pinnedModelId = null
     }
 
+    /**
+     * Handles model failure due to repeated empty or truncated replies.
+     * Records failure in statsTracker and healthTracker, places offending model into cooldown,
+     * switches to the next best candidate if available and switch limit permits,
+     * and returns the new candidate (or null if no alternative available / max switches exceeded).
+     */
+    fun failoverEmptyReply(currentModelId: String?, reason: String = "Empty reply from model"): RouterCandidate? {
+        val current = currentModelId ?: activeCandidate?.id
+        if (current != null) {
+            healthTracker.recordFailure(current)
+            statsTracker?.recordFailure(current, isToolCallFailure = false)
+            difficultyRouter.recordFailure()
+            cooldownStore.markCooldown(current, ModelCooldownStore.DEFAULT_COOLDOWN_MS, now())
+        }
+        val role = difficultyRouter.getRole()
+        val next = pickBestCandidate(role, isNewTask = false)
+        if (next != null && next.id != current) {
+            val oldId = current
+            activeCandidate = next
+            switchCountInTask++
+            onModelSwitched?.invoke(oldId, next.id, reason)
+            updateStatus(
+                model = next.id,
+                provider = next.provider,
+                reason = reason,
+                switchEvent = RouterSwitchEvent(oldId, next.id, next.provider, reason, now()),
+            )
+            return next
+        }
+        return null
+    }
+
     fun updateCandidates(newCandidates: List<RouterCandidate>) {
         candidates = newCandidates
         val active = activeCandidate

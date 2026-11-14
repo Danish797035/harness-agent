@@ -101,6 +101,7 @@ data class ModelQuotaLine(
     val isFree: Boolean = true,
     val quotaState: QuotaState = QuotaState.Ready,
     val exhaustedReason: String? = null,
+    val rank: Int? = null,
 )
 
 /**
@@ -534,6 +535,7 @@ class RealRouterStatus(
                     isFree = isFree,
                     quotaState = quotaState,
                     exhaustedReason = exhaustedReason,
+                    rank = runCatching { AppFreeKeyRouter.getRankingsRepository().findRankingIndex(mId) }.getOrNull(),
                 )
             }
 

@@ -136,6 +136,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
 
     /** Image generation and editing service. */
     val imageService: com.meenai.mina.core.image.ImageGenerationService by lazy {
+        val harnessClient = com.meenai.mina.core.image.HarnessImageClient(
+            baseUrl = "http://127.0.0.1:3000/v1",
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
         val modelScopeClient = com.meenai.mina.core.image.ModelScopeImageClient(
             baseUrl = "https://api-inference.modelscope.ai",
             logger = { msg -> Log.d("ImageGen", msg) }
@@ -147,6 +151,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.core.image.ImageGenerationService(
             modelScopeClient = modelScopeClient,
             openRouterClient = openRouterClient,
+            harnessClient = harnessClient,
             getApiKey = { provider ->
                 when (provider.lowercase()) {
                     "modelscope" -> com.meenai.mina.ui.router.AppFreeKeyRouter.resolveModelScopeKey(providers)

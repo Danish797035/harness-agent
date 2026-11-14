@@ -66,4 +66,7 @@
     <string name="router_no_models_found">Koi model nahi mila</string>
     <string name="router_model_unavailable_title">Model uplabdh nahi hai</string>
     <string name="router_model_unavailable_ok">Theek hai</string>
+    <string name="router_rank_badge">#%1$d</string>
+    <string name="router_active_card_title">सक्रिय मॉडल</string>
+    <string name="router_models_list_title">मॉडल सूची</string>
 </resources>

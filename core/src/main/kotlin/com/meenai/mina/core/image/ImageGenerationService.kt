@@ -36,6 +36,7 @@ sealed class ImageResult {
 class ImageGenerationService(
     private val modelScopeClient: ImageClient,
     private val openRouterClient: ImageClient? = null,
+    private val harnessClient: ImageClient? = null,
     private val getApiKey: (provider: String) -> String?,
     private val getPinnedModel: (role: ImageRole) -> String? = { null },
     private val isPaidAllowed: () -> Boolean = { false },
@@ -90,12 +91,14 @@ class ImageGenerationService(
                 }
             }
 
-            val apiKey = getApiKey(candidate.provider)
+            val isHarness = candidate.provider == ImageModelCatalog.PROVIDER_HARNESS
+            val apiKey = if (isHarness) "harness" else getApiKey(candidate.provider)
             if (apiKey.isNullOrBlank()) {
                 continue
             }
 
             val client = when (candidate.provider) {
+                ImageModelCatalog.PROVIDER_HARNESS -> harnessClient
                 ImageModelCatalog.PROVIDER_MODELSCOPE -> modelScopeClient
                 ImageModelCatalog.PROVIDER_OPENROUTER -> openRouterClient
                 else -> modelScopeClient

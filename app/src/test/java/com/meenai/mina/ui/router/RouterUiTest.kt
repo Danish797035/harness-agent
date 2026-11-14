@@ -5,6 +5,7 @@ import com.meenai.mina.i18n.HindiTexts
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
 import com.meenai.mina.ui.ChatCopy
+import com.meenai.mina.ui.components.AiBrand
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -279,4 +280,42 @@ class RouterUiTest {
         )
         assertEquals("lfm-3-1.7b · OpenRouter · 0 today (estimate)", formatChipText(idleModel, todayLabel = "today"))
     }
+
+    @Test
+    fun aiBrandDetection_detectsOfficialBrands() {
+        assertEquals(AiBrand.Google, AiBrand.detect("google/gemini-2.0-flash-exp:free"))
+        assertEquals(AiBrand.Google, AiBrand.detect("Gemini Flash"))
+        assertEquals(AiBrand.OpenAi, AiBrand.detect("openai/gpt-4o"))
+        assertEquals(AiBrand.OpenAi, AiBrand.detect("chatgpt-account"))
+        assertEquals(AiBrand.Anthropic, AiBrand.detect("anthropic/claude-3.5-sonnet"))
+        assertEquals(AiBrand.Meta, AiBrand.detect("meta-llama/llama-3.3-70b-instruct"))
+        assertEquals(AiBrand.DeepSeek, AiBrand.detect("deepseek/deepseek-r1"))
+        assertEquals(AiBrand.Qwen, AiBrand.detect("Qwen/Qwen2.5-72B-Instruct"))
+        assertEquals(AiBrand.Zhipu, AiBrand.detect("zhipu/glm-4.7-flash"))
+        assertEquals(AiBrand.ModelScope, AiBrand.detect("modelscope"))
+        assertEquals(AiBrand.Mistral, AiBrand.detect("mistralai/mistral-large"))
+        assertEquals(AiBrand.Xai, AiBrand.detect("xai/grok-2"))
+        assertEquals(AiBrand.OpenRouter, AiBrand.detect("openrouter"))
+    }
+
+    @Test
+    fun modelQuotaLine_carriesRankAndQuotaStates() {
+        val line = ModelQuotaLine(
+            modelId = "google/gemini-2.0-flash",
+            modelName = "Gemini 2.0 Flash",
+            todayRequests = 10,
+            limit = 50,
+            rank = 1,
+            quotaState = QuotaState.Ready,
+        )
+        assertEquals(1, line.rank)
+        assertEquals(QuotaState.Ready, line.quotaState)
+
+        val lowLine = line.copy(todayRequests = 48, quotaState = QuotaState.Low)
+        assertEquals(QuotaState.Low, lowLine.quotaState)
+
+        val exhaustedLine = line.copy(todayRequests = 50, quotaState = QuotaState.Exhausted)
+        assertEquals(QuotaState.Exhausted, exhaustedLine.quotaState)
+    }
 }
+

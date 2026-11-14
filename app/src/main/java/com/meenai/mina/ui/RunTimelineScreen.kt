@@ -26,7 +26,12 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.sp
+import com.meenai.mina.ui.components.AiLogo
+import com.meenai.mina.ui.theme.MinaShapes
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -165,7 +170,15 @@ private fun HeaderGroup(h: TimelineHeader, onExport: () -> Unit) {
             }
         }
         if (h.verdict != stringResource(R.string.verify_none)) ListRow(null, stringResource(R.string.timeline_check)) { RowValue(h.verdict) }
-        h.routerNote?.let { note -> ListRow(null, stringResource(R.string.timeline_router_model)) { RowValue(note) } }
+        h.routerNote?.let { note ->
+            ListRow(null, stringResource(R.string.timeline_router_model)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AiLogo(providerOrModel = note, size = 18.dp, showContainer = false)
+                    Spacer(Modifier.width(6.dp))
+                    RowValue(note)
+                }
+            }
+        }
         // 小结那一行已经写了用时
         if (h.metrics == null) h.duration?.let { d -> ListRow(null, stringResource(R.string.timeline_duration)) { RowValue(d) } }
         ListRow(null, stringResource(R.string.timeline_export), stringResource(R.string.timeline_export_hint), onClick = onExport) { RowChevron() }
@@ -199,55 +212,138 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
     var open by rememberSaveable(s.step) { mutableStateOf(false) }
     val shot = s.screenshotId
     val failed = s.result?.startsWith(stringResource(R.string.result_error_prefix)) == true
+
+    // Direct, straight action text ("text seedha")
+    val actionText = remember(s) {
+        if (s.activities.isNotEmpty()) {
+            val primary = s.activities.first()
+            val base = if (primary.count > 1) "${primary.label} (${primary.count}×)" else primary.label
+            val target = primary.target?.takeIf { it.isNotBlank() }
+            listOfNotNull(base, target).joinToString(" · ")
+        } else {
+            listOfNotNull(s.tool, s.detail?.takeIf { it.isNotBlank() }).joinToString(" · ")
+        }
+    }
+
     StepItem(
         if (failed) StepState.Failed else StepState.Done, first, last,
-        Modifier.then(if (shot != null) Modifier.clickable { open = !open } else Modifier),
-        dotY = 20.dp,
+        Modifier.clickable { open = !open },
+        dotY = 14.dp,
     ) {
-        Column(Modifier.fillMaxWidth().padding(end = 16.dp, top = 11.dp, bottom = 11.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Text(stringResource(R.string.step_number, s.step), style = MinaType.Label, color = c.ink3)
-                Text(
-                    if (s.activities.isEmpty()) listOfNotNull(s.tool, s.detail).joinToString(" · ") else "",
-                    Modifier.weight(1f).padding(start = 8.dp),
-                    style = MinaType.Body, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                s.result?.let {
+        Column(Modifier.fillMaxWidth().padding(end = 16.dp, top = 6.dp, bottom = 6.dp)) {
+            // Direct top line: Step # + Action text + Outcome pill
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        it, Modifier.padding(start = 8.dp).widthIn(max = 120.dp), style = MinaType.Caption,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = when {
-                            failed -> c.bad
-                            it == stringResource(R.string.result_effective) -> c.ok
-                            else -> c.ink3
-                        },
+                        text = "#${s.step}",
+                        style = MinaType.Label.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                        color = c.ink3,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = actionText.ifBlank { s.tool ?: stringResource(R.string.step_number, s.step) },
+                        style = MinaType.Body.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp),
+                        color = c.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                s.result?.let { res ->
+                    val (resBg, resFg) = when {
+                        failed -> c.bad.copy(alpha = 0.12f) to c.bad
+                        res == stringResource(R.string.result_effective) || res.contains("Worked", ignoreCase = true) -> c.ok.copy(alpha = 0.12f) to c.ok
+                        else -> c.hair to c.ink3
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(MinaShapes.Pill)
+                            .background(resBg)
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = res,
+                            style = MinaType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                            color = resFg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            // Compact timing line and expandable indicator
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = RunTimelineViewModel.timingLabel(s.timing),
+                    style = MinaType.Hint.copy(fontSize = 11.5.sp),
+                    color = c.ink3,
+                )
+
+                if (shot != null || s.said.isNotEmpty() || s.activities.size > 1 || s.tags.isNotEmpty()) {
+                    Text(
+                        text = if (open) stringResource(R.string.collapse) else stringResource(R.string.expand),
+                        style = MinaType.Hint.copy(fontSize = 11.sp, color = c.accent),
                     )
                 }
             }
-            Text(RunTimelineViewModel.timingLabel(s.timing), Modifier.padding(top = 2.dp), style = MinaType.Hint, color = c.ink3)
-            if (s.said.isNotEmpty()) {
-                Text(s.said, Modifier.padding(top = 3.dp), style = MinaType.Caption, color = c.ink2)
-            }
-            s.activities.forEach { a ->
-                val action = if (a.count > 1) trPlural(R.plurals.timeline_viewed_times, a.count) else a.label
-                // 和对话里点开一步用的是同一份说法(错误码只对开发有意义,给人看的是没成功)
-                val effect = ChatCopy.effectLabel(a.effect)
-                Text(
-                    listOfNotNull(action, a.target?.takeIf(String::isNotBlank), effect.takeIf(String::isNotBlank)).joinToString(" · "),
-                    Modifier.padding(top = 3.dp), style = MinaType.Caption, color = c.ink2,
-                )
-            }
-            if (s.tags.isNotEmpty()) {
-                FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    s.tags.forEach { TagChip(it) }
+
+            // Expandable details (only shown when tapped)
+            if (open) {
+                if (s.said.isNotEmpty()) {
+                    Text(
+                        text = s.said,
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MinaType.Caption.copy(fontSize = 12.sp),
+                        color = c.ink2,
+                    )
                 }
-            }
-            if (shot != null) {
-                Text(
-                    if (open) stringResource(R.string.timeline_hide_screen) else stringResource(R.string.timeline_show_screen), Modifier.padding(top = 6.dp),
-                    style = MinaType.Label, color = c.accent,
-                )
-                if (open) Shot(vm, shot, s.step)
+
+                if (s.activities.size > 1) {
+                    Column(Modifier.padding(top = 4.dp)) {
+                        s.activities.drop(1).forEach { a ->
+                            val action = if (a.count > 1) trPlural(R.plurals.timeline_viewed_times, a.count) else a.label
+                            val effect = ChatCopy.effectLabel(a.effect)
+                            Text(
+                                text = listOfNotNull(action, a.target?.takeIf(String::isNotBlank), effect.takeIf(String::isNotBlank)).joinToString(" · "),
+                                style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                                color = c.ink3,
+                                modifier = Modifier.padding(top = 1.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (s.tags.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        s.tags.forEach { TagChip(it) }
+                    }
+                }
+
+                if (shot != null) {
+                    Text(
+                        text = stringResource(R.string.timeline_show_screen),
+                        modifier = Modifier.padding(top = 6.dp),
+                        style = MinaType.Label,
+                        color = c.accent,
+                    )
+                    Shot(vm, shot, s.step)
+                }
             }
         }
     }

@@ -605,8 +605,9 @@ private fun LazyListScope.exchange(
                         context.startActivity(android.content.Intent.createChooser(intent, null))
                     },
                     onRegenerate = { prompt ->
-                        if (prompt.isNotBlank()) {
-                            vm.send(prompt, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
+                        val targetPrompt = ex.goal.takeIf { it.isNotBlank() } ?: prompt
+                        if (targetPrompt.isNotBlank()) {
+                            vm.send(targetPrompt, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
                         }
                     }
                 )

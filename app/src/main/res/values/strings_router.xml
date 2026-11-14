@@ -66,4 +66,7 @@
     <string name="router_no_models_found">No models found</string>
     <string name="router_model_unavailable_title">Model Unavailable</string>
     <string name="router_model_unavailable_ok">OK</string>
+    <string name="router_rank_badge">#%1$d</string>
+    <string name="router_active_card_title">Active Model</string>
+    <string name="router_models_list_title">Candidate Models</string>
 </resources>

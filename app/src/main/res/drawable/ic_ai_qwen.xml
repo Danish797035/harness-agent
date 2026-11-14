@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alibaba Qwen official prism loop logo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#615CED"
+        android:pathData="M12,2 L19.8,6.5 L19.8,15.5 L12,20 L4.2,15.5 L4.2,6.5 Z M12,5.2 L7,8.1 L7,13.9 L12,16.8 L17,13.9 L17,8.1 Z M12,7.8 L14.8,9.5 L14.8,12.5 L12,14.2 L9.2,12.5 L9.2,9.5 Z"/>
+</vector>

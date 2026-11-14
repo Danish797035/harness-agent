@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mistral AI official logo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FD5900"
+        android:pathData="M3,3 H7 V7 H3 Z M7,7 H11 V11 H7 Z M11,11 H15 V15 H11 Z M15,15 H19 V19 H15 Z M19,19 H23 V23 H19 Z M3,11 H7 V15 H3 Z M7,15 H11 V19 H7 Z M11,19 H15 V23 H11 Z"/>
+</vector>

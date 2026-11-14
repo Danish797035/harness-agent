@@ -199,6 +199,17 @@ class ModelRankingsRepository(
         return ModelNameNormalizer.findMatch(candidateId, current.models)
     }
 
+    /**
+     * Finds 1-based ranking index for candidate ID from the models list.
+     * Returns null if no match found.
+     */
+    fun findRankingIndex(candidateId: String): Int? {
+        val current = inMemoryData ?: getRankingsSync()
+        val match = ModelNameNormalizer.findMatch(candidateId, current.models) ?: return null
+        val idx = current.models.indexOfFirst { it.model.equals(match.model, ignoreCase = true) }
+        return if (idx >= 0) idx + 1 else null
+    }
+
     private fun downloadRankings(): ModelRankingsData? {
         return runCatching {
             val request = Request.Builder()

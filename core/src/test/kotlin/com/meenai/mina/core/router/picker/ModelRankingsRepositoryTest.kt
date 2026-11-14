@@ -150,4 +150,20 @@ class ModelRankingsRepositoryTest {
         // Backoff expired, retried and updated timestamp
         assertEquals(currentTime, repo.lastFailedAttemptMs)
     }
+
+    @Test
+    fun findRankingIndexReturnsCorrectOneBasedIndex() = runBlocking {
+        val repo = ModelRankingsRepository(
+            cacheStore = InMemoryModelRankingsCacheStore(),
+            httpClient = OkHttpClient(),
+            bundledResourceSupplier = { sampleJson },
+        )
+        // deepseek-r1 is at index 0 -> 1
+        assertEquals(1, repo.findRankingIndex("deepseek/deepseek-r1"))
+        // qwen-2.5-coder-32b-instruct is at index 1 -> 2
+        assertEquals(2, repo.findRankingIndex("qwen/qwen-2.5-coder-32b"))
+        // unknown model -> null
+        assertEquals(null, repo.findRankingIndex("unknown-model-xyz"))
+    }
 }
+

@@ -765,19 +765,29 @@ class TaskRun(
                 runRecords = RunStore(service).reader(),
                 imageService = (service.application as HarnessApp).imageService,
                 onImageProgress = { isGenerating, prompt, modelName ->
+                    val cleanPrompt = if (prompt.contains("previous failure", ignoreCase = true) || prompt.contains("HTTP 413", ignoreCase = true) || prompt.contains("504 timeout", ignoreCase = true)) {
+                        _generatedImages.flow.value.lastOrNull()?.prompt?.takeIf { it.isNotBlank() } ?: prompt
+                    } else {
+                        prompt
+                    }
                     updateGeneratedImage(GeneratedImageUi(
                         filePath = null,
                         isGenerating = isGenerating,
-                        prompt = prompt,
+                        prompt = cleanPrompt,
                         model = modelName
                     ))
                 },
                 onImageSaved = { bytes, prompt, modelName ->
+                    val cleanPrompt = if (prompt.contains("previous failure", ignoreCase = true) || prompt.contains("HTTP 413", ignoreCase = true) || prompt.contains("504 timeout", ignoreCase = true)) {
+                        _generatedImages.flow.value.lastOrNull()?.prompt?.takeIf { it.isNotBlank() } ?: prompt
+                    } else {
+                        prompt
+                    }
                     val file = ImageStorageManager.saveToPrivateCache(service, bytes)
                     updateGeneratedImage(GeneratedImageUi(
                         filePath = file.absolutePath,
                         isGenerating = false,
-                        prompt = prompt,
+                        prompt = cleanPrompt,
                         model = modelName
                     ))
                     file.absolutePath

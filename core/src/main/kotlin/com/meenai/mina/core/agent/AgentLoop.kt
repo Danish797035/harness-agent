@@ -399,6 +399,7 @@ class AgentLoop(
             provenance = provenance,
             selfPackage = selfPackage, autonomous = autonomous, pacing = outwardPacing)
         var emptyNudged = false
+        var emptyReplySwitches = 0
         // 调过工具才有可核对的材料;交给用户付款和放行过对外动作一样,回答要另请核查
         var acted = false
         var paymentHandedOver = false
@@ -533,10 +534,30 @@ class AgentLoop(
                 if (keepFinished(history, inbox)) continue
                 // 空回复、被输出上限截断的半截话不是回答:提醒一次,再这样就结束
                 if (text.isEmpty() || reply.stopReason == StopReason.MaxTokens) {
-                    val n = TurnPolicy.afterEmpty(emptyNudged, truncated = text.isNotEmpty()) ?: return StopRules.noAnswer()
-                    emptyNudged = true
-                    history += ctx.notice(n.source, n.text)
-                    continue
+                    val n = TurnPolicy.afterEmpty(emptyNudged, truncated = text.isNotEmpty())
+                    if (n != null) {
+                        emptyNudged = true
+                        history += ctx.notice(n.source, n.text)
+                        continue
+                    }
+                    val router = activeRouter
+                    if (router != null && emptyReplySwitches < 2) {
+                        val currentModelName = _activeModelName.value ?: router.activeCandidate?.id
+                        val next = router.failoverEmptyReply(currentModelName, reason = "Empty reply from previous model")
+                        if (next != null) {
+                            emptyReplySwitches++
+                            emptyNudged = false
+                            _activeModelName.value = next.id
+                            if (history.isNotEmpty() && history.last().role == Role.Assistant) {
+                                history.removeAt(history.lastIndex)
+                            }
+                            val switchMsg = "Switched to ${next.id} — Empty reply from previous model"
+                            emit(RunEvent.State(now(), "model_switched", switchMsg))
+                            history += ctx.notice("model_switch", switchMsg)
+                            continue
+                        }
+                    }
+                    return StopRules.noAnswer()
                 }
                 emptyNudged = false
                 // 工具调用原样漏成了文字(服务端没解析成调用):不是回答。退回一次,经工具接口重新调用;

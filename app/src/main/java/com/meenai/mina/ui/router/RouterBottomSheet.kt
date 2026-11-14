@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.R
 import com.meenai.mina.core.router.MagicubeLedger
+import com.meenai.mina.ui.components.AiLogo
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.GroupCard
@@ -170,57 +171,11 @@ fun RouterBottomSheet(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            // Current Model & Selection Reason
-            GroupCard {
-                Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.router_current_model),
-                            style = MinaType.Hint,
-                            color = colors.ink3,
-                        )
-                        if (activeModel.isPinned) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(MinaShapes.Pill)
-                                    .background(colors.accent.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.router_model_pinned),
-                                    style = MinaType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    color = colors.accent,
-                                )
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = if (activeModel.provider.isNotBlank()) "${activeModel.name} · ${activeModel.provider}" else activeModel.name,
-                        style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
-                        color = colors.ink,
-                        modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
-                    )
-
-                    if (activeModel.reason.isNotBlank()) {
-                        Text(
-                            text = stringResource(R.string.router_why_chosen),
-                            style = MinaType.Hint,
-                            color = colors.ink3,
-                        )
-                        Text(
-                            text = activeModel.reason,
-                            style = MinaType.Caption,
-                            color = colors.ink2,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                }
-            }
+            // Current Model & Selection Reason (Hero Card)
+            ActiveModelHeroCard(
+                active = activeModel,
+                onPinClick = onPinClick,
+            )
 
             Spacer(Modifier.height(14.dp))
 
@@ -714,12 +669,42 @@ fun ModelQuotaRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = 7.dp, horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
+        // Rank badge if available
+        model.rank?.let { rankNum ->
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (rankNum <= 3) colors.accent else colors.hair.copy(alpha = 0.8f))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "#$rankNum",
+                    style = MinaType.Caption.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = if (rankNum <= 3) Color.White else colors.ink2,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+        }
+
+        // Official AI Logo
+        AiLogo(
+            providerOrModel = model.modelId,
+            size = 30.dp,
+            corner = 8.dp,
+        )
+
+        Spacer(Modifier.size(10.dp))
+
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -746,12 +731,32 @@ fun ModelQuotaRow(
                 }
             }
 
-            Text(
-                text = if (model.provider.isNotBlank()) "${model.provider} · $subtitle" else subtitle,
-                style = MinaType.Hint.copy(fontSize = 12.sp),
-                color = colors.ink3,
+            // Provider chip and subtitle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.padding(top = 1.dp),
-            )
+            ) {
+                if (model.provider.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(MinaShapes.Pill)
+                            .background(colors.hair.copy(alpha = 0.6f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = model.provider,
+                            style = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                            color = colors.ink2,
+                        )
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    style = MinaType.Hint.copy(fontSize = 12.sp),
+                    color = colors.ink3,
+                )
+            }
 
             // Capability Badges
             Row(

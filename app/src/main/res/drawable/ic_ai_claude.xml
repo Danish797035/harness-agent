@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Anthropic Claude official starburst logo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#D97757"
+        android:pathData="M10.8,3.5 H13.2 A1.1,1.1 0 0,1 14.3,4.6 V9.4 A0.7,0.7 0 0,0 15,10.2 L18.4,8.2 A1.2,1.2 0 0,1 20,8.5 L20.8,9.9 A1.2,1.2 0 0,1 20.5,11.5 L17.1,13.5 A0.7,0.7 0 0,0 16.6,14.4 V14.6 A0.7,0.7 0 0,0 17.1,15.5 L20.5,17.5 A1.2,1.2 0 0,1 20.8,19.1 L20,20.5 A1.2,1.2 0 0,1 18.4,20.8 L15,18.8 A0.7,0.7 0 0,0 14.3,19.2 V24 A1.1,1.1 0 0,1 13.2,25.1 H10.8 A1.1,1.1 0 0,1 9.7,24 V19.2 A0.7,0.7 0 0,0 9,18.8 L5.6,20.8 A1.2,1.2 0 0,1 4,20.5 L3.2,19.1 A1.2,1.2 0 0,1 3.5,17.5 L6.9,15.5 A0.7,0.7 0 0,0 7.4,14.6 V14.4 A0.7,0.7 0 0,0 6.9,13.5 L3.5,11.5 A1.2,1.2 0 0,1 3.2,9.9 L4,8.5 A1.2,1.2 0 0,1 5.6,8.2 L9,10.2 A0.7,0.7 0 0,0 9.7,9.4 V4.6 A1.1,1.1 0 0,1 10.8,3.5 Z" />
+</vector>
