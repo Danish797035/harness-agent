@@ -1,4 +1,4 @@
-<!-- 主循环给模型的提醒、说明与参考资料的来源标签。每条以「## 键」开头,下面是原文;{{名字}} 由代码填。 -->
+<!-- Reminder, explanation, and reference source tags from the main loop to the model. Each begins with "## key", followed by the original text; {{name}} is filled in by code. -->
 
 ## empty_reply
 Your reply was empty. Continue the task with your tools, or reply with your final answer to the user in text.

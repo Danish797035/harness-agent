@@ -1,55 +1,47 @@
-# prompts/:随 App 发布的提示词
+# prompts/: Bundled Prompts
 
-模型看到的固定文字都在这里,代码里不再写成字符串;统一经 `core.prompt.Prompts` / `core.prompt.Feedback` 读取。
-文字里的 `{{名字}}` 由读取它的代码填(上限、可选值、屏上的名字等),漏填直接报错。
+All fixed text sent to models is stored here rather than as string literals in code, read uniformly via `core.prompt.Prompts` / `core.prompt.Feedback`.
+Variables in the text formatted as `{{name}}` are filled by the code loading them (limits, options, on-screen names, etc.); missing variables raise errors directly.
 
-## 分层
+## Layers
 
-| 目录 | 是什么 | 进哪里 | 谁读 |
+| Directory | What it is | Where it goes | Read by |
 |---|---|---|---|
-| `system/identity.md` | P0 身份与姿态:替用户办事、在用户授权内、先看后做、不装、不知道就说 | 系统提示词开头 | `SystemPrompt.identity()` |
-| `system/principles.md` | P1 通用准则:谁的话算数、怎么办任务、凭依据回答、遇到障碍、找东西、安全;对所有屏、所有能力都成立 | 紧接身份 | `SystemPrompt.identity()` |
-| `capabilities/` | P2 能力说明,每种能力一段;`general.md` 是通用工具(报失败、追问、确认)和任务怎么结束的总规则,通用工具一直都在,所以总是拼在准则之后;`groups.md` 说几组工具从哪个入口进(只列本任务给了入口的);`handover.md` 是有屏的组展开后才有的交给用户、下单发送前的核对;手机、网页、沙箱各段只在那一组展开后才拼;`app-access.md` 是应用访问的规则,只在用户禁用了 App 时接在手机一段后面 | 系统提示词 | `SystemPrompt.assemble()` |
-| `tools/` | P3 每个工具一份说明(工具定义里的 description):怎么用、参数、结果怎么处理;几个工具共用一份模板时在工具里写明 `promptFile` | 工具定义 | 工具自己 |
-| `entries/` | 入口工具在它那一组收着时的短说明(一两句:做什么、调用后还会有哪些工具);展开后换回 `tools/` 的全文,参数不变 | 工具定义 | `ToolRegistry` |
-| `feedback/` | 工具结果和主循环给模型的反馈:提示、错误说明(`failure.<错误码>`)、提醒、参考资料的来源标签;每条一个键 | 工具结果、上下文消息 | 工具、`AgentLoop` |
-| `roles/` | 内部角色的提示词:核查、描述屏幕、定位、记忆提取、路线匹配、技能草稿、App 知识补充、交出回答后的结局判定 | 各角色自己的请求 | 各角色 |
+| `system/identity.md` | P0 Identity & stance: act on user's behalf, within user authorization, look before acting, no pretense, admit unknowns | Start of system prompt | `SystemPrompt.identity()` |
+| `system/principles.md` | P1 General principles: whose words count, how to execute tasks, evidence-based replies, obstacles, finding things, safety; holds across all surfaces and capabilities | Directly after identity | `SystemPrompt.identity()` |
+| `capabilities/` | P2 Capability descriptions, one per capability; `general.md` defines common tools (report failure, ask question, confirm) and overall completion rules; `groups.md` explains entry points for tool groups; `handover.md` adds user handover and pre-submission checks when a surface group expands; phone, web, and sandbox sections are appended only when that group expands; `app-access.md` specifies app access rules when apps are restricted | System prompt | `SystemPrompt.assemble()` |
+| `tools/` | P3 Description for each tool: usage, parameters, result handling; when multiple tools share a template, `promptFile` is declared in the tool | Tool definitions | Tools themselves |
+| `entries/` | Short descriptions for entry tools when their group is collapsed; replaced by full text from `tools/` when expanded, with parameters unchanged | Tool definitions | `ToolRegistry` |
+| `feedback/` | Feedback from tool results and the main loop: hints, error descriptions (`failure.<errorCode>`), reminders, reference source tags; one key per item | Tool results, context messages | Tools, `AgentLoop` |
+| `roles/` | Prompts for internal roles: verification, screen description, location, memory extraction, route matching, skill drafting, app knowledge, post-turn outcome judging | Respective role requests | Respective roles |
 
-App、站点知识和技能不在这里,见 `knowledge/`、`skills/`。
+App knowledge, site knowledge, and skills are not here; see `knowledge/` and `skills/`.
 
-## 放哪里
+## Placement Rules
 
-- 越往上越通用、越中立:system/ 不提具体工具、App 或技术;只对某种能力成立的写进那段能力说明。
-- 和某个工具绑在一起的话(怎么用、参数含义、结果怎么处理)写进 `tools/<工具>.md`,不要写进 system/。
-- 只在有某种能力时才成立的规则写进 `capabilities/<能力>.md`,和那组工具同一个开关。
-  段落里有一行要用到别的能力的工具时,行首写 `<!-- needs: 工具名 -->`:那个工具提供了才留下这一行。
-- `system/` 不点任何工具名(由测试检查;tap、back 这类本身是英文词的不算)。
-- 工具结果里的说明文字写进 `feedback/tools.md`,主循环自己发的写进 `feedback/loop.md`;键在两个文件里唯一,每个键都要有代码在用。
-- 每条反馈自成一体:首尾不留空白,代码不拿它和别的字拼(`+` 或字符串模板);要组合就在模板里写好分隔,用 `{{占位符}}` 把另一条填进去。
-- 一个任务内系统提示词只在展开一组工具时变(缓存因此每组至多失效一次);每轮会变的东西(步数、时间、在哪个 App)不进这里的固定文字。
+- The higher the layer, the more general and neutral: `system/` mentions no specific tools, apps, or technologies; capability-specific rules belong in that capability's description.
+- Information tied to a specific tool (how to use it, parameter meanings, result handling) belongs in `tools/<tool>.md`, never in `system/`.
+- Rules that only hold when a capability is present belong in `capabilities/<capability>.md`, sharing the same toggle with that tool group. When a line requires tools from another capability, prefix it with `<!-- needs: tool_name -->`: the line is kept only when that tool is available.
+- `system/` mentions no tool names (enforced by tests; English action words like tap or back do not count).
+- Tool result descriptions go into `feedback/tools.md`; main loop notifications go into `feedback/loop.md`; keys are unique across both files and every key must be referenced by code.
+- Each feedback entry is self-contained: no leading/trailing whitespace, code never concatenates it with strings; compositions are defined within templates using `{{placeholder}}`.
+- System prompts within a task only change when a tool group expands (cache invalidates at most once per group); turn-variable data (step counts, timestamps, foreground app) is never placed in fixed prompt text.
 
-## 格式
+## Format
 
-- `tools/`、`system/`、`capabilities/`、`roles/`:一个文件就是一段原文,读取时去掉首尾空白。
-- `feedback/*.md`:开头可以有一段 `<!-- 说明 -->`;每条以单独一行 `## 键` 开头(键只用小写字母、数字、`_`、`.`),
-  下面到下一条之前是原文,可以多行,首尾空行不算(所以分隔用的换行要写在模板中间)。
+- `tools/`, `system/`, `capabilities/`, `roles/`: each file is a single verbatim passage, trimmed of leading and trailing whitespace on read.
+- `feedback/*.md`: may begin with an optional `<!-- comment -->`; each entry begins with a standalone `## key` line (lowercase letters, digits, `_`, `.`), followed by the content up to the next entry.
 
-## 大小
+## Size
 
-各层的字节数(UTF-8)写在金样 `core/src/test/resources/prompt-surface/sizes.txt` 里,只作参考、不设硬上限:
-每次改动后的增长都出现在提交的差异里。加内容前先看能不能删掉旧的;明显变大时在提交里说明为什么。
+UTF-8 byte counts for each layer are tracked in the gold master `core/src/test/resources/prompt-surface/sizes.txt` for reference without hard limits: growth from every change appears in commit diffs. Before adding content, check whether old text can be pruned; explain significant increases in commit messages.
 
-## 改了之后
+## After Making Changes
 
-模型看到的全部文字有金样:`core/src/test/resources/prompt-surface/`(系统提示词、工具定义、反馈、角色)和
-`loop-snapshots/`(假模型回放的消息序列)。有意的改动用 `./gradlew :core:test -PupdateSnapshots` 重新生成,
-在提交里一起审;改动会影响模型行为的,先跑评测对比。运行记录里的 `prompt_version` 是本任务系统提示词加工具定义的摘要,
-对比评测结果时据此区分提示词版本。
+All text visible to models has gold master snapshots: `core/src/test/resources/prompt-surface/` (system prompts, tool definitions, feedback, roles) and `loop-snapshots/` (mock model replay message sequences). Intentional changes are regenerated with `./gradlew :core:test -PupdateSnapshots` and reviewed in the commit.
 
-## 工具名
+## Tool Names
 
-- 手机、网页各一套屏幕工具(`phone_*`、`web_*`,动词与参数一样);同名动词共用 `tools/<动词>.md` 模板,模板里的 `{{动词}}` 换成本套的工具名;
-  某块屏要自己的说明时写 `tools/<屏>_<动词>.md`。
-- `capabilities/general.md` 不点名任何能力的工具(由测试检查);「选哪条渠道」写在 `channels.md`,只在有两块以上的屏时拼进去。
-- 知识、技能、提示词里提到的工具名都必须是现在登记的(由测试检查)。改名前的旧名由 `LegacyNames` 按规则换成新名,
-  只用于读旧东西(存下的路线、运行记录、个人技能与做法),模型调用旧名时只提示新名、不替它执行。
+- Phone and web each have a set of screen tools (`phone_*`, `web_*`, with matching verbs and parameters); identical verbs share `tools/<verb>.md` templates where `{{verb}}` is substituted with the tool name; surface-specific documentation uses `tools/<surface>_<verb>.md`.
+- `capabilities/general.md` mentions no capability-specific tools (enforced by tests); channel selection is described in `channels.md`, appended only when more than one surface is available.
+- All tool names mentioned in knowledge, skills, and prompts must be currently registered (enforced by tests).
