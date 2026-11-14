@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import com.meenai.mina.R
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.settings.ProviderStore
-import com.meenai.mina.ui.components.AiBrand
 import com.meenai.mina.ui.components.AiLogo
 import com.meenai.mina.ui.components.CapabilityTag
 import com.meenai.mina.ui.components.GroupCard
@@ -120,8 +119,8 @@ fun ModelSpecialistScreen(
                         prefsStore.setSpecialistAutoEnabled(it)
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = MinaTheme.colors.tileSuccessText,
-                        checkedTrackColor = MinaTheme.colors.tileSuccessBg,
+                        checkedThumbColor = MinaTheme.colors.ok,
+                        checkedTrackColor = MinaTheme.colors.okSoft,
                     ),
                 )
             }
@@ -133,12 +132,12 @@ fun ModelSpecialistScreen(
         val tabIndex = if (specialistMode == SpecialistMode.Auto) 0 else 1
         TabRow(
             selectedTabIndex = tabIndex,
-            containerColor = MinaTheme.colors.cardBg,
+            containerColor = MinaTheme.colors.surface,
             contentColor = MinaTheme.colors.ink,
             indicator = { tabPositions ->
                 TabRowDefaults.SecondaryIndicator(
                     modifier = Modifier.tabIndicatorOffset(tabPositions[tabIndex]),
-                    color = MinaTheme.colors.tileSuccessText,
+                    color = MinaTheme.colors.ok,
                 )
             },
             modifier = Modifier
@@ -349,8 +348,8 @@ fun ModelSpecialistScreen(
                             },
                             label = { Text("$count") },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MinaTheme.colors.tileSuccessBg,
-                                selectedLabelColor = MinaTheme.colors.tileSuccessText,
+                                selectedContainerColor = MinaTheme.colors.okSoft,
+                                selectedLabelColor = MinaTheme.colors.ok,
                             ),
                         )
                     }
@@ -384,7 +383,7 @@ fun ModelSpecialistScreen(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .background(MinaTheme.colors.tileBg, RoundedCornerShape(8.dp))
+                                .background(MinaTheme.colors.fill, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         ) {
                             Text(
@@ -393,7 +392,7 @@ fun ModelSpecialistScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MinaTheme.colors.ink2,
                             )
-                            AiLogo(AiBrand.detect(pName), size = 14.dp)
+                            AiLogo(pName, size = 14.dp)
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = pName.replaceFirstChar { it.uppercase() },
@@ -433,7 +432,7 @@ fun ModelSpecialistScreen(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(MinaTheme.colors.tileSuccessText),
+                                .background(MinaTheme.colors.ok),
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -448,9 +447,9 @@ fun ModelSpecialistScreen(
                                 Text(
                                     text = event.toProvider.ifEmpty { event.fromProvider },
                                     fontSize = 11.sp,
-                                    color = MinaTheme.colors.tileSuccessText,
+                                    color = MinaTheme.colors.ok,
                                     modifier = Modifier
-                                        .background(MinaTheme.colors.tileSuccessBg, RoundedCornerShape(4.dp))
+                                        .background(MinaTheme.colors.okSoft, RoundedCornerShape(4.dp))
                                         .padding(horizontal = 4.dp, vertical = 1.dp),
                                 )
                             }
@@ -504,7 +503,7 @@ private fun StrategyRadioRow(
             selected = selected,
             onClick = onClick,
             colors = RadioButtonDefaults.colors(
-                selectedColor = MinaTheme.colors.tileSuccessText,
+                selectedColor = MinaTheme.colors.ok,
             ),
         )
         Spacer(Modifier.width(12.dp))
@@ -553,7 +552,7 @@ private fun ManualRolePickerRow(
             Text(
                 text = selectedModelId ?: "Default (Auto)",
                 fontSize = 13.sp,
-                color = if (selectedModelId != null) MinaTheme.colors.tileSuccessText else MinaTheme.colors.ink2,
+                color = if (selectedModelId != null) MinaTheme.colors.ok else MinaTheme.colors.ink2,
             )
         }
 
@@ -579,7 +578,7 @@ private fun ManualRolePickerRow(
                 )
                 allModels.forEach { line ->
                     DropdownMenuItem(
-                        leadingIcon = { AiLogo(AiBrand.detect(line.modelId), size = 18.dp) },
+                        leadingIcon = { AiLogo(line.modelId, size = 18.dp) },
                         text = {
                             Text(
                                 text = line.modelName,
