@@ -322,7 +322,7 @@ class AutoModelPickerTest {
     }
 
     @Test
-    fun sub3bTinyModelsFilteredOut() {
+    fun sub3bTinyModelsFilteredOutFromMainRole() {
         val tinyLfm = ModelCandidate(
             provider = "openrouter",
             id = "liquid/lfm-3-1.7b:free",
@@ -345,22 +345,19 @@ class AutoModelPickerTest {
             parameterSizeB = 0.5,
             totalParamsB = 0.5,
         )
-        val valid8b = ModelCandidate(
+        val valid70b = ModelCandidate(
             provider = "openrouter",
-            id = "meta-llama/llama-3.1-8b-instruct:free",
+            id = "meta-llama/llama-3.3-70b-instruct:free",
             contextTokens = 65536,
             supportsTools = true,
             supportsImages = false,
             isFree = true,
-            tierRank = 17,
-            parameterSizeB = 8.0,
-            totalParamsB = 8.0,
+            tierRank = 3,
+            parameterSizeB = 70.0,
+            totalParamsB = 70.0,
         )
         val picker = AutoModelPicker(apiClient = { "" })
-        val filtered = picker.filterCandidates(listOf(tinyLfm, tiny05b, valid8b), ModelRole.Light)
-        assertEquals(listOf(valid8b), filtered)
-        assertFalse(AutoModelPicker.isLightModel(tinyLfm))
-        assertFalse(AutoModelPicker.isLightModel(tiny05b))
-        assertTrue(AutoModelPicker.isLightModel(valid8b))
+        val filtered = picker.filterCandidates(listOf(tinyLfm, tiny05b, valid70b), ModelRole.Main)
+        assertEquals(listOf(valid70b), filtered)
     }
 }

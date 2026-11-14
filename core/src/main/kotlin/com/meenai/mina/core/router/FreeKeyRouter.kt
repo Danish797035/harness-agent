@@ -626,7 +626,7 @@ class FreeKeyRouter(
 
         val available = candidates.filter {
             val size = ModelSizeParser.extractParameterSizeB(it.id)
-            (size <= 0.0 || size >= 3.0) && !ChatModelFilter.isExcluded(it.id) && checkCachedQuota(it, isNewTask = isNewTask)
+            (size <= 0.0 || size >= 3.0 || targetRole == ModelRole.Light) && !ChatModelFilter.isExcluded(it.id) && checkCachedQuota(it, isNewTask = isNewTask)
         }
         if (available.isEmpty()) return null
 
@@ -641,7 +641,8 @@ class FreeKeyRouter(
                     AutoModelPicker.isLightModel(candidate.toModelCandidate())
                 ModelRole.Coding -> candidate.roles.contains(ModelRole.Coding) || candidate.id.contains("coder", ignoreCase = true)
                 ModelRole.Long -> candidate.roles.contains(ModelRole.Long) || candidate.model.capabilities.contextTokens >= 64_000
-                ModelRole.Main -> true
+                ModelRole.Main -> (candidate.roles.isEmpty() || candidate.roles.contains(ModelRole.Main)) &&
+                    (ModelSizeParser.extractParameterSizeB(candidate.id).let { it <= 0.0 || it >= 3.0 })
             }
         }
         val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
@@ -650,7 +651,7 @@ class FreeKeyRouter(
             ModelRole.Light -> {
                 compareBy<RouterCandidate> { candidate ->
                     val size = ModelSizeParser.extractParameterSizeB(candidate.id)
-                    if (size in 3.0..14.0) size else 8.0
+                    if (size > 0.0) size else 8.0
                 }.thenByDescending { healthTracker.score(it.id) }
                  .thenByDescending { it.model.capabilities.contextTokens }
             }

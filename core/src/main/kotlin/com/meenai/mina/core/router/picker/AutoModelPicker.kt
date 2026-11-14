@@ -85,9 +85,9 @@ class AutoModelPicker(
             // Exclude non-chat and image-gen/edit models
             if (ChatModelFilter.isExcluded(candidate.id)) return@filter false
 
-            // Exclude sub-3B tiny models: they cannot handle complex multi-tool agentic loops
+            // Main role requires capable models: sub-3B tiny models cannot handle complex multi-tool agentic loops
             val params = candidate.totalParamsB ?: candidate.parameterSizeB
-            if (params in 0.01..2.9) return@filter false
+            if (role == ModelRole.Main && params in 0.01..2.9) return@filter false
 
             // Exclude models that failed probe today
             if (probeService?.isFailedToday(candidate.id) == true) return@filter false
@@ -107,11 +107,9 @@ class AutoModelPicker(
         return candidates
             .filter { candidate ->
                 val isFree = candidate.isFree || candidate.id.endsWith(":free")
-                val params = candidate.totalParamsB ?: candidate.parameterSizeB
                 isFree && candidate.supportsTools &&
                     candidate.contextTokens >= MIN_CONTEXT_TOKENS &&
-                    !ChatModelFilter.isExcluded(candidate.id) &&
-                    (params <= 0.0 || params >= 3.0)
+                    !ChatModelFilter.isExcluded(candidate.id)
             }
             .sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
     }
@@ -276,13 +274,13 @@ class AutoModelPicker(
 
         fun isLightModel(candidate: ModelCandidate): Boolean {
             val total = candidate.totalParamsB ?: candidate.parameterSizeB
-            if (total in 3.0..10.0) return true
-            if (total > 10.0 || (total > 0.0 && total < 3.0)) return false
+            if (total in 0.1..10.0) return true
+            if (total > 10.0) return false
             // Match whole tokens only: "gemini" must not count as "mini", "11b" must not count as "1b".
             val tokens = candidate.id.lowercase().split('/', '-', '_', ':', ' ')
             return tokens.any { token ->
                 token in LIGHT_KEYWORDS ||
-                    (SIZE_TOKEN.matchEntire(token)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it in 3.0..10.0 } == true)
+                    (SIZE_TOKEN.matchEntire(token)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it in 0.1..10.0 } == true)
             }
         }
     }
