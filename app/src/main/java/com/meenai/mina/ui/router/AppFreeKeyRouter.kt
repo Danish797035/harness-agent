@@ -11,7 +11,6 @@ import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.router.picker.AutoModelPicker
 import com.meenai.mina.core.router.picker.ChatModelFilter
-import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.picker.DifficultyRouter
 import com.meenai.mina.core.router.picker.FileModelRankingsCacheStore
 import com.meenai.mina.core.router.picker.HttpOpenRouterApiClient
@@ -660,7 +659,7 @@ object AppFreeKeyRouter {
                 id = m.id,
                 provider = "gemini",
                 model = model,
-                curatedRank = CuratedTiers.tierForModel(m.id),
+                curatedRank = 0,
                 isFree = true,
                 roles = buildSet {
                     add(ModelRole.Main)
@@ -706,7 +705,7 @@ object AppFreeKeyRouter {
                 id = m.id,
                 provider = "groq",
                 model = model,
-                curatedRank = CuratedTiers.tierForModel(m.id),
+                curatedRank = 0,
                 isFree = true,
                 roles = buildSet {
                     add(ModelRole.Main)
@@ -752,7 +751,7 @@ object AppFreeKeyRouter {
                 id = m.id,
                 provider = "deepseek",
                 model = model,
-                curatedRank = CuratedTiers.tierForModel(m.id),
+                curatedRank = 0,
                 isFree = false,
                 roles = setOf(ModelRole.Main, ModelRole.Coding),
             )
@@ -793,7 +792,7 @@ object AppFreeKeyRouter {
                 id = m.id,
                 provider = "kimi",
                 model = model,
-                curatedRank = CuratedTiers.tierForModel(m.id),
+                curatedRank = 0,
                 isFree = false,
                 roles = setOf(ModelRole.Main),
             )
@@ -833,7 +832,7 @@ object AppFreeKeyRouter {
                 id = m.id,
                 provider = "minimax",
                 model = model,
-                curatedRank = CuratedTiers.tierForModel(m.id),
+                curatedRank = 0,
                 isFree = false,
                 roles = setOf(ModelRole.Main, ModelRole.Vision, ModelRole.Long),
             )
