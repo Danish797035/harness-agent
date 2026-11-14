@@ -22,7 +22,8 @@ internal object GenerateImageTool : AgentTool {
     override val logged = true
     override val promptFile = ImageTools.GENERATE_IMAGE_NAME
 
-    override fun available(ctx: ToolContext): Boolean = ctx.config.imageService != null
+    override fun available(ctx: ToolContext): Boolean =
+        ctx.config.imageService != null && ctx.lastGeneratedImagePath == null
 
     override val def = ToolDef(
         ImageTools.GENERATE_IMAGE_NAME,
@@ -36,6 +37,14 @@ internal object GenerateImageTool : AgentTool {
     )
 
     override suspend fun execute(a: Args, ctx: ToolContext): ToolExecution {
+        val previousPath = ctx.lastGeneratedImagePath
+        if (previousPath != null) {
+            return ok {
+                put("filePath", previousPath)
+                put("message", "Image already generated in this task: $previousPath. Conclude with your reply.")
+            }
+        }
+
         var prompt = a.str("prompt")?.takeIf { it.isNotBlank() }
             ?: return fail("invalid_prompt", "Prompt cannot be empty")
 
@@ -71,6 +80,9 @@ internal object GenerateImageTool : AgentTool {
         return when (result) {
             is ImageResult.Success -> {
                 val filePath = ctx.config.onImageSaved?.invoke(result.bytes, prompt, result.model)
+                if (filePath != null) {
+                    ctx.lastGeneratedImagePath = filePath
+                }
                 ctx.config.onImageProgress?.invoke(false, prompt, result.model)
                 ok {
                     if (filePath != null) put("filePath", filePath)
@@ -95,7 +107,8 @@ internal object EditImageTool : AgentTool {
     override val logged = true
     override val promptFile = ImageTools.EDIT_IMAGE_NAME
 
-    override fun available(ctx: ToolContext): Boolean = ctx.config.imageService != null
+    override fun available(ctx: ToolContext): Boolean =
+        ctx.config.imageService != null && ctx.lastEditedImagePath == null
 
     override val def = ToolDef(
         ImageTools.EDIT_IMAGE_NAME,
@@ -108,6 +121,14 @@ internal object EditImageTool : AgentTool {
     )
 
     override suspend fun execute(a: Args, ctx: ToolContext): ToolExecution {
+        val previousPath = ctx.lastEditedImagePath
+        if (previousPath != null) {
+            return ok {
+                put("filePath", previousPath)
+                put("message", "Image already edited in this task: $previousPath. Conclude with your reply.")
+            }
+        }
+
         val prompt = a.str("prompt")?.takeIf { it.isNotBlank() }
             ?: return fail("invalid_prompt", "Prompt cannot be empty")
 
@@ -136,6 +157,9 @@ internal object EditImageTool : AgentTool {
         return when (result) {
             is ImageResult.Success -> {
                 val filePath = ctx.config.onImageSaved?.invoke(result.bytes, prompt, result.model)
+                if (filePath != null) {
+                    ctx.lastEditedImagePath = filePath
+                }
                 ctx.config.onImageProgress?.invoke(false, prompt, result.model)
                 ok {
                     if (filePath != null) put("filePath", filePath)

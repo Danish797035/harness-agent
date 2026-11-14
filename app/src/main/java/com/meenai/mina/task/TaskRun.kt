@@ -770,8 +770,10 @@ class TaskRun(
                     } else {
                         prompt
                     }
+                    val existingPath = _generatedImages.flow.value.find { it.prompt == cleanPrompt }?.filePath
+                        ?: _generatedImages.flow.value.lastOrNull()?.filePath
                     updateGeneratedImage(GeneratedImageUi(
-                        filePath = null,
+                        filePath = existingPath,
                         isGenerating = isGenerating,
                         prompt = cleanPrompt,
                         model = modelName

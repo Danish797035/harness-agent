@@ -75,6 +75,10 @@ internal class ToolContext(
     var refusedPay: ConfirmationRequest? = null
     /** 本次任务有没有成功打开过 App;没有时核查器知道没有屏幕可对照。 */
     var appOpened = false
+    /** 本次任务中已成功生成的图片路径; 生成后防止模型重复调用 generate_image。 */
+    var lastGeneratedImagePath: String? = null
+    /** 本次任务中已成功编辑的图片路径; 编辑后防止模型重复调用 edit_image。 */
+    var lastEditedImagePath: String? = null
     /** 本次调用的编号;页面脚本里的动作按它编号。 */
     var callId = ""
     /** 自己不动界面的工具(页面脚本)里的动作经它回到执行入口;只读调用、测试里不给时里面的动作一律不做。 */

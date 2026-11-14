@@ -68,6 +68,39 @@ class ImageToolsTest {
         assertEquals(true, result.content["ok"]?.jsonPrimitive?.booleanOrNull)
         assertTrue(progressCalled)
         assertTrue(savedCalled)
+        assertEquals("/fake/cache/img.jpg", ctx.lastGeneratedImagePath)
+        assertFalse("GenerateImageTool must become unavailable once image is generated", GenerateImageTool.available(ctx))
+    }
+
+    @Test
+    fun generateImageToolDoesNotRegenerateIfCalledAgainInSameTask() = runBlocking {
+        var generateCallCount = 0
+        val fakeClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                generateCallCount++
+                return "FAKE_BYTES".toByteArray()
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray = ByteArray(0)
+        }
+        val service = ImageGenerationService(fakeClient, getApiKey = { "key" })
+        val config = ToolConfig(
+            imageService = service,
+            onImageSaved = { _, _, _ -> "/fake/cache/first.jpg" },
+        )
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
+
+        val args = Args(GenerateImageTool.def, buildJsonObject { put("prompt", "a mountain") })
+        val res1 = GenerateImageTool.execute(args, ctx)
+        assertEquals(true, res1.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals(1, generateCallCount)
+        assertEquals("/fake/cache/first.jpg", ctx.lastGeneratedImagePath)
+        assertFalse(GenerateImageTool.available(ctx))
+
+        // Call again in same task context
+        val res2 = GenerateImageTool.execute(args, ctx)
+        assertEquals(true, res2.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("/fake/cache/first.jpg", res2.content["filePath"]?.jsonPrimitive?.content)
+        assertEquals(1, generateCallCount) // Must NOT make a second generate call!
     }
 
     @Test

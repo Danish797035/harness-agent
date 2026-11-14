@@ -169,32 +169,15 @@ fun GeneratedImageCard(
                     }
                 }
             }
-            if (imageUi.isGenerating) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.5.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = tr(R.string.image_generating),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                val file = remember(imageUi.filePath) { imageUi.filePath?.takeIf { it.isNotBlank() }?.let { File(it) } }
-                val bitmap = remember(imageUi.filePath) {
-                    if (file?.exists() == true) {
-                        BitmapFactory.decodeFile(file.absolutePath)
-                    } else null
-                }
+            val file = remember(imageUi.filePath) { imageUi.filePath?.takeIf { it.isNotBlank() }?.let { File(it) } }
+            val bitmap = remember(imageUi.filePath) {
+                if (file?.exists() == true) {
+                    BitmapFactory.decodeFile(file.absolutePath)
+                } else null
+            }
 
-                if (file != null && bitmap != null) {
+            if (file != null && bitmap != null) {
+                Box(modifier = Modifier.fillMaxWidth()) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = imageUi.prompt,
@@ -212,65 +195,91 @@ fun GeneratedImageCard(
                                 FileViewer.open(context, uri, file.name)
                             }
                     )
+                    if (imageUi.isGenerating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(36.dp),
+                            strokeWidth = 3.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { onSave(file) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { onSave(file) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Text(text = tr(R.string.image_save), fontSize = 13.sp)
-                        }
+                        Text(text = tr(R.string.image_save), fontSize = 13.sp)
+                    }
 
-                        OutlinedButton(
-                            onClick = { onShare(file) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Text(text = tr(R.string.image_share), fontSize = 13.sp)
-                        }
+                    OutlinedButton(
+                        onClick = { onShare(file) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text(text = tr(R.string.image_share), fontSize = 13.sp)
+                    }
 
-                        Button(
+                    Button(
+                        onClick = { onRegenerate(imageUi.prompt) },
+                        modifier = Modifier.weight(1.3f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text(text = tr(R.string.image_regenerate), fontSize = 13.sp)
+                    }
+                }
+            } else if (imageUi.isGenerating) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = tr(R.string.image_generating),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                // Failed or missing image state — NEVER an empty container!
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = MinaIcons.Exclaim,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = tr(R.string.image_generation_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (imageUi.prompt.isNotBlank()) {
+                        OutlinedButton(
                             onClick = { onRegenerate(imageUi.prompt) },
-                            modifier = Modifier.weight(1.3f),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Text(text = tr(R.string.image_regenerate), fontSize = 13.sp)
-                        }
-                    }
-                } else {
-                    // Failed or missing image state — NEVER an empty container!
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = MinaIcons.Exclaim,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = tr(R.string.image_generation_failed),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (imageUi.prompt.isNotBlank()) {
-                            OutlinedButton(
-                                onClick = { onRegenerate(imageUi.prompt) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                            ) {
-                                Text(text = tr(R.string.image_regenerate), fontSize = 13.sp)
-                            }
                         }
                     }
                 }
