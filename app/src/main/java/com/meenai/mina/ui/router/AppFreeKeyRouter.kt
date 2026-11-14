@@ -2,7 +2,9 @@ package com.meenai.mina.ui.router
 
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ListedModel
+import com.meenai.mina.core.model.GeminiModel
 import com.meenai.mina.core.model.OpenAiCompatModel
+import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.RouterCandidate
@@ -56,20 +58,25 @@ object AppFreeKeyRouter {
         store: ProviderStore,
         http: OkHttpClient = OkHttpClient(),
     ): List<RouterCandidate> {
-        val openRouterKey = resolveOpenRouterKey(store)
-        val zaiKey = resolveZaiKey(store)
-        val modelScopeKey = resolveModelScopeKey(store)
-        val openRouterProvider = store.providers.value.firstOrNull { isOpenRouterProvider(it) }
-        val modelScopeProvider = store.providers.value.firstOrNull { isModelScopeProvider(it) }
+        val list = mutableListOf<RouterCandidate>()
 
-        return createCandidates(
-            openRouterKey = openRouterKey,
-            zaiKey = zaiKey,
-            modelScopeKey = modelScopeKey,
-            http = http,
-            openRouterModels = openRouterProvider?.models,
-            modelScopeModels = modelScopeProvider?.models,
-        )
+        store.providers.value.forEach { p ->
+            val key = store.providerKey(p.id)?.trim()
+            if (!key.isNullOrBlank()) {
+                when {
+                    isOpenRouterProvider(p) -> list.addAll(createOpenRouterCandidates(key, http, p.models))
+                    isZaiProvider(p) -> list.addAll(ZaiPreset.createCandidates(key, http))
+                    isModelScopeProvider(p) -> list.addAll(createModelScopeCandidates(key, http, p.models))
+                    isGeminiProvider(p) -> list.addAll(createGeminiCandidates(key, http, p.models, p.baseUrl))
+                    isGroqProvider(p) -> list.addAll(createGroqCandidates(key, http, p.models, p.baseUrl))
+                    isDeepSeekProvider(p) -> list.addAll(createDeepSeekCandidates(key, http, p.models, p.baseUrl))
+                    isKimiProvider(p) -> list.addAll(createKimiCandidates(key, http, p.models, p.baseUrl))
+                    isMiniMaxProvider(p) -> list.addAll(createMiniMaxCandidates(key, http, p.models, p.baseUrl))
+                }
+            }
+        }
+
+        return list
     }
 
     /**
@@ -79,6 +86,11 @@ object AppFreeKeyRouter {
         openRouterKey: String? = null,
         zaiKey: String? = null,
         modelScopeKey: String? = null,
+        geminiKey: String? = null,
+        groqKey: String? = null,
+        deepSeekKey: String? = null,
+        kimiKey: String? = null,
+        miniMaxKey: String? = null,
         http: OkHttpClient = OkHttpClient(),
         openRouterModels: List<ListedModel>? = null,
         modelScopeModels: List<ListedModel>? = null,
@@ -95,6 +107,26 @@ object AppFreeKeyRouter {
 
         if (!modelScopeKey.isNullOrBlank()) {
             list.addAll(createModelScopeCandidates(modelScopeKey.trim(), http, modelScopeModels))
+        }
+
+        if (!geminiKey.isNullOrBlank()) {
+            list.addAll(createGeminiCandidates(geminiKey.trim(), http))
+        }
+
+        if (!groqKey.isNullOrBlank()) {
+            list.addAll(createGroqCandidates(groqKey.trim(), http))
+        }
+
+        if (!deepSeekKey.isNullOrBlank()) {
+            list.addAll(createDeepSeekCandidates(deepSeekKey.trim(), http))
+        }
+
+        if (!kimiKey.isNullOrBlank()) {
+            list.addAll(createKimiCandidates(kimiKey.trim(), http))
+        }
+
+        if (!miniMaxKey.isNullOrBlank()) {
+            list.addAll(createMiniMaxCandidates(miniMaxKey.trim(), http))
         }
 
         return list
@@ -310,6 +342,42 @@ object AppFreeKeyRouter {
         if (p.baseUrl.contains("modelscope.ai", ignoreCase = true) || p.baseUrl.contains("modelscope.cn", ignoreCase = true)) return true
         val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
         return preset?.label.equals("ModelScope", ignoreCase = true)
+    }
+
+    fun isGeminiProvider(p: Provider): Boolean {
+        if (p.kind == ProviderConfig.Kind.Gemini) return true
+        if (p.baseUrl.contains("generativelanguage", ignoreCase = true)) return true
+        if (p.name.contains("Gemini", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("Gemini", ignoreCase = true)
+    }
+
+    fun isGroqProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("groq.com", ignoreCase = true)) return true
+        if (p.name.contains("Groq", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("Groq", ignoreCase = true)
+    }
+
+    fun isDeepSeekProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("deepseek.com", ignoreCase = true)) return true
+        if (p.name.contains("DeepSeek", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("DeepSeek", ignoreCase = true)
+    }
+
+    fun isKimiProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("moonshot.cn", ignoreCase = true)) return true
+        if (p.name.contains("Kimi", ignoreCase = true) || p.name.contains("Moonshot", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("Kimi", ignoreCase = true)
+    }
+
+    fun isMiniMaxProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("minimax.cn", ignoreCase = true)) return true
+        if (p.name.contains("MiniMax", ignoreCase = true)) return true
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        return preset?.label.equals("MiniMax", ignoreCase = true)
     }
 
     fun resolveOpenRouterKey(store: ProviderStore): String? {
@@ -556,5 +624,219 @@ object AppFreeKeyRouter {
             )
         )
         return candidates
+    }
+
+    fun createGeminiCandidates(
+        apiKey: String,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+        baseUrl: String = "https://generativelanguage.googleapis.com",
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            listOf(
+                ListedModel("gemini-2.0-flash", vision = true, toolCalls = true, contextTokens = 128_000),
+                ListedModel("gemini-1.5-flash", vision = true, toolCalls = true, contextTokens = 128_000),
+            )
+        }
+
+        return models.map { m ->
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: true,
+                vision = m.vision ?: true,
+                contextTokens = m.contextTokens ?: 128_000,
+                reasoning = m.reasoning ?: false,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = GeminiModel(
+                baseUrl = baseUrl.ifEmpty { "https://generativelanguage.googleapis.com" },
+                apiKey = apiKey,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            RouterCandidate(
+                id = m.id,
+                provider = "gemini",
+                model = model,
+                curatedRank = CuratedTiers.tierForModel(m.id),
+                isFree = true,
+                roles = buildSet {
+                    add(ModelRole.Main)
+                    if (caps.vision) add(ModelRole.Vision)
+                    add(ModelRole.Light)
+                },
+            )
+        }
+    }
+
+    fun createGroqCandidates(
+        apiKey: String,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+        baseUrl: String = "https://api.groq.com/openai/v1",
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            listOf(
+                ListedModel("llama-3.3-70b-versatile", vision = false, toolCalls = true, contextTokens = 128_000),
+                ListedModel("llama-3.1-8b-instant", vision = false, toolCalls = true, contextTokens = 128_000),
+                ListedModel("qwen-2.5-coder-32b", vision = false, toolCalls = true, contextTokens = 128_000),
+            )
+        }
+
+        return models.map { m ->
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: true,
+                vision = m.vision ?: false,
+                contextTokens = m.contextTokens ?: 128_000,
+                reasoning = m.reasoning ?: false,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = OpenAiCompatModel(
+                baseUrl = baseUrl.ifEmpty { "https://api.groq.com/openai/v1" },
+                apiKey = apiKey,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            RouterCandidate(
+                id = m.id,
+                provider = "groq",
+                model = model,
+                curatedRank = CuratedTiers.tierForModel(m.id),
+                isFree = true,
+                roles = buildSet {
+                    add(ModelRole.Main)
+                    if (m.id.contains("coder", ignoreCase = true)) add(ModelRole.Coding)
+                    if (m.id.contains("8b", ignoreCase = true)) add(ModelRole.Light)
+                },
+            )
+        }
+    }
+
+    fun createDeepSeekCandidates(
+        apiKey: String,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+        baseUrl: String = "https://api.deepseek.com",
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            listOf(
+                ListedModel("deepseek-chat", vision = false, toolCalls = true, contextTokens = 64_000),
+                ListedModel("deepseek-reasoner", vision = false, toolCalls = true, contextTokens = 64_000, reasoning = true),
+            )
+        }
+
+        return models.map { m ->
+            val isReasoner = m.id.contains("reasoner", ignoreCase = true)
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: !isReasoner,
+                vision = false,
+                contextTokens = m.contextTokens ?: 64_000,
+                reasoning = m.reasoning ?: isReasoner,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = OpenAiCompatModel(
+                baseUrl = baseUrl.ifEmpty { "https://api.deepseek.com" },
+                apiKey = apiKey,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            RouterCandidate(
+                id = m.id,
+                provider = "deepseek",
+                model = model,
+                curatedRank = CuratedTiers.tierForModel(m.id),
+                isFree = false,
+                roles = setOf(ModelRole.Main, ModelRole.Coding),
+            )
+        }
+    }
+
+    fun createKimiCandidates(
+        apiKey: String,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+        baseUrl: String = "https://api.moonshot.cn/v1",
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            listOf(
+                ListedModel("moonshot-v1-8k", vision = false, toolCalls = true, contextTokens = 8_000),
+                ListedModel("moonshot-v1-32k", vision = false, toolCalls = true, contextTokens = 32_000),
+            )
+        }
+
+        return models.map { m ->
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: true,
+                vision = false,
+                contextTokens = m.contextTokens ?: 32_000,
+                reasoning = false,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = OpenAiCompatModel(
+                baseUrl = baseUrl.ifEmpty { "https://api.moonshot.cn/v1" },
+                apiKey = apiKey,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            RouterCandidate(
+                id = m.id,
+                provider = "kimi",
+                model = model,
+                curatedRank = CuratedTiers.tierForModel(m.id),
+                isFree = false,
+                roles = setOf(ModelRole.Main),
+            )
+        }
+    }
+
+    fun createMiniMaxCandidates(
+        apiKey: String,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+        baseUrl: String = "https://api.minimax.cn/v1",
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            listOf(
+                ListedModel("MiniMax-Text-01", vision = true, toolCalls = true, contextTokens = 200_000),
+            )
+        }
+
+        return models.map { m ->
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: true,
+                vision = m.vision ?: true,
+                contextTokens = m.contextTokens ?: 200_000,
+                reasoning = false,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = OpenAiCompatModel(
+                baseUrl = baseUrl.ifEmpty { "https://api.minimax.cn/v1" },
+                apiKey = apiKey,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            RouterCandidate(
+                id = m.id,
+                provider = "minimax",
+                model = model,
+                curatedRank = CuratedTiers.tierForModel(m.id),
+                isFree = false,
+                roles = setOf(ModelRole.Main, ModelRole.Vision, ModelRole.Long),
+            )
+        }
     }
 }

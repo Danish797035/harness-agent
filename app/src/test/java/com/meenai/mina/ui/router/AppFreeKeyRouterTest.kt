@@ -585,4 +585,30 @@ class AppFreeKeyRouterTest {
         org.junit.Assert.assertSame(AppFreeKeyRouter.getProbeService(), router.probeService)
         org.junit.Assert.assertSame(AppFreeKeyRouter.getStatsTracker(), router.statsTracker)
     }
+
+    @Test
+    fun createCandidatesIncludesAllConfiguredProvidersInUnifiedPool() {
+        val candidates = AppFreeKeyRouter.createCandidates(
+            geminiKey = "gemini-key",
+            groqKey = "groq-key",
+            deepSeekKey = "deepseek-key",
+            kimiKey = "kimi-key",
+            miniMaxKey = "minimax-key",
+        )
+        val providers = candidates.map { it.provider }.toSet()
+        assertTrue("gemini must be present", providers.contains("gemini"))
+        assertTrue("groq must be present", providers.contains("groq"))
+        assertTrue("deepseek must be present", providers.contains("deepseek"))
+        assertTrue("kimi must be present", providers.contains("kimi"))
+        assertTrue("minimax must be present", providers.contains("minimax"))
+
+        // Gemini and Groq default to free
+        assertTrue(candidates.first { it.provider == "gemini" }.isFree)
+        assertTrue(candidates.first { it.provider == "groq" }.isFree)
+
+        // DeepSeek, Kimi, MiniMax default to paid
+        assertFalse(candidates.first { it.provider == "deepseek" }.isFree)
+        assertFalse(candidates.first { it.provider == "kimi" }.isFree)
+        assertFalse(candidates.first { it.provider == "minimax" }.isFree)
+    }
 }

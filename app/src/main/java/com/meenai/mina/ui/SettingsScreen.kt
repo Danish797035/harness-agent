@@ -70,7 +70,7 @@ import com.meenai.mina.about.CheckStatus
 import android.widget.Toast
 
 /** 设置里能进入的子页面;[Home] 是设置首页。 */
-private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats }
+private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, ModelSpecialist }
 
 /**
  * 设置页:总状态卡 + 基本 / 隐私与数据 / 高级 / 关于四组。各子页面在这里切换(返回键先回首页),
@@ -206,6 +206,7 @@ fun SettingsScreen(
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
             onCheckUpdates = onCheckUpdates?.let { fn -> { waitingRound = (updateState?.manualRounds ?: 0) + 1; fn() } },
             updateState = updateState,
+            onOpenSpecialist = { page = SettingsPage.ModelSpecialist },
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
@@ -243,6 +244,7 @@ fun SettingsScreen(
             onOpenRunStats = { page = SettingsPage.RunStats },
         )
         SettingsPage.RunStats -> RunStatsScreen(remember { RunStore(context).metrics }, onBack = back)
+        SettingsPage.ModelSpecialist -> com.meenai.mina.ui.router.ModelSpecialistScreen(store = store, onBack = toHome)
     }
 
     if (editingProxy) NetProxyDialog(
@@ -327,6 +329,7 @@ fun SettingsContent(
     onOpenAbout: () -> Unit = {},
     onCheckUpdates: (() -> Unit)? = null,
     updateState: UpdateState? = null,
+    onOpenSpecialist: () -> Unit = {},
 ) {
     val check = Prerequisites.check(status, hasMainModel = mainModel != null)
     PageScaffold(stringResource(R.string.settings_title), onBack) {
@@ -336,6 +339,15 @@ fun SettingsContent(
         GroupCard {
             ListRow(MinaIcons.Spark, stringResource(R.string.settings_model), first = true, onClick = onOpenModels) {
                 RowValue(mainModel ?: stringResource(R.string.settings_not_set))
+                RowChevron()
+            }
+            ListRow(
+                MinaIcons.Spark,
+                stringResource(R.string.model_specialist_title),
+                stringResource(R.string.model_specialist_sub),
+                onClick = onOpenSpecialist,
+            ) {
+                RowValue(stringResource(R.string.router_mode_auto))
                 RowChevron()
             }
             // 调模型的连接要不要走代理,和模型放在一起找得到;容器、更新、内置浏览器也按这一处
