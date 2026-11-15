@@ -31,54 +31,77 @@ class AutoModelPicker(
     private val rankingsRepository: ModelRankingsRepository? = null,
     val probeService: ModelProbeService? = null,
     val statsTracker: ModelStatsTracker? = null,
+    val candidateProviders: List<suspend () -> List<ModelCandidate>> = emptyList(),
 ) {
 
     /**
      * Retrieves model candidates, using the cache if fresh (< 24h).
      * If the cache is expired or [forceRefresh] is true, queries the network.
      * When network fails (offline), gracefully falls back to the existing cache.
+     * Merges OpenRouter candidates with unified candidates from all connected providers.
      */
     suspend fun getCandidates(forceRefresh: Boolean = false): List<ModelCandidate> {
         val now = clock.currentTimeMillis()
         val cached = cacheStore.load()
 
-        if (!forceRefresh && cached != null && (now - cached.timestampMs) < cacheTtlMs && cached.models.isNotEmpty()) {
-            return cached.models
+        val openRouterModels = if (!forceRefresh && cached != null && (now - cached.timestampMs) < cacheTtlMs && cached.models.isNotEmpty()) {
+            cached.models
+        } else {
+            try {
+                val json = apiClient.fetchModelsJson()
+                val parsed = parser.parse(json)
+                if (parsed.isNotEmpty()) {
+                    cacheStore.save(CachedModelData(timestampMs = now, models = parsed))
+                    parsed
+                } else {
+                    cached?.models.orEmpty()
+                }
+            } catch (_: Exception) {
+                // Offline fallback: return cached data even if expired
+                if (cached != null && cached.models.isNotEmpty()) {
+                    cached.models
+                } else {
+                    emptyList()
+                }
+            }
         }
 
-        return try {
-            val json = apiClient.fetchModelsJson()
-            val parsed = parser.parse(json)
-            if (parsed.isNotEmpty()) {
-                cacheStore.save(CachedModelData(timestampMs = now, models = parsed))
-                parsed
-            } else {
-                cached?.models.orEmpty()
+        val dynamicExtra = candidateProviders.flatMap { it.invoke() }
+        val allCandidates = mutableListOf<ModelCandidate>()
+        allCandidates.addAll(openRouterModels)
+        allCandidates.addAll(DEFAULT_CONNECTED_CANDIDATES)
+        allCandidates.addAll(dynamicExtra)
+
+        val seenIds = mutableSetOf<String>()
+        return allCandidates.filter { candidate ->
+            // Strict rule: Kimi K2 is not available on this account
+            if (candidate.provider.equals("kimi", ignoreCase = true) && candidate.id.contains("k2", ignoreCase = true)) {
+                return@filter false
             }
-        } catch (_: Exception) {
-            // Offline fallback: return cached data even if expired
-            if (cached != null && cached.models.isNotEmpty()) {
-                cached.models
-            } else {
-                emptyList()
-            }
+            seenIds.add(candidate.id)
         }
     }
 
     /**
      * Filters candidate models according to criteria:
-     * 1. Free only (OpenRouter ":free" or candidate marked isFree)
-     * 2. Tools support required
+     * 1. Free only (OpenRouter ":free" or candidate marked isFree) if [freeOnly] is true
+     * 2. Active round-trip tools support verified via probeService
      * 3. Context window >= 32,000 tokens
      * 4. Excludes non-chat, embedding, rerank, tts, asr, image-gen, and image-edit models
      * 5. For Vision role, image input support required (image-edit/gen excluded)
      */
-    fun filterCandidates(candidates: List<ModelCandidate>, role: ModelRole): List<ModelCandidate> {
+    fun filterCandidates(candidates: List<ModelCandidate>, role: ModelRole, freeOnly: Boolean = true): List<ModelCandidate> {
         return candidates.filter { candidate ->
             val isFree = candidate.isFree || candidate.id.endsWith(":free")
-            if (!isFree) return@filter false
+            if (freeOnly && !isFree) return@filter false
 
-            if (!candidate.supportsTools) return@filter false
+            val probe = probeService?.getProbeResult(candidate.id)
+            val toolsSupported = if (probe != null) {
+                probe.passed && probe.supportsTools
+            } else {
+                candidate.supportsTools
+            }
+            if (!toolsSupported) return@filter false
 
             if (candidate.contextTokens < MIN_CONTEXT_TOKENS) return@filter false
 
@@ -107,9 +130,12 @@ class AutoModelPicker(
         return candidates
             .filter { candidate ->
                 val isFree = candidate.isFree || candidate.id.endsWith(":free")
-                isFree && candidate.supportsTools &&
+                val probe = probeService?.getProbeResult(candidate.id)
+                val toolsSupported = if (probe != null) probe.passed && probe.supportsTools else candidate.supportsTools
+                isFree && toolsSupported &&
                     candidate.contextTokens >= MIN_CONTEXT_TOKENS &&
-                    !ChatModelFilter.isExcluded(candidate.id)
+                    !ChatModelFilter.isExcluded(candidate.id) &&
+                    probeService?.isFailedToday(candidate.id) != true
             }
             .sortedWith(ModelScorer.HEAVY_TO_LIGHT_COMPARATOR)
     }
@@ -271,6 +297,208 @@ class AutoModelPicker(
         private val SIZE_TOKEN = Regex("""^(\d+(?:\.\d+)?)b$""")
         const val MIN_CONTEXT_TOKENS = 32_000
         const val ONE_DAY_MS = 24 * 60 * 60 * 1000L
+
+        val DEFAULT_CONNECTED_CANDIDATES: List<ModelCandidate> = listOf(
+            // Gemini
+            ModelCandidate(
+                provider = "gemini",
+                id = "gemini-2.5-flash",
+                contextTokens = 1_000_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = true,
+                tierRank = 95,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+            ModelCandidate(
+                provider = "gemini",
+                id = "gemini-3.1-flash-lite",
+                contextTokens = 1_000_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = true,
+                tierRank = 85,
+                parameterSizeB = 8.0,
+                totalParamsB = 8.0,
+            ),
+            ModelCandidate(
+                provider = "gemini",
+                id = "gemini-2.0-flash",
+                contextTokens = 1_000_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = true,
+                tierRank = 90,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+            // Groq
+            ModelCandidate(
+                provider = "groq",
+                id = "llama-3.3-70b-versatile",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 88,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+            ModelCandidate(
+                provider = "groq",
+                id = "llama-3.1-8b-instant",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 60,
+                parameterSizeB = 8.0,
+                totalParamsB = 8.0,
+            ),
+            ModelCandidate(
+                provider = "groq",
+                id = "qwen-2.5-coder-32b",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 78,
+                parameterSizeB = 32.0,
+                totalParamsB = 32.0,
+            ),
+            // Z.ai
+            ModelCandidate(
+                provider = "zai",
+                id = "glm-4.7-flash",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 86,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+            ModelCandidate(
+                provider = "zai",
+                id = "glm-4.6v-flash",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = true,
+                tierRank = 70,
+                parameterSizeB = 9.0,
+                totalParamsB = 9.0,
+            ),
+            // Kimi: ONLY kimi-k3 and kimi-k3.1-pro (paid). K2 is strictly omitted!
+            ModelCandidate(
+                provider = "kimi",
+                id = "kimi-k3",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = false,
+                tierRank = 85,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+            ModelCandidate(
+                provider = "kimi",
+                id = "kimi-k3.1-pro",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = false,
+                tierRank = 92,
+                parameterSizeB = 100.0,
+                totalParamsB = 100.0,
+            ),
+            // DeepSeek
+            ModelCandidate(
+                provider = "deepseek",
+                id = "deepseek-chat",
+                contextTokens = 64_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = false,
+                tierRank = 89,
+                parameterSizeB = 671.0,
+                totalParamsB = 671.0,
+                activeParamsB = 37.0,
+            ),
+            ModelCandidate(
+                provider = "deepseek",
+                id = "deepseek-reasoner",
+                contextTokens = 64_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = false,
+                supportsReasoning = true,
+                tierRank = 94,
+                parameterSizeB = 671.0,
+                totalParamsB = 671.0,
+                activeParamsB = 37.0,
+            ),
+            // MiniMax
+            ModelCandidate(
+                provider = "minimax",
+                id = "MiniMax-Text-01",
+                contextTokens = 200_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = false,
+                tierRank = 87,
+                parameterSizeB = 456.0,
+                totalParamsB = 456.0,
+                activeParamsB = 45.9,
+            ),
+            // ModelScope
+            ModelCandidate(
+                provider = "modelscope",
+                id = "Qwen/Qwen2.5-72B-Instruct",
+                contextTokens = 32_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 75,
+                parameterSizeB = 72.0,
+                totalParamsB = 72.0,
+            ),
+            ModelCandidate(
+                provider = "modelscope",
+                id = "Qwen/Qwen2.5-7B-Instruct",
+                contextTokens = 32_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 50,
+                parameterSizeB = 7.0,
+                totalParamsB = 7.0,
+            ),
+            ModelCandidate(
+                provider = "modelscope",
+                id = "Qwen/Qwen2.5-VL-7B-Instruct",
+                contextTokens = 32_000,
+                supportsTools = true,
+                supportsImages = true,
+                isFree = true,
+                tierRank = 55,
+                parameterSizeB = 7.0,
+                totalParamsB = 7.0,
+            ),
+            // NVIDIA NIM custom
+            ModelCandidate(
+                provider = "nvidia",
+                id = "meta/llama-3.3-70b-instruct",
+                contextTokens = 128_000,
+                supportsTools = true,
+                supportsImages = false,
+                isFree = true,
+                tierRank = 82,
+                parameterSizeB = 70.0,
+                totalParamsB = 70.0,
+            ),
+        )
 
         fun isLightModel(candidate: ModelCandidate): Boolean {
             val total = candidate.totalParamsB ?: candidate.parameterSizeB

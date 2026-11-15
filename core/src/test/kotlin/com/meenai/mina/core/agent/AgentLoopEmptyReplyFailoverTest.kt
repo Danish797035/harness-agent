@@ -37,13 +37,13 @@ class AgentLoopEmptyReplyFailoverTest {
             id = "test-model-1",
             provider = "test-provider-1",
             model = model1,
-            curatedRank = 1,
+            curatedRank = 10,
         )
         val candidate2 = RouterCandidate(
             id = "test-model-2",
             provider = "test-provider-2",
             model = model2,
-            curatedRank = 2,
+            curatedRank = 5,
         )
 
         val router = FreeKeyRouter(
@@ -88,9 +88,9 @@ class AgentLoopEmptyReplyFailoverTest {
             ModelReply(emptyList(), StopReason.EndTurn, null),
         )
 
-        val c1 = RouterCandidate(id = "m1", provider = "p1", model = model1, curatedRank = 1)
-        val c2 = RouterCandidate(id = "m2", provider = "p2", model = model2, curatedRank = 2)
-        val c3 = RouterCandidate(id = "m3", provider = "p3", model = model3, curatedRank = 3)
+        val c1 = RouterCandidate(id = "m1", provider = "p1", model = model1, curatedRank = 10)
+        val c2 = RouterCandidate(id = "m2", provider = "p2", model = model2, curatedRank = 5)
+        val c3 = RouterCandidate(id = "m3", provider = "p3", model = model3, curatedRank = 1)
 
         val router = FreeKeyRouter(candidates = listOf(c1, c2, c3))
         val loop = AgentLoop(

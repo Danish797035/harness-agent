@@ -2,19 +2,14 @@ package com.meenai.mina.ui.router
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.meenai.mina.core.router.AutoStrategy
+import com.meenai.mina.core.router.RouterPreferences
+import com.meenai.mina.core.router.SpecialistMode
 
-enum class SpecialistMode {
-    Auto,
-    Manual,
-}
+typealias SpecialistMode = com.meenai.mina.core.router.SpecialistMode
+typealias AutoStrategy = com.meenai.mina.core.router.AutoStrategy
 
-enum class AutoStrategy {
-    FreeOnly,
-    BestQuality,
-    Fastest,
-}
-
-class ModelPreferencesStore(private val prefs: SharedPreferences) {
+class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPreferences {
 
     fun getFavorites(): Set<String> {
         return prefs.getStringSet(KEY_FAVORITES, emptySet()).orEmpty()
@@ -64,14 +59,14 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) {
 
     // --- Specialist Mode Settings ---
 
-    fun isSpecialistAutoEnabled(): Boolean =
+    override fun isSpecialistAutoEnabled(): Boolean =
         prefs.getBoolean(KEY_SPECIALIST_AUTO, true)
 
     fun setSpecialistAutoEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SPECIALIST_AUTO, enabled).apply()
     }
 
-    fun getSpecialistMode(): SpecialistMode {
+    override fun getSpecialistMode(): SpecialistMode {
         val raw = prefs.getString(KEY_SPECIALIST_MODE, SpecialistMode.Auto.name)
         return runCatching { SpecialistMode.valueOf(raw ?: SpecialistMode.Auto.name) }.getOrDefault(SpecialistMode.Auto)
     }
@@ -80,7 +75,7 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_SPECIALIST_MODE, mode.name).apply()
     }
 
-    fun getAutoStrategy(): AutoStrategy {
+    override fun getAutoStrategy(): AutoStrategy {
         val raw = prefs.getString(KEY_AUTO_STRATEGY, AutoStrategy.FreeOnly.name)
         return runCatching { AutoStrategy.valueOf(raw ?: AutoStrategy.FreeOnly.name) }.getOrDefault(AutoStrategy.FreeOnly)
     }
@@ -89,28 +84,28 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_AUTO_STRATEGY, strategy.name).apply()
     }
 
-    fun isFreeOnly(): Boolean =
+    override fun isFreeOnly(): Boolean =
         prefs.getBoolean(KEY_FREE_ONLY, true)
 
     fun setFreeOnly(freeOnly: Boolean) {
         prefs.edit().putBoolean(KEY_FREE_ONLY, freeOnly).apply()
     }
 
-    fun isFailoverEnabled(): Boolean =
+    override fun isFailoverEnabled(): Boolean =
         prefs.getBoolean(KEY_FAILOVER_ENABLED, true)
 
     fun setFailoverEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_FAILOVER_ENABLED, enabled).apply()
     }
 
-    fun getMaxSwitches(): Int =
+    override fun getMaxSwitches(): Int =
         prefs.getInt(KEY_MAX_SWITCHES, 2)
 
     fun setMaxSwitches(max: Int) {
         prefs.edit().putInt(KEY_MAX_SWITCHES, max.coerceIn(1, 3)).apply()
     }
 
-    fun getPreferredProviders(): List<String> {
+    override fun getPreferredProviders(): List<String> {
         val raw = prefs.getString(KEY_PREFERRED_PROVIDERS, "") ?: ""
         if (raw.isBlank()) return DEFAULT_PROVIDER_ORDER
         return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -120,21 +115,21 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_PREFERRED_PROVIDERS, providers.joinToString(",")).apply()
     }
 
-    fun getHiddenProviders(): Set<String> =
+    override fun getHiddenProviders(): Set<String> =
         prefs.getStringSet(KEY_HIDDEN_PROVIDERS, emptySet()).orEmpty()
 
     fun setHiddenProviders(providers: Set<String>) {
         prefs.edit().putStringSet(KEY_HIDDEN_PROVIDERS, providers).apply()
     }
 
-    fun getHiddenModels(): Set<String> =
+    override fun getHiddenModels(): Set<String> =
         prefs.getStringSet(KEY_HIDDEN_MODELS, emptySet()).orEmpty()
 
     fun setHiddenModels(models: Set<String>) {
         prefs.edit().putStringSet(KEY_HIDDEN_MODELS, models).apply()
     }
 
-    fun getManualRole(role: String): String? =
+    override fun getManualRole(role: String): String? =
         prefs.getString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), null)
 
     fun setManualRole(role: String, modelId: String?) {
