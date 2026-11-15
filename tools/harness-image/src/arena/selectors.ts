@@ -13,35 +13,41 @@ export interface SelectorEntry {
 }
 
 export const SELECTORS: Record<string, SelectorEntry> = {
-  // Verified 2026-11-13
+  // Verified 2026-11-15
   directChatTab: {
     key: 'directChatTab',
-    verifiedDate: '2026-11-13',
+    verifiedDate: '2026-11-15',
     preferred: '[data-testid="direct-chat-tab"]',
     fallbacks: [
       'button:has-text("Direct Chat")',
       'a:has-text("Direct Chat")',
       'role=tab[name*="Direct Chat" i]',
+      'div[role="option"]:has-text("Direct Chat")',
+      'div[role="menuitem"]:has-text("Direct Chat")',
+      'button:has-text("Battle")',
+      'button:has-text("Side-by-side")',
     ],
   },
-  // Verified 2026-11-13
+  // Verified 2026-11-15
   modelDropdown: {
     key: 'modelDropdown',
-    verifiedDate: '2026-11-13',
+    verifiedDate: '2026-11-15',
     preferred: '[data-testid="model-select"]',
     fallbacks: [
       '[data-testid="model-dropdown"]',
-      'select[aria-label*="model" i]',
       'button[aria-label*="model" i]',
+      'button[aria-label*="Select model" i]',
+      'select[aria-label*="model" i]',
       'div[role="combobox"]',
       'div[class*="model-selector"]',
       'button:has-text("Select Model")',
+      'input[placeholder*="model" i]',
     ],
   },
-  // Verified 2026-11-13
+  // Verified 2026-11-15
   promptInput: {
     key: 'promptInput',
-    verifiedDate: '2026-11-13',
+    verifiedDate: '2026-11-15',
     preferred: '[data-testid="prompt-input"]',
     fallbacks: [
       'textarea[placeholder*="prompt" i]',
@@ -50,12 +56,14 @@ export const SELECTORS: Record<string, SelectorEntry> = {
       'textarea',
     ],
   },
-  // Verified 2026-11-13
+  // Verified 2026-11-15
   submitButton: {
     key: 'submitButton',
-    verifiedDate: '2026-11-13',
-    preferred: '[data-testid="send-button"]',
+    verifiedDate: '2026-11-15',
+    preferred: 'button[aria-label="Send message"]',
     fallbacks: [
+      'button[data-perf-target="send"]',
+      '[data-testid="send-button"]',
       '[data-testid="generate-button"]',
       'button[type="submit"]',
       'button:has-text("Generate")',

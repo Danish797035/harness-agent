@@ -72,6 +72,7 @@ fun formatImageModelName(model: String): String {
         clean.contains("muse", ignoreCase = true) -> "Muse Image"
         clean.contains("seedream-5.0-pro", ignoreCase = true) -> "Seedream-5.0-pro"
         clean.contains("seedream", ignoreCase = true) -> "Seedream-5.0-lite"
+        clean.contains("gemini", ignoreCase = true) -> "Gemini 2.5 Flash Image"
         clean.contains("flux", ignoreCase = true) -> "FLUX.1-schnell"
         clean.contains("qwen-image-2.1", ignoreCase = true) -> "Qwen-Image-2.1"
         clean.contains("qwen-image", ignoreCase = true) -> "Qwen-Image"
@@ -159,6 +160,7 @@ fun GeneratedImageCard(
                             "muse-image" to "Muse Image (Arena #3 / Meta)",
                             "seedream-5.0-lite" to "Seedream 5.0 Lite (ByteDance / Fast)",
                             "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Alibaba / Free)",
+                            "google/gemini-2.5-flash-image" to "Gemini 2.5 Flash Image (OpenRouter / Reliable)",
                             "black-forest-labs/flux-1-schnell" to "FLUX.1-schnell (Quality)",
                         ).forEach { (modelId, label) ->
                             DropdownMenuItem(

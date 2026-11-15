@@ -151,8 +151,8 @@ class ImageGenerationService(
             val orKey = getApiKey(ImageModelCatalog.PROVIDER_OPENROUTER)
             if (!orKey.isNullOrBlank()) {
                 try {
-                    logger?.invoke("Local harness service down; gracefully falling back to OpenRouter flux-1-schnell")
-                    val fallbackModel = "black-forest-labs/flux-1-schnell"
+                    logger?.invoke("Local harness service down; gracefully falling back to OpenRouter gemini-2.5-flash-image")
+                    val fallbackModel = "google/gemini-2.5-flash-image"
                     val bytes = action(openRouterClient, orKey, fallbackModel)
                     return ImageResult.Success(bytes, fallbackModel, 0.0)
                 } catch (orErr: Throwable) {
@@ -178,7 +178,8 @@ class ImageGenerationService(
         }
 
         val isFluxRequested = requestedModel?.contains("flux", ignoreCase = true) == true
-        val paidAllowed = isPaidAllowed() || isFluxRequested
+        val isGeminiRequested = requestedModel?.contains("gemini", ignoreCase = true) == true
+        val paidAllowed = isPaidAllowed() || isFluxRequested || isGeminiRequested
         val allList = if (paidAllowed && role == ImageRole.Image) {
             baseList + ImageModelCatalog.OPENROUTER_PAID_IMAGE_MODELS
         } else {
@@ -194,6 +195,7 @@ class ImageGenerationService(
                 (req.contains("grok", ignoreCase = true) && candidate.id.contains("grok", ignoreCase = true)) ||
                 (req.contains("muse", ignoreCase = true) && candidate.id.contains("muse", ignoreCase = true)) ||
                 (req.contains("seedream", ignoreCase = true) && candidate.id.contains("seedream", ignoreCase = true)) ||
+                (req.contains("gemini", ignoreCase = true) && candidate.id.contains("gemini", ignoreCase = true)) ||
                 (req.contains("flux", ignoreCase = true) && candidate.id.contains("flux", ignoreCase = true)) ||
                 (req.contains("qwen", ignoreCase = true) && candidate.id.contains("qwen", ignoreCase = true))
             }

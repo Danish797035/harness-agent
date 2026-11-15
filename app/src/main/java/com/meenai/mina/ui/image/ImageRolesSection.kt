@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,8 +43,10 @@ fun ImageRolesSection(
     val allowPaid by settings.allowPaid.collectAsState()
     val pinnedImage by settings.pinnedImage.collectAsState()
     val pinnedImageEdit by settings.pinnedImageEdit.collectAsState()
+    val harnessUrl by settings.harnessBaseUrl.collectAsState()
 
     var dialogRole by remember { mutableStateOf<ImageRole?>(null) }
+    var showHarnessUrlDialog by remember { mutableStateOf(false) }
 
     GroupLabel(tr(R.string.image_roles_title), modifier)
     GroupCard {
@@ -94,6 +99,18 @@ fun ImageRolesSection(
                 modifier = Modifier.testTag("switch-allow-paid-image-models"),
             )
         }
+
+        // 4. LM Arena Harness Service URL
+        ListRow(
+            icon = MinaIcons.Globe,
+            title = "LM Arena Service URL",
+            subtitle = harnessUrl,
+            first = false,
+            onClick = { showHarnessUrlDialog = true },
+        ) {
+            RowValue(harnessUrl.removePrefix("http://").removeSuffix("/v1"))
+            RowChevron()
+        }
     }
 
     dialogRole?.let { role ->
@@ -108,6 +125,63 @@ fun ImageRolesSection(
             onDismiss = { dialogRole = null },
         )
     }
+
+    if (showHarnessUrlDialog) {
+        HarnessUrlDialog(
+            currentUrl = harnessUrl,
+            onSave = { newUrl ->
+                settings.setHarnessBaseUrl(newUrl)
+                showHarnessUrlDialog = false
+            },
+            onDismiss = { showHarnessUrlDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun HarnessUrlDialog(
+    currentUrl: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(currentUrl) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("LM Arena Service URL") },
+        text = {
+            Column {
+                Text(
+                    text = "Local Termux ya LAN/VPS pe chal rahi harness-image service ka address:",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Base URL") },
+                )
+                TextButton(
+                    onClick = { text = ImageSettings.DEFAULT_HARNESS_BASE_URL },
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text("Reset to Default (127.0.0.1:3000)")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text.trim()) }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr(R.string.cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -124,13 +198,22 @@ private fun ImageModelPickerDialog(
 
     when (role) {
         ImageRole.Image -> {
+            options.add("mai-image-2.6" to "MAI-Image-2.6 (Arena #1 / Microsoft)")
+            options.add("grok-imagine-2.0" to "Grok Imagine 2.0 (Arena #2 / xAI)")
+            options.add("muse-image" to "Muse Image (Arena #3 / Meta)")
+            options.add("seedream-5.0-lite" to "Seedream 5.0 Lite (ByteDance / Fast)")
             options.add("Qwen/Qwen-Image-2.1" to "Qwen/Qwen-Image-2.1 (ModelScope)")
             options.add("Qwen/Qwen-Image" to "Qwen/Qwen-Image (ModelScope)")
             if (allowPaid) {
-                options.add("black-forest-labs/flux-1-schnell" to "black-forest-labs/flux-1-schnell (OpenRouter)")
+                options.add("google/gemini-2.5-flash-image" to "Gemini 2.5 Flash Image (OpenRouter)")
+                options.add("black-forest-labs/flux-1-schnell" to "FLUX.1-schnell (OpenRouter)")
             }
         }
         ImageRole.ImageEdit -> {
+            options.add("mai-image-2.6" to "MAI-Image-2.6 (Arena Edit #8 / Microsoft)")
+            options.add("grok-imagine-2.0" to "Grok Imagine 2.0 (Arena Edit #7 / xAI)")
+            options.add("muse-image" to "Muse Image (Arena Edit #12 / Meta)")
+            options.add("seedream-5.0-lite" to "Seedream 5.0 Lite (ByteDance)")
             options.add("Qwen/Qwen-Image-Edit" to "Qwen/Qwen-Image-Edit (ModelScope)")
         }
     }
@@ -139,7 +222,7 @@ private fun ImageModelPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr(R.string.image_model_dialog_title)) },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 options.forEach { (model, label) ->
                     val isSelected = (currentPinned == null && model == null) || (currentPinned == model)
                     Row(

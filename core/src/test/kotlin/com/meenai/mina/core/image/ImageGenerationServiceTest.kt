@@ -493,6 +493,10 @@ class ImageGenerationServiceTest {
         val qwenCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "qwen-image-2.1")
         assertEquals("Qwen/Qwen-Image-2.1", qwenCandidates[0].id)
 
+        // When user asks for gemini: Gemini 2.5 Flash Image candidate is prioritized and enabled
+        val geminiCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "gemini")
+        assertEquals("google/gemini-2.5-flash-image", geminiCandidates[0].id)
+
         // When user asks for flux: FLUX candidate is prioritized and enabled
         val fluxCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "flux")
         assertEquals("black-forest-labs/flux-1-schnell", fluxCandidates[0].id)

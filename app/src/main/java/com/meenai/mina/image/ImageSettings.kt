@@ -19,6 +19,9 @@ class ImageSettings(private val prefs: SharedPreferences) {
     private val _allowPaid = MutableStateFlow(prefs.getBoolean(KEY_ALLOW_PAID, false))
     val allowPaid: StateFlow<Boolean> = _allowPaid.asStateFlow()
 
+    private val _harnessBaseUrl = MutableStateFlow(prefs.getString(KEY_HARNESS_BASE_URL, DEFAULT_HARNESS_BASE_URL) ?: DEFAULT_HARNESS_BASE_URL)
+    val harnessBaseUrl: StateFlow<String> = _harnessBaseUrl.asStateFlow()
+
     private val _pinnedImage = MutableStateFlow(prefs.getString(KEY_PINNED_IMAGE, null))
     val pinnedImage: StateFlow<String?> = _pinnedImage.asStateFlow()
 
@@ -30,6 +33,14 @@ class ImageSettings(private val prefs: SharedPreferences) {
     fun setAllowPaid(allow: Boolean) {
         prefs.edit().putBoolean(KEY_ALLOW_PAID, allow).apply()
         _allowPaid.value = allow
+    }
+
+    fun getHarnessBaseUrl(): String = prefs.getString(KEY_HARNESS_BASE_URL, DEFAULT_HARNESS_BASE_URL) ?: DEFAULT_HARNESS_BASE_URL
+
+    fun setHarnessBaseUrl(url: String?) {
+        val normalized = url?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_HARNESS_BASE_URL
+        prefs.edit().putString(KEY_HARNESS_BASE_URL, normalized).apply()
+        _harnessBaseUrl.value = normalized
     }
 
     fun getPinnedModel(role: ImageRole): String? = when (role) {
@@ -77,6 +88,8 @@ class ImageSettings(private val prefs: SharedPreferences) {
         const val KEY_ALLOW_PAID = "image_allow_paid_models"
         const val KEY_PINNED_IMAGE = "image_pinned_model_generate"
         const val KEY_PINNED_IMAGE_EDIT = "image_pinned_model_edit"
+        const val KEY_HARNESS_BASE_URL = "image_harness_base_url"
+        const val DEFAULT_HARNESS_BASE_URL = "http://127.0.0.1:3000/v1"
 
         fun get(context: Context) = ImageSettings(
             context.applicationContext.getSharedPreferences(FeatureFlags.PREFS, Context.MODE_PRIVATE)

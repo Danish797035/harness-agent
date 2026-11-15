@@ -25,13 +25,22 @@ import kotlin.coroutines.resumeWithException
  * (OpenAI-compatible image generation API driving LM Arena).
  */
 class HarnessImageClient(
-    private val baseUrl: String = "http://127.0.0.1:3000/v1",
+    private val baseUrlSupplier: () -> String = { "http://127.0.0.1:3000/v1" },
     private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(1, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(130, TimeUnit.SECONDS)
         .build(),
     private val logger: ((String) -> Unit)? = null,
 ) : ImageClient {
+
+    constructor(
+        baseUrl: String,
+        http: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(130, TimeUnit.SECONDS)
+            .build(),
+        logger: ((String) -> Unit)? = null,
+    ) : this({ baseUrl }, http, logger)
 
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -42,7 +51,7 @@ class HarnessImageClient(
         prompt: String,
         size: String?,
     ): ByteArray {
-        val root = baseUrl.trimEnd('/')
+        val root = baseUrlSupplier().trimEnd('/')
         val url = "$root/images/generations"
 
         logger?.invoke("HarnessImageClient: generating with model=$model at $url")
@@ -71,7 +80,7 @@ class HarnessImageClient(
         prompt: String,
         imageBase64: String,
     ): ByteArray {
-        val root = baseUrl.trimEnd('/')
+        val root = baseUrlSupplier().trimEnd('/')
         val url = "$root/images/edits"
 
         val payload = buildJsonObject {

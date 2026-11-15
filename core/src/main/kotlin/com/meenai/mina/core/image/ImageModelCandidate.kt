@@ -39,6 +39,8 @@ object ImageModelCatalog {
 
     // OpenRouter image models (paid, default disabled)
     val OPENROUTER_PAID_IMAGE_MODELS: List<ImageModelCandidate> = listOf(
+        ImageModelCandidate("google/gemini-2.5-flash-image", provider = PROVIDER_OPENROUTER, isPaid = true, costMagicube = 0.0),
+        ImageModelCandidate("google/gemini-3.1-flash-image", provider = PROVIDER_OPENROUTER, isPaid = true, costMagicube = 0.0),
         ImageModelCandidate("black-forest-labs/flux-1-schnell", provider = PROVIDER_OPENROUTER, isPaid = true, costMagicube = 0.0),
     )
 }
