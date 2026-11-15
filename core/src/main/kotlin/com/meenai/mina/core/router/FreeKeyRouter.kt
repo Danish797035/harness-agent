@@ -95,7 +95,11 @@ class FreeKeyRouter(
     val rankingsRepository: ModelRankingsRepository? = null,
     val probeService: ModelProbeService? = null,
     val statsTracker: ModelStatsTracker? = null,
+    val preferences: RouterPreferences = DefaultRouterPreferences,
 ) : StreamingChatModel {
+
+    val effectiveMaxSwitches: Int
+        get() = if (preferences !== DefaultRouterPreferences) preferences.getMaxSwitches() else maxSwitchesPerTask
 
     val difficultyRouter: DifficultyRouter = difficultyRouter ?: DifficultyRouter(
         picker = AutoModelPicker(object : OpenRouterApiClient {
@@ -249,6 +253,9 @@ class FreeKeyRouter(
      * and returns the new candidate (or null if no alternative available / max switches exceeded).
      */
     fun failoverEmptyReply(currentModelId: String?, reason: String = "Empty reply from model"): RouterCandidate? {
+        if (!preferences.isFailoverEnabled()) return null
+        if (switchCountInTask >= effectiveMaxSwitches) return null
+
         val current = currentModelId ?: activeCandidate?.id
         if (current != null) {
             healthTracker.recordFailure(current)
@@ -335,7 +342,7 @@ class FreeKeyRouter(
         var previousCandidate: RouterCandidate? = activeCandidate
 
         while (true) {
-            if (switchCountInTask >= maxSwitchesPerTask) {
+            if (switchCountInTask >= effectiveMaxSwitches) {
                 val waitMin = calculateWaitMinutes()
                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                 updateStatus(reason = msg)
@@ -447,6 +454,10 @@ class FreeKeyRouter(
 
                     val action = RouterErrorClassifier.classify(e)
 
+                    if (!preferences.isFailoverEnabled()) {
+                        throw e
+                    }
+
                     when (action) {
                         RouterAction.STOP -> {
                             // Safety or refusal: do not switch, report to user
@@ -466,7 +477,7 @@ class FreeKeyRouter(
                                 previousCandidate = currentCandidate
                                 activeCandidate = null
                                 switchCountInTask++
-                                if (switchCountInTask >= maxSwitchesPerTask) {
+                                if (switchCountInTask >= effectiveMaxSwitches) {
                                     val waitMin = calculateWaitMinutes()
                                     val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                     updateStatus(reason = msg)
@@ -482,7 +493,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= maxSwitchesPerTask) {
+                            if (switchCountInTask >= effectiveMaxSwitches) {
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -497,7 +508,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= maxSwitchesPerTask) {
+                            if (switchCountInTask >= effectiveMaxSwitches) {
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -544,7 +555,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= maxSwitchesPerTask) {
+                            if (switchCountInTask >= effectiveMaxSwitches) {
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -639,9 +650,33 @@ class FreeKeyRouter(
             return candidates.find { it.id == pinned }
         }
 
-        val available = candidates.filter {
-            val size = ModelSizeParser.extractParameterSizeB(it.id)
-            (size <= 0.0 || size >= 3.0 || targetRole == ModelRole.Light) && !ChatModelFilter.isExcluded(it.id) && checkCachedQuota(it, isNewTask = isNewTask)
+        // Specialist Manual role or Specialist Auto disabled
+        if (preferences.getSpecialistMode() == SpecialistMode.Manual || !preferences.isSpecialistAutoEnabled()) {
+            val manualModelId = preferences.getManualRole(targetRole.name)
+            if (!manualModelId.isNullOrBlank()) {
+                val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
+                if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
+                    return manualCandidate
+                }
+            }
+            if (!preferences.isSpecialistAutoEnabled() && activeCandidate != null && checkCachedQuota(activeCandidate!!, isNewTask = isNewTask)) {
+                return activeCandidate
+            }
+        }
+
+        val hiddenModels = preferences.getHiddenModels()
+        val hiddenProviders = preferences.getHiddenProviders().map { it.lowercase() }.toSet()
+        val freeOnly = preferences.isFreeOnly() || preferences.getAutoStrategy() == AutoStrategy.FreeOnly
+
+        val available = candidates.filter { candidate ->
+            if (candidate.id in hiddenModels) return@filter false
+            if (candidate.provider.lowercase() in hiddenProviders) return@filter false
+            if (freeOnly && !candidate.isFree) return@filter false
+
+            val size = ModelSizeParser.extractParameterSizeB(candidate.id)
+            (size <= 0.0 || size >= 3.0 || targetRole == ModelRole.Light || preferences.getAutoStrategy() == AutoStrategy.Fastest) &&
+                !ChatModelFilter.isExcluded(candidate.id) &&
+                checkCachedQuota(candidate, isNewTask = isNewTask)
         }
         if (available.isEmpty()) return null
 
@@ -662,30 +697,65 @@ class FreeKeyRouter(
         }
         val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
 
-        val comparator = when (targetRole) {
-            ModelRole.Light -> {
-                compareBy<RouterCandidate> { candidate ->
-                    val size = ModelSizeParser.extractParameterSizeB(candidate.id)
-                    if (size > 0.0) size else 8.0
-                }.thenByDescending { healthTracker.score(it.id) }
-                 .thenByDescending { it.model.capabilities.contextTokens }
+        val preferred = preferences.getPreferredProviders().map { it.lowercase() }
+        fun providerRank(p: String): Int {
+            val idx = preferred.indexOf(p.lowercase())
+            return if (idx >= 0) idx else 999
+        }
+
+        val comparator = when {
+            preferences.getAutoStrategy() == AutoStrategy.Fastest -> {
+                compareByDescending<RouterCandidate> { it.curatedRank }
+                    .thenBy { candidate ->
+                        val size = ModelSizeParser.extractParameterSizeB(candidate.id)
+                        if (size > 0.0) size else 8.0
+                    }
+                    .thenBy { providerRank(it.provider) }
+                    .thenByDescending { healthTracker.score(it.id) }
+                    .thenByDescending { it.model.capabilities.contextTokens }
             }
-            ModelRole.Long -> {
-                compareByDescending<RouterCandidate> { it.model.capabilities.contextTokens }
+            preferences.getAutoStrategy() == AutoStrategy.BestQuality -> {
+                compareByDescending<RouterCandidate> { it.curatedRank }
+                    .thenByDescending {
+                        val info = it.candidateInfo ?: it.toModelCandidate()
+                        val ranking = rankingsRepository?.findRanking(it.id)
+                        ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
+                    }
+                    .thenBy { providerRank(it.provider) }
+                    .thenByDescending { ModelSizeParser.extractParameterSizeB(it.id) }
+                    .thenByDescending { healthTracker.score(it.id) }
+            }
+            targetRole == ModelRole.Light -> {
+                compareByDescending<RouterCandidate> { it.curatedRank }
+                    .thenBy { candidate ->
+                        val size = ModelSizeParser.extractParameterSizeB(candidate.id)
+                        if (size > 0.0) size else 8.0
+                    }
+                    .thenBy { providerRank(it.provider) }
+                    .thenByDescending { healthTracker.score(it.id) }
+                    .thenByDescending { it.model.capabilities.contextTokens }
+            }
+            targetRole == ModelRole.Long -> {
+                compareByDescending<RouterCandidate> { it.curatedRank }
+                    .thenByDescending { it.model.capabilities.contextTokens }
+                    .thenByDescending {
+                        val info = it.candidateInfo ?: it.toModelCandidate()
+                        val ranking = rankingsRepository?.findRanking(it.id)
+                        ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
+                    }
+                    .thenBy { providerRank(it.provider) }
+                    .thenByDescending { healthTracker.score(it.id) }
+            }
+            else -> {
+                compareByDescending<RouterCandidate> { it.curatedRank }
+                    .thenBy { providerRank(it.provider) }
                     .thenByDescending {
                         val info = it.candidateInfo ?: it.toModelCandidate()
                         val ranking = rankingsRepository?.findRanking(it.id)
                         ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
                     }
                     .thenByDescending { healthTracker.score(it.id) }
-            }
-            else -> {
-                compareByDescending<RouterCandidate> {
-                    val info = it.candidateInfo ?: it.toModelCandidate()
-                    val ranking = rankingsRepository?.findRanking(it.id)
-                    ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
-                }.thenByDescending { healthTracker.score(it.id) }
-                 .thenByDescending { it.model.capabilities.contextTokens }
+                    .thenByDescending { it.model.capabilities.contextTokens }
             }
         }
 

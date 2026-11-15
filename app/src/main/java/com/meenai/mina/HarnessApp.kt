@@ -257,9 +257,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         )
     }
 
+    val modelPreferences: com.meenai.mina.ui.router.ModelPreferencesStore by lazy {
+        com.meenai.mina.ui.router.ModelPreferencesStore.get(this)
+    }
+
     val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {
         com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
-        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers)
+        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers, preferences = modelPreferences)
     }
 
     val routerStatus: com.meenai.mina.ui.router.RouterStatus by lazy {

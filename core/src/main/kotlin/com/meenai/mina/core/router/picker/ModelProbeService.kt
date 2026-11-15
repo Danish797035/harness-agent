@@ -1,6 +1,14 @@
 package com.meenai.mina.core.router.picker
 
+import com.meenai.mina.core.model.Author
+import com.meenai.mina.core.model.ChatModel
+import com.meenai.mina.core.model.Message
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
+import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.router.MagicubeLedger
+import com.meenai.mina.core.router.ModelCooldownStore
+import com.meenai.mina.core.router.RouterCandidate
 
 /**
  * Result of a model probe execution.
@@ -13,6 +21,7 @@ data class ProbeResult(
     val totalDurationMs: Long = 0L,
     val errorMessage: String? = null,
     val dayKey: String = "",
+    val supportsTools: Boolean = passed,
 )
 
 /**
@@ -68,11 +77,98 @@ class ModelProbeService(
         const val MAX_MODELSCOPE_PROBES_PER_DAY: Int = 3
         const val MIN_MAGICUBE_BALANCE_FOR_PROBE: Double = 20.0
 
+        val PROBE_TOOL = ToolSpec(
+            name = "probe_test_tool",
+            description = "A probe test tool to verify function calling capabilities",
+            parametersJsonSchema = """{"type":"object","properties":{"test_arg":{"type":"string"}},"required":["test_arg"]}""",
+        )
+
         /**
          * 32x32 solid red PNG in base64 format for lightweight vision probe without downloading external assets.
          */
         const val SOLID_RED_32X32_PNG_BASE64: String =
             "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAF0lEQVR42u3BAQEAAACAkP6v7ggKAAAA4AcL6AAB3510zQAAAABJRU5ErkJggg=="
+    }
+
+    /**
+     * Executes an active tool-call round-trip probe on a candidate model:
+     * - Sends a minimal request with a tool specification.
+     * - Checks if response contains a tool call.
+     * - Records supportsTools and passed status.
+     * - If failed or tool call missing, marks model failed and applies cooldown.
+     */
+    suspend fun probeToolCalling(
+        candidate: RouterCandidate,
+        cooldownStore: ModelCooldownStore? = null,
+    ): ProbeResult = probeToolCalling(
+        model = candidate.model,
+        modelId = candidate.id,
+        provider = candidate.provider,
+        cooldownStore = cooldownStore,
+    )
+
+    suspend fun probeToolCalling(
+        model: ChatModel,
+        modelId: String,
+        provider: String,
+        cooldownStore: ModelCooldownStore? = null,
+    ): ProbeResult {
+        val today = todayKey()
+        val start = clock.currentTimeMillis()
+        return try {
+            val reply = model.complete(
+                system = "You are a test assistant. You must call the probe_test_tool function with test_arg set to 'ping'.",
+                messages = listOf(
+                    Message(
+                        role = Role.User,
+                        parts = listOf(Part.Text("Call probe_test_tool now.")),
+                        author = Author.User,
+                    )
+                ),
+                tools = listOf(PROBE_TOOL),
+            )
+            val duration = clock.currentTimeMillis() - start
+            val hasToolCall = reply.parts.any { it is Part.ToolCall }
+            if (hasToolCall) {
+                val res = ProbeResult(
+                    modelId = modelId,
+                    provider = provider,
+                    passed = true,
+                    totalDurationMs = duration,
+                    dayKey = today,
+                    supportsTools = true,
+                )
+                recordProbeResult(res)
+                res
+            } else {
+                val res = ProbeResult(
+                    modelId = modelId,
+                    provider = provider,
+                    passed = false,
+                    totalDurationMs = duration,
+                    errorMessage = "Model replied without calling the required tool",
+                    dayKey = today,
+                    supportsTools = false,
+                )
+                recordProbeResult(res)
+                cooldownStore?.markCooldown(modelId, ModelCooldownStore.DEFAULT_COOLDOWN_MS, clock.currentTimeMillis())
+                res
+            }
+        } catch (e: Exception) {
+            val duration = clock.currentTimeMillis() - start
+            val res = ProbeResult(
+                modelId = modelId,
+                provider = provider,
+                passed = false,
+                totalDurationMs = duration,
+                errorMessage = e.message ?: "Probe error",
+                dayKey = today,
+                supportsTools = false,
+            )
+            recordProbeResult(res)
+            cooldownStore?.markCooldown(modelId, ModelCooldownStore.DEFAULT_COOLDOWN_MS, clock.currentTimeMillis())
+            res
+        }
     }
 
     private val results = mutableMapOf<String, ProbeResult>().apply {

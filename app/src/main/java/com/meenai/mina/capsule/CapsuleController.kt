@@ -1461,7 +1461,7 @@ class CapsuleController(
             } else {
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(app.providers)
                 if (candidates.isNotEmpty()) {
-                    com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(candidates)
+                    com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(candidates, preferences = app.modelPreferences)
                 } else {
                     val main = app.providers.modelFor(ModelRole.Main)
                     val light = app.providers.modelFor(ModelRole.Light)
@@ -1486,7 +1486,7 @@ class CapsuleController(
                                 )
                             )
                         }
-                        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(list)
+                        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouterForCandidates(list, preferences = app.modelPreferences)
                     } else null
                 }
             }

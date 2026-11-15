@@ -187,6 +187,7 @@ object AppFreeKeyRouter {
         probeService: ModelProbeService = getProbeService(),
         statsTracker: ModelStatsTracker = getStatsTracker(),
         cooldownStore: ModelCooldownStore = getCooldownStore(),
+        preferences: com.meenai.mina.core.router.RouterPreferences = com.meenai.mina.core.router.DefaultRouterPreferences,
     ): FreeKeyRouter {
         val picker = AutoModelPicker(
             apiClient = HttpOpenRouterApiClient(http),
@@ -203,6 +204,7 @@ object AppFreeKeyRouter {
             rankingsRepository = rankingsRepository,
             probeService = probeService,
             statsTracker = statsTracker,
+            preferences = preferences,
         )
     }
 
@@ -216,6 +218,7 @@ object AppFreeKeyRouter {
         probeService: ModelProbeService = getProbeService(),
         statsTracker: ModelStatsTracker = getStatsTracker(),
         cooldownStore: ModelCooldownStore = getCooldownStore(),
+        preferences: com.meenai.mina.core.router.RouterPreferences = com.meenai.mina.core.router.DefaultRouterPreferences,
     ): FreeKeyRouter = createRouterForCandidates(
         candidates = createCandidates(store, http),
         http = http,
@@ -223,6 +226,7 @@ object AppFreeKeyRouter {
         probeService = probeService,
         statsTracker = statsTracker,
         cooldownStore = cooldownStore,
+        preferences = preferences,
     )
 
     /**
@@ -642,6 +646,8 @@ object AppFreeKeyRouter {
             listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
         } else {
             listOf(
+                ListedModel("gemini-2.5-flash", vision = true, toolCalls = true, contextTokens = 1_000_000),
+                ListedModel("gemini-3.1-flash-lite", vision = true, toolCalls = true, contextTokens = 1_000_000),
                 ListedModel("gemini-2.0-flash", vision = true, toolCalls = true, contextTokens = 128_000),
                 ListedModel("gemini-1.5-flash", vision = true, toolCalls = true, contextTokens = 128_000),
             )
@@ -772,11 +778,11 @@ object AppFreeKeyRouter {
         baseUrl: String = "https://api.moonshot.cn/v1",
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
-            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) && !it.id.contains("k2", ignoreCase = true) }
         } else {
             listOf(
-                ListedModel("moonshot-v1-8k", vision = false, toolCalls = true, contextTokens = 8_000),
-                ListedModel("moonshot-v1-32k", vision = false, toolCalls = true, contextTokens = 32_000),
+                ListedModel("kimi-k3", vision = false, toolCalls = true, contextTokens = 128_000),
+                ListedModel("kimi-k3.1-pro", vision = false, toolCalls = true, contextTokens = 128_000),
             )
         }
 
