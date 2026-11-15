@@ -197,10 +197,11 @@ fun GeneratedImageCard(
                 }
             }
 
-            if (file != null && bitmap != null) {
+            val currentBitmap = bitmap
+            if (file != null && currentBitmap != null) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = currentBitmap.asImageBitmap(),
                         contentDescription = imageUi.prompt,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
