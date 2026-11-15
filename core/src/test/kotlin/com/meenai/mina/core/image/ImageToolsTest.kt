@@ -117,6 +117,7 @@ class ImageToolsTest {
         }
 
         val service = ImageGenerationService(
+            harnessClient = fakeClient,
             modelScopeClient = fakeClient,
             getApiKey = { "key" },
         )
@@ -154,6 +155,7 @@ class ImageToolsTest {
         }
 
         val service = ImageGenerationService(
+            harnessClient = fakeClient,
             modelScopeClient = fakeClient,
             getApiKey = { "key" },
         )
