@@ -1,10 +1,17 @@
 package com.meenai.mina.ui.image
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.meenai.mina.HarnessApp
+import com.meenai.mina.core.image.ImageRole
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -110,30 +117,31 @@ fun GeneratedImageCard(
                     )
                     Text(
                         text = tr(R.string.image_generated_by, formatImageModelName(displayModel)),
-                        style = MinaType.Hint.copy(fontWeight = FontWeight.Medium, fontSize = 12.sp),
-                        color = MinaTheme.colors.ink2,
+                        style = MinaType.Hint.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
                 Box {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                             .clickable { showModelMenu = true }
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
                             text = tr(R.string.image_switch_model),
-                            style = MinaType.Hint.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp),
-                            color = MinaTheme.colors.accent,
+                            style = MinaType.Hint.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                            color = MaterialTheme.colorScheme.primary,
                         )
                         Icon(
                             imageVector = MinaIcons.ChevronDown,
                             contentDescription = null,
-                            tint = MinaTheme.colors.accent,
-                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp),
                         )
                     }
 
@@ -142,8 +150,9 @@ fun GeneratedImageCard(
                         onDismissRequest = { showModelMenu = false },
                     ) {
                         listOf(
-                            "seedream-5.0-lite" to "seedream-5.0-lite (Fast / Free)",
-                            "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Free)",
+                            "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Free / Recommended)",
+                            "Qwen/Qwen-Image" to "Qwen-Image (Detailed)",
+                            "seedream-5.0-lite" to "seedream-5.0-lite (Local / Fast)",
                             "black-forest-labs/flux-1-schnell" to "FLUX.1-schnell (Quality)",
                         ).forEach { (modelId, label) ->
                             DropdownMenuItem(
@@ -158,6 +167,7 @@ fun GeneratedImageCard(
                                 },
                                 onClick = {
                                     showModelMenu = false
+                                    (context.applicationContext as? HarnessApp)?.imageSettings?.setPinnedModel(ImageRole.Image, modelId)
                                     if (onRegenerateWithModel != null) {
                                         onRegenerateWithModel(imageUi.prompt, modelId)
                                     } else {
@@ -170,10 +180,21 @@ fun GeneratedImageCard(
                 }
             }
             val file = remember(imageUi.filePath) { imageUi.filePath?.takeIf { it.isNotBlank() }?.let { File(it) } }
-            val bitmap = remember(imageUi.filePath) {
-                if (file?.exists() == true) {
-                    BitmapFactory.decodeFile(file.absolutePath)
-                } else null
+            var bitmap by remember(imageUi.filePath) { mutableStateOf<Bitmap?>(null) }
+            LaunchedEffect(imageUi.filePath) {
+                val currentFile = file
+                if (currentFile != null && currentFile.exists()) {
+                    val decoded = withContext(Dispatchers.IO) {
+                        try {
+                            BitmapFactory.decodeFile(currentFile.absolutePath)
+                        } catch (_: Throwable) {
+                            null
+                        }
+                    }
+                    bitmap = decoded
+                } else {
+                    bitmap = null
+                }
             }
 
             if (file != null && bitmap != null) {

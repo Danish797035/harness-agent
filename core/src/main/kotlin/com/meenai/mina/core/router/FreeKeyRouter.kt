@@ -162,7 +162,12 @@ class FreeKeyRouter(
         val role = difficultyRouter.getRole(hasImage)
 
         val current = activeCandidate
-        val roleMismatch = current != null && role == ModelRole.Main && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)
+        val currentSize = current?.let { ModelSizeParser.extractParameterSizeB(it.id) } ?: 0.0
+        val isSub3b = current != null && currentSize in 0.01..2.9
+        val roleMismatch = current != null && role == ModelRole.Main && (
+            (current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)) ||
+            isSub3b
+        )
         if (current == null || roleMismatch || !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = pickBestCandidate(role, isNewTask = true)
         }

@@ -64,7 +64,9 @@ internal object GenerateImageTool : AgentTool {
         val size = a.str("size")
         var requestedModel = a.str("model")?.takeIf { it.isNotBlank() }
         if (requestedModel == null) {
-            val modelDetect = Regex("""\b(seedream(?:-5\.0-lite)?|flux(?:-1-schnell|\.1-schnell)?|qwen(?:-image(?:-2\.1)?)?|cogview)\b""", RegexOption.IGNORE_CASE).find(prompt)
+            val userGoal = ctx.config.runSpec?.goal.orEmpty()
+            val textToScan = "$prompt $userGoal"
+            val modelDetect = Regex("""\b(seedream(?:-5\.0-lite)?|flux(?:-1-schnell|\.1-schnell)?|qwen(?:-image(?:-2\.1)?)?|cogview)\b""", RegexOption.IGNORE_CASE).find(textToScan)
             if (modelDetect != null) {
                 requestedModel = modelDetect.value
             }

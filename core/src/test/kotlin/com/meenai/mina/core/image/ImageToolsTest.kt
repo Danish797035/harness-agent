@@ -143,6 +143,38 @@ class ImageToolsTest {
     }
 
     @Test
+    fun generateImageToolDetectsModelFromUserGoal() = runBlocking {
+        var requestedModelUsed: String? = null
+        val fakeClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                requestedModelUsed = model
+                return "FAKE_IMAGE_BYTES".toByteArray()
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray = ByteArray(0)
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = fakeClient,
+            getApiKey = { "key" },
+        )
+
+        val runSpec = com.meenai.mina.core.run.RunSpec(
+            com.meenai.mina.core.run.RunId("r1"),
+            "Generate with Qwen/Qwen-Image-2.1: a cute puppy",
+            "thread-1"
+        )
+        val config = ToolConfig(imageService = service, runSpec = runSpec)
+        val ctx = ToolContext(config = config, evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots())
+
+        val args = Args(GenerateImageTool.def, buildJsonObject {
+            put("prompt", "a cute puppy")
+        })
+        val res = GenerateImageTool.execute(args, ctx)
+        assertEquals(true, res.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("Qwen/Qwen-Image-2.1", requestedModelUsed)
+    }
+
+    @Test
     fun generateImageToolRejectsEmptyPromptOrVideo() = runBlocking {
         val fakeClient = object : ImageClient {
             override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =

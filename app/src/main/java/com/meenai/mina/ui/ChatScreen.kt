@@ -614,10 +614,11 @@ private fun LazyListScope.exchange(
                         }
                     },
                     onRegenerateWithModel = { prompt, model ->
+                        (context.applicationContext as? com.meenai.mina.HarnessApp)?.imageSettings?.setPinnedModel(com.meenai.mina.core.image.ImageRole.Image, model)
                         val basePrompt = ex.goal.takeIf { it.isNotBlank() } ?: prompt
                         val promptWithoutModel = basePrompt
+                            .replace(Regex("""\b(?:generate\s+with|using)\s+[\w./-]+\b:?""", RegexOption.IGNORE_CASE), "")
                             .replace(Regex("""\bwith\s+[\w./-]+\b""", RegexOption.IGNORE_CASE), "")
-                            .replace(Regex("""\busing\s+[\w./-]+\b""", RegexOption.IGNORE_CASE), "")
                             .trim()
                         val target = "Generate with $model: $promptWithoutModel"
                         vm.send(target, com.meenai.mina.settings.Prerequisites.Check(emptyList()))

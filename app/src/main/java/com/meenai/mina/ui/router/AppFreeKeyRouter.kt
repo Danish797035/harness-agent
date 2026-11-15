@@ -237,7 +237,12 @@ object AppFreeKeyRouter {
         candidates: List<ModelCandidate>? = null,
     ) {
         val currentRoles = store.roles.value
-        val mainChosen = currentRoles.main != null
+        val currentMainModel = currentRoles.main?.let { cfgId -> store.configs.value.firstOrNull { it.id == cfgId }?.model }
+        val isMainSub3bOrExcluded = currentMainModel != null && (
+            ChatModelFilter.isExcluded(currentMainModel) ||
+            (ModelSizeParser.parse(currentMainModel).totalParamsB?.let { it in 0.01..2.9 } == true)
+        )
+        val mainChosen = currentRoles.main != null && !isMainSub3bOrExcluded
         val lightChosen = currentRoles.light !is com.meenai.mina.settings.RoleChoice.SameAsMain
         val visionChosen = currentRoles.vision !is com.meenai.mina.settings.RoleChoice.Off
 

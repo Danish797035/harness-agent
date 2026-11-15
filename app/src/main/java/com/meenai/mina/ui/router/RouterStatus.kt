@@ -312,6 +312,22 @@ class RealRouterStatus(
             router.unpinModel()
         } else {
             router.pinModel(modelId)
+            store?.let { s ->
+                val candidate = router.candidates.find { it.id == modelId }
+                if (candidate != null) {
+                    val p = s.providers.value.firstOrNull { prov ->
+                        when (candidate.provider.lowercase()) {
+                            "openrouter" -> AppFreeKeyRouter.isOpenRouterProvider(prov)
+                            "zai", "z.ai" -> AppFreeKeyRouter.isZaiProvider(prov)
+                            "modelscope" -> AppFreeKeyRouter.isModelScopeProvider(prov)
+                            else -> prov.id == candidate.provider || prov.name.contains(candidate.provider, ignoreCase = true)
+                        }
+                    }
+                    if (p != null) {
+                        s.use(ModelRole.Main, p.id, candidate.id, candidate.model.capabilities)
+                    }
+                }
+            }
         }
         _current.value = computeActiveModel()
     }

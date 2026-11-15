@@ -27,7 +27,7 @@ import kotlin.coroutines.resumeWithException
 class HarnessImageClient(
     private val baseUrl: String = "http://127.0.0.1:3000/v1",
     private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(1, TimeUnit.SECONDS)
         .readTimeout(130, TimeUnit.SECONDS)
         .build(),
     private val logger: ((String) -> Unit)? = null,

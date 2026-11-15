@@ -562,6 +562,36 @@ class AppFreeKeyRouterTest {
     }
 
     @Test
+    fun autoPopulateSettingsRolesHealsSub3bMainModel() = runTest {
+        val store = createTestProviderStore()
+        val p = store.createCustomProvider("OpenRouter", "https://openrouter.ai/api/v1")
+        val apiKey = "sk-or-test"
+        store.saveApiKey(p.id, apiKey)
+
+        store.saveListedModels(
+            p.id,
+            listOf(
+                ListedModel(id = "liquid/lfm-3-1.7b:free", name = "Liquid LFM 1.7B", toolCalls = true, vision = false, contextTokens = 32_000),
+                ListedModel(id = "meta-llama/llama-3.3-70b-instruct:free", name = "Llama 3.3 70B", toolCalls = true, vision = false, contextTokens = 128_000),
+                ListedModel(id = "meta-llama/llama-3.1-8b-instruct:free", name = "Llama 3.1 8B", toolCalls = true, vision = false, contextTokens = 65_536),
+            )
+        )
+
+        // Simulate Main role previously configured with sub-3B model (liquid/lfm-3-1.7b:free)
+        store.use(com.meenai.mina.core.model.ModelRole.Main, p.id, "liquid/lfm-3-1.7b:free", Capabilities(toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false, promptCaching = PromptCaching.Implicit))
+        assertEquals("liquid/lfm-3-1.7b:free", store.configs.value.first { it.id == store.roles.value.main }.model)
+
+        val picker = AutoModelPicker(apiClient = { "[]" })
+        AppFreeKeyRouter.autoPopulateSettingsRoles(store, picker)
+
+        // Sub-3B main model must be auto-healed to capable Main model (70B)
+        val healedMain = store.roles.value.main
+        assertNotNull(healedMain)
+        val healedConfig = store.configs.value.first { it.id == healedMain }
+        assertEquals("meta-llama/llama-3.3-70b-instruct:free", healedConfig.model)
+    }
+
+    @Test
     fun createRouterForCandidatesSharesSharedStores() {
         val dummyModel = object : ChatModel {
             override val name: String = "dummy"

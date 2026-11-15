@@ -369,6 +369,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
         // 内置浏览器:设了代理才给 WebView 设上(读设置要解密,放到后台;没设代理不为此加载 WebView)
         scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@HarnessApp) } }
+        tasks.modelFactory = { c, s ->
+            if (freeKeyRouter.candidates.isNotEmpty()) {
+                freeKeyRouter
+            } else {
+                ProviderStore.get(c).modelFor(com.meenai.mina.core.model.ModelRole.Main, s)
+            }
+        }
         capsule.start()
         // 内置助手的真实现,并开始看着助手(Mina 进程起来后,还活着的助手会自己交接 Binder)
         phone.shellManager.start()
