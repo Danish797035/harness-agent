@@ -156,9 +156,10 @@ class FreeKeyRouter(
         task: String,
         hasImage: Boolean = false,
         plannedSteps: Int? = null,
-    ) {
+        charCount: Int = task.length,
+    ): TaskDifficulty {
         switchCountInTask = 0
-        val difficulty = difficultyRouter.startTask(task, hasImage, plannedSteps)
+        val difficulty = difficultyRouter.startTask(task, hasImage, plannedSteps, charCount)
         val role = difficultyRouter.getRole(hasImage)
 
         val current = activeCandidate
@@ -182,6 +183,7 @@ class FreeKeyRouter(
             provider = activeCandidate?.provider,
             reason = reason,
         )
+        return difficulty
     }
 
     /**
@@ -304,6 +306,7 @@ class FreeKeyRouter(
      */
     fun checkCachedQuota(candidate: RouterCandidate, isNewTask: Boolean = false): Boolean {
         if (cooldownStore.isKeyBad(candidate.provider)) return false
+        if (!cooldownStore.hasBalance(candidate.provider)) return false
         val remainingCooldown = cooldownStore.getRemainingCooldownMs(candidate.id, now())
         if (remainingCooldown > 0L) return false
         if (candidate.provider.equals("modelscope", ignoreCase = true)) {
@@ -516,13 +519,20 @@ class FreeKeyRouter(
                                 throw e
                             }
 
+                            val isNoBalance = (e is ModelError.Server && e.status == 402) ||
+                                (e.message?.contains("balance", ignoreCase = true) == true) ||
+                                (e.message?.contains("credit", ignoreCase = true) == true) ||
+                                (e.message?.contains("billing", ignoreCase = true) == true) ||
+                                (e.message?.contains("payment required", ignoreCase = true) == true)
                             val isQuota = (e is ModelError.QuotaExceeded) ||
                                 (e.message?.contains("insufficient_quota", ignoreCase = true) == true) ||
                                 (e.message?.contains("quota", ignoreCase = true) == true)
                             val isNotAvailable = (e is ModelError.ModelNotAvailable) || (e is ModelError.ModelNotFound) ||
                                 (e.message?.contains("no provider supported", ignoreCase = true) == true) ||
                                 (e.message?.contains("provider not supported", ignoreCase = true) == true)
-                            if (isQuota) {
+                            if (isNoBalance) {
+                                cooldownStore.markNoBalance(currentCandidate.provider)
+                            } else if (isQuota) {
                                 cooldownStore.markDailyQuotaExhausted(currentCandidate.id, currentCandidate.provider, now())
                             } else if (isNotAvailable) {
                                 cooldownStore.markUnsupported(currentCandidate.id, now())

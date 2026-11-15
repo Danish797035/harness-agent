@@ -39,7 +39,7 @@ class DifficultyRouter(
         charCount: Int = 0,
     ): TaskDifficulty {
         currentRole = classifier.classifyToRole(task, hasImage, plannedSteps, charCount)
-        currentDifficulty = if (currentRole == ModelRole.Main || currentRole == ModelRole.Coding || currentRole == ModelRole.Vision) {
+        currentDifficulty = if (currentRole == ModelRole.Main || currentRole == ModelRole.Coding || currentRole == ModelRole.Vision || currentRole == ModelRole.Long) {
             TaskDifficulty.Heavy
         } else {
             TaskDifficulty.Light

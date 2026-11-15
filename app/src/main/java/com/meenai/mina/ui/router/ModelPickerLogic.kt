@@ -56,11 +56,13 @@ object ModelPickerLogic {
         isModelScope: Boolean = false,
         magicubeBalance: Double? = null,
         costPerCall: Double? = null,
+        hasBalance: Boolean = true,
     ): Pair<QuotaState, String?> {
         val cooldownMin = if (cooldownMs > 0L) ceil(cooldownMs / 60000.0).toInt().coerceAtLeast(1) else 0
 
         val quotaState = when {
             isBadKey -> QuotaState.Exhausted
+            !hasBalance -> QuotaState.Exhausted
             isUnsupported -> QuotaState.Exhausted
             cooldownMs > 0L -> QuotaState.Exhausted
             limit != null && todayRequests >= limit -> QuotaState.Exhausted
@@ -72,6 +74,7 @@ object ModelPickerLogic {
 
         val exhaustedReason = when {
             isBadKey -> "API Key is invalid or expired"
+            !hasBalance -> "No balance"
             isUnsupported -> "Model is unsupported"
             cooldownMs > 0L -> "Cooldown active ($cooldownMin min remaining)"
             limit != null && todayRequests >= limit -> "Daily limit reached ($todayRequests/$limit requests)"

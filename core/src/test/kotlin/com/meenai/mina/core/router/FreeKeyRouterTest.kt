@@ -8,10 +8,12 @@ import com.meenai.mina.core.model.ModelError
 import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.PromptCaching
+import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.StreamingChatModel
 import com.meenai.mina.core.model.ToolSpec
+import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -388,6 +390,75 @@ class FreeKeyRouterTest {
         val stats = statsTracker.getStats("m1")
         assertNotNull(stats)
         assertEquals(500.0, stats!!.avgFirstTokenMs, 1.0)
+    }
+
+    @Test
+    fun startTaskForwardsCharCountAndReturnsDifficulty() = runTest {
+        val model = mockModel("m1") { _, _, _, onText -> onText("ok"); simpleReply }
+        val candidate = RouterCandidate("m1", "p1", model, curatedRank = 1)
+        val router = FreeKeyRouter(listOf(candidate), delayMs = {})
+
+        // Short factual query without charCount -> Light
+        val lightDiff = router.startTask("what is gravity?")
+        assertEquals(TaskDifficulty.Light, lightDiff)
+
+        // Same query with charCount >= 50,000 -> Heavy (Long)
+        val heavyDiff = router.startTask("what is gravity?", charCount = 60_000)
+        assertEquals(TaskDifficulty.Heavy, heavyDiff)
+    }
+
+    @Test
+    fun skipsCandidatesWhoseProviderHasNoBalance() = runTest {
+        val model1 = mockModel("m1") { _, _, _, onText -> onText("from m1"); simpleReply }
+        val model2 = mockModel("m2") { _, _, _, onText -> onText("from m2"); simpleReply }
+
+        val c1 = RouterCandidate("m1", "deepseek", model1, curatedRank = 10)
+        val c2 = RouterCandidate("m2", "groq", model2, curatedRank = 5)
+
+        val router = FreeKeyRouter(listOf(c1, c2), delayMs = {})
+
+        // Initially c1 is available and picked
+        assertEquals("m1", router.pickBestCandidate()?.id)
+
+        // Mark deepseek as having no balance
+        router.cooldownStore.markNoBalance("deepseek")
+        assertFalse(router.checkCachedQuota(c1))
+
+        // Router now skips c1 and picks c2
+        val picked = router.pickBestCandidate()
+        assertEquals("m2", picked?.id)
+    }
+
+    @Test
+    fun switchesOn402PaymentRequiredAndMarksNoBalance() = runTest {
+        var m1Called = 0
+        val model1 = mockModel("m1") { _, _, _, _ ->
+            m1Called++
+            throw ModelError.Server(402)
+        }
+        val model2 = mockModel("m2") { _, _, _, onText ->
+            onText("success from m2")
+            simpleReply
+        }
+
+        val router = FreeKeyRouter(
+            listOf(
+                RouterCandidate("m1", "deepseek", model1, curatedRank = 10),
+                RouterCandidate("m2", "groq", model2, curatedRank = 5),
+            ),
+            delayMs = {},
+        )
+
+        var textEmitted = ""
+        val reply = router.completeStreaming("sys", userMsg, emptyList()) { textEmitted = it }
+
+        assertEquals("m2", router.activeCandidate?.id)
+        assertEquals(1, m1Called)
+        assertEquals(1, model2.calls)
+        assertEquals("success from m2", textEmitted)
+
+        // deepseek provider marked as no balance
+        assertFalse(router.cooldownStore.hasBalance("deepseek"))
     }
 }
 

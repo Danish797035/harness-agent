@@ -391,6 +391,8 @@ fun ModelCardItem(
                 stringResource(R.string.router_status_cooldown, model.cooldownMinutes)
             } else if (model.status == ModelStatusKind.BadKey) {
                 stringResource(R.string.router_status_bad_key)
+            } else if (model.status == ModelStatusKind.NoBalance) {
+                "No balance"
             } else {
                 stringResource(R.string.router_quota_exhausted)
             }

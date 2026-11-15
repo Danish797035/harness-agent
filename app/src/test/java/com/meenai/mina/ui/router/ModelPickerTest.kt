@@ -238,6 +238,20 @@ class ModelPickerTest {
         assertTrue(reason!!.contains("Insufficient Magicube balance"))
     }
 
+    @Test
+    fun computeQuotaState_exhaustedWhenNoBalance() {
+        val (state, reason) = ModelPickerLogic.computeQuotaState(
+            isBadKey = false,
+            isUnsupported = false,
+            cooldownMs = 0L,
+            limit = null,
+            todayRequests = 0,
+            hasBalance = false,
+        )
+        assertEquals(QuotaState.Exhausted, state)
+        assertEquals("No balance", reason)
+    }
+
     // ==========================================
     // 3. Favourites & Recent Models Tests
     // ==========================================

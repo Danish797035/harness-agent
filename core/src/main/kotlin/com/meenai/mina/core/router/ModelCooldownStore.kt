@@ -14,6 +14,7 @@ data class CooldownState(
     val cooldowns: Map<String, Long> = emptyMap(),
     val badKeys: Set<String> = emptySet(),
     val knownQuotaRemaining: Map<String, Int> = emptyMap(),
+    val noBalanceProviders: Set<String> = emptySet(),
 )
 
 /**
@@ -28,6 +29,7 @@ class ModelCooldownStore(
     private val badKeys = ConcurrentHashMap.newKeySet<String>()
     private val knownQuotaRemaining = ConcurrentHashMap<String, Int>()
     private val unsupportedModels = ConcurrentHashMap.newKeySet<String>()
+    private val noBalanceProviders = ConcurrentHashMap.newKeySet<String>()
 
     fun markCooldown(modelId: String, durationMs: Long, nowMs: Long = System.currentTimeMillis()) {
         val expiry = nowMs + durationMs.coerceAtLeast(1_000L)
@@ -55,6 +57,18 @@ class ModelCooldownStore(
 
     fun isKeyBad(provider: String): Boolean = badKeys.contains(provider.lowercase())
 
+    fun markNoBalance(provider: String) {
+        noBalanceProviders.add(provider.lowercase())
+        notifyChanged()
+    }
+
+    fun clearNoBalance(provider: String) {
+        noBalanceProviders.remove(provider.lowercase())
+        notifyChanged()
+    }
+
+    fun hasBalance(provider: String): Boolean = !noBalanceProviders.contains(provider.lowercase())
+
     fun markUnsupported(modelId: String, nowMs: Long = System.currentTimeMillis()) {
         unsupportedModels.add(modelId.lowercase())
         markCooldown(modelId, 24 * 3600 * 1000L, nowMs)
@@ -74,6 +88,7 @@ class ModelCooldownStore(
         isNewTask: Boolean = false,
     ): Boolean {
         if (isKeyBad(provider)) return false
+        if (!hasBalance(provider)) return false
         if (isUnsupported(modelId)) return false
         val expiry = cooldowns[modelId]
         if (expiry != null && nowMs < expiry) return false
@@ -98,6 +113,7 @@ class ModelCooldownStore(
             cooldowns = cooldowns.toMap(),
             badKeys = badKeys.toSet(),
             knownQuotaRemaining = knownQuotaRemaining.toMap(),
+            noBalanceProviders = noBalanceProviders.toSet(),
         )
         return json.encodeToString(state)
     }
@@ -111,6 +127,8 @@ class ModelCooldownStore(
             badKeys.addAll(state.badKeys)
             knownQuotaRemaining.clear()
             knownQuotaRemaining.putAll(state.knownQuotaRemaining)
+            noBalanceProviders.clear()
+            noBalanceProviders.addAll(state.noBalanceProviders)
         } catch (e: Exception) {
             System.err.println("Failed to load ModelCooldownStore from JSON: ${e.message}")
         }

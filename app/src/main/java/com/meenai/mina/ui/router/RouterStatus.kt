@@ -65,13 +65,15 @@ enum class ModelStatusKind {
     Ready,
     Cooldown,
     Unsupported,
-    BadKey;
+    BadKey,
+    NoBalance;
 
     fun label(cooldownMin: Int = 0): String = when (this) {
         Ready -> "Ready"
         Cooldown -> "Cooldown $cooldownMin min"
         Unsupported -> "Unsupported"
         BadKey -> "Bad key"
+        NoBalance -> "No balance"
     }
 }
 
@@ -493,9 +495,15 @@ class RealRouterStatus(
                 var todayRequests = RouterUsageTracker.getTodayCalls(mId)
                 val isUnsupported = router.cooldownStore.isUnsupported(mId)
                 val cooldownMs = router.cooldownStore.getRemainingCooldownMs(mId)
+                val candidate = router.candidates.find { it.id.equals(mId, ignoreCase = true) }
+                val hasBalance = router.cooldownStore.hasBalance(providerKeyName) &&
+                    router.cooldownStore.hasBalance(providerId) &&
+                    router.cooldownStore.hasBalance(pName) &&
+                    (candidate?.let { router.cooldownStore.hasBalance(it.provider) } ?: true)
 
                 val status = when {
                     isBadKey -> ModelStatusKind.BadKey
+                    !hasBalance -> ModelStatusKind.NoBalance
                     isUnsupported -> ModelStatusKind.Unsupported
                     cooldownMs > 0L -> ModelStatusKind.Cooldown
                     else -> ModelStatusKind.Ready
@@ -515,7 +523,6 @@ class RealRouterStatus(
                 val costPerCall = if (isModelScope) modelScopeMagicubeCost(mId) else null
                 val costInfo = if (costPerCall != null) "~$costPerCall Magicube/call" else null
 
-                val candidate = router.candidates.find { it.id.equals(mId, ignoreCase = true) }
                 val listed = providerObj?.models?.find { it.id.equals(mId, ignoreCase = true) }
 
                 val supportsVision = candidate?.model?.capabilities?.vision
@@ -539,6 +546,7 @@ class RealRouterStatus(
                     isModelScope = isModelScope,
                     magicubeBalance = magicubeBal,
                     costPerCall = costPerCall,
+                    hasBalance = hasBalance,
                 )
 
                 ModelQuotaLine(
