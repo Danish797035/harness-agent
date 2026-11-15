@@ -563,18 +563,17 @@ class AppFreeKeyRouterTest {
 
     @Test
     fun autoPopulateSettingsRolesHealsSub3bMainModel() = runTest {
-        val store = createTestProviderStore()
-        val p = store.createCustomProvider("OpenRouter", "https://openrouter.ai/api/v1")
-        val apiKey = "sk-or-test"
-        store.saveApiKey(p.id, apiKey)
-
-        store.saveListedModels(
-            p.id,
-            listOf(
-                ListedModel(id = "liquid/lfm-3-1.7b:free", name = "Liquid LFM 1.7B", toolCalls = true, vision = false, contextTokens = 32_000),
-                ListedModel(id = "meta-llama/llama-3.3-70b-instruct:free", name = "Llama 3.3 70B", toolCalls = true, vision = false, contextTokens = 128_000),
-                ListedModel(id = "meta-llama/llama-3.1-8b-instruct:free", name = "Llama 3.1 8B", toolCalls = true, vision = false, contextTokens = 65_536),
-            )
+        val store = createTestStore()
+        val p = store.connect(
+            name = "OpenRouter",
+            kind = ProviderConfig.Kind.OpenAiCompat,
+            baseUrl = "https://openrouter.ai/api/v1",
+            apiKey = "sk-or-test",
+            models = listOf(
+                ListedModel("liquid/lfm-3-1.7b:free", toolCalls = true, vision = false, contextTokens = 32_000),
+                ListedModel("meta-llama/llama-3.3-70b-instruct:free", toolCalls = true, vision = false, contextTokens = 128_000),
+                ListedModel("meta-llama/llama-3.1-8b-instruct:free", toolCalls = true, vision = false, contextTokens = 65_536),
+            ),
         )
 
         // Simulate Main role previously configured with sub-3B model (liquid/lfm-3-1.7b:free)
