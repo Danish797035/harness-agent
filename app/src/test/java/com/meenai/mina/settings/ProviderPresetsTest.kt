@@ -55,4 +55,20 @@ class ProviderPresetsTest {
             assertEquals(it.label, ProviderPresets.forHost(it.baseUrl)?.label)
         }
     }
+
+    @Test fun kimiAndMiniMaxPresetsPointToInternationalEndpointsAndAcceptKeys() {
+        val kimi = preset("Kimi")
+        assertEquals("https://api.moonshot.ai/v1", kimi.baseUrl)
+        val miniMax = preset("MiniMax")
+        assertEquals("https://api.minimax.io/v1", miniMax.baseUrl)
+
+        // A provider added from the preset accepts the international key format
+        val kimiForm = AddForm.of(kimi).copy(apiKey = "sk-moonshot-intl-key-12345")
+        assertTrue(kimiForm.canTest)
+        assertTrue(kimiForm.canSaveUntested)
+
+        val miniMaxForm = AddForm.of(miniMax).copy(apiKey = "eyJhbGciOi...minimax-jwt")
+        assertTrue(miniMaxForm.canTest)
+        assertTrue(miniMaxForm.canSaveUntested)
+    }
 }

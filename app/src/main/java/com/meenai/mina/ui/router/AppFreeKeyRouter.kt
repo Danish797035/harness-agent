@@ -371,6 +371,7 @@ object AppFreeKeyRouter {
     }
 
     fun isKimiProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("moonshot.ai", ignoreCase = true)) return true
         if (p.baseUrl.contains("moonshot.cn", ignoreCase = true)) return true
         if (p.name.contains("Kimi", ignoreCase = true) || p.name.contains("Moonshot", ignoreCase = true)) return true
         val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
@@ -378,6 +379,7 @@ object AppFreeKeyRouter {
     }
 
     fun isMiniMaxProvider(p: Provider): Boolean {
+        if (p.baseUrl.contains("minimax.io", ignoreCase = true)) return true
         if (p.baseUrl.contains("minimax.cn", ignoreCase = true)) return true
         if (p.name.contains("MiniMax", ignoreCase = true)) return true
         val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
@@ -769,7 +771,7 @@ object AppFreeKeyRouter {
         apiKey: String,
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
-        baseUrl: String = "https://api.moonshot.cn/v1",
+        baseUrl: String = "https://api.moonshot.ai/v1",
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
             listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
@@ -789,7 +791,7 @@ object AppFreeKeyRouter {
                 promptCaching = PromptCaching.Implicit,
             )
             val model = OpenAiCompatModel(
-                baseUrl = baseUrl.ifEmpty { "https://api.moonshot.cn/v1" },
+                baseUrl = baseUrl.ifEmpty { "https://api.moonshot.ai/v1" },
                 apiKey = apiKey,
                 model = m.id,
                 capabilities = caps,
@@ -810,7 +812,7 @@ object AppFreeKeyRouter {
         apiKey: String,
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
-        baseUrl: String = "https://api.minimax.cn/v1",
+        baseUrl: String = "https://api.minimax.io/v1",
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
             listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
@@ -829,7 +831,7 @@ object AppFreeKeyRouter {
                 promptCaching = PromptCaching.Implicit,
             )
             val model = OpenAiCompatModel(
-                baseUrl = baseUrl.ifEmpty { "https://api.minimax.cn/v1" },
+                baseUrl = baseUrl.ifEmpty { "https://api.minimax.io/v1" },
                 apiKey = apiKey,
                 model = m.id,
                 capabilities = caps,

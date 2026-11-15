@@ -40,9 +40,9 @@ object ProviderPresets {
 
     val all: List<ProviderPreset> = listOf(
         ProviderPreset("DeepSeek", ProviderConfig.Kind.OpenAiCompat, "https://api.deepseek.com", caps(), familyTokens = listOf("deepseek")),
-        ProviderPreset("Kimi", ProviderConfig.Kind.OpenAiCompat, "https://api.moonshot.cn/v1", caps(), familyTokens = listOf("kimi", "moonshot")),
-        // 国内站;思考默认写在回复正文的 <think> 里,原样留在历史中
-        ProviderPreset("MiniMax", ProviderConfig.Kind.OpenAiCompat, "https://api.minimax.cn/v1", caps(vision = true, context = 200_000), familyTokens = listOf("minimax")),
+        ProviderPreset("Kimi", ProviderConfig.Kind.OpenAiCompat, "https://api.moonshot.ai/v1", caps(), familyTokens = listOf("kimi", "moonshot")),
+        // MiniMax international endpoint; thinking is in <think> tags in reply body
+        ProviderPreset("MiniMax", ProviderConfig.Kind.OpenAiCompat, "https://api.minimax.io/v1", caps(vision = true, context = 200_000), familyTokens = listOf("minimax")),
         ProviderPreset("OpenRouter", ProviderConfig.Kind.OpenAiCompat, "https://openrouter.ai/api/v1", caps()),
         // 订阅制,一个 Key 用多家模型;各模型走哪种协议、哪个地址由模型列表逐个写明,这里的接口类型只是没写明时的退路。
         // 每个请求都要带对话的会话号,不带就拒绝(HTTP 400)

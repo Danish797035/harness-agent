@@ -75,7 +75,7 @@ class ModelOptionsTest {
         assertEquals("moonshot-v1", ModelOptions.defaultMain(options, kimi))
         // 认不出是哪家:接口明说能调用工具的在前,其余照列表顺序
         assertEquals(listOf("antdigital/Ling-3.1-flash", "qwen-plus", "qwen-max", "Other/Chat", "moonshot-v1"), ModelOptions.candidates(options))
-        assertEquals(kimi, ModelOptions.familyOf("https://api.moonshot.cn/v1/"))
+        assertEquals(kimi, ModelOptions.familyOf("https://api.moonshot.ai/v1/"))
         assertEquals(emptyList<String>(), ModelOptions.familyOf("https://openrouter.ai/api/v1"))
     }
 

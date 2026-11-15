@@ -74,7 +74,7 @@ class ModelSetupViewModelTest {
         ModelSetupViewModel(s, backgroundScope, io = StandardTestDispatcher(testScheduler))
 
     private val deepseekUrl = "https://api.deepseek.com"
-    private val kimiUrl = "https://api.moonshot.cn/v1"
+    private val kimiUrl = "https://api.moonshot.ai/v1"
     private val deepseek = ModelListResult.Ok(
         listOf(ListedModel("deepseek-chat"), ListedModel("deepseek-reasoner"), ListedModel("deepseek-coder", toolCalls = false)),
     )

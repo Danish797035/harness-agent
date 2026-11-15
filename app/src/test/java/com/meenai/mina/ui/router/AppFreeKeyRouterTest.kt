@@ -24,9 +24,11 @@ import com.meenai.mina.core.router.picker.ModelRole
 import com.meenai.mina.settings.AesGcmKeyCipher
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.FeatureFlagsCapsuleTest.MemoryPrefs
+import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
 import com.meenai.mina.settings.RoleChoice
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -639,5 +641,27 @@ class AppFreeKeyRouterTest {
         assertFalse(candidates.first { it.provider == "deepseek" }.isFree)
         assertFalse(candidates.first { it.provider == "kimi" }.isFree)
         assertFalse(candidates.first { it.provider == "minimax" }.isFree)
+    }
+
+    @Test
+    fun kimiAndMiniMaxProvidersRecognizeInternationalAndCnUrls() {
+        val kimiIntl = Provider("k1", "Kimi", ProviderConfig.Kind.OpenAiCompat, "https://api.moonshot.ai/v1")
+        val kimiCn = Provider("k2", "Kimi", ProviderConfig.Kind.OpenAiCompat, "https://api.moonshot.cn/v1")
+        val miniMaxIntl = Provider("m1", "MiniMax", ProviderConfig.Kind.OpenAiCompat, "https://api.minimax.io/v1")
+        val miniMaxCn = Provider("m2", "MiniMax", ProviderConfig.Kind.OpenAiCompat, "https://api.minimax.cn/v1")
+
+        assertTrue(AppFreeKeyRouter.isKimiProvider(kimiIntl))
+        assertTrue(AppFreeKeyRouter.isKimiProvider(kimiCn))
+        assertTrue(AppFreeKeyRouter.isMiniMaxProvider(miniMaxIntl))
+        assertTrue(AppFreeKeyRouter.isMiniMaxProvider(miniMaxCn))
+
+        val http = OkHttpClient()
+        val kimiCandidates = AppFreeKeyRouter.createKimiCandidates("test-key", http)
+        assertEquals(2, kimiCandidates.size)
+        kimiCandidates.forEach { assertEquals("kimi", it.provider) }
+
+        val miniMaxCandidates = AppFreeKeyRouter.createMiniMaxCandidates("test-key", http)
+        assertEquals(1, miniMaxCandidates.size)
+        miniMaxCandidates.forEach { assertEquals("minimax", it.provider) }
     }
 }
