@@ -94,4 +94,28 @@ class ModelCooldownStoreTest {
         assertFalse(restoredStore.isAvailable("m1", "p1", 2000L))
         assertTrue(restoredStore.isAvailable("m2", "p2", 2000L, isNewTask = true))
     }
+
+    @Test
+    fun tracksAndPersistsNoBalanceProviders() {
+        var savedJson = ""
+        val store = ModelCooldownStore { savedJson = it }
+
+        assertTrue(store.hasBalance("deepseek"))
+        assertTrue(store.isAvailable("deepseek-chat", "deepseek", 1000L))
+
+        store.markNoBalance("deepseek")
+        assertFalse(store.hasBalance("deepseek"))
+        assertFalse(store.isAvailable("deepseek-chat", "deepseek", 1000L))
+
+        // Check persistence
+        val restored = ModelCooldownStore()
+        restored.loadFromJson(savedJson)
+        assertFalse(restored.hasBalance("deepseek"))
+        assertFalse(restored.isAvailable("deepseek-chat", "deepseek", 1000L))
+
+        // Check clearNoBalance
+        restored.clearNoBalance("deepseek")
+        assertTrue(restored.hasBalance("deepseek"))
+        assertTrue(restored.isAvailable("deepseek-chat", "deepseek", 1000L))
+    }
 }

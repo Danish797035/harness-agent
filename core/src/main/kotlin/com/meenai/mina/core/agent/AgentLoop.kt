@@ -3,6 +3,7 @@ package com.meenai.mina.core.agent
 import com.meenai.mina.core.trace.RunTrace
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.RouterStatus
+import com.meenai.mina.core.router.picker.TaskDifficulty
 import com.meenai.mina.core.guard.OperationGuards
 import com.meenai.mina.core.guard.GuardVerdict
 import com.meenai.mina.core.observation.Place
@@ -351,7 +352,10 @@ class AgentLoop(
         val opening = shots.render(raw)
         val task = opening?.said ?: raw
         taskText = task
-        activeRouter?.startTask(task, hasImage = opening?.images?.isNotEmpty() == true)
+        val routerDifficulty = activeRouter?.startTask(task, hasImage = opening?.images?.isNotEmpty() == true, charCount = task.length)
+        if (routerDifficulty == TaskDifficulty.Heavy && activeRouter?.pinnedModelId == null) {
+            emit(RunEvent.State(now(), "difficulty_classified", "Mushkil task hai — behtar model use kar raha hoon"))
+        }
         latestWords = ownWords(raw, opening)
         val priorTurns = shots.collapse(rawPrior)
         earlierGoals = priorTurns.map { it.userText }
@@ -434,6 +438,9 @@ class AgentLoop(
             taskImages = opening?.images.orEmpty(), screens = opening?.details.orEmpty(),
         )
         val history = start.messages.toMutableList()
+        if (routerDifficulty == TaskDifficulty.Heavy && activeRouter?.pinnedModelId == null) {
+            history += ctx.notice("task_difficulty", "Mushkil task hai — behtar model use kar raha hoon")
+        }
         start.knowledge.filter { it.trial }.forEach { emit(RunEvent.State(now(), "knowledge_trial_used", it.name)) }
         // 链接只在 open_link 可用时给,且只放行真的给了模型的那几份
         if (flags.deepLinks) start.knowledge.forEach { if (it.links.isNotEmpty()) tools.allowLinks(it.links) }
@@ -479,7 +486,18 @@ class AgentLoop(
             _state.value = TaskState.Running(step, note)
             refreshOffer()
             val stepHasImages = history.any { m -> m.parts.any { it is Part.Image } }
+            val prevCandidate = activeRouter?.activeCandidate?.id
             activeRouter?.prepareStep(step, stepHasImages)
+            val nextCandidate = activeRouter?.activeCandidate?.id
+            if (nextCandidate != null && nextCandidate != prevCandidate) {
+                val switchReason = if (activeRouter?.difficultyRouter?.isEscalated == true) {
+                    "Ye model jawab nahi de paya — behtar model pe switch kiya"
+                } else {
+                    "Switched to $nextCandidate"
+                }
+                emit(RunEvent.State(now(), "model_switched", "Switched to $nextCandidate — $switchReason"))
+                history += ctx.notice("model_switch", switchReason)
+            }
             var asked = now()
             val routed = try {
                 routedOrRedirect(inbox, history, specs, track, step, { asked = it }, previewFor(step))

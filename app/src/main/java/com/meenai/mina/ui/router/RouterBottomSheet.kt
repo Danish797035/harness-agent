@@ -660,6 +660,8 @@ fun ModelQuotaRow(
                 stringResource(R.string.router_status_cooldown, model.cooldownMinutes) to colors.bad
             } else if (model.status == ModelStatusKind.BadKey) {
                 stringResource(R.string.router_status_bad_key) to colors.bad
+            } else if (model.status == ModelStatusKind.NoBalance) {
+                "No balance" to colors.bad
             } else {
                 stringResource(R.string.router_quota_exhausted) to colors.bad
             }

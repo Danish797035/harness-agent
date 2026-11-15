@@ -104,4 +104,47 @@ class AgentLoopEmptyReplyFailoverTest {
         assertTrue("Task should end with no answer after exceeding switch limit, but was $result", result is TaskState.Failed)
         assertEquals(FailKind.Model, (result as TaskState.Failed).kind)
     }
+
+    @Test
+    fun heavyTaskEmitsDifficultyClassifiedChatNote() = runTest {
+        val model = FakeModel(finish("Code written"))
+        val candidate = RouterCandidate(id = "m1", provider = "p1", model = model, curatedRank = 1)
+        val router = FreeKeyRouter(candidates = listOf(candidate))
+        val sink = Events()
+        val loop = AgentLoop(
+            model = router,
+            tools = toolDispatcher(FakeScreen()),
+            basePrompt = "BASE",
+            sink = sink,
+        )
+
+        // Heavy task: coding
+        val result = loop.run("write python script to process dataset")
+        assertTrue(result is TaskState.Succeeded)
+
+        val diffEvents = sink.list.filterIsInstance<RunEvent.State>().filter { it.name == "difficulty_classified" }
+        assertEquals(1, diffEvents.size)
+        assertEquals("Mushkil task hai — behtar model use kar raha hoon", diffEvents[0].detail)
+    }
+
+    @Test
+    fun lightTaskDoesNotEmitDifficultyClassifiedChatNote() = runTest {
+        val model = FakeModel(finish("Paris"))
+        val candidate = RouterCandidate(id = "m1", provider = "p1", model = model, curatedRank = 1)
+        val router = FreeKeyRouter(candidates = listOf(candidate))
+        val sink = Events()
+        val loop = AgentLoop(
+            model = router,
+            tools = toolDispatcher(FakeScreen()),
+            basePrompt = "BASE",
+            sink = sink,
+        )
+
+        // Light task: simple question
+        val result = loop.run("what is the capital of France?")
+        assertTrue(result is TaskState.Succeeded)
+
+        val diffEvents = sink.list.filterIsInstance<RunEvent.State>().filter { it.name == "difficulty_classified" }
+        assertEquals(0, diffEvents.size)
+    }
 }

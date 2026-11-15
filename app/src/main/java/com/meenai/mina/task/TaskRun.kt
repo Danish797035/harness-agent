@@ -3,6 +3,7 @@ package com.meenai.mina.task
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.i18n.trPlural
+import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.uistate.IdleScroll
 import com.meenai.mina.core.cap.web.PagePacing
 import com.meenai.mina.core.uistate.PlacePace
@@ -829,7 +830,7 @@ class TaskRun(
                 selfPackage = service.packageName,
                 flags = speed,
                 // 只在 lightSteps 打开、轻量模型能调工具时生效
-                router = light?.let { ModelRouter(model, it) },
+                router = if (model is FreeKeyRouter) null else light?.let { ModelRouter(model, it) },
                 intentJudge = if (provenance.origin == RunOrigin.Ui) light ?: model else null,
                 // 选路线是辅助判断:用轻量模型,没配用主模型
                 routes = if (speed.replay) RouteMatcher(light ?: model, routeStore, knowledge) else null,
