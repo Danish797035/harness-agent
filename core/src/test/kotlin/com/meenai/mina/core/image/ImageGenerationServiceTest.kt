@@ -501,5 +501,85 @@ class ImageGenerationServiceTest {
         val fluxCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "flux")
         assertEquals("black-forest-labs/flux-1-schnell", fluxCandidates[0].id)
     }
+
+    @Test
+    fun harnessDownDoesNotFallbackToOpenRouterWhenPaidDisallowed() = runBlocking {
+        val dummyModelScope = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw java.net.ConnectException("Connection refused")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw java.net.ConnectException("Connection refused")
+        }
+        val dummyHarness = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw java.net.ConnectException("Connection refused")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw java.net.ConnectException("Connection refused")
+        }
+        var openRouterCalled = false
+        val dummyOpenRouter = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                openRouterCalled = true
+                return "OR_IMAGE".toByteArray()
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                openRouterCalled = true
+                return "OR_IMAGE".toByteArray()
+            }
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = dummyModelScope,
+            openRouterClient = dummyOpenRouter,
+            harnessClient = dummyHarness,
+            getApiKey = { "test-or-key" },
+            isPaidAllowed = { false }, // Paid is disallowed!
+        )
+
+        val result = service.generateImage("sunset portrait")
+        assertTrue("Result should be Error", result is ImageResult.Error)
+        assertFalse("OpenRouter must NOT be called when isPaidAllowed is false", openRouterCalled)
+    }
+
+    @Test
+    fun harnessDownFallsBackToOpenRouterWhenPaidAllowed() = runBlocking {
+        val dummyModelScope = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw java.net.ConnectException("Connection refused")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw java.net.ConnectException("Connection refused")
+        }
+        val dummyHarness = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw java.net.ConnectException("Connection refused")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw java.net.ConnectException("Connection refused")
+        }
+        var openRouterCalled = false
+        val dummyOpenRouter = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                openRouterCalled = true
+                return "OR_IMAGE".toByteArray()
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                openRouterCalled = true
+                return "OR_IMAGE".toByteArray()
+            }
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = dummyModelScope,
+            openRouterClient = dummyOpenRouter,
+            harnessClient = dummyHarness,
+            getApiKey = { "test-or-key" },
+            isPaidAllowed = { true }, // Paid IS allowed!
+        )
+
+        val result = service.generateImage("sunset portrait")
+        assertTrue("Result should be Success", result is ImageResult.Success)
+        assertTrue("OpenRouter MUST be called when isPaidAllowed is true", openRouterCalled)
+        assertEquals("google/gemini-2.5-flash-image", (result as ImageResult.Success).model)
+    }
 }
+
 

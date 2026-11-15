@@ -146,12 +146,12 @@ class ImageGenerationService(
             }
         }
 
-        // Graceful fallback to OpenRouter if local harness service is offline and OpenRouter key is available
-        if (harnessDown && openRouterClient != null) {
+        // Graceful fallback to OpenRouter ONLY if local harness service is offline, OpenRouter client is available, AND user allowed paid models
+        if (harnessDown && openRouterClient != null && isPaidAllowed()) {
             val orKey = getApiKey(ImageModelCatalog.PROVIDER_OPENROUTER)
             if (!orKey.isNullOrBlank()) {
                 try {
-                    logger?.invoke("Local harness service down; gracefully falling back to OpenRouter gemini-2.5-flash-image")
+                    logger?.invoke("Local harness service down; gracefully falling back to OpenRouter gemini-2.5-flash-image (paid allowed)")
                     val fallbackModel = "google/gemini-2.5-flash-image"
                     val bytes = action(openRouterClient, orKey, fallbackModel)
                     return ImageResult.Success(bytes, fallbackModel, 0.0)

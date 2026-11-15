@@ -1,0 +1,60 @@
+package com.meenai.mina.image
+
+import com.meenai.mina.core.image.ImageClient
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+
+/**
+ * Composite LM Arena client:
+ * 1. Probes remote / local microservice on port 3000 first (if user is running harness-image on PC or Termux).
+ * 2. If port 3000 is unreachable, automatically and silently uses the native in-app Android WebView automation!
+ */
+class CompositeArenaImageClient(
+    private val remoteClient: ImageClient,
+    private val nativeClient: ImageClient,
+    private val logger: ((String) -> Unit)? = null,
+) : ImageClient {
+
+    override suspend fun generate(
+        apiKey: String,
+        model: String,
+        prompt: String,
+        size: String?,
+    ): ByteArray {
+        try {
+            logger?.invoke("CompositeArenaImageClient: checking remote/local harness service first...")
+            return remoteClient.generate(apiKey, model, prompt, size)
+        } catch (t: Throwable) {
+            val msg = t.message.orEmpty()
+            if (t is ConnectException ||
+                t is SocketTimeoutException ||
+                msg.contains("Connection refused", ignoreCase = true) ||
+                msg.contains("Failed to connect", ignoreCase = true)) {
+                logger?.invoke("CompositeArenaImageClient: port 3000 offline, seamlessly running Native In-App LM Arena automation")
+                return nativeClient.generate(apiKey, model, prompt, size)
+            }
+            throw t
+        }
+    }
+
+    override suspend fun edit(
+        apiKey: String,
+        model: String,
+        prompt: String,
+        imageBase64: String,
+    ): ByteArray {
+        try {
+            return remoteClient.edit(apiKey, model, prompt, imageBase64)
+        } catch (t: Throwable) {
+            val msg = t.message.orEmpty()
+            if (t is ConnectException ||
+                t is SocketTimeoutException ||
+                msg.contains("Connection refused", ignoreCase = true) ||
+                msg.contains("Failed to connect", ignoreCase = true)) {
+                logger?.invoke("CompositeArenaImageClient: port 3000 offline, seamlessly running Native In-App LM Arena for edit")
+                return nativeClient.edit(apiKey, model, prompt, imageBase64)
+            }
+            throw t
+        }
+    }
+}

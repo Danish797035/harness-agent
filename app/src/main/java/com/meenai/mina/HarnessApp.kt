@@ -136,8 +136,17 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
 
     /** Image generation and editing service. */
     val imageService: com.meenai.mina.core.image.ImageGenerationService by lazy {
-        val harnessClient = com.meenai.mina.core.image.HarnessImageClient(
+        val remoteHarnessClient = com.meenai.mina.core.image.HarnessImageClient(
             baseUrlSupplier = { imageSettings.getHarnessBaseUrl() },
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
+        val nativeArenaClient = com.meenai.mina.image.NativeArenaImageClient(
+            context = this,
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
+        val harnessClient = com.meenai.mina.image.CompositeArenaImageClient(
+            remoteClient = remoteHarnessClient,
+            nativeClient = nativeArenaClient,
             logger = { msg -> Log.d("ImageGen", msg) }
         )
         val modelScopeClient = com.meenai.mina.core.image.ModelScopeImageClient(
