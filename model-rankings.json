@@ -2933,5 +2933,79 @@
       "visionScore": 0.0,
       "speedScore": 0.0
     }
+  ],
+  "imageModels": [
+    {
+      "model": "MAI-Image-2.6",
+      "id": "mai-image-2.6",
+      "provider": "harness",
+      "t2iScore": 92.4,
+      "editScore": 94.1,
+      "arenaRatingT2I": 1330.0,
+      "arenaRatingEdit": 1428.0,
+      "avgRating": 1379.0,
+      "availableInSideBySide": true,
+      "isRecommended": true
+    },
+    {
+      "model": "Grok Imagine Image 2.0",
+      "id": "grok-imagine-2.0",
+      "provider": "harness",
+      "t2iScore": 91.2,
+      "editScore": 95.0,
+      "arenaRatingT2I": 1318.0,
+      "arenaRatingEdit": 1437.0,
+      "avgRating": 1377.5,
+      "availableInSideBySide": true,
+      "isRecommended": false
+    },
+    {
+      "model": "Muse Image",
+      "id": "muse-image",
+      "provider": "harness",
+      "t2iScore": 86.0,
+      "editScore": 91.5,
+      "arenaRatingT2I": 1266.0,
+      "arenaRatingEdit": 1401.0,
+      "avgRating": 1333.5,
+      "availableInSideBySide": true,
+      "isRecommended": false
+    },
+    {
+      "model": "Seedream 5.0 Lite",
+      "id": "seedream-5.0-lite",
+      "provider": "harness",
+      "t2iScore": 82.0,
+      "editScore": 85.0,
+      "arenaRatingT2I": 1210.0,
+      "arenaRatingEdit": 1320.0,
+      "avgRating": 1265.0,
+      "availableInSideBySide": true,
+      "isRecommended": false
+    },
+    {
+      "model": "Qwen-Image-2.1",
+      "id": "Qwen/Qwen-Image-2.1",
+      "provider": "modelscope",
+      "t2iScore": 81.0,
+      "editScore": 83.0,
+      "arenaRatingT2I": 1205.0,
+      "arenaRatingEdit": 1310.0,
+      "avgRating": 1257.5,
+      "availableInSideBySide": true,
+      "isRecommended": false
+    },
+    {
+      "model": "FLUX.1-schnell",
+      "id": "black-forest-labs/flux-1-schnell",
+      "provider": "openrouter",
+      "t2iScore": 80.5,
+      "editScore": 78.0,
+      "arenaRatingT2I": 1195.0,
+      "arenaRatingEdit": 1280.0,
+      "avgRating": 1237.5,
+      "availableInSideBySide": true,
+      "isRecommended": false
+    }
   ]
 }

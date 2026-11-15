@@ -45,9 +45,10 @@ export class ArenaPage {
       recordSelectorFailure(entry.key, candidates[0]);
     }
 
-    // Try to click option matching target model or seedream
+    // Try to click option matching target model or known arena image models
     try {
-      const option = this.page.locator(`text=/${targetModelName}|seedream/i`).first();
+      const escaped = targetModelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const option = this.page.locator(`text=/${escaped}|mai-image|grok|muse|seedream/i`).first();
       if ((await option.count()) > 0) {
         await option.click();
         await this.page.waitForTimeout(500);

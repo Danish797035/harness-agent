@@ -13,6 +13,7 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
     enum class Intent { Discuss, Read, Act }
 
     suspend fun assess(task: String, priorTurns: List<Turn>): Intent? {
+        if (com.meenai.mina.core.image.ImageIntentRouter.isVisualPrompt(task)) return Intent.Act
         val prior = Conversation.context(priorTurns, maxTurns = 3, maxTokens = 800)
             ?.parts?.filterIsInstance<Part.Text>()?.joinToString("\n") { it.text }.orEmpty()
         val input = buildString {

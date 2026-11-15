@@ -5,9 +5,34 @@ export interface ModelInfo {
 }
 
 export const ALLOWED_MODELS: Record<string, ModelInfo> = {
+  'mai-image-2.6': {
+    id: 'mai-image-2.6',
+    displayName: 'MAI-Image-2.6',
+    provider: 'harness',
+  },
+  'grok-imagine-2.0': {
+    id: 'grok-imagine-2.0',
+    displayName: 'Grok Imagine Image 2.0',
+    provider: 'harness',
+  },
+  'muse-image': {
+    id: 'muse-image',
+    displayName: 'Muse Image',
+    provider: 'harness',
+  },
   'seedream-5.0-lite': {
     id: 'seedream-5.0-lite',
     displayName: 'Seedream 5.0 Lite',
+    provider: 'harness',
+  },
+  'seedream-5.0-pro': {
+    id: 'seedream-5.0-pro',
+    displayName: 'Seedream 5.0 Pro',
+    provider: 'harness',
+  },
+  'qwen-image-2.1': {
+    id: 'qwen-image-2.1',
+    displayName: 'Qwen-Image-2.1',
     provider: 'harness',
   },
   'imagen-3': {
@@ -27,7 +52,7 @@ export const ALLOWED_MODELS: Record<string, ModelInfo> = {
   },
 };
 
-export const DEFAULT_MODEL_ID = process.env.DEFAULT_MODEL || 'seedream-5.0-lite';
+export const DEFAULT_MODEL_ID = process.env.DEFAULT_MODEL || 'mai-image-2.6';
 
 export function getModelInfo(modelId?: string): ModelInfo | null {
   const target = (modelId || DEFAULT_MODEL_ID).trim().toLowerCase();

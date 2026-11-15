@@ -399,6 +399,7 @@ class AgentLoop(
             provenance = provenance,
             selfPackage = selfPackage, autonomous = autonomous, pacing = outwardPacing)
         var emptyNudged = false
+        var imagePromptNudged = false
         var emptyReplySwitches = 0
         // 调过工具才有可核对的材料;交给用户付款和放行过对外动作一样,回答要另请核查
         var acted = false
@@ -575,6 +576,13 @@ class AgentLoop(
                 if (owed != null) {
                     followUpNudged = true
                     TurnPolicy.followUp(owed).let { history += ctx.notice(it.source, it.text) }
+                    continue
+                }
+                if (step == 1 && !imagePromptNudged && tools.declared("generate_image") != null &&
+                    com.meenai.mina.core.image.ImageIntentRouter.isVisualPrompt(task)) {
+                    imagePromptNudged = true
+                    history += ctx.notice("visual_prompt_intent",
+                        "The user provided an image generation prompt. Do not critique, review, or discuss the prompt text; call generate_image immediately with the user's prompt description.")
                     continue
                 }
                 val before = beforeAccept(text)

@@ -66,7 +66,7 @@ object ImageTools {
 
     const val ROUTER_SYSTEM_PROMPT = """
 You are an AI assistant that handles visual media requests.
-1. If the user asks to generate, create, draw, or make a new image or photo, call `generate_image` with a descriptive English prompt and optional size (e.g. 1024*1024).
+1. If the user asks to generate, create, draw, or make a new image or photo, OR provides a raw visual prompt/scene description (e.g. cinematic portrait, ultra-realistic, AR 4:5, photography specs), call `generate_image` with the prompt and optional size (e.g. 1024*1024). Do NOT critique or discuss the prompt text.
 2. If the user has provided a photo and asks to edit, alter, or modify it, call `edit_image` with the requested edits in `prompt`.
 3. If the user asks for a video or animation (e.g. "video banao", "make video"), do NOT call any tool; simply say "Video abhi support nahi hai".
 4. You do not generate raw images yourself, only call the appropriate tool.
@@ -87,6 +87,27 @@ class ImageIntentRouter(
                    lower.contains("make video") ||
                    lower.contains("generate video") ||
                    (lower.contains("video") && (lower.contains("banao") || lower.contains("banaye") || lower.contains("chahiye") || lower.contains("generate") || lower.contains("create") || lower.contains("make")))
+        }
+
+        fun isVisualPrompt(text: String): Boolean {
+            val lower = text.lowercase()
+            if (isVideoRequest(text)) return false
+
+            val strongMarkers = listOf(
+                "cinematic portrait", "ultra-realistic", "hyper-detailed", "photorealistic",
+                "ar 4:5", "ar 16:9", "ar 1:1", "ar 9:16", "aspect ratio",
+                "shallow depth of field", "octane render", "unreal engine",
+                "16k cinematic", "8k resolution", "16k resolution",
+                "face reference locked", "reference image locked",
+                "vertical composition", "horizontal composition",
+            )
+            if (strongMarkers.any { lower.contains(it) }) return true
+
+            val visualKeywords = listOf("portrait", "photo", "image", "tasveer", "picture", "chhavi", "illustration", "painting", "rendering")
+            val styleKeywords = listOf("cinematic", "realistic", "lighting", "detailed", "textured", "outfit:", "pose:", "setting:")
+            val hasVisual = visualKeywords.any { lower.contains(it) }
+            val hasStyle = styleKeywords.any { lower.contains(it) }
+            return hasVisual && hasStyle
         }
     }
 

@@ -89,16 +89,20 @@ def load_board(siblings: List[str], board_dir: str, category: str, value_col: st
     path = latest_parquet_path(siblings, board_dir)
     raw = fetch_bytes(f"{RESOLVE_URL}/{path}")
     df = pd.read_parquet(io.BytesIO(raw))
-    df = df[df["category"] == category]
-    if value_col not in df.columns:
+    if "category" in df.columns:
+        cat_matches = df[df["category"] == category]
+        if not cat_matches.empty:
+            df = cat_matches
+    col = value_col if value_col in df.columns else ("rating" if "rating" in df.columns else "score")
+    if col not in df.columns:
         raise RuntimeError(f"Board {board_dir}: missing column '{value_col}' (cols={list(df.columns)})")
-    df = df.dropna(subset=[value_col])
+    df = df.dropna(subset=[col])
     out: Dict[str, Any] = {}
     publish_dates = set()
     for _, row in df.iterrows():
         display = base_name(str(row["model_name"]))
         key = normalize_name(display)
-        value = float(row[value_col])
+        value = float(row[col])
         if key not in out or value > out[key][1]:
             out[key] = (display, value)
         if "leaderboard_publish_date" in df.columns:
@@ -145,17 +149,64 @@ def generate_rankings() -> Dict[str, Any]:
     if len(models) < MIN_MODELS:
         raise RuntimeError(f"Only {len(models)} models merged (expected >= {MIN_MODELS}); refusing to write")
 
-    publish = sorted(dates_text | dates_vision | dates_agent)
+    # Load image generation and edit leaderboards
+    image_models: List[Dict[str, Any]] = []
+    dates_t2i: set = set()
+    dates_edit: set = set()
+    try:
+        t2i_raw, dates_t2i = load_board(siblings, "text_to_image", "overall", "rating")
+        edit_raw, dates_edit = load_board(siblings, "image_edit", "overall", "rating")
+        t2i_scaled = scale(t2i_raw)
+        edit_scaled = scale(edit_raw)
+
+        SIDE_BY_SIDE_MODELS = [
+            {"id": "mai-image-2.6", "display": "MAI-Image-2.6", "keys": ["mai-image-2-6", "mai-image", "mai"], "provider": "harness"},
+            {"id": "grok-imagine-2.0", "display": "Grok Imagine Image 2.0", "keys": ["grok-imagine-image-2-0", "grok-imagine-2-0", "grok-imagine", "grok"], "provider": "harness"},
+            {"id": "muse-image", "display": "Muse Image", "keys": ["muse-image", "muse"], "provider": "harness"},
+            {"id": "seedream-5.0-lite", "display": "Seedream 5.0 Lite", "keys": ["seedream-5-0-lite", "seedream"], "provider": "harness"},
+            {"id": "seedream-5.0-pro", "display": "Seedream 5.0 Pro", "keys": ["seedream-5-0-pro"], "provider": "harness"},
+            {"id": "Qwen/Qwen-Image-2.1", "display": "Qwen-Image-2.1", "keys": ["qwen-image-2-1", "qwen-image"], "provider": "modelscope"},
+            {"id": "black-forest-labs/flux-1-schnell", "display": "FLUX.1-schnell", "keys": ["flux-1-schnell", "flux"], "provider": "openrouter"},
+        ]
+
+        for sbs in SIDE_BY_SIDE_MODELS:
+            match_t2i_key = next((k for k in t2i_raw if any(alias in k for alias in sbs["keys"])), None)
+            match_edit_key = next((k for k in edit_raw if any(alias in k for alias in sbs["keys"])), None)
+            t2i_score = t2i_scaled.get(match_t2i_key, 0.0) if match_t2i_key else 0.0
+            edit_score = edit_scaled.get(match_edit_key, 0.0) if match_edit_key else 0.0
+            t2i_rating = t2i_raw[match_t2i_key][1] if match_t2i_key else 0.0
+            edit_rating = edit_raw[match_edit_key][1] if match_edit_key else 0.0
+            avg_rating = (t2i_rating + edit_rating) / 2.0 if (t2i_rating and edit_rating) else (t2i_rating or edit_rating)
+
+            image_models.append({
+                "model": sbs["display"],
+                "id": sbs["id"],
+                "provider": sbs["provider"],
+                "t2iScore": t2i_score,
+                "editScore": edit_score,
+                "arenaRatingT2I": round(t2i_rating, 1),
+                "arenaRatingEdit": round(edit_rating, 1),
+                "avgRating": round(avg_rating, 1),
+                "availableInSideBySide": True,
+            })
+        image_models.sort(key=lambda x: -x["avgRating"])
+        if image_models:
+            image_models[0]["isRecommended"] = True
+    except Exception as exc:
+        print(f"Warning: Failed to load image boards: {exc}", file=sys.stderr)
+
+    publish = sorted(dates_text | dates_vision | dates_agent | dates_t2i | dates_edit)
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "updatedAt": now_iso,
         "version": 1,
         "sources": [
             f"LMArena leaderboard-dataset (huggingface.co/datasets/{DATASET}), "
-            f"boards text/coding/vision/agent, snapshots {', '.join(publish) or 'unknown'}, "
+            f"boards text/coding/vision/agent/text_to_image/image_edit, snapshots {', '.join(publish) or 'unknown'}, "
             "each board min-max scaled to 0-100; speedScore not measured by source (0.0 = no data)",
         ],
         "models": models,
+        "imageModels": image_models,
     }
 
 

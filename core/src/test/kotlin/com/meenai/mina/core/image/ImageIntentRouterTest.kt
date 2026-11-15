@@ -219,4 +219,44 @@ class ImageIntentRouterTest {
         assertTrue("Main model should be called as fallback", mainCalled.get())
         assertTrue("Result should be Generate", result is ImageIntentAction.Generate)
     }
+
+    @Test
+    fun isVisualPromptRecognizesComplexVisualPrompts() {
+        val prompt = """
+            Ultra-realistic 16K cinematic portrait of a handsome young Indian man
+            (face reference from image — same face structure, same sharp jawline,
+            same dark black wavy textured hair with natural flow,
+            same light beard, same skin tone, wearing same black rectangular sunglasses).
+
+            Outfit: Oversized green-red-white tartan/plaid check short-sleeve shirt
+            with circular graphic patch logo on chest (Chrome Hearts style),
+            straight-fit black wide-leg trousers and
+            white-grey Nike Dunk Low sneakers.
+
+            Pose: Standing and leaning sideways with left shoulder pressed
+            against the dark grey striped wall, both hands casually tucked
+            into front trouser pockets, one ankle crossed over the other,
+            body relaxed and slightly slouched. Head straight,
+            chin slightly down, gazing directly into the camera
+            with a cold, unbothered, sharp expression.
+
+            Setting: Outdoor garden/courtyard, lush green grass,
+            potted tropical plants nearby, dark grey and white stripe
+            textured wall directly behind, marble steps slightly visible to the side.
+
+            Soft natural daylight, warm tone, shallow depth of field,
+            background softly blurred. Hyper-detailed fabric, shoe, skin and hair texture.
+
+            [REFERENCE IMAGE LOCKED: same face, same hairstyle,
+            same beard, same sunglasses, same skin tone]
+
+            AR 4:5 vertical composition
+        """.trimIndent()
+
+        assertTrue("Complex prompt should be recognized as visual prompt", ImageIntentRouter.isVisualPrompt(prompt))
+        assertTrue(ImageIntentRouter.isVisualPrompt("cinematic portrait of warrior in armor, ar 16:9"))
+        assertTrue(ImageIntentRouter.isVisualPrompt("Ultra-realistic photo of a cute kitten, shallow depth of field"))
+        org.junit.Assert.assertFalse(ImageIntentRouter.isVisualPrompt("kya haal hai bhai"))
+        org.junit.Assert.assertFalse(ImageIntentRouter.isVisualPrompt("video banao dancing cat ka"))
+    }
 }

@@ -81,8 +81,13 @@ class ImageGenerationService(
         var lastError: Throwable? = null
         var hadModelScopeCandidate = false
         var skippedDueToMagicube = false
+        var harnessDown = false
 
         for (candidate in candidates) {
+            if (candidate.provider == ImageModelCatalog.PROVIDER_HARNESS && harnessDown) {
+                continue
+            }
+
             val isModelScope = candidate.provider == ImageModelCatalog.PROVIDER_MODELSCOPE
             if (isModelScope) {
                 hadModelScopeCandidate = true
@@ -124,12 +129,35 @@ class ImageGenerationService(
                 throw e
             } catch (t: Throwable) {
                 lastError = t
+                if (candidate.provider == ImageModelCatalog.PROVIDER_HARNESS) {
+                    val msg = t.message.orEmpty()
+                    if (msg.contains("Connection refused", ignoreCase = true) ||
+                        msg.contains("Failed to connect", ignoreCase = true) ||
+                        t is java.net.ConnectException) {
+                        harnessDown = true
+                    }
+                }
                 switches++
                 logger?.invoke("Model ${candidate.id} failed, silent failover count: $switches")
                 if (switches > MAX_SWITCHES) {
                     break
                 }
                 // Silent failover: chupke se agla model, no toast/error shown
+            }
+        }
+
+        // Graceful fallback to OpenRouter if local harness service is offline and OpenRouter key is available
+        if (harnessDown && openRouterClient != null) {
+            val orKey = getApiKey(ImageModelCatalog.PROVIDER_OPENROUTER)
+            if (!orKey.isNullOrBlank()) {
+                try {
+                    logger?.invoke("Local harness service down; gracefully falling back to OpenRouter flux-1-schnell")
+                    val fallbackModel = "black-forest-labs/flux-1-schnell"
+                    val bytes = action(openRouterClient, orKey, fallbackModel)
+                    return ImageResult.Success(bytes, fallbackModel, 0.0)
+                } catch (orErr: Throwable) {
+                    lastError = orErr
+                }
             }
         }
 
@@ -162,6 +190,9 @@ class ImageGenerationService(
             val match = allList.find { candidate ->
                 candidate.id.equals(req, ignoreCase = true) ||
                 candidate.id.contains(req, ignoreCase = true) ||
+                (req.contains("mai", ignoreCase = true) && candidate.id.contains("mai", ignoreCase = true)) ||
+                (req.contains("grok", ignoreCase = true) && candidate.id.contains("grok", ignoreCase = true)) ||
+                (req.contains("muse", ignoreCase = true) && candidate.id.contains("muse", ignoreCase = true)) ||
                 (req.contains("seedream", ignoreCase = true) && candidate.id.contains("seedream", ignoreCase = true)) ||
                 (req.contains("flux", ignoreCase = true) && candidate.id.contains("flux", ignoreCase = true)) ||
                 (req.contains("qwen", ignoreCase = true) && candidate.id.contains("qwen", ignoreCase = true))

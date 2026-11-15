@@ -17,6 +17,20 @@ data class ModelRankingEntry(
     val speedScore: Double = 0.0,
 )
 
+@Serializable
+data class ImageModelRankingEntry(
+    val model: String,
+    val id: String = "",
+    val provider: String = "",
+    val t2iScore: Double = 0.0,
+    val editScore: Double = 0.0,
+    val arenaRatingT2I: Double = 0.0,
+    val arenaRatingEdit: Double = 0.0,
+    val avgRating: Double = 0.0,
+    val availableInSideBySide: Boolean = false,
+    val isRecommended: Boolean = false,
+)
+
 /**
  * Encapsulates the complete leaderboard rankings payload.
  */
@@ -26,6 +40,7 @@ data class ModelRankingsData(
     val version: Int = 1,
     val sources: List<String> = emptyList(),
     val models: List<ModelRankingEntry> = emptyList(),
+    val imageModels: List<ImageModelRankingEntry> = emptyList(),
 )
 
 /**

@@ -31,7 +31,7 @@ internal object GenerateImageTool : AgentTool {
         mapOf(
             "prompt" to str("Detailed text description of the image to generate"),
             "size" to str("Optional image dimensions, e.g. 1024*1024"),
-            "model" to str("Optional image model name requested by user, e.g. 'seedream-5.0-lite', 'flux', 'qwen-image'")
+            "model" to str("Optional image model name requested by user, e.g. 'mai-image-2.6', 'grok-imagine-2.0', 'muse-image', 'seedream-5.0-lite', 'flux', 'qwen-image'")
         ),
         listOf("prompt")
     )
@@ -66,7 +66,7 @@ internal object GenerateImageTool : AgentTool {
         if (requestedModel == null) {
             val userGoal = ctx.config.runSpec?.goal.orEmpty()
             val textToScan = "$prompt $userGoal"
-            val modelDetect = Regex("""\b(seedream(?:-5\.0-lite)?|flux(?:-1-schnell|\.1-schnell)?|qwen(?:-image(?:-2\.1)?)?|cogview)\b""", RegexOption.IGNORE_CASE).find(textToScan)
+            val modelDetect = Regex("""\b(mai(?:-image)?(?:-2\.6)?|grok(?:-imagine)?(?:-2\.0)?|muse(?:-image)?|seedream(?:-5\.0-(?:lite|pro))?|flux(?:-1-schnell|\.1-schnell)?|qwen(?:-image(?:-2\.1)?)?|cogview)\b""", RegexOption.IGNORE_CASE).find(textToScan)
             if (modelDetect != null) {
                 requestedModel = modelDetect.value
             }

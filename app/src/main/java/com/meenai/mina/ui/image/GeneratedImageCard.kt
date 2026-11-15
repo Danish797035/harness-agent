@@ -67,12 +67,16 @@ data class GeneratedImageUi(
 fun formatImageModelName(model: String): String {
     val clean = model.substringAfterLast("/")
     return when {
-        clean.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
+        clean.contains("mai-image", ignoreCase = true) -> "MAI-Image-2.6"
+        clean.contains("grok", ignoreCase = true) -> "Grok Imagine 2.0"
+        clean.contains("muse", ignoreCase = true) -> "Muse Image"
+        clean.contains("seedream-5.0-pro", ignoreCase = true) -> "Seedream-5.0-pro"
+        clean.contains("seedream", ignoreCase = true) -> "Seedream-5.0-lite"
         clean.contains("flux", ignoreCase = true) -> "FLUX.1-schnell"
         clean.contains("qwen-image-2.1", ignoreCase = true) -> "Qwen-Image-2.1"
         clean.contains("qwen-image", ignoreCase = true) -> "Qwen-Image"
         clean.contains("cogview", ignoreCase = true) -> "CogView-3-Plus"
-        else -> clean.ifBlank { "seedream-5.0-lite" }
+        else -> clean.ifBlank { "MAI-Image-2.6" }
     }
 }
 
@@ -96,7 +100,7 @@ fun GeneratedImageCard(
             .padding(vertical = 8.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            val displayModel = imageUi.model.ifBlank { "seedream-5.0-lite" }
+            val displayModel = imageUi.model.ifBlank { "mai-image-2.6" }
             var showModelMenu by remember { mutableStateOf(false) }
 
             Row(
@@ -150,9 +154,11 @@ fun GeneratedImageCard(
                         onDismissRequest = { showModelMenu = false },
                     ) {
                         listOf(
-                            "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Free / Recommended)",
-                            "Qwen/Qwen-Image" to "Qwen-Image (Detailed)",
-                            "seedream-5.0-lite" to "seedream-5.0-lite (Local / Fast)",
+                            "mai-image-2.6" to "MAI-Image-2.6 (Arena #1 / Recommended)",
+                            "grok-imagine-2.0" to "Grok Imagine 2.0 (Arena #2 / xAI)",
+                            "muse-image" to "Muse Image (Arena #3 / Meta)",
+                            "seedream-5.0-lite" to "Seedream 5.0 Lite (ByteDance / Fast)",
+                            "Qwen/Qwen-Image-2.1" to "Qwen-Image-2.1 (Alibaba / Free)",
                             "black-forest-labs/flux-1-schnell" to "FLUX.1-schnell (Quality)",
                         ).forEach { (modelId, label) ->
                             DropdownMenuItem(

@@ -172,6 +172,39 @@ class ImageToolsTest {
         val res = GenerateImageTool.execute(args, ctx)
         assertEquals(true, res.content["ok"]?.jsonPrimitive?.booleanOrNull)
         assertEquals("Qwen/Qwen-Image-2.1", requestedModelUsed)
+
+        // Goal requesting mai-image-2.6
+        val maiCtx = ToolContext(
+            config = ToolConfig(imageService = service, runSpec = com.meenai.mina.core.run.RunSpec(
+                com.meenai.mina.core.run.RunId("r2"), "Generate with mai-image-2.6: portrait of warrior", "thread-1"
+            )),
+            evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots()
+        )
+        val maiRes = GenerateImageTool.execute(args, maiCtx)
+        assertEquals(true, maiRes.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("mai-image-2.6", requestedModelUsed)
+
+        // Goal requesting grok-imagine-2.0
+        val grokCtx = ToolContext(
+            config = ToolConfig(imageService = service, runSpec = com.meenai.mina.core.run.RunSpec(
+                com.meenai.mina.core.run.RunId("r3"), "Generate with grok-imagine-2.0: futuristic city", "thread-1"
+            )),
+            evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots()
+        )
+        val grokRes = GenerateImageTool.execute(args, grokCtx)
+        assertEquals(true, grokRes.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("grok-imagine-2.0", requestedModelUsed)
+
+        // Goal requesting muse-image
+        val museCtx = ToolContext(
+            config = ToolConfig(imageService = service, runSpec = com.meenai.mina.core.run.RunSpec(
+                com.meenai.mina.core.run.RunId("r4"), "Generate with muse-image: oil painting of cat", "thread-1"
+            )),
+            evidence = EvidenceLog(), tools = ToolIndex(emptyList()), scripts = null, shots = Shots()
+        )
+        val museRes = GenerateImageTool.execute(args, museCtx)
+        assertEquals(true, museRes.content["ok"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals("muse-image", requestedModelUsed)
     }
 
     @Test

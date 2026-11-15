@@ -473,9 +473,21 @@ class ImageGenerationServiceTest {
             getApiKey = { "test-key" },
         )
 
-        // Default: seedream is first
+        // Default: mai-image-2.6 is first (LM Arena Side-by-Side top image model)
         val defaultCandidates = service.resolveCandidates(ImageRole.Image)
-        assertEquals("seedream-5.0-lite", defaultCandidates[0].id)
+        assertEquals("mai-image-2.6", defaultCandidates[0].id)
+
+        // When user asks for mai: MAI-Image-2.6 candidate is prioritized
+        val maiCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "mai-image-2.6")
+        assertEquals("mai-image-2.6", maiCandidates[0].id)
+
+        // When user asks for grok: Grok Imagine 2.0 candidate is prioritized
+        val grokCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "grok-imagine-2.0")
+        assertEquals("grok-imagine-2.0", grokCandidates[0].id)
+
+        // When user asks for muse: Muse Image candidate is prioritized
+        val museCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "muse-image")
+        assertEquals("muse-image", museCandidates[0].id)
 
         // When user asks for Qwen: Qwen candidate is prioritized to top
         val qwenCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "qwen-image-2.1")
