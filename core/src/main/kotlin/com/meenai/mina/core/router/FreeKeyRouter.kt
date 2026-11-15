@@ -699,56 +699,52 @@ class FreeKeyRouter(
 
         val preferred = preferences.getPreferredProviders().map { it.lowercase() }
         fun providerRank(p: String): Int {
+            if (preferred.isEmpty()) return 999
             val idx = preferred.indexOf(p.lowercase())
             return if (idx >= 0) idx else 999
         }
 
         val comparator = when {
             preferences.getAutoStrategy() == AutoStrategy.Fastest -> {
-                compareByDescending<RouterCandidate> { it.curatedRank }
+                compareBy<RouterCandidate> { providerRank(it.provider) }
                     .thenBy { candidate ->
                         val size = ModelSizeParser.extractParameterSizeB(candidate.id)
                         if (size > 0.0) size else 8.0
                     }
-                    .thenBy { providerRank(it.provider) }
                     .thenByDescending { healthTracker.score(it.id) }
                     .thenByDescending { it.model.capabilities.contextTokens }
             }
             preferences.getAutoStrategy() == AutoStrategy.BestQuality -> {
-                compareByDescending<RouterCandidate> { it.curatedRank }
+                compareBy<RouterCandidate> { providerRank(it.provider) }
                     .thenByDescending {
                         val info = it.candidateInfo ?: it.toModelCandidate()
                         val ranking = rankingsRepository?.findRanking(it.id)
                         ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
                     }
-                    .thenBy { providerRank(it.provider) }
                     .thenByDescending { ModelSizeParser.extractParameterSizeB(it.id) }
                     .thenByDescending { healthTracker.score(it.id) }
             }
             targetRole == ModelRole.Light -> {
-                compareByDescending<RouterCandidate> { it.curatedRank }
+                compareBy<RouterCandidate> { providerRank(it.provider) }
                     .thenBy { candidate ->
                         val size = ModelSizeParser.extractParameterSizeB(candidate.id)
                         if (size > 0.0) size else 8.0
                     }
-                    .thenBy { providerRank(it.provider) }
                     .thenByDescending { healthTracker.score(it.id) }
                     .thenByDescending { it.model.capabilities.contextTokens }
             }
             targetRole == ModelRole.Long -> {
-                compareByDescending<RouterCandidate> { it.curatedRank }
+                compareBy<RouterCandidate> { providerRank(it.provider) }
                     .thenByDescending { it.model.capabilities.contextTokens }
                     .thenByDescending {
                         val info = it.candidateInfo ?: it.toModelCandidate()
                         val ranking = rankingsRepository?.findRanking(it.id)
                         ModelScorer.computeScore(info, ranking, targetRole, probeService?.getProbeResult(it.id), statsTracker)
                     }
-                    .thenBy { providerRank(it.provider) }
                     .thenByDescending { healthTracker.score(it.id) }
             }
             else -> {
-                compareByDescending<RouterCandidate> { it.curatedRank }
-                    .thenBy { providerRank(it.provider) }
+                compareBy<RouterCandidate> { providerRank(it.provider) }
                     .thenByDescending {
                         val info = it.candidateInfo ?: it.toModelCandidate()
                         val ranking = rankingsRepository?.findRanking(it.id)

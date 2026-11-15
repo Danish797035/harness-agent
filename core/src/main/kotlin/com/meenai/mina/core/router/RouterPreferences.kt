@@ -18,7 +18,7 @@ interface RouterPreferences {
     fun isFreeOnly(): Boolean = true
     fun isFailoverEnabled(): Boolean = true
     fun getMaxSwitches(): Int = 6
-    fun getPreferredProviders(): List<String> = DEFAULT_PROVIDER_ORDER
+    fun getPreferredProviders(): List<String> = emptyList()
     fun getHiddenProviders(): Set<String> = emptySet()
     fun getHiddenModels(): Set<String> = emptySet()
     fun getManualRole(role: String): String? = null
