@@ -157,10 +157,14 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             baseUrl = "https://openrouter.ai/api/v1",
             logger = { msg -> Log.d("ImageGen", msg) }
         )
+        val pollinationsClient = com.meenai.mina.core.image.PollinationsImageClient(
+            logger = { msg -> Log.d("ImageGen", msg) }
+        )
         com.meenai.mina.core.image.ImageGenerationService(
             modelScopeClient = modelScopeClient,
             openRouterClient = openRouterClient,
             harnessClient = harnessClient,
+            pollinationsClient = pollinationsClient,
             getApiKey = { provider ->
                 when (provider.lowercase()) {
                     "modelscope" -> com.meenai.mina.ui.router.AppFreeKeyRouter.resolveModelScopeKey(providers)

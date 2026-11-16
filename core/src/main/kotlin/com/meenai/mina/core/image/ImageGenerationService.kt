@@ -37,13 +37,14 @@ class ImageGenerationService(
     private val modelScopeClient: ImageClient,
     private val openRouterClient: ImageClient? = null,
     private val harnessClient: ImageClient? = null,
+    private val pollinationsClient: ImageClient? = null,
     private val getApiKey: (provider: String) -> String?,
     private val getPinnedModel: (role: ImageRole) -> String? = { null },
     private val isPaidAllowed: () -> Boolean = { false },
     private val logger: ((String) -> Unit)? = null,
 ) {
     companion object {
-        const val MAX_SWITCHES = 2
+        const val MAX_SWITCHES = 3
         const val INSUFFICIENT_MAGICUBE_MSG = "Aaj ke Magicube kam hain"
     }
 
@@ -99,7 +100,12 @@ class ImageGenerationService(
             }
 
             val isHarness = candidate.provider == ImageModelCatalog.PROVIDER_HARNESS
-            val apiKey = if (isHarness) "harness" else getApiKey(candidate.provider)
+            val isPollinations = candidate.provider == ImageModelCatalog.PROVIDER_POLLINATIONS
+            val apiKey = when {
+                isHarness -> "harness"
+                isPollinations -> "pollinations"
+                else -> getApiKey(candidate.provider)
+            }
             if (apiKey.isNullOrBlank()) {
                 continue
             }
@@ -108,6 +114,7 @@ class ImageGenerationService(
                 ImageModelCatalog.PROVIDER_HARNESS -> harnessClient
                 ImageModelCatalog.PROVIDER_MODELSCOPE -> modelScopeClient
                 ImageModelCatalog.PROVIDER_OPENROUTER -> openRouterClient
+                ImageModelCatalog.PROVIDER_POLLINATIONS -> pollinationsClient
                 else -> modelScopeClient
             } ?: continue
 
@@ -130,15 +137,10 @@ class ImageGenerationService(
             } catch (t: Throwable) {
                 lastError = t
                 if (candidate.provider == ImageModelCatalog.PROVIDER_HARNESS) {
-                    val msg = t.message.orEmpty()
-                    if (msg.contains("Connection refused", ignoreCase = true) ||
-                        msg.contains("Failed to connect", ignoreCase = true) ||
-                        t is java.net.ConnectException) {
-                        harnessDown = true
-                    }
+                    harnessDown = true
                 }
                 switches++
-                logger?.invoke("Model ${candidate.id} failed, silent failover count: $switches")
+                logger?.invoke("Model ${candidate.id} failed, silent failover count: $switches (error: ${t.message})")
                 if (switches > MAX_SWITCHES) {
                     break
                 }

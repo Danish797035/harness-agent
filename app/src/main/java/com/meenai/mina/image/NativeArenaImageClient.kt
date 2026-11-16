@@ -33,7 +33,7 @@ class NativeArenaImageClient(
 
     companion object {
         const val ARENA_URL = "https://lmarena.ai/?arena=image"
-        const val TIMEOUT_MS = 120_000L
+        const val TIMEOUT_MS = 8_000L
         const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
 
@@ -280,10 +280,32 @@ class NativeArenaImageClient(
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    if (url?.contains("cloudflare") == true || url?.contains("challenge") == true) {
+                        logger?.invoke("NativeArenaImageClient: Cloudflare challenge page detected ($url)")
+                        resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
+                        return
+                    }
                     if (!pageLoaded && url?.contains("lmarena.ai") == true) {
                         pageLoaded = true
-                        logger?.invoke("NativeArenaImageClient: page loaded, injecting automation script")
-                        view?.evaluateJavascript(automationJs, null)
+                        view?.evaluateJavascript("""
+                            (function() {
+                                const title = (document.title || '').toLowerCase();
+                                const body = (document.body ? document.body.innerText : '').toLowerCase();
+                                if (title.includes('just a moment') || body.includes('verify you are human') || document.querySelector('#challenge-running') || document.querySelector('iframe[src*="cloudflare"]')) {
+                                    if (window.AndroidBridge) window.AndroidBridge.onGenerationError("LM Arena Cloudflare challenge detected");
+                                    return true;
+                                }
+                                return false;
+                            })();
+                        """.trimIndent()) { isCf ->
+                            if (isCf == "true") {
+                                logger?.invoke("NativeArenaImageClient: Cloudflare Turnstile detected in page DOM")
+                                resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
+                            } else {
+                                logger?.invoke("NativeArenaImageClient: page loaded, injecting automation script")
+                                view?.evaluateJavascript(automationJs, null)
+                            }
+                        }
                     }
                 }
 
@@ -301,8 +323,13 @@ class NativeArenaImageClient(
             logger?.invoke("NativeArenaImageClient: loading $ARENA_URL")
             webView.loadUrl(ARENA_URL)
 
-            withTimeout(TIMEOUT_MS) {
-                resultDeferred.await()
+            try {
+                withTimeout(TIMEOUT_MS) {
+                    resultDeferred.await()
+                }
+            } catch (tce: kotlinx.coroutines.TimeoutCancellationException) {
+                logger?.invoke("NativeArenaImageClient: timed out after ${TIMEOUT_MS}ms")
+                throw ImageClientException("LM Arena timed out after ${TIMEOUT_MS / 1000}s", tce)
             }
         } finally {
             try {

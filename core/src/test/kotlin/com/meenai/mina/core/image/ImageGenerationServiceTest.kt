@@ -497,9 +497,13 @@ class ImageGenerationServiceTest {
         val geminiCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "gemini")
         assertEquals("google/gemini-2.5-flash-image", geminiCandidates[0].id)
 
-        // When user asks for flux: FLUX candidate is prioritized and enabled
+        // When user asks for flux: FLUX candidate is prioritized (flux-pollinations is free and default)
         val fluxCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "flux")
-        assertEquals("black-forest-labs/flux-1-schnell", fluxCandidates[0].id)
+        assertEquals("flux-pollinations", fluxCandidates[0].id)
+
+        // When user asks for specific paid flux: flux-1-schnell is prioritized
+        val fluxSchnellCandidates = service.resolveCandidates(ImageRole.Image, requestedModel = "flux-1-schnell")
+        assertEquals("black-forest-labs/flux-1-schnell", fluxSchnellCandidates[0].id)
     }
 
     @Test
@@ -579,6 +583,41 @@ class ImageGenerationServiceTest {
         assertTrue("Result should be Success", result is ImageResult.Success)
         assertTrue("OpenRouter MUST be called when isPaidAllowed is true", openRouterCalled)
         assertEquals("google/gemini-2.5-flash-image", (result as ImageResult.Success).model)
+    }
+
+    @Test
+    fun harnessAndModelScopeFailSilentlyFallsBackToPollinations() = runBlocking {
+        val failingHarness = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw ImageClientException("LM Arena error: Cloudflare challenge detected")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw ImageClientException("LM Arena error: Cloudflare challenge detected")
+        }
+        val failingModelScope = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) =
+                throw ImageClientException("ModelScope overloaded")
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) =
+                throw ImageClientException("ModelScope overloaded")
+        }
+        val pollinationsBytes = "POLLINATIONS_FLUX_BYTES".toByteArray()
+        val fakePollinations = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?) = pollinationsBytes
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String) = pollinationsBytes
+        }
+
+        val service = ImageGenerationService(
+            modelScopeClient = failingModelScope,
+            harnessClient = failingHarness,
+            pollinationsClient = fakePollinations,
+            getApiKey = { "key" },
+        )
+
+        val result = service.generateImage("A cybernetic lotus")
+        assertTrue("Result should be Success via Pollinations fallback", result is ImageResult.Success)
+        val success = result as ImageResult.Success
+        assertEquals("flux-pollinations", success.model)
+        assertEquals(0.0, success.costMagicube, 0.001)
+        assertTrue(success.bytes.contentEquals(pollinationsBytes))
     }
 }
 
