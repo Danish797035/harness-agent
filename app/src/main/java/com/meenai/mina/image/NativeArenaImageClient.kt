@@ -32,8 +32,8 @@ class NativeArenaImageClient(
 ) : ImageClient {
 
     companion object {
-        const val ARENA_URL = "https://lmarena.ai/?arena=image"
-        const val TIMEOUT_MS = 8_000L
+        const val ARENA_URL = "https://arena.ai/image/direct"
+        const val TIMEOUT_MS = 60_000L
         const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
 
@@ -59,6 +59,9 @@ class NativeArenaImageClient(
                     userAgentString = DESKTOP_UA
                     cacheMode = WebSettings.LOAD_DEFAULT
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    javaScriptCanOpenWindowsAutomatically = true
                 }
                 CookieManager.getInstance().let { cm ->
                     cm.setAcceptCookie(true)
@@ -99,6 +102,15 @@ class NativeArenaImageClient(
 
             val promptEscaped = JsonPrimitive(prompt).toString()
             val targetModel = model.ifBlank { "mai-image-2.6" }
+            val modelParam = when {
+                targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.6+%28t2i%29"
+                targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
+                targetModel.contains("muse", ignoreCase = true) -> "muse-image"
+                targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
+                targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
+                else -> "mai-image-2.6+%28t2i%29"
+            }
+            val targetUrl = "$ARENA_URL?model_a=$modelParam"
 
             val automationJs = """
                 (function() {
@@ -112,90 +124,105 @@ class NativeArenaImageClient(
 
                     const targetModel = "$targetModel";
                     const promptText = $promptEscaped;
-                    log("LM Arena native automation started for: " + targetModel);
+                    log("Arena Web native automation started for: " + targetModel);
 
-                    let step = 0;
-                    function tick() {
-                        step++;
-                        // 1. Switch from Battle to Direct Chat if needed
+                    function dismissPopups() {
+                        try {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            const agreeBtn = buttons.find(b => {
+                                const t = (b.textContent || '').trim().toLowerCase();
+                                return t === 'agree' || t === 'i agree' || t === 'accept';
+                            });
+                            if (agreeBtn) {
+                                log("Dismissing Terms modal (Agree)");
+                                agreeBtn.click();
+                            }
+
+                            const bannerBtn = document.querySelector('button[aria-label="Dismiss banner"]');
+                            if (bannerBtn) bannerBtn.click();
+
+                            const closeBtn = document.querySelector('button[aria-label="Close"], button[aria-label="dismiss" i]');
+                            if (closeBtn) closeBtn.click();
+                        } catch (e) {
+                            log("dismissPopups err: " + e.message);
+                        }
+                    }
+
+                    function ensureModel(onReady) {
+                        dismissPopups();
+                        const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
                         const buttons = Array.from(document.querySelectorAll('button'));
-                        const modeBtn = buttons.find(b => {
-                            const t = (b.textContent || '').trim();
-                            return t === 'Battle' || t === 'Side-by-side';
+
+                        const activeModelBtn = buttons.find(b => {
+                            const t = (b.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                            return t.includes(clean) || (clean.includes('mai') && t.includes('maiimage'));
                         });
 
-                        if (modeBtn) {
-                            log("Clicking mode dropdown to switch to Direct Chat...");
-                            modeBtn.click();
-                            setTimeout(() => {
-                                const directOpt = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], button, span'))
-                                    .find(el => (el.textContent || '').trim() === 'Direct Chat');
-                                if (directOpt) {
-                                    log("Selected Direct Chat option");
-                                    directOpt.click();
-                                    setTimeout(ensureModel, 1000);
-                                } else {
-                                    ensureModel();
-                                }
-                            }, 500);
+                        if (activeModelBtn) {
+                            log("Model is active: " + (activeModelBtn.textContent || '').trim());
+                            onReady();
                             return;
                         }
 
-                        ensureModel();
-                    }
-
-                    function ensureModel() {
-                        log("Checking model dropdown...");
                         const modelBtn = document.querySelector('[data-testid="model-select"]') ||
-                            Array.from(document.querySelectorAll('button, div[role="combobox"]')).find(b => {
+                            buttons.find(b => {
                                 const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                                const text = (b.textContent || '').toLowerCase();
-                                return aria.includes('model') || text.includes('select model');
+                                const t = (b.textContent || '').toLowerCase();
+                                return aria.includes('model') || t.includes('select model') || b.getAttribute('aria-haspopup') === 'dialog';
                             });
 
                         if (modelBtn) {
-                            log("Opening model dropdown...");
+                            log("Clicking model selector button...");
                             modelBtn.click();
-                            setTimeout(findAndClickModel, 600);
+                            setTimeout(() => {
+                                const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button'));
+                                const match = options.find(el => {
+                                    const t = (el.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                                    return t.includes(clean) || t.includes('maiimage') || t.includes('grokimagine') || t.includes('museimage') || t.includes('seedream');
+                                });
+                                if (match) {
+                                    log("Selected model from list: " + match.textContent.trim());
+                                    match.click();
+                                    setTimeout(onReady, 600);
+                                } else {
+                                    log("Model not found in list, proceeding with current selection");
+                                    onReady();
+                                }
+                            }, 600);
                         } else {
-                            log("Model dropdown not found, proceeding to prompt");
-                            enterPrompt();
-                        }
-                    }
-
-                    function findAndClickModel() {
-                        const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                        const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button'));
-                        const match = options.find(el => {
-                            const t = (el.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                            return t.includes(clean) || t.includes('maiimage') || t.includes('grokimagine') || t.includes('museimage') || t.includes('seedream');
-                        });
-
-                        if (match) {
-                            log("Selected model: " + match.textContent.trim());
-                            match.scrollIntoView();
-                            match.click();
-                            setTimeout(enterPrompt, 800);
-                        } else {
-                            log("Model not found in list, proceeding with current model");
-                            enterPrompt();
+                            onReady();
                         }
                     }
 
                     function enterPrompt() {
-                        log("Entering prompt...");
-                        const textarea = document.querySelector('textarea[placeholder*="prompt" i], textarea[placeholder*="message" i], textarea');
+                        dismissPopups();
+                        log("Looking for textarea...");
+                        const textarea = document.querySelector('textarea[placeholder*="Describe the image" i], textarea[name="message"], textarea[placeholder*="prompt" i], textarea[placeholder*="message" i], textarea');
                         if (!textarea) {
-                            log("Error: Prompt input not found!");
-                            if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Prompt input not found");
+                            log("Textarea not found yet, retrying...");
+                            setTimeout(enterPrompt, 800);
                             return;
                         }
 
-                        textarea.value = promptText;
+                        log("Entering prompt into textarea...");
+                        textarea.focus();
+                        if (textarea._valueTracker) {
+                            textarea._valueTracker.setValue('');
+                        }
+                        const valSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+                        if (valSetter) {
+                            valSetter.call(textarea, promptText);
+                        } else {
+                            textarea.value = promptText;
+                        }
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
                         textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                        try {
+                            textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: promptText }));
+                        } catch (_) {}
 
                         setTimeout(() => {
+                            dismissPopups();
                             log("Submitting prompt...");
                             const sendBtn = document.querySelector('button[aria-label="Send message"], button[data-perf-target="send"], button[type="submit"]') ||
                                 Array.from(document.querySelectorAll('button')).find(b => {
@@ -204,24 +231,43 @@ class NativeArenaImageClient(
                                 });
 
                             if (sendBtn) {
+                                sendBtn.removeAttribute('disabled');
+                                sendBtn.disabled = false;
+                                sendBtn.classList.remove('pointer-events-none', 'opacity-50');
                                 sendBtn.click();
-                            } else {
-                                textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
                             }
+
+                            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+
+                            const form = textarea.closest('form');
+                            if (form) {
+                                try {
+                                    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                                } catch (_) {}
+                            }
+
+                            setTimeout(() => {
+                                dismissPopups();
+                                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+                            }, 800);
+
                             pollForOutput();
-                        }, 500);
+                        }, 600);
                     }
 
                     function pollForOutput() {
                         log("Polling for generated image...");
                         let checks = 0;
-                        const maxChecks = 120; // 120s
+                        const maxChecks = 110;
 
                         const timer = setInterval(() => {
                             checks++;
+                            dismissPopups();
+
                             const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
                                 const src = img.src || '';
-                                return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') && !src.includes('svg+xml') &&
+                                return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
+                                       !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
                                        (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
                             });
 
@@ -229,7 +275,7 @@ class NativeArenaImageClient(
                                 const targetImg = imgs[imgs.length - 1];
                                 if (targetImg.complete && (targetImg.naturalWidth > 150 || targetImg.width > 150)) {
                                     clearInterval(timer);
-                                    log("Generated image detected, extracting Base64...");
+                                    log("Generated image detected (" + targetImg.naturalWidth + "x" + targetImg.naturalHeight + "), extracting...");
                                     extractImage(targetImg);
                                     return;
                                 }
@@ -238,9 +284,9 @@ class NativeArenaImageClient(
                             if (checks >= maxChecks) {
                                 clearInterval(timer);
                                 log("Timed out waiting for generated image.");
-                                if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Timed out waiting for generated image (120s)");
+                                if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Timed out waiting for generated image (55s)");
                             }
-                        }, 1000);
+                        }, 500);
                     }
 
                     function extractImage(img) {
@@ -252,27 +298,38 @@ class NativeArenaImageClient(
                             ctx.drawImage(img, 0, 0);
                             const dataUrl = canvas.toDataURL("image/png");
                             const b64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
-                            if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
+                            if (b64 && b64.length > 100) {
+                                log("Successfully extracted image Base64 via canvas (length=" + b64.length + ")");
+                                if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
+                                return;
+                            }
                         } catch (e) {
-                            log("Canvas draw failed, trying fetch: " + e.message);
-                            fetch(img.src)
-                                .then(r => r.blob())
-                                .then(blob => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                        const res = reader.result || '';
-                                        const b64 = res.replace(/^data:.+;base64,/, "");
-                                        if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
-                                    };
-                                    reader.readAsDataURL(blob);
-                                })
-                                .catch(err => {
-                                    if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Image extract failed: " + err.message);
-                                });
+                            log("Canvas export failed: " + e.message + ", attempting fetch blob...");
                         }
+
+                        fetch(img.src)
+                            .then(r => r.blob())
+                            .then(blob => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    const res = reader.result || '';
+                                    const b64 = res.replace(/^data:.+;base64,/, "");
+                                    log("Successfully extracted image Base64 via fetch (length=" + b64.length + ")");
+                                    if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
+                                };
+                                reader.readAsDataURL(blob);
+                            })
+                            .catch(err => {
+                                log("Image fetch failed: " + err.message);
+                                if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Image extract failed: " + err.message);
+                            });
                     }
 
-                    setTimeout(tick, 2000);
+                    setTimeout(() => {
+                        ensureModel(() => {
+                            enterPrompt();
+                        });
+                    }, 1500);
                 })();
             """.trimIndent()
 
@@ -285,7 +342,7 @@ class NativeArenaImageClient(
                         resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
                         return
                     }
-                    if (!pageLoaded && url?.contains("lmarena.ai") == true) {
+                    if (!pageLoaded && (url?.contains("arena.ai") == true || url?.contains("lmarena.ai") == true)) {
                         pageLoaded = true
                         view?.evaluateJavascript("""
                             (function() {
@@ -320,8 +377,8 @@ class NativeArenaImageClient(
 
             webView.webChromeClient = object : WebChromeClient() {}
 
-            logger?.invoke("NativeArenaImageClient: loading $ARENA_URL")
-            webView.loadUrl(ARENA_URL)
+            logger?.invoke("NativeArenaImageClient: loading $targetUrl")
+            webView.loadUrl(targetUrl)
 
             try {
                 withTimeout(TIMEOUT_MS) {
