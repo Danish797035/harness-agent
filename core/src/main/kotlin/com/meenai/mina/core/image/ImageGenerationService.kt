@@ -190,17 +190,17 @@ class ImageGenerationService(
 
         if (!requestedModel.isNullOrBlank()) {
             val req = requestedModel.trim()
-            val match = allList.find { candidate ->
-                candidate.id.equals(req, ignoreCase = true) ||
-                candidate.id.contains(req, ignoreCase = true) ||
-                (req.contains("mai", ignoreCase = true) && candidate.id.contains("mai", ignoreCase = true)) ||
-                (req.contains("grok", ignoreCase = true) && candidate.id.contains("grok", ignoreCase = true)) ||
-                (req.contains("muse", ignoreCase = true) && candidate.id.contains("muse", ignoreCase = true)) ||
-                (req.contains("seedream", ignoreCase = true) && candidate.id.contains("seedream", ignoreCase = true)) ||
-                (req.contains("gemini", ignoreCase = true) && candidate.id.contains("gemini", ignoreCase = true)) ||
-                (req.contains("flux", ignoreCase = true) && candidate.id.contains("flux", ignoreCase = true)) ||
-                (req.contains("qwen", ignoreCase = true) && candidate.id.contains("qwen", ignoreCase = true))
-            }
+            val match = allList.find { it.id.equals(req, ignoreCase = true) }
+                ?: allList.find { it.id.contains(req, ignoreCase = true) || req.contains(it.id, ignoreCase = true) }
+                ?: allList.find { candidate ->
+                    (req.contains("mai", ignoreCase = true) && candidate.id.contains("mai", ignoreCase = true)) ||
+                    (req.contains("grok", ignoreCase = true) && candidate.id.contains("grok", ignoreCase = true)) ||
+                    (req.contains("muse", ignoreCase = true) && candidate.id.contains("muse", ignoreCase = true)) ||
+                    (req.contains("seedream", ignoreCase = true) && candidate.id.contains("seedream", ignoreCase = true)) ||
+                    (req.contains("gemini", ignoreCase = true) && candidate.id.contains("gemini", ignoreCase = true)) ||
+                    (req.contains("flux", ignoreCase = true) && candidate.id.contains("flux", ignoreCase = true)) ||
+                    (req.contains("qwen", ignoreCase = true) && candidate.id.contains("qwen", ignoreCase = true))
+                }
             if (match != null) {
                 return listOf(match) + allList.filter { it.id != match.id }
             }
