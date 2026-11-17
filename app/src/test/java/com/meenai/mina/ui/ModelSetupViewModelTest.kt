@@ -1062,7 +1062,7 @@ class ModelSetupViewModelTest {
         assertTrue("Provider connected", p != null)
         assertEquals(ProviderConfig.Kind.GeminiWeb, p?.kind)
         assertEquals("user@gmail.com", store.geminiWebSession(p!!.id)?.email)
-        assertEquals("gemini-4-argon", store.roles.value.main?.model)
+        assertEquals("gemini-4-argon", store.configFor(ModelRole.Main)?.model)
 
         val geminiAccount = vm.state.value.geminiWebAccount
         assertEquals("user@gmail.com", geminiAccount?.email)

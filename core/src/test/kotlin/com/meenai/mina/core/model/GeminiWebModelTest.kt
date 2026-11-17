@@ -74,17 +74,35 @@ class GeminiWebModelTest {
         assertEquals("cookie_123=val", parsed?.cookies)
     }
 
+    private fun makeStreamData(payloadJson: String): String {
+        val streamJson = buildJsonArray {
+            add(buildJsonArray {
+                add(JsonPrimitive("wrb.fr"))
+                add(JsonPrimitive(null as String?))
+                add(JsonPrimitive(payloadJson))
+            })
+        }.toString()
+        return ")]}'\n120\n$streamJson\n"
+    }
+
     @Test
     fun completeParsesStreamingFramesAndEmitsText() = runTest {
-        val framePayload = """[null,null,null,null,[["rc_1",["Hello from Gemini 4 Argon!"]]]]"""
-        val escapedPayload = framePayload.replace("\"", "\\\"")
-        val streamData = """
-            )]}'
-            120
-            [["wrb.fr",null,"$escapedPayload"]]
-        """.trimIndent()
+        val payload = buildJsonArray {
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("rc_1"))
+                    add(buildJsonArray {
+                        add(JsonPrimitive("Hello from Gemini 4 Argon!"))
+                    })
+                })
+            })
+        }.toString()
 
-        server.enqueue(MockResponse().setResponseCode(200).setBody(streamData))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
 
         // Intercept endpoint by custom OkHttpClient that redirects to mock server
         val mockClient = OkHttpClient.Builder()
@@ -135,10 +153,7 @@ class GeminiWebModelTest {
             })
         }.toString()
 
-        val escapedPayload = payload.replace("\"", "\\\"")
-        val streamData = ")]}'\n120\n[[\"wrb.fr\",null,\"$escapedPayload\"]]\n"
-
-        server.enqueue(MockResponse().setResponseCode(200).setBody(streamData))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
 
         val mockClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
@@ -192,10 +207,7 @@ class GeminiWebModelTest {
             })
         }.toString()
 
-        val escapedPayload = payload.replace("\"", "\\\"")
-        val streamData = ")]}'\n120\n[[\"wrb.fr\",null,\"$escapedPayload\"]]\n"
-
-        server.enqueue(MockResponse().setResponseCode(200).setBody(streamData))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
 
         val mockClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
