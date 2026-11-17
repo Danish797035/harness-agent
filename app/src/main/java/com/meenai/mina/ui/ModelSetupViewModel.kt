@@ -35,6 +35,7 @@ import com.meenai.mina.core.chatgpt.ChatGptAuth
 import com.meenai.mina.core.chatgpt.SignInException
 import com.meenai.mina.core.chatgpt.SignInFailure
 import com.meenai.mina.core.chatgpt.signInWithChatGpt
+import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.oauth.AccountSignInException
 import com.meenai.mina.core.oauth.AccountSignInFailure
 import com.meenai.mina.core.oauth.DeviceChallenge
@@ -65,6 +66,9 @@ sealed interface ListState {
 
 /** 用 ChatGPT 登录的账号:[email] 来自核对过的 ID 令牌(可能为空);退出登录后 [signedIn] 为假。 */
 data class ChatGptAccount(val email: String, val signedIn: Boolean)
+
+/** 用 Google Gemini 登录的账号。 */
+data class GeminiWebAccount(val email: String, val signedIn: Boolean)
 
 /**
  * 除 ChatGPT 以外用账号登录的几家:xAI / Grok 走设备码(浏览器里核对短码),OpenRouter 走官方的 PKCE 授权(本机回调换 Key)。
@@ -203,6 +207,12 @@ data class ModelSetupUi(
     val chatGptAccount: ChatGptAccount? = null,
     /** 用 ChatGPT 登录的进度。 */
     val chatGptSignIn: ListState = ListState.Idle,
+    /** Google Gemini 服务商的账号;没有这家时为 null。 */
+    val geminiWebAccount: GeminiWebAccount? = null,
+    /** 用 Gemini Web 登录的进度。 */
+    val geminiWebSignIn: ListState = ListState.Idle,
+    /** 是否打开 Gemini Web 登录弹窗。 */
+    val geminiWebLoginOpen: Boolean = false,
     /** 第一次登录成功后说明一次「在用你的 ChatGPT 套餐」,点「知道了」收起。 */
     val chatGptWelcome: Boolean = false,
     /** 退出登录时 ChatGPT 那边没确认注销(本机令牌已清)。 */
@@ -390,6 +400,9 @@ class ModelSetupViewModel(
             keyed = providers.filter { store.hasKey(it.id) }.map { it.id }.toSet(),
             chatGptAccount = store.chatGptProvider()?.let { p ->
                 store.chatGptSession(p.id).let { ChatGptAccount(it?.email.orEmpty(), it?.signedIn == true) }
+            },
+            geminiWebAccount = store.geminiWebProvider()?.let { p ->
+                store.geminiWebSession(p.id).let { GeminiWebAccount(it?.email.orEmpty(), it?.signedIn == true) }
             },
             xaiAccount = store.xaiProvider()?.let { p ->
                 store.accountSession(p.id).let { SubscriptionAccount(it?.label.orEmpty(), it?.signedIn == true) }
@@ -605,7 +618,7 @@ class ModelSetupViewModel(
      */
     private suspend fun probe(f: AddForm, baseUrl: String, key: String?, models: List<ListedModel>): ListProbe {
         // 用 ChatGPT 登录不走这张表单(登录本身就核对过了);表单只给 Key 的接口类型,这里再挡一次
-        if (f.kind == ProviderConfig.Kind.ChatGpt || f.kind == ProviderConfig.Kind.Xai) {
+        if (f.kind == ProviderConfig.Kind.ChatGpt || f.kind == ProviderConfig.Kind.Xai || f.kind == ProviderConfig.Kind.GeminiWeb) {
             return ListProbe.Done(null, emptyList())
         }
         val base = (ProviderPresets.forBaseUrl(baseUrl) ?: ProviderPresets.custom).capabilities
@@ -857,7 +870,12 @@ class ModelSetupViewModel(
         _state.update { it.copy(accountSignIn = AccountSignInUi()) }
     }
 
-    fun dismissAccountFailure() = _state.update { it.copy(accountSignIn = AccountSignInUi()) }
+    fun dismissAccountFailure() = _state.update {
+        it.copy(
+            accountSignIn = AccountSignInUi(),
+            geminiWebSignIn = if (it.geminiWebSignIn is ListState.Failed) ListState.Idle else it.geminiWebSignIn
+        )
+    }
 
     /** 详情页打开过了。 */
     fun signedInShown() = _state.update { it.copy(signedInProvider = null) }
@@ -886,6 +904,55 @@ class ModelSetupViewModel(
         scope.launch {
             val revoked = withContext(io) { store.signOutChatGpt(providerId) }
             _state.update { snapshot(it.copy(chatGptRevokeUnconfirmed = !revoked, listing = it.listing - providerId)) }
+        }
+    }
+
+    // ---------- 用 Google Gemini 登录 ----------
+
+    fun signInWithGeminiWeb() {
+        if (_state.value.geminiWebSignIn == ListState.Running) return
+        _state.update { it.copy(geminiWebLoginOpen = true, geminiWebSignIn = ListState.Running) }
+    }
+
+    fun onGeminiWebLoginSuccess(session: GeminiWebSession) {
+        scope.launch {
+            val p = withContext(io) {
+                val existing = store.geminiWebProvider()
+                val provider = store.connectGeminiWeb(session, existing?.models.orEmpty())
+                if (store.roles.value.main == null) {
+                    val options = ModelOptions.ofProvider(provider, store.list())
+                    (ModelOptions.defaultMain(options) ?: options.firstOrNull()?.id)?.let { m -> use(ModelRole.Main, provider, m, options) }
+                }
+                provider
+            }
+            _state.update {
+                snapshot(it.copy(
+                    signedInProvider = p.id,
+                    geminiWebSignIn = ListState.Idle,
+                    geminiWebLoginOpen = false,
+                    formOpen = false
+                ))
+            }
+        }
+    }
+
+    fun onGeminiWebLoginFailed(reason: String) {
+        _state.update {
+            it.copy(
+                geminiWebSignIn = ListState.Failed(reason),
+                geminiWebLoginOpen = false
+            )
+        }
+    }
+
+    fun cancelGeminiWebSignIn() {
+        _state.update { it.copy(geminiWebSignIn = ListState.Idle, geminiWebLoginOpen = false) }
+    }
+
+    fun signOutGeminiWeb(providerId: String) {
+        scope.launch {
+            withContext(io) { store.signOutGeminiWeb(providerId) }
+            _state.update { snapshot(it.copy(listing = it.listing - providerId)) }
         }
     }
 

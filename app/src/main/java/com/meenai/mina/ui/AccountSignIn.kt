@@ -47,12 +47,14 @@ import com.meenai.mina.ui.theme.MinaType
 /** 「添加模型」里「用账号登录」那一组的三家。ChatGPT 的登录另有一套,xAI、OpenRouter 对应 [AccountProvider]。 */
 enum class SignInKind(val account: AccountProvider?, val label: String, val tag: String) {
     ChatGpt(null, "ChatGPT", "chatgpt"),
+    GeminiWeb(null, "Google Gemini", "gemini_web"),
     Xai(AccountProvider.Xai, "xAI / Grok", "xai"),
     OpenRouter(AccountProvider.OpenRouter, "OpenRouter", "openrouter");
 
     /** 「改用 API Key」时选的预设;ChatGPT 没有这一项。 */
     val keyPreset: String? get() = when (this) {
         ChatGpt -> null
+        GeminiWeb -> "Gemini"
         Xai -> "xAI"
         OpenRouter -> "OpenRouter"
     }
@@ -68,6 +70,11 @@ internal fun ModelSetupUi.signInState(kind: SignInKind): Triple<String?, Boolean
         providers.firstOrNull { it.kind == ProviderConfig.Kind.ChatGpt }?.id?.takeIf { chatGptAccount?.signedIn == true },
         chatGptSignIn == ListState.Running,
         (chatGptSignIn as? ListState.Failed)?.message,
+    )
+    SignInKind.GeminiWeb -> Triple(
+        providers.firstOrNull { it.kind == ProviderConfig.Kind.GeminiWeb }?.id?.takeIf { geminiWebAccount?.signedIn == true },
+        geminiWebSignIn == ListState.Running,
+        (geminiWebSignIn as? ListState.Failed)?.message,
     )
     else -> {
         val signedIn = if (kind == SignInKind.Xai) xaiAccount?.signedIn == true else openRouterAccount?.signedIn == true
@@ -141,7 +148,7 @@ internal fun SignInSheetBody(ui: ModelSetupUi, kind: SignInKind, actions: SignIn
         when {
             code != null -> DeviceCodeBody(ui.accountSignIn, code) { actions.cancel(kind) }
             // 同一时刻只有一次登录:别家正在登录时这里不能开始
-            else -> IntroBody(kind, running, failure, busy = !running && (ui.chatGptSignIn == ListState.Running || ui.accountSignIn.running), actions)
+            else -> IntroBody(kind, running, failure, busy = !running && (ui.chatGptSignIn == ListState.Running || ui.accountSignIn.running || ui.geminiWebSignIn == ListState.Running), actions)
         }
     }
 }

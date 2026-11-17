@@ -37,6 +37,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import javax.crypto.KeyGenerator
+import com.meenai.mina.core.gemini.GeminiWebSession
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelSetupViewModelTest {
@@ -1020,5 +1021,57 @@ class ModelSetupViewModelTest {
         assertEquals("列过的列表留着", listOf("deepseek-chat", "deepseek-reasoner", "deepseek-coder"), after.models!!.map { it.id })
         assertEquals(setOf("deepseek-chat"), after.verifiedModels)
         assertFalse("核实过的模型让这家不算没测过", after.savedUntested)
+    }
+
+    @Test fun geminiWebSignInFlowControlsStateAndConnectsProvider() = runTest {
+        val store = store()
+        val vm = vm(store)
+        runCurrent()
+
+        // 1. Start sign in
+        vm.signInWithGeminiWeb()
+        assertTrue(vm.state.value.geminiWebLoginOpen)
+        assertEquals(ListState.Running, vm.state.value.geminiWebSignIn)
+
+        // 2. Cancel sign in
+        vm.cancelGeminiWebSignIn()
+        assertFalse(vm.state.value.geminiWebLoginOpen)
+        assertEquals(ListState.Idle, vm.state.value.geminiWebSignIn)
+
+        // 3. Fail sign in
+        vm.signInWithGeminiWeb()
+        vm.onGeminiWebLoginFailed("Network timeout")
+        assertFalse(vm.state.value.geminiWebLoginOpen)
+        assertEquals(ListState.Failed("Network timeout"), vm.state.value.geminiWebSignIn)
+        vm.dismissAccountFailure()
+        assertEquals(ListState.Idle, vm.state.value.geminiWebSignIn)
+
+        // 4. Successful login captures session and connects provider
+        val session = GeminiWebSession(
+            cookies = "__Secure-1PSID=test-sid;",
+            snlm0e = "test-at",
+            cfb2h = "boq_assistant-bard-web-server_2026",
+            fdrfje = "123456789",
+            email = "user@gmail.com",
+            signedIn = true
+        )
+        vm.onGeminiWebLoginSuccess(session)
+        runCurrent()
+
+        val p = store.geminiWebProvider()
+        assertTrue("Provider connected", p != null)
+        assertEquals(ProviderConfig.Kind.GeminiWeb, p?.kind)
+        assertEquals("user@gmail.com", store.geminiWebSession(p!!.id)?.email)
+        assertEquals("gemini-4-argon", store.roles.value.main?.model)
+
+        val geminiAccount = vm.state.value.geminiWebAccount
+        assertEquals("user@gmail.com", geminiAccount?.email)
+        assertTrue(geminiAccount?.signedIn == true)
+
+        // 5. Sign out
+        vm.signOutGeminiWeb(p.id)
+        runCurrent()
+        assertNull(store.geminiWebSession(p.id))
+        assertFalse(vm.state.value.geminiWebAccount?.signedIn == true)
     }
 }

@@ -16,6 +16,9 @@ import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.Author
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.ClientHeaders
+import com.meenai.mina.core.gemini.GeminiWebClient
+import com.meenai.mina.core.gemini.GeminiWebSession
+import com.meenai.mina.core.model.GeminiWebModel
 import com.meenai.mina.core.model.GeminiModel
 import com.meenai.mina.core.model.ListFailure
 import com.meenai.mina.core.model.ListedModel
@@ -85,7 +88,7 @@ data class ProviderConfig(
      * [Xai] 同样是账号登录(设备码),凭据是登录不是 API Key,调用 xAI 自己的 Responses 接口。
      */
     enum class Kind {
-        OpenAiCompat, Anthropic, Gemini, OpenAiResponses, ChatGpt, Xai;
+        OpenAiCompat, Anthropic, Gemini, OpenAiResponses, ChatGpt, Xai, GeminiWeb;
 
         /**
          * 这个接口类型发请求走哪种协议。用它筛掉接口写明了不支持的模型,见 [com.meenai.mina.ui.ModelSetupViewModel]
@@ -96,7 +99,7 @@ data class ProviderConfig(
             get() = when (this) {
                 OpenAiCompat -> ModelProtocol.ChatCompletions
                 Anthropic -> ModelProtocol.Messages
-                Gemini -> ModelProtocol.GenerateContent
+                Gemini, GeminiWeb -> ModelProtocol.GenerateContent
                 OpenAiResponses, ChatGpt, Xai -> ModelProtocol.Responses
             }
 
@@ -154,7 +157,7 @@ data class Provider(
      * [verifiedModels] 里。账号登录的那几家模型名是固定的,不算。服务商页对这样在用的模型给「重新测试」。
      */
     fun untested(model: String): Boolean =
-        kind != ProviderConfig.Kind.ChatGpt && kind != ProviderConfig.Kind.Xai && models?.isEmpty() == true && model !in verifiedModels
+        kind != ProviderConfig.Kind.ChatGpt && kind != ProviderConfig.Kind.Xai && kind != ProviderConfig.Kind.GeminiWeb && models?.isEmpty() == true && model !in verifiedModels
 }
 
 /** 留空的窗口沿用所选模型配置，留空的触发点交给核心自动计算。 */
@@ -606,6 +609,9 @@ class ProviderStore(
 
     /** 重新列一个已连接服务商的模型:用存着的 Key;订阅登录用访问令牌(快过期先换新的)。 */
     suspend fun listModels(p: Provider): ModelListResult {
+        if (p.kind == ProviderConfig.Kind.GeminiWeb) {
+            return ModelListResult.Ok(p.models?.takeIf { it.isNotEmpty() } ?: GeminiWebClient.DEFAULT_MODELS)
+        }
         if (p.kind != ProviderConfig.Kind.ChatGpt && p.kind != ProviderConfig.Kind.Xai) {
             return listModels(p.kind, p.baseUrl, providerKey(p.id), p.sessionHeader)
         }
@@ -770,6 +776,33 @@ class ProviderStore(
         }
     }
 
+    // ---------- Gemini Web 账号登录 ----------
+
+    fun geminiWebProvider(): Provider? = _providers.value.firstOrNull { it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == GEMINI_WEB_SIGN_IN }
+
+    fun geminiWebSession(providerId: String): GeminiWebSession? =
+        key(providerId)?.let { GeminiWebSession.fromJson(it) }?.takeIf { it.signedIn }
+
+    @Synchronized
+    fun connectGeminiWeb(session: GeminiWebSession, models: List<ListedModel> = emptyList()): Provider {
+        val finalModels = if (models.isNotEmpty()) models else GeminiWebClient.DEFAULT_MODELS
+        val existing = geminiWebProvider()
+        if (existing == null) return connect(GEMINI_WEB_NAME, ProviderConfig.Kind.GeminiWeb, GEMINI_WEB_BASE, session.toJson(), finalModels, signIn = GEMINI_WEB_SIGN_IN)
+        val p = existing.copy(name = GEMINI_WEB_NAME, baseUrl = GEMINI_WEB_BASE, models = finalModels)
+        _providers.value = _providers.value.map { if (it.id == p.id) p else it }
+        _configs.value = _configs.value.map { if (it.providerId == p.id) it.copy(baseUrl = GEMINI_WEB_BASE, name = GEMINI_WEB_NAME) else it }
+        setKey(p.id, session.toJson())
+        writeConfig()
+        return p
+    }
+
+    @Synchronized
+    fun signOutGeminiWeb(providerId: String): Boolean {
+        val s = geminiWebSession(providerId) ?: return true
+        setKey(providerId, s.signedOut().toJson())
+        return true
+    }
+
     /** 模型单独指定了接口的,按它的协议选适配器、用它的地址;否则按配置的接口类型和地址。Key 都用服务商的。 */
     /**
      * 请求头四种协议一样带。回复上限([ClientSetup.maxOutputTokens])只给 Messages(本来就必填)和 generateContent;
@@ -803,6 +836,17 @@ class ProviderStore(
             ProviderConfig.Kind.Xai ->
                 ResponsesModel(baseUrl, accountTokensFor(cfg.providerId), cfg.model, cfg.capabilities, http, headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort, accountLogin = XAI_ACCOUNT)
+            ProviderConfig.Kind.GeminiWeb -> {
+                val sess = geminiWebSession(cfg.providerId) ?: throw ModelError.SignInExpired("Google Gemini")
+                GeminiWebModel(
+                    session = sess,
+                    model = cfg.model,
+                    capabilities = cfg.capabilities,
+                    http = http,
+                    headers = setup.headers,
+                    reasoningEffort = setup.reasoningEffort
+                )
+            }
         }
     }
 
@@ -1104,6 +1148,10 @@ class ProviderStore(
         /** 用 OpenRouter 账号授权的服务商:名字和预设一样,[Provider.signIn] 标成这个。 */
         const val OPENROUTER_NAME = "OpenRouter"
         const val OPENROUTER_SIGN_IN = "openrouter"
+        /** 用 Gemini Web 账号登录的服务商。 */
+        const val GEMINI_WEB_NAME = "Google Gemini"
+        const val GEMINI_WEB_BASE = "https://gemini.google.com"
+        const val GEMINI_WEB_SIGN_IN = "gemini_web"
         /** 出错说明里怎么称呼这家的登录。 */
         private const val XAI_ACCOUNT = "xAI"
 
@@ -1127,6 +1175,7 @@ class ProviderStore(
                     catalog.openAiCompat(baseUrl, apiKey, headers)
                 ProviderConfig.Kind.Anthropic -> catalog.anthropic(baseUrl, apiKey.orEmpty(), headers)
                 ProviderConfig.Kind.Gemini -> catalog.gemini(baseUrl, apiKey.orEmpty(), headers)
+                ProviderConfig.Kind.GeminiWeb -> ModelListResult.Ok(GeminiWebClient.DEFAULT_MODELS)
             }
 
         /**

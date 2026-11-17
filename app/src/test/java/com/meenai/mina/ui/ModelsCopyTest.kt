@@ -43,4 +43,12 @@ class ModelsCopyTest {
         assertEquals(listOf(RoleChoice.SameAsMain, RoleChoice.Off), fixedChoices(ModelRole.Vision))
         assertEquals(listOf(RoleChoice.SameAsMain), fixedChoices(ModelRole.Light))
     }
+
+    @Test fun signInKindGeminiWebProvidesCopy() {
+        assertTrue(ModelsCopy.signInTitle(SignInKind.GeminiWeb).isNotEmpty())
+        assertTrue(ModelsCopy.signInBody(SignInKind.GeminiWeb).isNotEmpty())
+        assertTrue(ModelsCopy.signInStart(SignInKind.GeminiWeb).isNotEmpty())
+        assertTrue(ModelsCopy.signInWaiting(SignInKind.GeminiWeb).isNotEmpty())
+        assertTrue(ModelsCopy.signInRowLine(SignInKind.GeminiWeb).isNotEmpty())
+    }
 }

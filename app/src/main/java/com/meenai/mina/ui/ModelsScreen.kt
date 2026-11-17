@@ -328,6 +328,8 @@ fun ProviderDetailContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetail
         GroupLabel(ModelsCopy.CONNECTION)
         if (p.kind == ProviderConfig.Kind.ChatGpt) {
             ChatGptConnection(ui, state, actions)
+        } else if (p.kind == ProviderConfig.Kind.GeminiWeb || p.signIn == ProviderStore.GEMINI_WEB_SIGN_IN) {
+            GeminiWebConnection(ui, state, actions)
         } else if (p.kind == ProviderConfig.Kind.Xai || p.signIn == ProviderStore.OPENROUTER_SIGN_IN) {
             AccountConnection(ui, p, state, actions)
         } else {
@@ -466,6 +468,34 @@ private fun ChatGptConnection(ui: ModelSetupUi, state: ListState?, actions: Prov
     FooterNote(if (signedIn) ModelsCopy.CHATGPT_PLAN_NOTE else ModelsCopy.CHATGPT_SIGNED_OUT_NOTE)
     if (ui.chatGptRevokeUnconfirmed) FooterNote(ModelsCopy.CHATGPT_REVOKE_UNCONFIRMED, color = c.warn)
     (ui.chatGptSignIn as? ListState.Failed)?.let { FooterNote(it.message, color = c.bad) }
+}
+
+@Composable
+private fun GeminiWebConnection(ui: ModelSetupUi, state: ListState?, actions: ProviderDetailActions) {
+    val c = MinaTheme.colors
+    val account = ui.geminiWebAccount
+    val signedIn = account?.signedIn == true
+    GroupCard {
+        ListRow(null, ModelsCopy.STATUS, first = true) {
+            when {
+                !signedIn -> RowValue(ModelsCopy.CHATGPT_SIGNED_OUT, ValueTone.Warn)
+                state == ListState.Running -> RowValue(ModelsCopy.LISTING)
+                state is ListState.Failed -> RowValue(ModelsCopy.LIST_FAILED, ValueTone.Bad)
+                else -> RowValue(ModelsCopy.CHATGPT_SIGNED_IN, ValueTone.Ok)
+            }
+        }
+        account?.email?.takeIf { it.isNotEmpty() }?.let { email -> ListRow(null, ModelsCopy.CHATGPT_ACCOUNT) { RowValue(email) } }
+        if (signedIn) {
+            ListRow(null, ModelsCopy.CHATGPT_SIGN_OUT, titleColor = c.bad, onClick = actions.signOut)
+        } else {
+            ListRow(
+                null, if (ui.geminiWebSignIn == ListState.Running) tr(R.string.signin_gemini_waiting) else tr(R.string.signin_continue),
+                titleColor = c.accent, onClick = actions.signIn,
+            )
+        }
+    }
+    FooterNote(if (signedIn) tr(R.string.account_signed_in_note_gemini) else tr(R.string.account_signed_out_note_gemini))
+    (ui.geminiWebSignIn as? ListState.Failed)?.let { FooterNote(it.message, color = c.bad) }
 }
 
 /**
@@ -731,18 +761,21 @@ object ModelsCopy {
     /** 「用账号登录」一组里每家下面那一行小字。 */
     fun signInRowLine(kind: SignInKind) = when (kind) {
         SignInKind.ChatGpt -> tr(R.string.signin_row_chatgpt)
+        SignInKind.GeminiWeb -> tr(R.string.signin_row_gemini)
         SignInKind.Xai -> tr(R.string.signin_row_xai)
         SignInKind.OpenRouter -> tr(R.string.signin_row_openrouter)
     }
 
     fun signInTitle(kind: SignInKind) = when (kind) {
         SignInKind.ChatGpt -> CHATGPT_TITLE
+        SignInKind.GeminiWeb -> tr(R.string.signin_gemini_title)
         SignInKind.Xai -> tr(R.string.signin_xai_title)
         SignInKind.OpenRouter -> tr(R.string.signin_openrouter_title)
     }
 
     fun signInBody(kind: SignInKind) = when (kind) {
         SignInKind.ChatGpt -> CHATGPT_BODY
+        SignInKind.GeminiWeb -> tr(R.string.signin_gemini_body)
         SignInKind.Xai -> tr(R.string.signin_xai_body)
         SignInKind.OpenRouter -> tr(R.string.signin_openrouter_body)
     }
@@ -753,18 +786,21 @@ object ModelsCopy {
     /** 登录前的补充说明(灰底);没有为 null。 */
     fun signInInfo(kind: SignInKind): String? = when (kind) {
         SignInKind.ChatGpt -> null
+        SignInKind.GeminiWeb -> tr(R.string.signin_gemini_info)
         SignInKind.Xai -> tr(R.string.signin_stored_note)
         SignInKind.OpenRouter -> tr(R.string.signin_openrouter_note)
     }
 
     fun signInStart(kind: SignInKind) = when (kind) {
         SignInKind.ChatGpt -> CHATGPT_CONTINUE
+        SignInKind.GeminiWeb -> tr(R.string.signin_continue)
         SignInKind.Xai -> tr(R.string.signin_continue)
         SignInKind.OpenRouter -> tr(R.string.signin_openrouter_authorize)
     }
 
     fun signInWaiting(kind: SignInKind) = when (kind) {
         SignInKind.ChatGpt -> CHATGPT_WAITING
+        SignInKind.GeminiWeb -> tr(R.string.signin_gemini_waiting)
         SignInKind.Xai -> tr(R.string.signin_xai_starting)
         SignInKind.OpenRouter -> tr(R.string.signin_openrouter_waiting)
     }
@@ -777,6 +813,7 @@ object ModelsCopy {
     /** 账号登录详情下面的说明:在用什么、退出后怎样。 */
     fun accountNote(kind: SignInKind, signedIn: Boolean) = when (kind) {
         SignInKind.OpenRouter -> tr(if (signedIn) R.string.signin_openrouter_signed_in_note else R.string.signin_openrouter_signed_out_note)
+        SignInKind.GeminiWeb -> tr(if (signedIn) R.string.account_signed_in_note_gemini else R.string.account_signed_out_note_gemini)
         else -> tr(if (signedIn) R.string.account_signed_in_note_xai else R.string.account_signed_out_note)
     }
 
@@ -881,6 +918,7 @@ object ModelsCopy {
         ProviderConfig.Kind.OpenAiResponses -> "OpenAI Responses"
         ProviderConfig.Kind.ChatGpt -> "ChatGPT"
         ProviderConfig.Kind.Xai -> "xAI Responses"
+        ProviderConfig.Kind.GeminiWeb -> "Gemini Web (Google One AI Premium)"
     }
 
     fun shortUrl(url: String) = url.removePrefix("https://").removePrefix("http://")

@@ -141,6 +141,9 @@ fun ModelSetupScreen(
     LaunchedEffect(ui.chatGptAccount?.signedIn, ui.chatGptSignIn) {
         if (signInSheet == SignInKind.ChatGpt && ui.chatGptAccount?.signedIn == true && ui.chatGptSignIn == ListState.Idle) signInSheet = null
     }
+    LaunchedEffect(ui.geminiWebAccount?.signedIn, ui.geminiWebSignIn) {
+        if (signInSheet == SignInKind.GeminiWeb && ui.geminiWebAccount?.signedIn == true && ui.geminiWebSignIn == ListState.Idle) signInSheet = null
+    }
 
     val provider = openProvider?.let { id -> ui.providers.firstOrNull { it.id == id } }
     val role = picking
@@ -149,6 +152,7 @@ fun ModelSetupScreen(
             LaunchedEffect(provider.id) { vm.ensureListed() }
             val accountKind = when {
                 provider.kind == ProviderConfig.Kind.Xai -> SignInKind.Xai
+                provider.kind == ProviderConfig.Kind.GeminiWeb || provider.signIn == ProviderStore.GEMINI_WEB_SIGN_IN -> SignInKind.GeminiWeb
                 provider.signIn == ProviderStore.OPENROUTER_SIGN_IN -> SignInKind.OpenRouter
                 else -> null
             }
@@ -159,13 +163,20 @@ fun ModelSetupScreen(
                 setVision = { model, sees -> vm.setModelVision(provider.id, model, sees) },
                 showAll = { allModels = true },
                 retest = { vm.retest(provider.id) },
-                // ChatGPT 照旧直接去浏览器登录;xAI、OpenRouter 先打开说明面板
+                // ChatGPT 照旧直接去浏览器登录;xAI、OpenRouter、Gemini 先打开说明面板
                 signIn = { if (accountKind != null) signInSheet = accountKind else vm.signInWithChatGpt() },
-                signOut = { if (accountKind != null) vm.signOutAccount(provider.id) else vm.signOutChatGpt(provider.id) },
+                signOut = {
+                    when (accountKind) {
+                        SignInKind.GeminiWeb -> vm.signOutGeminiWeb(provider.id)
+                        SignInKind.Xai, SignInKind.OpenRouter -> vm.signOutAccount(provider.id)
+                        else -> vm.signOutChatGpt(provider.id)
+                    }
+                },
                 manageUsage = {
                     openInBrowser(context, when (accountKind) {
                         SignInKind.Xai -> ModelsCopy.ACCOUNT_MANAGE_URL
                         SignInKind.OpenRouter -> OpenRouterAuth.KEYS_PAGE
+                        SignInKind.GeminiWeb -> "https://gemini.google.com"
                         else -> ChatGptAuth.USAGE_URL
                     })
                 },
@@ -227,8 +238,18 @@ fun ModelSetupScreen(
         SignInSheet(
             ui, kind,
             SignInSheetActions(
-                start = { k -> k.account?.let(vm::signInWithAccount) ?: vm.signInWithChatGpt() },
-                cancel = { k -> if (k.account != null) vm.cancelAccountSignIn() else vm.cancelChatGptSignIn() },
+                start = { k ->
+                    when (k) {
+                        SignInKind.GeminiWeb -> vm.signInWithGeminiWeb()
+                        else -> k.account?.let(vm::signInWithAccount) ?: vm.signInWithChatGpt()
+                    }
+                },
+                cancel = { k ->
+                    when (k) {
+                        SignInKind.GeminiWeb -> vm.cancelGeminiWebSignIn()
+                        else -> if (k.account != null) vm.cancelAccountSignIn() else vm.cancelChatGptSignIn()
+                    }
+                },
                 useApiKey = { k ->
                     signInSheet = null
                     openProvider = null
@@ -239,9 +260,22 @@ fun ModelSetupScreen(
                 dismiss = {
                     signInSheet = null
                     // 失败的原因看过了;还在登录的不打断
-                    if (!ui.accountSignIn.running) vm.dismissAccountFailure()
+                    if (!ui.accountSignIn.running && ui.geminiWebSignIn != ListState.Running) vm.dismissAccountFailure()
                 },
             ),
+        )
+    }
+
+    if (ui.geminiWebLoginOpen) {
+        GeminiWebLoginDialog(
+            onDismiss = { vm.cancelGeminiWebSignIn() },
+            onSuccess = { session ->
+                signInSheet = null
+                vm.onGeminiWebLoginSuccess(session)
+            },
+            onError = { reason ->
+                vm.onGeminiWebLoginFailed(reason)
+            }
         )
     }
 }
