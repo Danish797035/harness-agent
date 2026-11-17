@@ -232,7 +232,13 @@ fun RouterBottomSheet(
                         }
                         val isCurrent = activeModel.id.equals(cfg.model, ignoreCase = true)
                         val isGemini = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.name.contains("Gemini", ignoreCase = true)
-                        val quotaBadge = if (isGemini) stringResource(R.string.router_pro_plan) else "${RouterUsageTracker.getTodayCalls(cfg.model)} ${stringResource(R.string.router_today)}"
+                        val matchingLine = usages.flatMap { it.models }.firstOrNull { it.modelId.equals(cfg.model, ignoreCase = true) }
+                        val todayCount = matchingLine?.todayRequests ?: 0
+                        val quotaBadge = if (isGemini) {
+                            if (todayCount > 0) "$todayCount · ${stringResource(R.string.router_pro_plan)}" else stringResource(R.string.router_pro_plan)
+                        } else {
+                            "$todayCount ${stringResource(R.string.router_today)}"
+                        }
                         ConfiguredRoleRow(
                             role = role,
                             cfg = cfg,
@@ -354,9 +360,6 @@ fun RouterBottomSheet(
             }
 
             Spacer(Modifier.height(8.dp))
-        }
-    }
-}
         }
     }
 }

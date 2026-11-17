@@ -5,6 +5,7 @@ import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.GeminiModel
 import com.meenai.mina.core.model.GeminiWebModel
+import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.OpenAiCompatModel
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.core.model.PromptCaching
