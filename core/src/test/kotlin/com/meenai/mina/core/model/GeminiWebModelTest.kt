@@ -51,6 +51,22 @@ class GeminiWebModelTest {
     }
 
     @Test
+    fun thinkingFlagForMapsLevelsCorrectly() {
+        assertEquals(2, GeminiWebClient.thinkingFlagFor("high"))
+        assertEquals(1, GeminiWebClient.thinkingFlagFor("medium"))
+        assertEquals(1, GeminiWebClient.thinkingFlagFor("standard"))
+        assertEquals(1, GeminiWebClient.thinkingFlagFor("low"))
+        assertEquals(0, GeminiWebClient.thinkingFlagFor("off"))
+    }
+
+    @Test
+    fun geminiWebHttpConfiguredWith300sTimeout() {
+        val client = GeminiWebClient.geminiWebHttp
+        assertEquals(300, client.readTimeoutMillis / 1000)
+        assertEquals(15, client.connectTimeoutMillis / 1000)
+    }
+
+    @Test
     fun extractSessionFromHtmlExtractsAllTokens() {
         val html = """
             <html>

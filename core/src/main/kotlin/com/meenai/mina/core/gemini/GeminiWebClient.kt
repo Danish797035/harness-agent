@@ -35,6 +35,14 @@ object GeminiWebClient {
     val SESSION_ID_REGEX = Regex(""""FdrFJe":\s*"([^"]+)"""")
     val EMAIL_REGEX = Regex(""""o3H74c":\s*"([^"]+)"""")
 
+    val geminiWebHttp: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     val DEFAULT_MODELS: List<ListedModel> = listOf(
         ListedModel(
             id = "gemini-4-argon",
@@ -43,7 +51,7 @@ object GeminiWebClient {
             vision = true,
             contextTokens = 1_000_000,
             reasoning = true,
-            reasoningEfforts = listOf("high", "standard"),
+            reasoningEfforts = listOf("low", "medium", "high"),
             chat = true
         ),
         ListedModel(
@@ -53,7 +61,7 @@ object GeminiWebClient {
             vision = true,
             contextTokens = 1_000_000,
             reasoning = true,
-            reasoningEfforts = listOf("high", "standard"),
+            reasoningEfforts = listOf("low", "medium", "high"),
             chat = true
         ),
         ListedModel(
@@ -63,7 +71,7 @@ object GeminiWebClient {
             vision = true,
             contextTokens = 2_000_000,
             reasoning = true,
-            reasoningEfforts = listOf("high", "standard"),
+            reasoningEfforts = listOf("low", "medium", "high"),
             chat = true
         ),
         ListedModel(
@@ -131,25 +139,38 @@ object GeminiWebClient {
         else -> "e6fa609c3fa255c0"
     }
 
+    fun thinkingFlagFor(effort: String?): Int = when (effort?.lowercase()) {
+        "high" -> 2
+        "medium", "standard" -> 1
+        "low", "fast" -> 1
+        "off", "disabled" -> 0
+        else -> 1
+    }
+
+    fun buildModelHeader(
+        modelId: String,
+        capacity: Int = 2,
+        modelNumber: Int,
+        thinkingFlag: Int,
+        uuid: String
+    ): String {
+        return """[1,null,null,null,"$modelId",null,null,0,[4,5,6,8],null,null,$capacity,null,null,$modelNumber,$thinkingFlag,"$uuid"]"""
+    }
+
     fun buildModelHeader(
         modelId: String,
         capacity: Int = 2,
         modelNumber: Int,
         extendedThinking: Boolean,
         uuid: String
-    ): String {
-        val thinkingFlag = if (extendedThinking) 2 else 1
-        return """[1,null,null,null,"$modelId",null,null,0,[4,5,6,8],null,null,$capacity,null,null,$modelNumber,$thinkingFlag,"$uuid"]"""
-    }
+    ): String = buildModelHeader(modelId, capacity, modelNumber, if (extendedThinking) 2 else 1, uuid)
 
     fun buildInnerRequestJson(
         prompt: String,
         modelNumber: Int,
-        extendedThinking: Boolean,
+        thinkingFlag: Int,
         uuid: String
     ): String {
-        val thinkingFlag = if (extendedThinking) 2 else 1
-
         val elements = MutableList<JsonElement?>(81) { null }
         // 0: message content
         elements[0] = buildJsonArray {
@@ -163,18 +184,11 @@ object GeminiWebClient {
         }
         // 1: language
         elements[1] = buildJsonArray { add(JsonPrimitive("en")) }
-        // 2: metadata
+        // 2: metadata - conversation context (3 nulls for new conversation, NOT empty strings which cause HTTP 400)
         elements[2] = buildJsonArray {
-            add(JsonPrimitive(""))
-            add(JsonPrimitive(""))
-            add(JsonPrimitive(""))
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(""))
         }
         elements[6] = buildJsonArray { add(JsonPrimitive(1)) }
         elements[7] = JsonPrimitive(1) // streaming
@@ -199,4 +213,11 @@ object GeminiWebClient {
         }
         return array.toString()
     }
+
+    fun buildInnerRequestJson(
+        prompt: String,
+        modelNumber: Int,
+        extendedThinking: Boolean,
+        uuid: String
+    ): String = buildInnerRequestJson(prompt, modelNumber, if (extendedThinking) 2 else 1, uuid)
 }

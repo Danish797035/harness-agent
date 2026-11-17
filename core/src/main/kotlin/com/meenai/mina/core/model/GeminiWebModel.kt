@@ -52,18 +52,19 @@ class GeminiWebModel(
         onText: (String) -> Unit
     ): ModelReply {
         val prompt = formatPrompt(system, messages, tools)
-        val extendedThinking = reasoningEffort.equals("high", ignoreCase = true) || reasoningEffort.equals("enabled", ignoreCase = true)
+        val thinkingFlag = GeminiWebClient.thinkingFlagFor(reasoningEffort)
         val modelNumber = GeminiWebClient.modelNumberFor(model)
         val modelHexId = GeminiWebClient.modelHexIdFor(model)
         val uuid = UUID.randomUUID().toString().uppercase()
 
-        val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, extendedThinking, uuid)
-        val modelHeader = GeminiWebClient.buildModelHeader(modelHexId, capacity = 2, modelNumber, extendedThinking, uuid)
+        val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)
+        val modelHeader = GeminiWebClient.buildModelHeader(modelHexId, capacity = 2, modelNumber, thinkingFlag, uuid)
 
         val reqId = Random.nextInt(10000, 99999)
         val bl = session.cfb2h.ifBlank { "boq_assistant-bard-web-server_20250101.00_p0" }
+        val fsidPart = if (session.fdrfje.isNotBlank()) "&f.sid=${session.fdrfje}" else ""
 
-        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl&hl=en&_reqid=$reqId&rt=c"
+        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl$fsidPart&hl=en&_reqid=$reqId&rt=c"
 
         val formBody = FormBody.Builder()
             .add("at", session.snlm0e)
@@ -145,6 +146,14 @@ class GeminiWebModel(
                 }
                 line = reader.readLine()
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            if (lastReportedLen == 0) {
+                throw ModelError.FirstTokenTimeout()
+            } else {
+                throw ModelError.StreamCut()
+            }
+        } catch (e: java.io.IOException) {
+            throw ModelError.Network(e)
         } finally {
             reader.close()
         }

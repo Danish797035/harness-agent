@@ -410,6 +410,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 providers.repairGeminiWebBindings()
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
                 freeKeyRouter.updateCandidates(candidates)
+                val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
+                if (mainModel != null && freeKeyRouter.pinnedModelId == null) {
+                    val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
+                    if (matching != null && freeKeyRouter.activeCandidate?.id != matching.id) {
+                        freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                    }
+                }
                 com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
             }
         }

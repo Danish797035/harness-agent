@@ -686,7 +686,7 @@ object AppFreeKeyRouter {
                 session = session,
                 model = m.id,
                 capabilities = caps,
-                http = http,
+                http = GeminiWebClient.geminiWebHttp,
             )
             val rank = when {
                 m.id.contains("argon", ignoreCase = true) -> 98

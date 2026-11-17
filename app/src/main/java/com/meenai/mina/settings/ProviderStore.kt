@@ -875,7 +875,7 @@ class ProviderStore(
                     session = sess,
                     model = cfg.model,
                     capabilities = cfg.capabilities,
-                    http = http,
+                    http = GeminiWebClient.geminiWebHttp,
                     headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort
                 )
