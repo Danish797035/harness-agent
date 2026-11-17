@@ -877,7 +877,10 @@ class ProviderStore(
                     capabilities = cfg.capabilities,
                     http = GeminiWebClient.geminiWebHttp,
                     headers = setup.headers,
-                    reasoningEffort = setup.reasoningEffort
+                    reasoningEffort = setup.reasoningEffort,
+                    onSessionUpdated = { newSess ->
+                        connectGeminiWeb(newSess, cfg.models)
+                    }
                 )
             }
         }

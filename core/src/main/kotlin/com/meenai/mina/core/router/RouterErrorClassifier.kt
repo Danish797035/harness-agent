@@ -66,13 +66,13 @@ object RouterErrorClassifier {
         }
 
         // 2. Auth / Invalid Key -> KEY_BAD
-        if (throwable is ModelError.Auth || throwable is ModelError.AccountPlanNotAllowed) {
+        if (throwable is ModelError.Auth || throwable is ModelError.AccountPlanNotAllowed || throwable is ModelError.SignInExpired) {
             return RouterAction.KEY_BAD
         }
         if (status == 401 || status == 403) {
             return RouterAction.KEY_BAD
         }
-        if (KEY_BAD_KEYWORDS.any { lowerBody.contains(it) }) {
+        if (KEY_BAD_KEYWORDS.any { lowerBody.contains(it) } || lowerBody.contains("sign in again") || lowerBody.contains("sign-in has expired") || lowerBody.contains("sign-in expired")) {
             return RouterAction.KEY_BAD
         }
 

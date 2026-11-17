@@ -68,7 +68,9 @@ object AppFreeKeyRouter {
                 isGeminiWebProvider(p) -> {
                     val session = store.geminiWebSession(p.id)
                     if (session != null && session.signedIn) {
-                        list.addAll(createGeminiWebCandidates(session, http, p.models))
+                        list.addAll(createGeminiWebCandidates(session, http, p.models) { newSess ->
+                            store.connectGeminiWeb(newSess, p.models)
+                        })
                     }
                 }
                 else -> {
@@ -667,6 +669,7 @@ object AppFreeKeyRouter {
         session: GeminiWebSession,
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
+        onSessionUpdated: ((GeminiWebSession) -> Unit)? = null,
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
             listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
@@ -687,6 +690,7 @@ object AppFreeKeyRouter {
                 model = m.id,
                 capabilities = caps,
                 http = GeminiWebClient.geminiWebHttp,
+                onSessionUpdated = onSessionUpdated,
             )
             val rank = when {
                 m.id.contains("argon", ignoreCase = true) -> 98

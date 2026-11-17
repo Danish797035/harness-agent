@@ -119,6 +119,28 @@ class FreeKeyRouter(
     private val _status = MutableStateFlow(RouterStatus())
     val status: StateFlow<RouterStatus> = _status.asStateFlow()
 
+    init {
+        val pinned = pinnedModelId
+        val manualMain = preferences.getManualRole(ModelRole.Main.name)
+        val initial = when {
+            !pinned.isNullOrBlank() -> candidates.find { it.id == pinned }
+            !manualMain.isNullOrBlank() -> candidates.find { it.id.equals(manualMain, ignoreCase = true) }
+            else -> candidates.firstOrNull { it.roles.contains(ModelRole.Main) } ?: candidates.firstOrNull()
+        }
+        if (initial != null) {
+            activeCandidate = initial
+            updateStatus(
+                model = initial.id,
+                provider = initial.provider,
+                reason = when {
+                    pinned != null -> "Pinned model"
+                    !manualMain.isNullOrBlank() -> "Configured main model"
+                    else -> "Optimal free candidate"
+                }
+            )
+        }
+    }
+
     override val name: String
         get() = activeCandidate?.id ?: candidates.firstOrNull()?.id ?: "FreeKeyRouter"
 
@@ -354,6 +376,9 @@ class FreeKeyRouter(
 
         while (true) {
             if (switchCountInTask >= effectiveMaxSwitches) {
+                if (lastError is ModelError.SignInExpired || lastError is ModelError.AccountPlanNotAllowed) {
+                    throw lastError!!
+                }
                 val waitMin = calculateWaitMinutes()
                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                 updateStatus(reason = msg)
@@ -372,6 +397,9 @@ class FreeKeyRouter(
                     }
                 }
                 if (next == null) {
+                    if (lastError is ModelError.SignInExpired || lastError is ModelError.AccountPlanNotAllowed) {
+                        throw lastError!!
+                    }
                     val waitMin = calculateWaitMinutes()
                     val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                     updateStatus(reason = msg)
@@ -505,6 +533,9 @@ class FreeKeyRouter(
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= effectiveMaxSwitches) {
+                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
+                                    throw e
+                                }
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -520,6 +551,9 @@ class FreeKeyRouter(
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= effectiveMaxSwitches) {
+                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
+                                    throw e
+                                }
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -567,6 +601,9 @@ class FreeKeyRouter(
                             activeCandidate = null
                             switchCountInTask++
                             if (switchCountInTask >= effectiveMaxSwitches) {
+                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
+                                    throw e
+                                }
                                 val waitMin = calculateWaitMinutes()
                                 val msg = "Sab free limits khatam, $waitMin minute baad try karo"
                                 updateStatus(reason = msg)
@@ -662,9 +699,8 @@ class FreeKeyRouter(
         }
 
         // Specialist Manual role or configured role
-        val isManualOrConfigured = preferences.getSpecialistMode() == SpecialistMode.Manual || !preferences.isSpecialistAutoEnabled()
         val manualModelId = preferences.getManualRole(targetRole.name)
-        if (!manualModelId.isNullOrBlank() && (isManualOrConfigured || targetRole == ModelRole.Main)) {
+        if (!manualModelId.isNullOrBlank()) {
             val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
             if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
                 return manualCandidate

@@ -184,11 +184,18 @@ object GeminiWebClient {
         }
         // 1: language
         elements[1] = buildJsonArray { add(JsonPrimitive("en")) }
-        // 2: metadata - conversation context (3 nulls for new conversation, NOT empty strings which cause HTTP 400)
+        // 2: metadata - conversation context (10 elements expected by BardFrontendService)
         elements[2] = buildJsonArray {
+            add(JsonPrimitive(""))
+            add(JsonPrimitive(""))
+            add(JsonPrimitive(""))
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(""))
         }
         elements[6] = buildJsonArray { add(JsonPrimitive(1)) }
         elements[7] = JsonPrimitive(1) // streaming

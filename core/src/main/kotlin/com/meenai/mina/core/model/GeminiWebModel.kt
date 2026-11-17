@@ -22,12 +22,13 @@ import java.util.UUID
 import kotlin.random.Random
 
 class GeminiWebModel(
-    private val session: GeminiWebSession,
+    private var session: GeminiWebSession,
     private val model: String,
     override val capabilities: Capabilities,
     private val http: OkHttpClient,
     private val headers: Map<String, String> = emptyMap(),
     private val reasoningEffort: String? = null,
+    private val onSessionUpdated: ((GeminiWebSession) -> Unit)? = null,
 ) : StreamingChatModel {
 
     override val name: String get() = model
@@ -60,43 +61,43 @@ class GeminiWebModel(
         val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)
         val modelHeader = GeminiWebClient.buildModelHeader(modelHexId, capacity = 2, modelNumber, thinkingFlag, uuid)
 
-        val reqId = Random.nextInt(10000, 99999)
-        val bl = session.cfb2h.ifBlank { "boq_assistant-bard-web-server_20250101.00_p0" }
-        val fsidPart = if (session.fdrfje.isNotBlank()) "&f.sid=${session.fdrfje}" else ""
+        var currentSession = session
+        var bl = currentSession.cfb2h.ifBlank { "boq_assistant-bard-web-server_20250101.00_p0" }
+        var request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
 
-        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl$fsidPart&hl=en&_reqid=$reqId&rt=c"
-
-        val formBody = FormBody.Builder()
-            .add("at", session.snlm0e)
-            .add("f.req", buildJsonArray {
-                add(JsonPrimitive(null as String?))
-                add(JsonPrimitive(innerReqJson))
-            }.toString())
-            .build()
-
-        val request = Request.Builder()
-            .url(url)
-            .header("Host", "gemini.google.com")
-            .header("Origin", "https://gemini.google.com")
-            .header("Referer", "https://gemini.google.com/")
-            .header("X-Same-Domain", "1")
-            .header("User-Agent", GeminiWebClient.CHROME_USER_AGENT)
-            .header("Cookie", session.cookies)
-            .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
-            .header(GeminiWebClient.MODEL_HEADER_KEY, modelHeader)
-            .header("x-goog-ext-525005358-jspb", "[\"$uuid\",1]")
-            .header("x-goog-ext-73010989-jspb", "[0]")
-            .header("x-goog-ext-73010990-jspb", "[0,0,0]")
-            .apply {
-                headers.forEach { (k, v) -> header(k, v) }
-            }
-            .post(formBody)
-            .build()
-
-        val response = try {
+        var response = try {
             http.newCall(request).execute()
         } catch (e: Exception) {
             throw ModelError.Network(e)
+        }
+
+        if (response.code in 401..403 || response.code == 400) {
+            val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
+            val isSessionError = response.code in 401..403 ||
+                peek.contains("af.httprm") || peek.contains("141") || peek.contains("\"er\"")
+
+            if (isSessionError) {
+                val refreshed = runCatching {
+                    GeminiWebClient.fetchSessionFromCookies(http, currentSession.cookies)
+                }.getOrNull()
+
+                if (refreshed != null && refreshed.snlm0e.isNotBlank()) {
+                    response.close()
+                    session = refreshed
+                    currentSession = refreshed
+                    onSessionUpdated?.invoke(refreshed)
+                    bl = refreshed.cfb2h.ifBlank { bl }
+                    request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
+                    response = try {
+                        http.newCall(request).execute()
+                    } catch (e: Exception) {
+                        throw ModelError.Network(e)
+                    }
+                } else {
+                    response.close()
+                    throw ModelError.SignInExpired("Google Gemini")
+                }
+            }
         }
 
         if (response.code in 401..403) {
@@ -110,6 +111,9 @@ class GeminiWebModel(
         }
         if (!response.isSuccessful) {
             val body = response.body?.string().orEmpty()
+            if (response.code == 400 && (body.contains("af.httprm") || body.contains("141") || body.contains("\"er\""))) {
+                throw ModelError.SignInExpired("Google Gemini")
+            }
             throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}")
         }
 
@@ -181,6 +185,44 @@ class GeminiWebModel(
         )
 
         return ModelReply(parts, stopReason, usage)
+    }
+
+    private fun createPostRequest(
+        currentSession: GeminiWebSession,
+        innerReqJson: String,
+        modelHeader: String,
+        uuid: String,
+        bl: String
+    ): Request {
+        val reqId = Random.nextInt(10000, 99999)
+        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl&hl=en&_reqid=$reqId&rt=c"
+
+        val formBody = FormBody.Builder()
+            .add("at", currentSession.snlm0e)
+            .add("f.req", buildJsonArray {
+                add(JsonPrimitive(null as String?))
+                add(JsonPrimitive(innerReqJson))
+            }.toString())
+            .build()
+
+        return Request.Builder()
+            .url(url)
+            .header("Host", "gemini.google.com")
+            .header("Origin", "https://gemini.google.com")
+            .header("Referer", "https://gemini.google.com/")
+            .header("X-Same-Domain", "1")
+            .header("User-Agent", GeminiWebClient.CHROME_USER_AGENT)
+            .header("Cookie", currentSession.cookies)
+            .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+            .header(GeminiWebClient.MODEL_HEADER_KEY, modelHeader)
+            .header("x-goog-ext-525005358-jspb", "[\"$uuid\",1]")
+            .header("x-goog-ext-73010989-jspb", "[0]")
+            .header("x-goog-ext-73010990-jspb", "[0,0,0]")
+            .apply {
+                headers.forEach { (k, v) -> header(k, v) }
+            }
+            .post(formBody)
+            .build()
     }
 
     private data class ParsedChunk(val text: String, val thoughts: String, val isCompleted: Boolean)
