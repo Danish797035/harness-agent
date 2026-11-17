@@ -14,10 +14,10 @@ class DifficultyRouter(
     val classifier: TaskDifficultyClassifier = TaskDifficultyClassifier,
     val pinnedModelId: String? = null,
 ) {
-    var currentRole: ModelRole = ModelRole.Main
+    var currentRole: ModelRole = ModelRole.Light
         private set
 
-    var currentDifficulty: TaskDifficulty = TaskDifficulty.Heavy
+    var currentDifficulty: TaskDifficulty = TaskDifficulty.Light
         private set
 
     var failureCount: Int = 0

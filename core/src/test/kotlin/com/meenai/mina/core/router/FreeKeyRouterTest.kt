@@ -463,8 +463,8 @@ class FreeKeyRouterTest {
 
     @Test
     fun switchCandidateUpdatesActiveCandidateAndStatus() {
-        val c1 = RouterCandidate("m1", "gemini_web", mockModel("m1"))
-        val c2 = RouterCandidate("m2", "gemini_web", mockModel("m2"))
+        val c1 = RouterCandidate("m1", "gemini_web", mockModel("m1") { _, _, _, _ -> simpleReply })
+        val c2 = RouterCandidate("m2", "gemini_web", mockModel("m2") { _, _, _, _ -> simpleReply })
         val router = FreeKeyRouter(listOf(c1, c2), delayMs = {})
 
         val switched = router.switchCandidate("m2", "Configured main model")
