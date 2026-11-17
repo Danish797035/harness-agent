@@ -108,7 +108,8 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPrefer
     override fun getPreferredProviders(): List<String> {
         val raw = prefs.getString(KEY_PREFERRED_PROVIDERS, "") ?: ""
         if (raw.isBlank()) return DEFAULT_PROVIDER_ORDER
-        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val list = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        return if ("gemini_web" !in list) listOf("gemini_web") + list else list
     }
 
     fun setPreferredProviders(providers: List<String>) {
@@ -157,6 +158,7 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPrefer
         const val MAX_RECENTS = 5
 
         val DEFAULT_PROVIDER_ORDER = listOf(
+            "gemini_web",
             "gemini",
             "zai",
             "groq",

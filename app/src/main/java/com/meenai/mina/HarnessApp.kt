@@ -406,16 +406,25 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch { taskRecovery.recover() }
         scope.launch {
             providers.repairGeminiWebBindings()
-            kotlinx.coroutines.flow.combine(providers.providers, providers.keysRevision) { list, _ -> list }.collect {
+            kotlinx.coroutines.flow.combine(providers.providers, providers.roles, providers.keysRevision) { list, _, _ -> list }.collect {
                 providers.repairGeminiWebBindings()
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
                 freeKeyRouter.updateCandidates(candidates)
                 val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
-                if (mainModel != null && freeKeyRouter.pinnedModelId == null) {
-                    val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
-                    if (matching != null && freeKeyRouter.activeCandidate?.id != matching.id) {
-                        freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                if (mainModel != null) {
+                    modelPreferences.setManualRole("main", mainModel)
+                    if (freeKeyRouter.pinnedModelId == null) {
+                        val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
+                        if (matching != null && freeKeyRouter.activeCandidate?.id != matching.id) {
+                            freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                        }
                     }
+                }
+                providers.configFor(com.meenai.mina.core.model.ModelRole.Vision)?.model?.let {
+                    modelPreferences.setManualRole("vision", it)
+                }
+                providers.configFor(com.meenai.mina.core.model.ModelRole.Light)?.model?.let {
+                    modelPreferences.setManualRole("light", it)
                 }
                 com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
             }

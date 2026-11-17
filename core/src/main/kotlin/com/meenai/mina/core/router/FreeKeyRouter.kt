@@ -246,6 +246,17 @@ class FreeKeyRouter(
         pinnedModelId = null
     }
 
+    fun switchCandidate(modelId: String, reason: String = "Candidate switched"): Boolean {
+        val found = candidates.find { it.id.equals(modelId, ignoreCase = true) } ?: return false
+        activeCandidate = found
+        updateStatus(
+            model = found.id,
+            provider = found.provider,
+            reason = reason,
+        )
+        return true
+    }
+
     /**
      * Handles model failure due to repeated empty or truncated replies.
      * Records failure in statsTracker and healthTracker, places offending model into cooldown,
@@ -650,18 +661,17 @@ class FreeKeyRouter(
             return candidates.find { it.id == pinned }
         }
 
-        // Specialist Manual role or Specialist Auto disabled
-        if (preferences.getSpecialistMode() == SpecialistMode.Manual || !preferences.isSpecialistAutoEnabled()) {
-            val manualModelId = preferences.getManualRole(targetRole.name)
-            if (!manualModelId.isNullOrBlank()) {
-                val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
-                if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
-                    return manualCandidate
-                }
+        // Specialist Manual role or configured role
+        val isManualOrConfigured = preferences.getSpecialistMode() == SpecialistMode.Manual || !preferences.isSpecialistAutoEnabled()
+        val manualModelId = preferences.getManualRole(targetRole.name)
+        if (!manualModelId.isNullOrBlank() && (isManualOrConfigured || targetRole == ModelRole.Main)) {
+            val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
+            if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
+                return manualCandidate
             }
-            if (!preferences.isSpecialistAutoEnabled() && activeCandidate != null && checkCachedQuota(activeCandidate!!, isNewTask = isNewTask)) {
-                return activeCandidate
-            }
+        }
+        if (!preferences.isSpecialistAutoEnabled() && activeCandidate != null && checkCachedQuota(activeCandidate!!, isNewTask = isNewTask)) {
+            return activeCandidate
         }
 
         val hiddenModels = preferences.getHiddenModels()

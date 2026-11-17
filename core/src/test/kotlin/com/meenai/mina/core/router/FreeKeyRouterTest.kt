@@ -460,6 +460,19 @@ class FreeKeyRouterTest {
         // deepseek provider marked as no balance
         assertFalse(router.cooldownStore.hasBalance("deepseek"))
     }
+
+    @Test
+    fun switchCandidateUpdatesActiveCandidateAndStatus() {
+        val c1 = RouterCandidate("m1", "gemini_web", mockModel("m1"))
+        val c2 = RouterCandidate("m2", "gemini_web", mockModel("m2"))
+        val router = FreeKeyRouter(listOf(c1, c2), delayMs = {})
+
+        val switched = router.switchCandidate("m2", "Configured main model")
+        assertTrue(switched)
+        assertEquals("m2", router.activeCandidate?.id)
+        assertEquals("m2", router.status.value.currentModel)
+        assertEquals("Configured main model", router.status.value.reason)
+    }
 }
 
 class MockChatModel(
