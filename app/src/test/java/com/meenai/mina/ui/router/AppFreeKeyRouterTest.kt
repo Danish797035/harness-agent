@@ -644,7 +644,7 @@ class AppFreeKeyRouterTest {
 
     @Test
     fun createCandidatesIncludesGeminiWebWhenSignedIn() {
-        val store = ProviderStore(tempDir.newFolder("pstore_gemini_web"), cipher = AesGcmKeyCipher("0123456789abcdef0123456789abcdef".toByteArray()))
+        val store = createTestStore()
         val session = GeminiWebSession(
             cookies = "SID=fake_sid; HSID=fake_hsid",
             snlm0e = "fake_snlm0e",
@@ -667,9 +667,10 @@ class AppFreeKeyRouterTest {
 
     @Test
     fun repairGeminiWebBindingsFixesMisboundRole() {
-        val store = ProviderStore(tempDir.newFolder("pstore_repair"), cipher = AesGcmKeyCipher("0123456789abcdef0123456789abcdef".toByteArray()))
+        val store = createTestStore()
         val oldGemini = store.connect("Gemini", ProviderConfig.Kind.Gemini, "https://generativelanguage.googleapis.com", "fake_key", emptyList())
-        store.use(com.meenai.mina.core.model.ModelRole.Main, oldGemini.id, "gemini-4-argon", Capabilities())
+        val caps = Capabilities(toolCalls = true, vision = true, contextTokens = 128_000, reasoning = false)
+        store.use(com.meenai.mina.core.model.ModelRole.Main, oldGemini.id, "gemini-4-argon", caps)
         val mainBefore = store.configFor(com.meenai.mina.core.model.ModelRole.Main)
         assertEquals(ProviderConfig.Kind.Gemini, mainBefore?.kind)
 
