@@ -69,7 +69,7 @@ object AppFreeKeyRouter {
                     val session = store.geminiWebSession(p.id)
                     if (session != null && session.signedIn) {
                         list.addAll(createGeminiWebCandidates(session, http, p.models) { newSess ->
-                            store.connectGeminiWeb(newSess, p.models)
+                            store.connectGeminiWeb(newSess, p.models.orEmpty())
                         })
                     }
                 }

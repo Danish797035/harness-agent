@@ -879,7 +879,7 @@ class ProviderStore(
                     headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort,
                     onSessionUpdated = { newSess ->
-                        connectGeminiWeb(newSess, cfg.models)
+                        connectGeminiWeb(newSess)
                     }
                 )
             }
