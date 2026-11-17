@@ -781,7 +781,7 @@ class ProviderStore(
     fun geminiWebProvider(): Provider? = _providers.value.firstOrNull { it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == GEMINI_WEB_SIGN_IN }
 
     fun geminiWebSession(providerId: String): GeminiWebSession? =
-        key(providerId)?.let { GeminiWebSession.fromJson(it) }?.takeIf { it.signedIn }
+        providerKey(providerId)?.let { GeminiWebSession.fromJson(it) }?.takeIf { it.signedIn }
 
     @Synchronized
     fun connectGeminiWeb(session: GeminiWebSession, models: List<ListedModel> = emptyList()): Provider {

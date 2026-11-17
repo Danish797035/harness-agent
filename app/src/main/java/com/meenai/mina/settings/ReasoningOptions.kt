@@ -20,7 +20,7 @@ data class ReasoningOptions(val levels: List<String>, val fromProvider: Boolean)
             return when (ProviderStore.adapterFor(config, listed?.endpoint).first) {
                 ProviderConfig.Kind.OpenAiResponses, ProviderConfig.Kind.ChatGpt, ProviderConfig.Kind.Xai ->
                     ReasoningOptions(manualLevels, fromProvider = false)
-                ProviderConfig.Kind.OpenAiCompat, ProviderConfig.Kind.Anthropic, ProviderConfig.Kind.Gemini -> null
+                ProviderConfig.Kind.OpenAiCompat, ProviderConfig.Kind.Anthropic, ProviderConfig.Kind.Gemini, ProviderConfig.Kind.GeminiWeb -> null
             }
         }
     }

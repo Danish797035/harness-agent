@@ -3,6 +3,8 @@ package com.meenai.mina.core.model
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -117,23 +119,24 @@ class GeminiWebModelTest {
 
     @Test
     fun completeParsesToolCallsProperly() = runTest {
-        val toolJson = """```json
-{
-  "tool_calls": [
-    {
-      "name": "get_time",
-      "arguments": {}
-    }
-  ]
-}
-```"""
-        val framePayload = """[null,null,null,null,[["rc_2",["$toolJson"]]]]"""
-        val escapedPayload = framePayload.replace("\"", "\\\"").replace("\n", "\\n")
-        val streamData = """
-            )]}'
-            120
-            [["wrb.fr",null,"$escapedPayload"]]
-        """.trimIndent()
+        val toolText = "```json\n{\n  \"tool_calls\": [\n    {\n      \"name\": \"get_time\",\n      \"arguments\": {}\n    }\n  ]\n}\n```"
+        val payload = buildJsonArray {
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("rc_2"))
+                    add(buildJsonArray {
+                        add(JsonPrimitive(toolText))
+                    })
+                })
+            })
+        }.toString()
+
+        val escapedPayload = payload.replace("\"", "\\\"")
+        val streamData = ")]}'\n120\n[[\"wrb.fr\",null,\"$escapedPayload\"]]\n"
 
         server.enqueue(MockResponse().setResponseCode(200).setBody(streamData))
 
@@ -167,13 +170,30 @@ class GeminiWebModelTest {
 
     @Test
     fun completeCapturesThinkingWhenPresent() = runTest {
-        val framePayload = """[null,null,null,null,[["rc_3",["Final answer"],null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,[["Step-by-step thinking"]]]]]]"""
-        val escapedPayload = framePayload.replace("\"", "\\\"")
-        val streamData = """
-            )]}'
-            120
-            [["wrb.fr",null,"$escapedPayload"]]
-        """.trimIndent()
+        val candidateArray = buildJsonArray {
+            add(JsonPrimitive("rc_3"))
+            add(buildJsonArray { add(JsonPrimitive("Final answer")) })
+            for (i in 2..36) {
+                add(JsonPrimitive(null as String?))
+            }
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("Step-by-step thinking"))
+                })
+            })
+        }
+        val payload = buildJsonArray {
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(buildJsonArray {
+                add(candidateArray)
+            })
+        }.toString()
+
+        val escapedPayload = payload.replace("\"", "\\\"")
+        val streamData = ")]}'\n120\n[[\"wrb.fr\",null,\"$escapedPayload\"]]\n"
 
         server.enqueue(MockResponse().setResponseCode(200).setBody(streamData))
 

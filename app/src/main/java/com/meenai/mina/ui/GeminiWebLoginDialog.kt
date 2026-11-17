@@ -149,7 +149,7 @@ fun GeminiWebLoginDialog(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     MinaButton(
-                        label = ModelSetupCopy.CANCEL,
+                        text = ModelSetupCopy.CANCEL,
                         onClick = onDismiss,
                         kind = ButtonKind.Text
                     )
@@ -372,7 +372,7 @@ private fun ManualCookieEntry(
         Spacer(modifier = Modifier.height(20.dp))
 
         MinaButton(
-            label = if (isSubmitting) "Detecting session…" else tr(R.string.signin_gemini_submit),
+            text = if (isSubmitting) "Detecting session…" else tr(R.string.signin_gemini_submit),
             onClick = {
                 val raw = cookieInput.trim()
                 if (raw.isBlank()) {
