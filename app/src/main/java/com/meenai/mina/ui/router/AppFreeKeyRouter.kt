@@ -712,6 +712,11 @@ object AppFreeKeyRouter {
         }
     }
 
+    /** Model IDs that are exclusively available via Gemini Web (gemini.google.com) and must NOT
+     *  be routed through the AI Studio / generativelanguage API key endpoint. */
+    private val GEMINI_WEB_ONLY_IDS: Set<String> =
+        GeminiWebClient.DEFAULT_MODELS.map { it.id.lowercase() }.toSet()
+
     fun createGeminiCandidates(
         apiKey: String,
         http: OkHttpClient,
@@ -719,7 +724,7 @@ object AppFreeKeyRouter {
         baseUrl: String = "https://generativelanguage.googleapis.com",
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
-            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) && it.id.lowercase() !in GEMINI_WEB_ONLY_IDS }
         } else {
             listOf(
                 ListedModel("gemini-2.5-flash", vision = true, toolCalls = true, contextTokens = 1_000_000),

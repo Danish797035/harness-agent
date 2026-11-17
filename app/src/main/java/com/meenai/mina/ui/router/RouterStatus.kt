@@ -348,16 +348,18 @@ class RealRouterStatus(
             if (fallback != null) {
                 val (modelId, providerName) = fallback
                 val used = RouterUsageTracker.getTodayCalls(modelId)
+                val isGeminiWebFallback = providerName.equals("Google Gemini", ignoreCase = true) ||
+                    providerName.equals("gemini_web", ignoreCase = true)
                 return ActiveModel(
                     id = modelId,
                     name = formatModelName(modelId),
                     provider = formatProvider(providerName),
                     usedToday = used,
                     limit = null,
-                    isEstimate = true,
+                    isEstimate = !isGeminiWebFallback,
                     quotaRemaining = 0,
                     quotaTotal = 0,
-                    reason = status.reason ?: "Configured main model",
+                    reason = status.reason ?: if (isGeminiWebFallback) "Google One AI Premium (Pro Plan)" else "Configured main model",
                     isPinned = false,
                     canPin = false,
                     cooldownUntilMs = 0L,
