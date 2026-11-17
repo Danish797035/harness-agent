@@ -478,6 +478,10 @@ fun ChatScreen(
                 },
                 onDismiss = { sheetOpen = false },
                 onRefresh = { routerStatus.refresh() },
+                onOpenSettings = {
+                    sheetOpen = false
+                    openSettings()
+                },
             )
         }
 

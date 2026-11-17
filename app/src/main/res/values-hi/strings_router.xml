@@ -91,5 +91,9 @@
     <string name="router_role_long">लंबा संदर्भ</string>
     <string name="router_customizations_title">कस्टमाइज़ेशन</string>
     <string name="router_roles_title">स्पेशलिस्ट रोल्स</string>
+    <string name="router_configured_roles">कॉन्फ़िगर किए गए रोल</string>
+    <string name="router_connected_providers">कनेक्टेड प्रोवाइडर</string>
+    <string name="router_manage_in_settings">सेटिंग्स में सभी मॉडल प्रबंधित करें</string>
+    <string name="router_pro_plan">प्रो प्लान</string>
 </resources>
 

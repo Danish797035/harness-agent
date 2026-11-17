@@ -319,9 +319,11 @@ class RealRouterStatus(
                 if (candidate != null) {
                     val p = s.providers.value.firstOrNull { prov ->
                         when (candidate.provider.lowercase()) {
+                            "gemini_web" -> AppFreeKeyRouter.isGeminiWebProvider(prov)
                             "openrouter" -> AppFreeKeyRouter.isOpenRouterProvider(prov)
                             "zai", "z.ai" -> AppFreeKeyRouter.isZaiProvider(prov)
                             "modelscope" -> AppFreeKeyRouter.isModelScopeProvider(prov)
+                            "gemini" -> AppFreeKeyRouter.isGeminiProvider(prov)
                             else -> prov.id == candidate.provider || prov.name.contains(candidate.provider, ignoreCase = true)
                         }
                     }
@@ -394,7 +396,11 @@ class RealRouterStatus(
         var limit: Int? = null
         var isEstimate = true
 
-        if (provider.equals("openrouter", ignoreCase = true) && cachedOpenRouterKeyInfo != null) {
+        val isGeminiWeb = provider.equals("gemini_web", ignoreCase = true) ||
+            provider.equals("Google Gemini", ignoreCase = true)
+        if (isGeminiWeb) {
+            isEstimate = false
+        } else if (provider.equals("openrouter", ignoreCase = true) && cachedOpenRouterKeyInfo != null) {
             limit = cachedOpenRouterKeyInfo?.limit
             if (limit != null) {
                 isEstimate = false
@@ -436,13 +442,17 @@ class RealRouterStatus(
             val isZai = providerObj?.let { AppFreeKeyRouter.isZaiProvider(it) } ?: pName.equals("zai", ignoreCase = true)
             val isModelScope = providerObj?.let { AppFreeKeyRouter.isModelScopeProvider(it) } ?: pName.equals("modelscope", ignoreCase = true)
             val isOpenRouter = providerObj?.let { AppFreeKeyRouter.isOpenRouterProvider(it) } ?: pName.equals("openrouter", ignoreCase = true)
+            val isGeminiWeb = providerObj?.let { AppFreeKeyRouter.isGeminiWebProvider(it) }
+                ?: pName.equals("gemini_web", ignoreCase = true)
+                || pName.equals("Google Gemini", ignoreCase = true)
 
             val providerId = providerObj?.id ?: pName
             val isBadKey = router.cooldownStore.isKeyBad(providerKeyName) ||
                 router.cooldownStore.isKeyBad(providerId) ||
                 (if (isZai) router.cooldownStore.isKeyBad("zai") else false) ||
                 (if (isModelScope) router.cooldownStore.isKeyBad("modelscope") else false) ||
-                (if (isOpenRouter) router.cooldownStore.isKeyBad("openrouter") else false)
+                (if (isOpenRouter) router.cooldownStore.isKeyBad("openrouter") else false) ||
+                (if (isGeminiWeb) router.cooldownStore.isKeyBad("gemini_web") else false)
 
             val modelIds = linkedSetOf<String>()
 
@@ -452,8 +462,13 @@ class RealRouterStatus(
                     it.provider.equals(providerId, ignoreCase = true) ||
                     (isZai && it.provider.equals("zai", ignoreCase = true)) ||
                     (isModelScope && it.provider.equals("modelscope", ignoreCase = true)) ||
-                    (isOpenRouter && it.provider.equals("openrouter", ignoreCase = true))
+                    (isOpenRouter && it.provider.equals("openrouter", ignoreCase = true)) ||
+                    (isGeminiWeb && it.provider.equals("gemini_web", ignoreCase = true))
             }.forEach { modelIds.add(it.id) }
+
+            if (isGeminiWeb) {
+                com.meenai.mina.core.gemini.GeminiWebClient.DEFAULT_MODELS.forEach { modelIds.add(it.id) }
+            }
 
             // 2. Models from provider object
             providerObj?.let { p ->
@@ -537,33 +552,37 @@ class RealRouterStatus(
                 val isFree = candidate?.isFree
                     ?: (mId.endsWith(":free") || isModelScope || isZai)
 
-                val (quotaState, exhaustedReason) = ModelPickerLogic.computeQuotaState(
-                    isBadKey = isBadKey,
-                    isUnsupported = isUnsupported,
-                    cooldownMs = cooldownMs,
-                    limit = limit,
-                    todayRequests = todayRequests,
-                    isModelScope = isModelScope,
-                    magicubeBalance = magicubeBal,
-                    costPerCall = costPerCall,
-                    hasBalance = hasBalance,
-                )
+                val (quotaState, exhaustedReason) = if (isGeminiWeb) {
+                    QuotaState.Ready to null
+                } else {
+                    ModelPickerLogic.computeQuotaState(
+                        isBadKey = isBadKey,
+                        isUnsupported = isUnsupported,
+                        cooldownMs = cooldownMs,
+                        limit = limit,
+                        todayRequests = todayRequests,
+                        isModelScope = isModelScope,
+                        magicubeBalance = magicubeBal,
+                        costPerCall = costPerCall,
+                        hasBalance = hasBalance,
+                    )
+                }
 
                 ModelQuotaLine(
                     modelId = mId,
                     modelName = formatModelName(mId),
                     todayRequests = todayRequests,
                     limit = limit,
-                    isEstimate = isEstimate,
-                    status = status,
+                    isEstimate = if (isGeminiWeb) false else isEstimate,
+                    status = if (isGeminiWeb) ModelStatusKind.Ready else status,
                     cooldownMinutes = cooldownMin,
                     costPerCall = costPerCall,
-                    costInfo = costInfo,
+                    costInfo = if (isGeminiWeb) "Pro Plan" else costInfo,
                     provider = formatProvider(providerKeyName),
                     supportsVision = supportsVision,
                     supportsTools = supportsTools,
                     contextTokens = contextTokens,
-                    isFree = isFree,
+                    isFree = if (isGeminiWeb) true else isFree,
                     quotaState = quotaState,
                     exhaustedReason = exhaustedReason,
                     rank = runCatching { AppFreeKeyRouter.getRankingsRepository().findRankingIndex(mId) }.getOrNull(),
@@ -601,6 +620,7 @@ class RealRouterStatus(
     }
 
     private fun formatProvider(provider: String): String = when (provider.lowercase()) {
+        "gemini_web" -> "Google Gemini"
         "openrouter" -> "OpenRouter"
         "zai" -> "Z.ai"
         "modelscope" -> "ModelScope"
@@ -614,6 +634,10 @@ class RealRouterStatus(
 /** Formats a raw model ID into a concise display name for chip and wait line. */
 internal fun formatRouterModelName(id: String): String = when {
     id.isEmpty() -> ""
+    id.contains("gemini-4-argon", ignoreCase = true) -> "Gemini 4 Argon"
+    id.contains("gemini-4-hydrogen", ignoreCase = true) -> "Gemini 4 Hydrogen"
+    id.contains("gemini-3.1-pro", ignoreCase = true) -> "Gemini 3.1 Pro"
+    id.contains("gemini-3.5-flash-lite", ignoreCase = true) -> "Gemini 3.5 Flash-Lite"
     id.contains("glm-4.7-flash", ignoreCase = true) -> "GLM-4.7 Flash"
     id.contains("glm-4.6v-flash", ignoreCase = true) -> "GLM-4.6V Flash"
     id.contains("gemini-2.0-flash", ignoreCase = true) -> "Gemini 2.0 Flash"
@@ -766,6 +790,15 @@ class FakeRouterStatus(
 fun formatChipText(active: ActiveModel, todayLabel: String = "today"): String {
     if (active.name == "No model" || active.id.isEmpty()) {
         return "No model · 0/0 $todayLabel"
+    }
+
+    val isGeminiWeb = active.provider.equals("Google Gemini", ignoreCase = true) ||
+        active.provider.equals("gemini_web", ignoreCase = true)
+
+    if (isGeminiWeb) {
+        val proPlan = "Pro Plan"
+        val count = if (active.usedToday > 0) "${active.usedToday} $todayLabel · " else ""
+        return "${active.name} · $count$proPlan"
     }
 
     val quotaPart = when {

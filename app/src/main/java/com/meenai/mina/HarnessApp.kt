@@ -405,7 +405,9 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         // 上次异常退出时留下的改动(App 被静音)在这里恢复
         scope.launch { taskRecovery.recover() }
         scope.launch {
+            providers.repairGeminiWebBindings()
             kotlinx.coroutines.flow.combine(providers.providers, providers.keysRevision) { list, _ -> list }.collect {
+                providers.repairGeminiWebBindings()
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
                 freeKeyRouter.updateCandidates(candidates)
                 com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)

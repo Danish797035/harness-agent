@@ -57,7 +57,7 @@ fun RouterChip(
         val dotColor = when (activeModel.callStatus) {
             ModelCallStatus.Success -> colors.ok
             ModelCallStatus.Failure -> colors.bad
-            ModelCallStatus.Untested -> colors.ink3
+            ModelCallStatus.Untested -> if (activeModel.provider.contains("Gemini", ignoreCase = true)) colors.ok else colors.ink3
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(

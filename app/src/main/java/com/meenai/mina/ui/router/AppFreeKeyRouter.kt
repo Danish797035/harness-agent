@@ -1,8 +1,10 @@
 package com.meenai.mina.ui.router
 
+import com.meenai.mina.core.gemini.GeminiWebClient
+import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.model.Capabilities
-import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.GeminiModel
+import com.meenai.mina.core.model.GeminiWebModel
 import com.meenai.mina.core.model.OpenAiCompatModel
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.core.model.PromptCaching
@@ -58,19 +60,30 @@ object AppFreeKeyRouter {
         http: OkHttpClient = OkHttpClient(),
     ): List<RouterCandidate> {
         val list = mutableListOf<RouterCandidate>()
+        store.repairGeminiWebBindings()
 
         store.providers.value.forEach { p ->
-            val key = store.providerKey(p.id)?.trim()
-            if (!key.isNullOrBlank()) {
-                when {
-                    isOpenRouterProvider(p) -> list.addAll(createOpenRouterCandidates(key, http, p.models))
-                    isZaiProvider(p) -> list.addAll(ZaiPreset.createCandidates(key, http))
-                    isModelScopeProvider(p) -> list.addAll(createModelScopeCandidates(key, http, p.models))
-                    isGeminiProvider(p) -> list.addAll(createGeminiCandidates(key, http, p.models, p.baseUrl))
-                    isGroqProvider(p) -> list.addAll(createGroqCandidates(key, http, p.models, p.baseUrl))
-                    isDeepSeekProvider(p) -> list.addAll(createDeepSeekCandidates(key, http, p.models, p.baseUrl))
-                    isKimiProvider(p) -> list.addAll(createKimiCandidates(key, http, p.models, p.baseUrl))
-                    isMiniMaxProvider(p) -> list.addAll(createMiniMaxCandidates(key, http, p.models, p.baseUrl))
+            when {
+                isGeminiWebProvider(p) -> {
+                    val session = store.geminiWebSession(p.id)
+                    if (session != null && session.signedIn) {
+                        list.addAll(createGeminiWebCandidates(session, http, p.models))
+                    }
+                }
+                else -> {
+                    val key = store.providerKey(p.id)?.trim()
+                    if (!key.isNullOrBlank()) {
+                        when {
+                            isOpenRouterProvider(p) -> list.addAll(createOpenRouterCandidates(key, http, p.models))
+                            isZaiProvider(p) -> list.addAll(ZaiPreset.createCandidates(key, http))
+                            isModelScopeProvider(p) -> list.addAll(createModelScopeCandidates(key, http, p.models))
+                            isGeminiProvider(p) -> list.addAll(createGeminiCandidates(key, http, p.models, p.baseUrl))
+                            isGroqProvider(p) -> list.addAll(createGroqCandidates(key, http, p.models, p.baseUrl))
+                            isDeepSeekProvider(p) -> list.addAll(createDeepSeekCandidates(key, http, p.models, p.baseUrl))
+                            isKimiProvider(p) -> list.addAll(createKimiCandidates(key, http, p.models, p.baseUrl))
+                            isMiniMaxProvider(p) -> list.addAll(createMiniMaxCandidates(key, http, p.models, p.baseUrl))
+                        }
+                    }
                 }
             }
         }
@@ -240,6 +253,8 @@ object AppFreeKeyRouter {
         picker: AutoModelPicker,
         candidates: List<ModelCandidate>? = null,
     ) {
+        store.repairGeminiWebBindings()
+
         val currentRoles = store.roles.value
         val currentMainModel = currentRoles.main?.let { cfgId -> store.configs.value.firstOrNull { it.id == cfgId }?.model }
         val isMainSub3bOrExcluded = currentMainModel != null && (
@@ -259,9 +274,11 @@ object AppFreeKeyRouter {
         fun findProvider(candidate: ModelCandidate): Provider? {
             return store.providers.value.firstOrNull { p ->
                 when (candidate.provider.lowercase()) {
+                    "gemini_web" -> isGeminiWebProvider(p)
                     "openrouter" -> isOpenRouterProvider(p)
                     "zai", "z.ai" -> isZaiProvider(p)
                     "modelscope" -> isModelScopeProvider(p)
+                    "gemini" -> isGeminiProvider(p)
                     else -> p.id == candidate.provider || p.name.contains(candidate.provider, ignoreCase = true)
                 }
             }
@@ -352,10 +369,19 @@ object AppFreeKeyRouter {
         return preset?.label.equals("ModelScope", ignoreCase = true)
     }
 
+    fun isGeminiWebProvider(p: Provider): Boolean {
+        if (p.kind == ProviderConfig.Kind.GeminiWeb) return true
+        if (p.signIn == ProviderStore.GEMINI_WEB_SIGN_IN) return true
+        if (p.name.equals("Google Gemini", ignoreCase = true)) return true
+        if (p.baseUrl.contains("gemini.google.com", ignoreCase = true)) return true
+        return false
+    }
+
     fun isGeminiProvider(p: Provider): Boolean {
+        if (isGeminiWebProvider(p)) return false
         if (p.kind == ProviderConfig.Kind.Gemini) return true
         if (p.baseUrl.contains("generativelanguage", ignoreCase = true)) return true
-        if (p.name.contains("Gemini", ignoreCase = true)) return true
+        if (p.name.equals("Gemini", ignoreCase = true)) return true
         val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
         return preset?.label.equals("Gemini", ignoreCase = true)
     }
@@ -634,6 +660,55 @@ object AppFreeKeyRouter {
             )
         )
         return candidates
+    }
+
+    fun createGeminiWebCandidates(
+        session: GeminiWebSession,
+        http: OkHttpClient,
+        listedModels: List<ListedModel>? = null,
+    ): List<RouterCandidate> {
+        val models = if (!listedModels.isNullOrEmpty()) {
+            listedModels.filter { it.chat != false && !ChatModelFilter.isExcluded(it.id) }
+        } else {
+            GeminiWebClient.DEFAULT_MODELS
+        }
+
+        return models.map { m ->
+            val caps = Capabilities(
+                toolCalls = m.toolCalls ?: true,
+                vision = m.vision ?: true,
+                contextTokens = m.contextTokens ?: 1_000_000,
+                reasoning = m.reasoning ?: true,
+                promptCaching = PromptCaching.Implicit,
+            )
+            val model = GeminiWebModel(
+                session = session,
+                model = m.id,
+                capabilities = caps,
+                http = http,
+            )
+            val rank = when {
+                m.id.contains("argon", ignoreCase = true) -> 98
+                m.id.contains("3.1-pro", ignoreCase = true) -> 95
+                m.id.contains("hydrogen", ignoreCase = true) -> 92
+                m.id.contains("flash-lite", ignoreCase = true) -> 85
+                else -> 90
+            }
+            RouterCandidate(
+                id = m.id,
+                provider = "gemini_web",
+                model = model,
+                curatedRank = rank,
+                isFree = true,
+                roles = buildSet {
+                    add(ModelRole.Main)
+                    if (caps.vision) add(ModelRole.Vision)
+                    add(ModelRole.Light)
+                    add(ModelRole.Coding)
+                    add(ModelRole.Long)
+                },
+            )
+        }
     }
 
     fun createGeminiCandidates(

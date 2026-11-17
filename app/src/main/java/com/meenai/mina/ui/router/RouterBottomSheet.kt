@@ -30,11 +30,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.meenai.mina.core.model.ModelRole
+import com.meenai.mina.settings.ProviderConfig
+import com.meenai.mina.settings.ProviderStore
+import com.meenai.mina.settings.RoleChoice
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,12 +85,40 @@ fun RouterBottomSheet(
     modifier: Modifier = Modifier,
     onRefresh: (() -> Unit)? = null,
     onSelectModel: ((String) -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null,
     preferencesStore: ModelPreferencesStore? = null,
 ) {
     val colors = MinaTheme.colors
     val context = LocalContext.current
     val prefStore = preferencesStore ?: remember { ModelPreferencesStore.get(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val store = remember { ProviderStore.get(context) }
+    val savedProviders by store.providers.collectAsState()
+    val savedRoles by store.roles.collectAsState()
+    val savedConfigs by store.configs.collectAsState()
+
+    val connectedProviderIds = remember(savedProviders) { savedProviders.map { it.id }.toSet() }
+    val connectedProviderNames = remember(savedProviders) { savedProviders.map { it.name.lowercase() }.toSet() }
+
+    val connectedUsages = remember(usages, connectedProviderIds, connectedProviderNames, savedConfigs) {
+        val configuredModels = savedConfigs.map { it.model }.toSet()
+        usages.filter { u ->
+            u.providerId in connectedProviderIds ||
+                u.provider.lowercase() in connectedProviderNames ||
+                (u.provider.contains("Gemini", ignoreCase = true) && savedProviders.any { it.name.contains("Gemini", ignoreCase = true) })
+        }.map { u ->
+            val isGemini = u.provider.contains("Gemini", ignoreCase = true)
+            if (isGemini) {
+                u
+            } else if (u.models.size > 6) {
+                val matching = u.models.filter { it.modelId in configuredModels }
+                u.copy(models = if (matching.isNotEmpty()) matching else u.models.take(4))
+            } else {
+                u
+            }
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf(ModelPickerFilter.All) }
@@ -126,7 +159,7 @@ fun RouterBottomSheet(
         )
     }
 
-    val allModels = remember(usages) { usages.flatMap { it.models } }
+    val allModels = remember(connectedUsages) { connectedUsages.flatMap { it.models } }
     val filteredModels = remember(allModels, searchQuery, selectedFilter) {
         ModelPickerLogic.filterModels(allModels, searchQuery, selectedFilter)
     }
@@ -179,95 +212,47 @@ fun RouterBottomSheet(
 
             Spacer(Modifier.height(14.dp))
 
-            // Search input
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.router_search_hint),
-                        style = MinaType.Hint,
-                        color = colors.ink3,
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = MinaIcons.Search,
-                        contentDescription = null,
-                        tint = colors.ink3,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable { searchQuery = "" }
-                                .padding(4.dp),
-                        ) {
-                            Icon(
-                                imageVector = MinaIcons.Close,
-                                contentDescription = "Clear",
-                                tint = colors.ink3,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = MinaShapes.Pill,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("router-search-input"),
+            // Configured Roles Section (Settings › Models)
+            val mainCfg = savedConfigs.firstOrNull { it.id == savedRoles.main }
+            val visionCfg = if (savedRoles.vision is RoleChoice.Model) savedConfigs.firstOrNull { it.id == (savedRoles.vision as RoleChoice.Model).configId } else null
+            val lightCfg = if (savedRoles.light is RoleChoice.Model) savedConfigs.firstOrNull { it.id == (savedRoles.light as RoleChoice.Model).configId } else null
+
+            val roleItems = listOfNotNull(
+                mainCfg?.let { Triple(ModelRole.Main, it, MinaIcons.Spark) },
+                visionCfg?.let { Triple(ModelRole.Vision, it, MinaIcons.Eye) },
+                lightCfg?.let { Triple(ModelRole.Light, it, MinaIcons.Leaf) },
             )
 
-            Spacer(Modifier.height(10.dp))
-
-            // Filter chips row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ModelPickerFilter.values().forEach { filter ->
-                    val label = when (filter) {
-                        ModelPickerFilter.All -> stringResource(R.string.router_filter_all)
-                        ModelPickerFilter.Free -> stringResource(R.string.router_filter_free)
-                        ModelPickerFilter.Vision -> stringResource(R.string.router_filter_vision)
-                        ModelPickerFilter.Tools -> stringResource(R.string.router_filter_tools)
-                        ModelPickerFilter.LongContext -> stringResource(R.string.router_filter_long_context)
-                    }
-                    val isSelected = selectedFilter == filter
-                    Box(
-                        modifier = Modifier
-                            .testTag("filter-chip-${filter.name.lowercase()}")
-                            .clip(MinaShapes.Pill)
-                            .background(if (isSelected) colors.accent.copy(alpha = 0.15f) else colors.surface)
-                            .border(
-                                width = 1.dp,
-                                color = if (isSelected) colors.accent else colors.hair,
-                                shape = MinaShapes.Pill,
-                            )
-                            .clickable { selectedFilter = filter }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = label,
-                            style = MinaType.Caption.copy(
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                fontSize = 12.sp,
-                            ),
-                            color = if (isSelected) colors.accent else colors.ink2,
+            if (roleItems.isNotEmpty()) {
+                GroupLabel(stringResource(R.string.router_configured_roles))
+                GroupCard {
+                    roleItems.forEachIndexed { idx, (role, cfg, icon) ->
+                        if (idx > 0) {
+                            HorizontalDivider(color = colors.hair, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 14.dp))
+                        }
+                        val isCurrent = activeModel.id.equals(cfg.model, ignoreCase = true)
+                        val isGemini = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.name.contains("Gemini", ignoreCase = true)
+                        val quotaBadge = if (isGemini) stringResource(R.string.router_pro_plan) else "${RouterUsageTracker.getTodayCalls(cfg.model)} ${stringResource(R.string.router_today)}"
+                        ConfiguredRoleRow(
+                            role = role,
+                            cfg = cfg,
+                            icon = icon,
+                            isCurrent = isCurrent,
+                            quotaBadge = quotaBadge,
+                            onClick = {
+                                prefStore.recordRecent(cfg.model)
+                                recents = prefStore.getRecentModels()
+                                if (onSelectModel != null) {
+                                    onSelectModel(cfg.model)
+                                } else {
+                                    onPinClick()
+                                }
+                            }
                         )
                     }
                 }
+                Spacer(Modifier.height(14.dp))
             }
-
-            Spacer(Modifier.height(14.dp))
 
             val isSearchingOrFiltered = searchQuery.isNotBlank() || selectedFilter != ModelPickerFilter.All
 
@@ -307,82 +292,32 @@ fun RouterBottomSheet(
                     }
                 }
             } else {
-                // Favourites section
-                val favoriteModels = allModels.filter { favorites.contains(it.modelId) }
-                if (favoriteModels.isNotEmpty()) {
-                    GroupLabel(stringResource(R.string.router_section_favorites))
+                // Connected Providers Quota & Models
+                if (connectedUsages.isNotEmpty()) {
+                    GroupLabel(stringResource(R.string.router_connected_providers))
                     GroupCard {
-                        favoriteModels.forEachIndexed { index, model ->
+                        connectedUsages.forEachIndexed { index, usage ->
                             if (index > 0) {
                                 HorizontalDivider(
                                     color = colors.hair,
-                                    thickness = 0.5.dp,
+                                    thickness = 1.dp,
                                     modifier = Modifier.padding(horizontal = 14.dp),
                                 )
                             }
-                            ModelQuotaRow(
-                                model = model,
-                                isFavorite = true,
-                                isPinned = activeModel.isPinned && activeModel.id == model.modelId,
-                                onToggleFavorite = { handleToggleFavorite(model.modelId) },
-                                onClick = { handleModelClick(model) },
+                            ProviderUsageBlock(
+                                usage = usage,
+                                isFirst = index == 0,
+                                favorites = favorites,
+                                pinnedModelId = if (activeModel.isPinned) activeModel.id else null,
+                                onToggleFavorite = { handleToggleFavorite(it) },
+                                onModelClick = { handleModelClick(it) },
                             )
                         }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                // Recent models section (excluding those already in favorites)
-                val recentModels = recents.filterNot { favorites.contains(it) }.mapNotNull { rId ->
-                    allModels.find { it.modelId == rId }
-                }
-                if (recentModels.isNotEmpty()) {
-                    GroupLabel(stringResource(R.string.router_section_recent))
-                    GroupCard {
-                        recentModels.forEachIndexed { index, model ->
-                            if (index > 0) {
-                                HorizontalDivider(
-                                    color = colors.hair,
-                                    thickness = 0.5.dp,
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                )
-                            }
-                            ModelQuotaRow(
-                                model = model,
-                                isFavorite = false,
-                                isPinned = activeModel.isPinned && activeModel.id == model.modelId,
-                                onToggleFavorite = { handleToggleFavorite(model.modelId) },
-                                onClick = { handleModelClick(model) },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                // Providers Quota & Limits
-                GroupLabel(stringResource(R.string.router_provider_quotas))
-                GroupCard {
-                    usages.forEachIndexed { index, usage ->
-                        if (index > 0) {
-                            HorizontalDivider(
-                                color = colors.hair,
-                                thickness = 1.dp,
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                            )
-                        }
-                        ProviderUsageBlock(
-                            usage = usage,
-                            isFirst = index == 0,
-                            favorites = favorites,
-                            pinnedModelId = if (activeModel.isPinned) activeModel.id else null,
-                            onToggleFavorite = { handleToggleFavorite(it) },
-                            onModelClick = { handleModelClick(it) },
-                        )
                     }
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
             // "Pin this model" button
             val pinText = if (activeModel.isPinned) {
@@ -402,7 +337,26 @@ fun RouterBottomSheet(
                     .testTag("pin-model-button"),
             )
 
+            if (onOpenSettings != null) {
+                Spacer(Modifier.height(8.dp))
+                MinaButton(
+                    text = stringResource(R.string.router_manage_in_settings),
+                    onClick = {
+                        onDismiss()
+                        onOpenSettings()
+                    },
+                    kind = ButtonKind.Secondary,
+                    size = ButtonSize.Large,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("manage-models-button"),
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
         }
     }
 }
@@ -428,6 +382,76 @@ fun CapabilityBadge(
             ),
             color = color,
         )
+    }
+}
+
+@Composable
+fun ConfiguredRoleRow(
+    role: ModelRole,
+    cfg: ProviderConfig,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isCurrent: Boolean,
+    quotaBadge: String,
+    onClick: () -> Unit,
+) {
+    val colors = MinaTheme.colors
+    val roleName = when (role) {
+        ModelRole.Main -> stringResource(R.string.router_role_main)
+        ModelRole.Vision -> stringResource(R.string.router_role_vision)
+        ModelRole.Light -> stringResource(R.string.router_role_light)
+        else -> role.name
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(if (isCurrent) colors.accent.copy(alpha = 0.15f) else colors.neutralSoft, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isCurrent) colors.accent else colors.ink,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = roleName,
+                style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                color = colors.ink3,
+            )
+            Text(
+                text = formatRouterModelName(cfg.model),
+                style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp),
+                color = colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = cfg.name,
+                style = MinaType.Caption.copy(fontSize = 12.sp),
+                color = colors.ink2,
+            )
+        }
+        CapabilityBadge(
+            text = quotaBadge,
+            color = if (quotaBadge.contains("Pro", ignoreCase = true)) colors.ok else colors.accent,
+        )
+        if (isCurrent) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(colors.accent, CircleShape)
+            )
+        }
     }
 }
 

@@ -282,6 +282,25 @@ class RouterUiTest {
     }
 
     @Test
+    fun formatChipText_geminiWeb_showsProPlanWithoutEstimate() {
+        val geminiWebModel = ActiveModel(
+            id = "gemini-4-argon",
+            name = "Gemini 4 Argon",
+            provider = "Google Gemini",
+            usedToday = 0,
+            limit = null,
+            isEstimate = false,
+            quotaRemaining = 0,
+            quotaTotal = 0,
+            reason = "Google One AI Premium (Pro Plan)",
+        )
+        assertEquals("Gemini 4 Argon · Pro Plan", formatChipText(geminiWebModel, todayLabel = "today"))
+
+        val geminiWebModelUsed = geminiWebModel.copy(usedToday = 3)
+        assertEquals("Gemini 4 Argon · 3 today · Pro Plan", formatChipText(geminiWebModelUsed, todayLabel = "today"))
+    }
+
+    @Test
     fun aiBrandDetection_detectsOfficialBrands() {
         assertEquals(AiBrand.Google, AiBrand.detect("google/gemini-2.0-flash-exp:free"))
         assertEquals(AiBrand.Google, AiBrand.detect("Gemini Flash"))

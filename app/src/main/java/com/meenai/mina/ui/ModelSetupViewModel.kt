@@ -919,9 +919,16 @@ class ModelSetupViewModel(
             val p = withContext(io) {
                 val existing = store.geminiWebProvider()
                 val provider = store.connectGeminiWeb(session, existing?.models.orEmpty())
-                if (store.roles.value.main == null) {
-                    val options = ModelOptions.ofProvider(provider, store.list())
-                    (ModelOptions.defaultMain(options) ?: options.firstOrNull()?.id)?.let { m -> use(ModelRole.Main, provider, m, options) }
+                val options = ModelOptions.ofProvider(provider, store.list())
+                val argonOption = options.firstOrNull { it.id == "gemini-4-argon" } ?: options.firstOrNull()
+                argonOption?.let { m -> use(ModelRole.Main, provider, m.id, options) }
+                if (store.roles.value.light is RoleChoice.SameAsMain || store.roles.value.light == null) {
+                    val lightOption = options.firstOrNull { it.id == "gemini-3.1-pro" }
+                        ?: options.firstOrNull { it.id == "gemini-3.5-flash-lite" }
+                    lightOption?.let { m -> use(ModelRole.Light, provider, m.id, options) }
+                }
+                if (store.roles.value.vision is RoleChoice.Off || store.roles.value.vision == null) {
+                    argonOption?.let { m -> use(ModelRole.Vision, provider, m.id, options) }
                 }
                 provider
             }

@@ -91,5 +91,9 @@
     <string name="router_role_long">Long Context</string>
     <string name="router_customizations_title">Customizations</string>
     <string name="router_roles_title">Specialist Roles</string>
+    <string name="router_configured_roles">Configured Roles</string>
+    <string name="router_connected_providers">Connected Providers</string>
+    <string name="router_manage_in_settings">Manage All Models in Settings</string>
+    <string name="router_pro_plan">Pro Plan</string>
 </resources>
 

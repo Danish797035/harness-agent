@@ -784,15 +784,48 @@ class ProviderStore(
         providerKey(providerId)?.let { GeminiWebSession.fromJson(it) }?.takeIf { it.signedIn }
 
     @Synchronized
+    fun repairGeminiWebBindings() {
+        val webProvider = geminiWebProvider() ?: return
+        val session = geminiWebSession(webProvider.id)
+        if (session == null || !session.signedIn) return
+
+        val webModelIds = GeminiWebClient.DEFAULT_MODELS.map { it.id }.toSet()
+
+        var changed = false
+        val newConfigs = _configs.value.map { cfg ->
+            if (cfg.model in webModelIds && (cfg.kind != ProviderConfig.Kind.GeminiWeb || cfg.providerId != webProvider.id)) {
+                changed = true
+                cfg.copy(
+                    providerId = webProvider.id,
+                    kind = ProviderConfig.Kind.GeminiWeb,
+                    name = webProvider.name,
+                    baseUrl = webProvider.baseUrl,
+                )
+            } else {
+                cfg
+            }
+        }
+        if (changed) {
+            _configs.value = newConfigs
+            writeConfig()
+        }
+    }
+
+    @Synchronized
     fun connectGeminiWeb(session: GeminiWebSession, models: List<ListedModel> = emptyList()): Provider {
         val finalModels = if (models.isNotEmpty()) models else GeminiWebClient.DEFAULT_MODELS
         val existing = geminiWebProvider()
-        if (existing == null) return connect(GEMINI_WEB_NAME, ProviderConfig.Kind.GeminiWeb, GEMINI_WEB_BASE, session.toJson(), finalModels, signIn = GEMINI_WEB_SIGN_IN)
-        val p = existing.copy(name = GEMINI_WEB_NAME, baseUrl = GEMINI_WEB_BASE, models = finalModels)
-        _providers.value = _providers.value.map { if (it.id == p.id) p else it }
-        _configs.value = _configs.value.map { if (it.providerId == p.id) it.copy(baseUrl = GEMINI_WEB_BASE, name = GEMINI_WEB_NAME) else it }
-        setKey(p.id, session.toJson())
-        writeConfig()
+        val p = if (existing == null) {
+            connect(GEMINI_WEB_NAME, ProviderConfig.Kind.GeminiWeb, GEMINI_WEB_BASE, session.toJson(), finalModels, signIn = GEMINI_WEB_SIGN_IN)
+        } else {
+            val updated = existing.copy(name = GEMINI_WEB_NAME, baseUrl = GEMINI_WEB_BASE, models = finalModels)
+            _providers.value = _providers.value.map { if (it.id == updated.id) updated else it }
+            _configs.value = _configs.value.map { if (it.providerId == updated.id) it.copy(baseUrl = GEMINI_WEB_BASE, name = GEMINI_WEB_NAME) else it }
+            setKey(updated.id, session.toJson())
+            writeConfig()
+            updated
+        }
+        repairGeminiWebBindings()
         return p
     }
 
@@ -882,6 +915,7 @@ class ProviderStore(
             keys = json.parseToJsonElement(keyFile.readText()).jsonObject.mapValues { it.value.jsonPrimitive.content }
         }
         migrate()
+        repairGeminiWebBindings()
         // 指向不存在的配置的选择退回默认,没人用的配置删掉;和文件里的不一样(含刚迁移的用途)才写回
         _roles.value = _roles.value.keepOnly(_configs.value.map { it.id }.toSet())
         prune()

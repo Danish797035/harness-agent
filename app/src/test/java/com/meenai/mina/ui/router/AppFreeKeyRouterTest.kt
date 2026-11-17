@@ -1,5 +1,6 @@
 package com.meenai.mina.ui.router
 
+import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.model.Author
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ChatModel
@@ -639,5 +640,52 @@ class AppFreeKeyRouterTest {
         assertFalse(candidates.first { it.provider == "deepseek" }.isFree)
         assertFalse(candidates.first { it.provider == "kimi" }.isFree)
         assertFalse(candidates.first { it.provider == "minimax" }.isFree)
+    }
+
+    @Test
+    fun createCandidatesIncludesGeminiWebWhenSignedIn() {
+        val store = ProviderStore(tempDir.newFolder("pstore_gemini_web"), cipher = AesGcmKeyCipher("0123456789abcdef0123456789abcdef".toByteArray()))
+        val session = GeminiWebSession(
+            cookies = "SID=fake_sid; HSID=fake_hsid",
+            snlm0e = "fake_snlm0e",
+            cfb2h = "boq_fake",
+            fdrfje = "fake_fdrfje",
+            email = "user@gmail.com",
+            signedIn = true
+        )
+        val p = store.connectGeminiWeb(session)
+        assertTrue(AppFreeKeyRouter.isGeminiWebProvider(p))
+        assertFalse(AppFreeKeyRouter.isGeminiProvider(p))
+
+        val candidates = AppFreeKeyRouter.createCandidates(store)
+        val geminiWebCandidates = candidates.filter { it.provider == "gemini_web" }
+        assertEquals(4, geminiWebCandidates.size)
+        val argon = geminiWebCandidates.first { it.id == "gemini-4-argon" }
+        assertTrue("Argon must be marked isFree so it is not filtered by freeOnly", argon.isFree)
+        assertEquals(98, argon.curatedRank)
+    }
+
+    @Test
+    fun repairGeminiWebBindingsFixesMisboundRole() {
+        val store = ProviderStore(tempDir.newFolder("pstore_repair"), cipher = AesGcmKeyCipher("0123456789abcdef0123456789abcdef".toByteArray()))
+        val oldGemini = store.connect("Gemini", ProviderConfig.Kind.Gemini, "https://generativelanguage.googleapis.com", "fake_key", emptyList())
+        store.use(com.meenai.mina.core.model.ModelRole.Main, oldGemini.id, "gemini-4-argon", Capabilities())
+        val mainBefore = store.configFor(com.meenai.mina.core.model.ModelRole.Main)
+        assertEquals(ProviderConfig.Kind.Gemini, mainBefore?.kind)
+
+        val session = GeminiWebSession(
+            cookies = "SID=fake; HSID=fake",
+            snlm0e = "fake_snlm0e",
+            cfb2h = "boq_fake",
+            fdrfje = "fake_fdrfje",
+            email = "user@gmail.com",
+            signedIn = true
+        )
+        val webProvider = store.connectGeminiWeb(session)
+
+        val mainAfter = store.configFor(com.meenai.mina.core.model.ModelRole.Main)
+        assertEquals(webProvider.id, mainAfter?.providerId)
+        assertEquals(ProviderConfig.Kind.GeminiWeb, mainAfter?.kind)
+        assertEquals("Google Gemini", mainAfter?.name)
     }
 }
