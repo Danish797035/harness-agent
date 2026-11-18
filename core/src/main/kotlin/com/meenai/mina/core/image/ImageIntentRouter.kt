@@ -23,7 +23,7 @@ data class AttachedPhoto(
 )
 
 sealed class ImageIntentAction {
-    data class Generate(val prompt: String, val size: String? = null) : ImageIntentAction()
+    data class Generate(val prompt: String, val size: String? = null, val model: String? = null) : ImageIntentAction()
     data class Edit(val prompt: String, val imageBase64: String) : ImageIntentAction()
     data class VideoNotSupported(val message: String = "Video abhi support nahi hai") : ImageIntentAction()
     data class None(val reply: String) : ImageIntentAction()
@@ -36,11 +36,12 @@ object ImageTools {
 
     val GENERATE_IMAGE_SPEC = ToolSpec(
         name = GENERATE_IMAGE_NAME,
-        description = "Generate a new image from a text description.",
+        description = "Generate a new image from a text description using top LM Arena or AI models.",
         parametersJsonSchema = """{
             "type": "object",
             "properties": {
                 "prompt": { "type": "string", "description": "Detailed text description of the image to generate" },
+                "model": { "type": "string", "description": "Optional model name to use, e.g. mai-image-2.6, grok-imagine-2.0, muse-image, seedream-5.0-lite, flux-pollinations" },
                 "size": { "type": "string", "description": "Optional image dimensions, e.g. 1024*1024" }
             },
             "required": ["prompt"],
@@ -66,7 +67,7 @@ object ImageTools {
 
     const val ROUTER_SYSTEM_PROMPT = """
 You are an AI assistant that handles visual media requests.
-1. If the user asks to generate, create, draw, or make a new image or photo, OR provides a raw visual prompt/scene description (e.g. cinematic portrait, ultra-realistic, AR 4:5, photography specs), call `generate_image` with the prompt and optional size (e.g. 1024*1024). Do NOT critique or discuss the prompt text.
+1. If the user asks to generate, create, draw, or make a new image or photo, OR provides a raw visual prompt/scene description (e.g. cinematic portrait, ultra-realistic, AR 4:5, photography specs), call `generate_image` with the prompt and optional size (e.g. 1024*1024). Prefer top LM Arena models (mai-image-2.6, grok-imagine-2.0, muse-image, seedream-5.0-lite). Do NOT critique or discuss the prompt text.
 2. If the user has provided a photo and asks to edit, alter, or modify it, call `edit_image` with the requested edits in `prompt`.
 3. If the user asks for a video or animation (e.g. "video banao", "make video"), do NOT call any tool; simply say "Video abhi support nahi hai".
 4. You do not generate raw images yourself, only call the appropriate tool.
@@ -165,7 +166,8 @@ class ImageIntentRouter(
                 val args = parseArgs(toolCall.argsJson)
                 val prompt = args["prompt"]?.jsonPrimitive?.content.orEmpty()
                 val size = args["size"]?.jsonPrimitive?.content
-                ImageIntentAction.Generate(prompt.ifEmpty { userText }, size)
+                val model = args["model"]?.jsonPrimitive?.content
+                ImageIntentAction.Generate(prompt.ifEmpty { userText }, size, model)
             }
             ImageTools.EDIT_IMAGE_NAME -> {
                 val args = parseArgs(toolCall.argsJson)

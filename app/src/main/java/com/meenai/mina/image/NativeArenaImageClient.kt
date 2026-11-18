@@ -347,8 +347,9 @@ class NativeArenaImageClient(
                         view?.evaluateJavascript("""
                             (function() {
                                 const title = (document.title || '').toLowerCase();
-                                const body = (document.body ? document.body.innerText : '').toLowerCase();
-                                if (title.includes('just a moment') || body.includes('verify you are human') || document.querySelector('#challenge-running') || document.querySelector('iframe[src*="cloudflare"]')) {
+                                const isJustAMoment = title.includes('just a moment');
+                                const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
+                                if (isJustAMoment || isChallengeStage) {
                                     if (window.AndroidBridge) window.AndroidBridge.onGenerationError("LM Arena Cloudflare challenge detected");
                                     return true;
                                 }

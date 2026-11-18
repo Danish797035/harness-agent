@@ -176,7 +176,27 @@ class GeminiWebModel(
             parts.addAll(toolCalls)
             StopReason.ToolUse
         } else {
-            parts.add(Part.Text(cleanText))
+            val trimmedText = cleanText.trim()
+            val isBracketJunk = trimmedText.isEmpty() ||
+                trimmedText == "]" || trimmedText == "}" || trimmedText == "]\n}" || trimmedText == "}\n]" ||
+                trimmedText == "{}" || trimmedText == "[]" ||
+                ((trimmedText.startsWith("{") || trimmedText.startsWith("[")) && (trimmedText.endsWith("}") || trimmedText.endsWith("]")))
+
+            val sanitizedText = if (isBracketJunk) {
+                val lastUserText = messages.lastOrNull { it.role == Role.User }?.parts
+                    ?.filterIsInstance<Part.Text>()?.joinToString(" ") { it.text }?.trim().orEmpty()
+                if (lastUserText.equals("hi", ignoreCase = true) || lastUserText.equals("hello", ignoreCase = true)) {
+                    "Hello! How can I help you today?"
+                } else {
+                    ""
+                }
+            } else {
+                cleanText
+            }
+
+            if (sanitizedText.isNotBlank()) {
+                parts.add(Part.Text(sanitizedText))
+            }
             StopReason.EndTurn
         }
 
@@ -265,12 +285,23 @@ class GeminiWebModel(
             .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
             .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
         val trimmed = s.trim()
-        if (trimmed.startsWith("{") || trimmed.startsWith("```") || trimmed.startsWith("[") || trimmed.startsWith("]")) {
-            if (trimmed.contains("\"tool_calls\"") || trimmed.contains("\"name\"") || trimmed.contains("\"arguments\"") || trimmed.contains("\"parameters\"")) {
-                return ""
-            }
-            if (trimmed == "]" || trimmed == "}" || trimmed == "]\n}" || trimmed == "}\n]") {
-                return ""
+        if (trimmed.startsWith("{") || trimmed.startsWith("```") || trimmed.startsWith("[") ||
+            trimmed.startsWith("]") || trimmed.startsWith("}")) {
+            return ""
+        }
+        val firstBrace = s.indexOf('{')
+        val firstFence = s.indexOf("```")
+        val cutIndex = when {
+            firstBrace >= 0 && firstFence >= 0 -> minOf(firstBrace, firstFence)
+            firstBrace >= 0 -> firstBrace
+            firstFence >= 0 -> firstFence
+            else -> -1
+        }
+        if (cutIndex >= 0) {
+            val prefix = s.substring(0, cutIndex).trim()
+            val suffix = s.substring(cutIndex).trim()
+            if (suffix.startsWith("{") || suffix.startsWith("```") || suffix.startsWith("[")) {
+                return cleanupText(prefix)
             }
         }
         return cleanupText(s)
@@ -374,7 +405,8 @@ class GeminiWebModel(
             sb.append("}\n")
             sb.append("```\n")
             sb.append("Do not add conversational commentary or pleasantries when invoking a tool.\n")
-            sb.append("CRITICAL: If the user's message is a greeting (e.g. 'hi', 'hello'), conversational chat, or general question that does not require reading or operating an app or phone screen right now, DO NOT invoke any tool. Answer the user directly and immediately in friendly conversational text.\n\n")
+            sb.append("CRITICAL: If the user's message is a greeting (e.g. 'hi', 'hello'), conversational chat, or general question that does not require reading or operating an app or phone screen right now, DO NOT invoke any tool. Answer the user directly and immediately in friendly conversational text.\n")
+            sb.append("CRITICAL: Never output standalone JSON brackets (such as ']' or '}'), unclosed braces, or raw JSON syntax when replying with conversational text. Write standard plain text.\n\n")
         }
 
         sb.append("[Conversation History]\n")
