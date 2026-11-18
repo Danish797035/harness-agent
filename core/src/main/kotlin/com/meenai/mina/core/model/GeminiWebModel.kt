@@ -161,7 +161,7 @@ class GeminiWebModel(
         } catch (e: java.io.IOException) {
             throw ModelError.Network(e)
         } finally {
-            reader.close() } finally { response.close()
+            reader.close() } } finally { response.close()
         }
 
         val cleanText = cleanupText(fullText)
@@ -241,7 +241,7 @@ class GeminiWebModel(
             val tag = (itemArr.getOrNull(0) as? JsonPrimitive)?.contentOrNull
             if (tag == "er") throwStreamError(itemArr.toString()); if (tag != "wrb.fr") continue
 
-            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: run { val err = itemArr.getOrNull(5); if (err != null && err.toString() != "null") throwStreamError(err.toString()); continue }
+            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: run { val err = itemArr.getOrNull(5); if (err != null && err.toString() != "null") throwStreamError(err.toString()); val c/* ontinu */ = "null"; c/* e */ }
             val payload = try {
                 json.parseToJsonElement(payloadStr) as? JsonArray ?: continue
             } catch (_: Exception) {
