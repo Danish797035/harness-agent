@@ -71,7 +71,7 @@ class GeminiWebModel(
             throw ModelError.Network(e)
         }
 
-        if (response.code in 401..403 || response.code == 400) {
+        try { if (response.code in 401..403 || response.code == 400) {
             val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
             val isSessionError = response.code in 401..403 ||
                 peek.contains("af.httprm") || peek.contains("141") || peek.contains("\"er\"")
@@ -123,7 +123,7 @@ class GeminiWebModel(
         var fullThoughts = ""
         val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
 
-        var lastReportedVisible = ""
+        var lastEmittedLength = 0
 
         try {
             var line: String? = reader.readLine()
@@ -139,14 +139,14 @@ class GeminiWebModel(
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
                     }
-                    if (parsedChunk.text.isNotEmpty()) {
+                    if (parsedChunk.text.isNotEmpty() && parsedChunk.text.length >= fullText.length) {
                         fullText = parsedChunk.text
                         val visibleText = stripToolCalls(fullText)
-                        if (visibleText != lastReportedVisible) {
+                        if (visibleText.length > lastEmittedLength) {
                             if (visibleText.isNotEmpty()) {
-                                onText(visibleText)
+                                onText(visibleText.substring(lastEmittedLength))
                             }
-                            lastReportedVisible = visibleText
+                            lastEmittedLength = visibleText.length
                         }
                     }
                 }
@@ -161,7 +161,7 @@ class GeminiWebModel(
         } catch (e: java.io.IOException) {
             throw ModelError.Network(e)
         } finally {
-            reader.close()
+            reader.close() } finally { response.close()
         }
 
         val cleanText = cleanupText(fullText)
@@ -227,7 +227,7 @@ class GeminiWebModel(
             .build()
     }
 
-    private data class ParsedChunk(val text: String, val thoughts: String, val isCompleted: Boolean)
+    private data class ParsedChunk(val text: String, val thoughts: String, val isCompleted: Boolean); private fun throwStreamError(raw: String): Nothing { val l = raw.lowercase(); if (l.contains("401") || l.contains("403") || l.contains("141") || l.contains("1013") || l.contains("auth") || l.contains("session") || l.contains("sign") || l.contains("expired") || l.contains("cookie")) throw ModelError.SignInExpired("Google Gemini"); throw ModelError.BadResponse("Gemini stream error: $raw") }
 
     private fun parseChunk(line: String): ParsedChunk? {
         val root = try {
@@ -239,9 +239,9 @@ class GeminiWebModel(
         for (item in root) {
             val itemArr = item as? JsonArray ?: continue
             val tag = (itemArr.getOrNull(0) as? JsonPrimitive)?.contentOrNull
-            if (tag != "wrb.fr") continue
+            if (tag == "er") throwStreamError(itemArr.toString()); if (tag != "wrb.fr") continue
 
-            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: continue
+            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: run { val err = itemArr.getOrNull(5); if (err != null && err.toString() != "null") throwStreamError(err.toString()); continue }
             val payload = try {
                 json.parseToJsonElement(payloadStr) as? JsonArray ?: continue
             } catch (_: Exception) {
@@ -251,9 +251,9 @@ class GeminiWebModel(
             val candidates = payload.getOrNull(4) as? JsonArray ?: continue
             val firstCandidate = candidates.getOrNull(0) as? JsonArray ?: continue
 
-            val text = (firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
-            val thoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
-            val indicator = (firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull ?: 0
+            val text = ((firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val thoughts = (((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val indicator = ((firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.intOrNull ?: 0
 
             return ParsedChunk(text = text, thoughts = thoughts, isCompleted = indicator == 2)
         }
