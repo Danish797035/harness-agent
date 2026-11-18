@@ -527,7 +527,6 @@ class FreeKeyRouter(
                             }
                         }
                         RouterAction.KEY_BAD -> { 
-                            if (pinnedModelId != null) throw e
                             cooldownStore.markBadKey(currentCandidate.provider)
                             onText("") // discard partial output
                             previousCandidate = currentCandidate
