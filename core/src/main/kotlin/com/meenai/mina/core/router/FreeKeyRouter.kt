@@ -634,15 +634,25 @@ class FreeKeyRouter(
         onText: (String) -> Unit,
         onFirstToken: ((Long) -> Unit)? = null,
     ): ModelReply {
-        if (firstTokenTimeoutMs <= 0L) {
+        val effectiveTimeout = if (model.capabilities.reasoning ||
+            model.name.contains("argon", ignoreCase = true) || model.name.contains("pro", ignoreCase = true) ||
+            model.name.contains("hydrogen", ignoreCase = true)) {
+            maxOf(firstTokenTimeoutMs, 60_000L)
+        } else {
+            firstTokenTimeoutMs
+        }
+
+        if (effectiveTimeout <= 0L) {
             return if (model is StreamingChatModel) {
                 var firstRecorded = false
                 model.completeStreaming(system, messages, tools) { chunk ->
-                    if (chunk.isNotEmpty() && !firstRecorded) {
+                    if (!firstRecorded) {
                         firstRecorded = true
                         onFirstToken?.invoke(now())
                     }
-                    onText(chunk)
+                    if (chunk.isNotEmpty()) {
+                        onText(chunk)
+                    }
                 }
             } else {
                 model.complete(system, messages, tools).also { reply ->
@@ -655,20 +665,22 @@ class FreeKeyRouter(
         return coroutineScope {
             val firstTokenArrived = AtomicBoolean(false)
             val watchdog = launch {
-                delay(firstTokenTimeoutMs)
+                delay(effectiveTimeout)
                 if (!firstTokenArrived.get()) {
-                    throw FirstTokenTimeoutException("First token did not arrive within ${firstTokenTimeoutMs}ms")
+                    throw FirstTokenTimeoutException("First token did not arrive within ${effectiveTimeout}ms")
                 }
             }
 
             try {
                 if (model is StreamingChatModel) {
                     model.completeStreaming(system, messages, tools) { chunk ->
-                        if (chunk.isNotEmpty() && !firstTokenArrived.getAndSet(true)) {
+                        if (!firstTokenArrived.getAndSet(true)) {
                             watchdog.cancel()
                             onFirstToken?.invoke(now())
                         }
-                        onText(chunk)
+                        if (chunk.isNotEmpty()) {
+                            onText(chunk)
+                        }
                     }
                 } else {
                     val reply = model.complete(system, messages, tools)

@@ -390,4 +390,57 @@ class GeminiWebModelTest {
         assertTrue("Stray closing brackets must not be returned as raw text", textParts.none { it.text.contains("]\n}") })
         assertTrue("Greetings should receive friendly fallback when model emits bracket junk", textParts.any { it.text.contains("Hello!") })
     }
+
+    @Test
+    fun conversationalGreetingOmitsToolsFromPromptForFastReply() = runTest {
+        val payload = buildJsonArray {
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("rc_1"))
+                    add(buildJsonArray {
+                        add(JsonPrimitive("Hello! How can I help you today?"))
+                    })
+                })
+            })
+        }.toString()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
+
+        var recordedBody = ""
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val copy = original.newBuilder().build()
+                val buffer = okio.Buffer()
+                copy.body?.writeTo(buffer)
+                recordedBody = buffer.readUtf8()
+
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = mockClient
+        )
+
+        val greetingMsg = listOf(Message(Role.User, listOf(Part.Text("hi")), Author.User))
+        val tools = listOf(ToolSpec("phone_tap", "Tap on phone screen", "{}"))
+        val reply = model.complete("sys", greetingMsg, tools)
+
+        assertTrue(reply.parts.any { it is Part.Text && it.text.contains("Hello!") })
+        // Verify tools were NOT sent in the prompt for greeting
+        assertTrue("Greeting prompt should omit [Available Tools] for fast 1-second response", !recordedBody.contains("[Available Tools]"))
+    }
 }

@@ -41,8 +41,8 @@ class GeminiWebModel(
         tools: List<ToolSpec>
     ): ModelReply {
         var collectedText = ""
-        return completeStreaming(system, messages, tools) { delta ->
-            collectedText += delta
+        return completeStreaming(system, messages, tools) { visible ->
+            collectedText = visible
         }
     }
 
@@ -52,8 +52,10 @@ class GeminiWebModel(
         tools: List<ToolSpec>,
         onText: (String) -> Unit
     ): ModelReply {
-        val prompt = formatPrompt(system, messages, tools)
-        val thinkingFlag = GeminiWebClient.thinkingFlagFor(reasoningEffort)
+        val isChat = isConversational(messages)
+        val effectiveTools = if (isChat) emptyList() else tools
+        val prompt = formatPrompt(system, messages, effectiveTools)
+        val thinkingFlag = if (isChat) 0 else GeminiWebClient.thinkingFlagFor(reasoningEffort)
         val modelNumber = GeminiWebClient.modelNumberFor(model)
         val modelHexId = GeminiWebClient.modelHexIdFor(model)
         val uuid = UUID.randomUUID().toString().uppercase()
@@ -72,7 +74,7 @@ class GeminiWebModel(
         }
         var fullText = ""
         var fullThoughts = ""
-        var lastEmittedLength = 0
+        var lastReportedVisible = ""
         
         try { if (response.code in 401..403 || response.code == 400) {
             val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
@@ -138,15 +140,18 @@ class GeminiWebModel(
                 if (parsedChunk != null) {
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
+                        if (lastReportedVisible.isEmpty()) {
+                            onText("") // Signal stream activity to cancel router watchdog
+                        }
                     }
                     if (parsedChunk.text.isNotEmpty() && parsedChunk.text.length >= fullText.length) {
                         fullText = parsedChunk.text
                         val visibleText = stripToolCalls(fullText)
-                        if (visibleText.length > lastEmittedLength) {
+                        if (visibleText != lastReportedVisible) {
                             if (visibleText.isNotEmpty()) {
-                                onText(visibleText.substring(lastEmittedLength))
+                                onText(visibleText)
                             }
-                            lastEmittedLength = visibleText.length
+                            lastReportedVisible = visibleText
                         }
                     }
                 }
@@ -173,6 +178,10 @@ class GeminiWebModel(
         }
 
         val stopReason = if (toolCalls.isNotEmpty()) {
+            val prefixText = stripToolCalls(cleanText)
+            if (prefixText.isNotBlank()) {
+                parts.add(Part.Text(prefixText))
+            }
             parts.addAll(toolCalls)
             StopReason.ToolUse
         } else {
@@ -449,5 +458,38 @@ class GeminiWebModel(
         }
 
         return sb.toString().trim()
+    }
+
+    private fun isConversational(messages: List<Message>): Boolean {
+        if (messages.any { it.role == Role.Tool || it.parts.any { p -> p is Part.ToolCall || p is Part.ToolResult } }) {
+            return false
+        }
+        val lastUserMsg = messages.lastOrNull { it.role == Role.User } ?: return false
+        val userText = lastUserMsg.parts.filterIsInstance<Part.Text>().joinToString(" ") { it.text }.trim().lowercase()
+        if (userText.isEmpty()) return false
+
+        val greetings = setOf(
+            "hi", "hello", "hey", "hii", "hiii", "hola", "namaste", "pranam", "kya haal hai", "kaise ho",
+            "kaise ho aap", "how are you", "who are you", "what is your name", "what's your name",
+            "what is your model name", "what model are you", "who made you", "what can you do", "help",
+            "good morning", "good evening", "good afternoon", "good night", "thanks", "thank you", "shukriya"
+        )
+        val cleaned = userText.replace(Regex("""[^\w\s]"""), "").trim()
+        if (cleaned in greetings) return true
+
+        val actionKeywords = listOf(
+            "open", "launch", "khol", "kholo", "chalao", "start", "search", "dhundo", "dhoondo",
+            "click", "tap", "type", "send", "bhejo", "call", "lagao", "install", "download",
+            "create", "banao", "generate", "image", "photo", "pic", "picture", "draw", "screen",
+            "phone", "setting", "app", "read", "check", "order", "buy", "cart", "pay", "delete",
+            "remove", "clear", "scroll", "swipe", "press", "back", "home", "play", "music", "video"
+        )
+        val hasAction = actionKeywords.any { cleaned.contains(Regex("""\b$it\b""")) }
+        if (!hasAction && cleaned.split(Regex("""\s+""")).size <= 6) {
+            if (cleaned.startsWith("hi ") || cleaned.startsWith("hello ") || cleaned.startsWith("hey ")) {
+                return true
+            }
+        }
+        return false
     }
 }
