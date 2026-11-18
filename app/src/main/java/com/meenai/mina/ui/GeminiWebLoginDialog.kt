@@ -1,6 +1,5 @@
 package com.meenai.mina.ui
 
-import kotlinx.coroutines.CoroutineScope
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -210,14 +209,13 @@ private fun createGoogleLoginWebView(
 ): WebView {
     val json = Json { ignoreUnknownKeys = true }
     var loginHandled = false
-    var isPolling = false
 
     return WebView(context).apply {
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            userAgentString = android.webkit.WebSettings.getDefaultUserAgent(context).replace("; wv)", ")")
+            userAgentString = GeminiWebClient.CHROME_USER_AGENT
             useWideViewPort = true
             loadWithOverviewMode = true
         }
@@ -241,15 +239,10 @@ private fun createGoogleLoginWebView(
                 val isGeminiApp = url.startsWith("https://gemini.google.com") || url.contains("gemini.google.com/app")
 
                 if (isGeminiApp) {
-                    val rawCookies = collectGoogleCookies(cookieManager)
+                    val rawCookies = cookieManager.getCookie("https://gemini.google.com").orEmpty()
 
                     if (rawCookies.contains("__Secure-1PSID")) {
                         // Extract WIZ_global_data from the loaded page
-if (isPolling) return
-isPolling = true
-fun pollWizGlobalData(attempt: Int) {
-if (loginHandled) return
-val currentCookies = collectGoogleCookies(cookieManager)
                         evaluateJavascript(
                             """
                             (function() {
@@ -268,26 +261,21 @@ val currentCookies = collectGoogleCookies(cookieManager)
                             """.trimIndent()
                         ) { result ->
                             if (loginHandled) return@evaluateJavascript
-var snlm0e = ""
-var cfb2h = ""
-var fdrfje = ""
-var email = ""
                             try {
                                 val cleanJson = if (result.startsWith("\"") && result.endsWith("\"")) {
                                     json.parseToJsonElement(result).jsonPrimitive.content
                                 } else result
 
                                 val parsed = json.parseToJsonElement(cleanJson).jsonObject
-                               snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
-cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
-fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
-email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
-} catch (_: Exception) {}
+                                val snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
+                                val cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
+                                val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
+                                val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
 
                                 if (snlm0e.isNotBlank()) {
                                     loginHandled = true
                                     val session = GeminiWebSession(
-                                      cookies = currentCookies,
+                                        cookies = rawCookies,
                                         snlm0e = snlm0e,
                                         cfb2h = cfb2h,
                                         fdrfje = fdrfje,
@@ -296,33 +284,7 @@ email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
                                     )
                                     onLoginCaptured(session)
                                 }
-                        else if (attempt < 15) {
-postDelayed({ pollWizGlobalData(attempt + 1) }, 500L)
-} else {
-val fallbackCookies = collectGoogleCookies(cookieManager)
-if (fallbackCookies.contains("__Secure-1PSID")) {
-loginHandled = true
-CoroutineScope(Dispatchers.IO).launch {
-try {
-val session = GeminiWebClient.fetchSessionFromCookies(
-GeminiWebClient.geminiWebHttp,
-fallbackCookies
-)
-withContext(Dispatchers.Main) {
-onLoginCaptured(session)
-}
-} catch (e: Exception) {
-withContext(Dispatchers.Main) {
-loginHandled = false
-isPolling = false
-onError(e.message ?: "Failed to fetch Gemini session")
-}
-}
-}
-}
-                        }
-}
-pollWizGlobalData(1)
+                            } catch (_: Exception) {}
                         }
                     }
                 }
@@ -335,30 +297,6 @@ pollWizGlobalData(1)
 
         loadUrl("https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/app")
     }
-}
-
-private fun collectGoogleCookies(cookieManager: CookieManager): String {
-cookieManager.flush()
-val domains = listOf(
-"https://accounts.google.com",
-"https://google.com",
-"https://gemini.google.com"
-)
-val cookieMap = linkedMapOf<String, String>()
-for (domain in domains) {
-val raw = cookieManager.getCookie(domain).orEmpty()
-if (raw.isBlank()) continue
-for (part in raw.split(";")) {
-val trimmed = part.trim()
-val eqIdx = trimmed.indexOf('=')
-if (eqIdx > 0) {
-val name = trimmed.substring(0, eqIdx).trim()
-val value = trimmed.substring(eqIdx + 1).trim()
-cookieMap[name] = value
-}
-}
-}
-return cookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
 }
 
 @Composable
@@ -457,7 +395,7 @@ private fun ManualCookieEntry(
                             )
                         } else {
                             withContext(Dispatchers.IO) {
-                               GeminiWebClient.fetchSessionFromCookies(GeminiWebClient.geminiWebHttp, fullCookies)
+                                GeminiWebClient.fetchSessionFromCookies(OkHttpClient(), fullCookies)
                             }.copy(email = emailInput.trim().ifEmpty { emailInput })
                         }
                         onSuccess(session)
