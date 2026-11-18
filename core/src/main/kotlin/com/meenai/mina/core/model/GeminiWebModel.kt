@@ -123,7 +123,7 @@ class GeminiWebModel(
         var fullThoughts = ""
         val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
 
-        var lastReportedLen = 0
+        var lastReportedVisible = ""
 
         try {
             var line: String? = reader.readLine()
@@ -141,17 +141,19 @@ class GeminiWebModel(
                     }
                     if (parsedChunk.text.isNotEmpty()) {
                         fullText = parsedChunk.text
-                        if (fullText.length > lastReportedLen) {
-                            val delta = fullText.substring(lastReportedLen)
-                            onText(delta)
-                            lastReportedLen = fullText.length
+                        val visibleText = stripToolCalls(fullText)
+                        if (visibleText != lastReportedVisible) {
+                            if (visibleText.isNotEmpty()) {
+                                onText(visibleText)
+                            }
+                            lastReportedVisible = visibleText
                         }
                     }
                 }
                 line = reader.readLine()
             }
         } catch (e: java.net.SocketTimeoutException) {
-            if (lastReportedLen == 0) {
+            if (fullText.isEmpty() && fullThoughts.isEmpty()) {
                 throw ModelError.FirstTokenTimeout()
             } else {
                 throw ModelError.StreamCut()
@@ -258,6 +260,22 @@ class GeminiWebModel(
         return null
     }
 
+    private fun stripToolCalls(text: String): String {
+        var s = text.replace(Regex("""```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```"""), "")
+            .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
+            .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
+        val trimmed = s.trim()
+        if (trimmed.startsWith("{") || trimmed.startsWith("```") || trimmed.startsWith("[") || trimmed.startsWith("]")) {
+            if (trimmed.contains("\"tool_calls\"") || trimmed.contains("\"name\"") || trimmed.contains("\"arguments\"") || trimmed.contains("\"parameters\"")) {
+                return ""
+            }
+            if (trimmed == "]" || trimmed == "}" || trimmed == "]\n}" || trimmed == "}\n]") {
+                return ""
+            }
+        }
+        return cleanupText(s)
+    }
+
     private fun cleanupText(raw: String): String {
         return raw.replace(Regex("""^https?://googleusercontent\.com/card_content/\d+.*""", RegexOption.MULTILINE), "")
             .replace(Regex("""https?://googleusercontent\.com/(?:\w+/)+\d+\n*"""), "")
@@ -356,7 +374,7 @@ class GeminiWebModel(
             sb.append("}\n")
             sb.append("```\n")
             sb.append("Do not add conversational commentary or pleasantries when invoking a tool.\n")
-            sb.append("If no tool is required, answer the user normally and directly.\n\n")
+            sb.append("CRITICAL: If the user's message is a greeting (e.g. 'hi', 'hello'), conversational chat, or general question that does not require reading or operating an app or phone screen right now, DO NOT invoke any tool. Answer the user directly and immediately in friendly conversational text.\n\n")
         }
 
         sb.append("[Conversation History]\n")

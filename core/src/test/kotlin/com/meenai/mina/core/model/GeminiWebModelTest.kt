@@ -276,4 +276,44 @@ class GeminiWebModelTest {
 
         model.complete("sys", userMsg, emptyList())
     }
+
+    @Test
+    fun toolCallJsonDoesNotLeakIntoOnTextStream() = runTest {
+        val toolChunk = """
+            )]}'
+            120
+            [["wrb.fr",null,"[null,null,null,null,[[null,[\"```json\\n{\\n  \\\"tool_calls\\\": [\\n    {\\n      \\\"name\\\": \\\"view_user_screen\\\",\\n      \\\"arguments\\\": {}\\n    }\\n  ]\\n}\\n```\"],null,null,null,null,null,null,null,[2]]]]"]]
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(toolChunk))
+
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = mockClient
+        )
+
+        var streamed = ""
+        val reply = model.completeStreaming("sys", userMsg, emptyList()) { text ->
+            streamed = text
+        }
+
+        assertTrue("Tool call JSON must not leak into streamed preview text", streamed.isEmpty() || !streamed.contains("tool_calls"))
+        assertEquals(StopReason.ToolUse, reply.stopReason)
+        assertEquals(1, reply.parts.filterIsInstance<Part.ToolCall>().size)
+        assertEquals("view_user_screen", reply.parts.filterIsInstance<Part.ToolCall>().first().name)
+    }
 }
