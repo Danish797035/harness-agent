@@ -70,7 +70,10 @@ class GeminiWebModel(
         } catch (e: Exception) {
             throw ModelError.Network(e)
         }
-
+        var fullText = ""
+        var fullThoughts = ""
+        var lastEmittedLength = 0
+        
         try { if (response.code in 401..403 || response.code == 400) {
             val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
             val isSessionError = response.code in 401..403 ||
@@ -119,11 +122,8 @@ class GeminiWebModel(
 
         val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
 
-        var fullText = ""
-        var fullThoughts = ""
         val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
 
-        var lastEmittedLength = 0
 
         try {
             var line: String? = reader.readLine()
