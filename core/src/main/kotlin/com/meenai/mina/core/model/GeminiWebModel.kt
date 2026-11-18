@@ -241,7 +241,7 @@ class GeminiWebModel(
             val tag = (itemArr.getOrNull(0) as? JsonPrimitive)?.contentOrNull
             if (tag == "er") throwStreamError(itemArr.toString()); if (tag != "wrb.fr") continue
 
-            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: run { val err = itemArr.getOrNull(5); if (err != null && err.toString() != "null") throwStreamError(err.toString()); val c/* ontinu */ = "null"; c/* e */ }
+            val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: continue
             val payload = try {
                 json.parseToJsonElement(payloadStr) as? JsonArray ?: continue
             } catch (_: Exception) {
@@ -251,9 +251,9 @@ class GeminiWebModel(
             val candidates = payload.getOrNull(4) as? JsonArray ?: continue
             val firstCandidate = candidates.getOrNull(0) as? JsonArray ?: continue
 
-            val text = ((firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.contentOrNull.orEmpty()
-            val thoughts = (((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.contentOrNull.orEmpty()
-            val indicator = ((firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.intOrNull ?: 0
+            val text = (firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            val thoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            val indicator = (firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull ?: 0
 
             return ParsedChunk(text = text, thoughts = thoughts, isCompleted = indicator == 2)
         }
