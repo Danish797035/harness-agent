@@ -143,7 +143,7 @@ object GeminiWebClient {
         "high" -> 2
         "medium", "standard" -> 1
         "low", "fast" -> 1
-        "off", "disabled" -> 0
+        "off", "disabled" -> 1
         else -> 1
     }
 

@@ -56,7 +56,7 @@ class GeminiWebModelTest {
         assertEquals(1, GeminiWebClient.thinkingFlagFor("medium"))
         assertEquals(1, GeminiWebClient.thinkingFlagFor("standard"))
         assertEquals(1, GeminiWebClient.thinkingFlagFor("low"))
-        assertEquals(0, GeminiWebClient.thinkingFlagFor("off"))
+        assertEquals(1, GeminiWebClient.thinkingFlagFor("off"))
     }
 
     @Test

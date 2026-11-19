@@ -674,7 +674,7 @@ class FreeKeyRouter(
             try {
                 if (model is StreamingChatModel) {
                     model.completeStreaming(system, messages, tools) { chunk ->
-                        if (!firstTokenArrived.getAndSet(true)) {
+                        if (chunk.isNotEmpty() && !firstTokenArrived.getAndSet(true)) {
                             watchdog.cancel()
                             onFirstToken?.invoke(now())
                         }

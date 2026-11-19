@@ -55,7 +55,7 @@ class GeminiWebModel(
         val isChat = isConversational(messages)
         val effectiveTools = if (isChat) emptyList() else tools
         val prompt = formatPrompt(system, messages, effectiveTools)
-        val thinkingFlag = if (isChat) 0 else GeminiWebClient.thinkingFlagFor(reasoningEffort)
+        val thinkingFlag = if (isChat) 1 else GeminiWebClient.thinkingFlagFor(reasoningEffort)
         val modelNumber = GeminiWebClient.modelNumberFor(model)
         val modelHexId = GeminiWebClient.modelHexIdFor(model)
         val uuid = UUID.randomUUID().toString().uppercase()
@@ -140,9 +140,6 @@ class GeminiWebModel(
                 if (parsedChunk != null) {
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
-                        if (lastReportedVisible.isEmpty()) {
-                            onText("") // Signal stream activity to cancel router watchdog
-                        }
                     }
                     if (parsedChunk.text.isNotEmpty() && parsedChunk.text.length >= fullText.length) {
                         fullText = parsedChunk.text
@@ -290,6 +287,9 @@ class GeminiWebModel(
     }
 
     private fun stripToolCalls(text: String): String {
+        if (!text.contains('{') && !text.contains("```") && !text.contains('[') && !text.contains(']') && !text.contains('}')) {
+            return cleanupText(text)
+        }
         var s = text.replace(Regex("""```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```"""), "")
             .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
             .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
@@ -486,9 +486,7 @@ class GeminiWebModel(
         )
         val hasAction = actionKeywords.any { cleaned.contains(Regex("""\b$it\b""")) }
         if (!hasAction && cleaned.split(Regex("""\s+""")).size <= 6) {
-            if (cleaned.startsWith("hi ") || cleaned.startsWith("hello ") || cleaned.startsWith("hey ")) {
-                return true
-            }
+            return true
         }
         return false
     }
