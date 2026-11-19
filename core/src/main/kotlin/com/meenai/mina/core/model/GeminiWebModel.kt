@@ -138,11 +138,14 @@ class GeminiWebModel(
 
                 val parsedChunk = parseChunk(trimmed)
                 if (parsedChunk != null) {
+                    var chunkArrived = false
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
+                        chunkArrived = true
                     }
                     if (parsedChunk.text.isNotEmpty() && parsedChunk.text.length >= fullText.length) {
                         fullText = parsedChunk.text
+                        chunkArrived = true
                         val visibleText = stripToolCalls(fullText)
                         if (visibleText != lastReportedVisible) {
                             if (visibleText.isNotEmpty()) {
@@ -150,6 +153,10 @@ class GeminiWebModel(
                             }
                             lastReportedVisible = visibleText
                         }
+                    }
+                    if (chunkArrived && lastReportedVisible.isEmpty()) {
+                        // Signal that tokens have arrived (tool call or thoughts) so watchdog cancels immediately
+                        onText("")
                     }
                 }
                 line = reader.readLine()

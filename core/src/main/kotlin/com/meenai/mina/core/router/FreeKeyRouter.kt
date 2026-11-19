@@ -673,8 +673,8 @@ class FreeKeyRouter(
 
             try {
                 if (model is StreamingChatModel) {
-                    model.completeStreaming(system, messages, tools) { chunk ->
-                        if (chunk.isNotEmpty() && !firstTokenArrived.getAndSet(true)) {
+                    val reply = model.completeStreaming(system, messages, tools) { chunk ->
+                        if (!firstTokenArrived.getAndSet(true)) {
                             watchdog.cancel()
                             onFirstToken?.invoke(now())
                         }
@@ -682,6 +682,9 @@ class FreeKeyRouter(
                             onText(chunk)
                         }
                     }
+                    firstTokenArrived.set(true)
+                    watchdog.cancel()
+                    reply
                 } else {
                     val reply = model.complete(system, messages, tools)
                     firstTokenArrived.set(true)
