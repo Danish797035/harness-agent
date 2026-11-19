@@ -83,6 +83,7 @@ class ImageGenerationService(
         var hadModelScopeCandidate = false
         var skippedDueToMagicube = false
         var harnessDown = false
+        var harnessFailures = 0
 
         for (candidate in candidates) {
             if (candidate.provider == ImageModelCatalog.PROVIDER_HARNESS && harnessDown) {
@@ -137,7 +138,16 @@ class ImageGenerationService(
             } catch (t: Throwable) {
                 lastError = t
                 if (candidate.provider == ImageModelCatalog.PROVIDER_HARNESS) {
-                    harnessDown = true
+                    harnessFailures++
+                    val msg = t.message.orEmpty()
+                    val isConnectionError = t is java.net.ConnectException ||
+                        msg.contains("Connection refused", ignoreCase = true) ||
+                        msg.contains("Failed to connect", ignoreCase = true)
+                    val isCloudflareBlock = msg.contains("Cloudflare challenge detected", ignoreCase = true)
+
+                    if (isConnectionError || isCloudflareBlock || harnessFailures >= 2) {
+                        harnessDown = true
+                    }
                 }
                 switches++
                 logger?.invoke("Model ${candidate.id} failed, silent failover count: $switches (error: ${t.message})")

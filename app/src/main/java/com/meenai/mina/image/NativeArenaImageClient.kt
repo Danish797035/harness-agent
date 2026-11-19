@@ -103,14 +103,17 @@ class NativeArenaImageClient(
             val promptEscaped = JsonPrimitive(prompt).toString()
             val targetModel = model.ifBlank { "mai-image-2.6" }
             val modelParam = when {
-                targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.6+%28t2i%29"
+                targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.7"
                 targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
                 targetModel.contains("muse", ignoreCase = true) -> "muse-image"
                 targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
                 targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
-                else -> "mai-image-2.6+%28t2i%29"
+                targetModel.contains("ideogram", ignoreCase = true) -> "ideogram-4.5"
+                targetModel.contains("qwen", ignoreCase = true) -> "qwen-image-2.0"
+                targetModel.contains("flux", ignoreCase = true) -> "flux-3-image-klein"
+                else -> "mai-image-2.7"
             }
-            val targetUrl = "$ARENA_URL?model_a=$modelParam"
+            val targetUrl = "$ARENA_URL?model_a=$modelParam&model=$modelParam"
 
             val automationJs = """
                 (function() {
@@ -148,6 +151,7 @@ class NativeArenaImageClient(
                         }
                     }
 
+                    let modelAttempts = 0;
                     function ensureModel(onReady) {
                         dismissPopups();
                         const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -155,7 +159,11 @@ class NativeArenaImageClient(
 
                         const activeModelBtn = buttons.find(b => {
                             const t = (b.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                            return t.includes(clean) || (clean.includes('mai') && t.includes('maiimage'));
+                            return t.includes(clean) ||
+                                   (clean.includes('mai') && t.includes('mai')) ||
+                                   (clean.includes('grok') && t.includes('grok')) ||
+                                   (clean.includes('muse') && t.includes('muse')) ||
+                                   (clean.includes('seedream') && t.includes('seedream'));
                         });
 
                         if (activeModelBtn) {
@@ -175,21 +183,33 @@ class NativeArenaImageClient(
                             log("Clicking model selector button...");
                             modelBtn.click();
                             setTimeout(() => {
-                                const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button'));
+                                const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button, [role="button"], span'));
                                 const match = options.find(el => {
                                     const t = (el.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                                    return t.includes(clean) || t.includes('maiimage') || t.includes('grokimagine') || t.includes('museimage') || t.includes('seedream');
+                                    return t.includes(clean) ||
+                                           (clean.includes('mai') && t.includes('mai')) ||
+                                           (clean.includes('grok') && t.includes('grok')) ||
+                                           (clean.includes('muse') && t.includes('muse')) ||
+                                           (clean.includes('seedream') && t.includes('seedream')) ||
+                                           (clean.includes('flux') && t.includes('flux')) ||
+                                           (clean.includes('ideogram') && t.includes('ideogram'));
                                 });
                                 if (match) {
                                     log("Selected model from list: " + match.textContent.trim());
                                     match.click();
                                     setTimeout(onReady, 600);
                                 } else {
-                                    log("Model not found in list, proceeding with current selection");
+                                    log("Model not found in list, dismissing menu");
+                                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
                                     onReady();
                                 }
-                            }, 600);
+                            }, 800);
+                        } else if (modelAttempts < 3) {
+                            modelAttempts++;
+                            log("Model button not found yet, retrying (" + modelAttempts + "/3)...");
+                            setTimeout(() => ensureModel(onReady), 800);
                         } else {
+                            log("Proceeding with current model selection");
                             onReady();
                         }
                     }
@@ -334,36 +354,49 @@ class NativeArenaImageClient(
             """.trimIndent()
 
             var pageLoaded = false
+            fun tryInject(view: WebView?) {
+                if (pageLoaded || view == null) return
+                view.evaluateJavascript("""
+                    (function() {
+                        const title = (document.title || '').toLowerCase();
+                        const isJustAMoment = title.includes('just a moment');
+                        const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
+                        if (isJustAMoment || isChallengeStage) {
+                            return "challenge";
+                        }
+                        if (document.body && (document.querySelector('textarea') || document.querySelector('button'))) {
+                            return "ready";
+                        }
+                        return "loading";
+                    })();
+                """.trimIndent()) { state ->
+                    val cleanState = state?.replace("\"", "")?.trim()
+                    if (cleanState == "challenge") {
+                        logger?.invoke("NativeArenaImageClient: Cloudflare Turnstile detected in page DOM")
+                        resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
+                    } else if (cleanState == "ready" && !pageLoaded) {
+                        pageLoaded = true
+                        logger?.invoke("NativeArenaImageClient: page loaded, injecting automation script")
+                        view.evaluateJavascript(automationJs, null)
+                    } else if (!pageLoaded) {
+                        view.postDelayed({ tryInject(view) }, 600)
+                    }
+                }
+            }
+
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    if (url?.contains("cloudflare") == true || url?.contains("challenge") == true) {
-                        logger?.invoke("NativeArenaImageClient: Cloudflare challenge page detected ($url)")
+                    val mainUrl = view?.url ?: url ?: ""
+                    // Only abort if main frame is actually on a Cloudflare challenge interstitial page
+                    if (mainUrl.contains("challenges.cloudflare.com") ||
+                        (mainUrl.contains("/cdn-cgi/") && mainUrl.contains("chl_page"))) {
+                        logger?.invoke("NativeArenaImageClient: Cloudflare challenge page detected ($mainUrl)")
                         resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
                         return
                     }
-                    if (!pageLoaded && (url?.contains("arena.ai") == true || url?.contains("lmarena.ai") == true)) {
-                        pageLoaded = true
-                        view?.evaluateJavascript("""
-                            (function() {
-                                const title = (document.title || '').toLowerCase();
-                                const isJustAMoment = title.includes('just a moment');
-                                const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
-                                if (isJustAMoment || isChallengeStage) {
-                                    if (window.AndroidBridge) window.AndroidBridge.onGenerationError("LM Arena Cloudflare challenge detected");
-                                    return true;
-                                }
-                                return false;
-                            })();
-                        """.trimIndent()) { isCf ->
-                            if (isCf == "true") {
-                                logger?.invoke("NativeArenaImageClient: Cloudflare Turnstile detected in page DOM")
-                                resultDeferred.completeExceptionally(ImageClientException("LM Arena Cloudflare challenge detected"))
-                            } else {
-                                logger?.invoke("NativeArenaImageClient: page loaded, injecting automation script")
-                                view?.evaluateJavascript(automationJs, null)
-                            }
-                        }
+                    if (!pageLoaded && (mainUrl.contains("arena.ai") || mainUrl.contains("lmarena.ai"))) {
+                        tryInject(view)
                     }
                 }
 
