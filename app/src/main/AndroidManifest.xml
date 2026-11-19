@@ -117,6 +117,14 @@
             android:exported="false"
             android:theme="@style/Theme.Harness" />
 
+        <!-- LM Arena live image generation and verification activity -->
+        <activity
+            android:name="com.meenai.mina.image.ArenaImageActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Harness" />
+
         <!-- 网页接管:把后台的网页标签(同一个 WebView)拿到主屏给用户处理 -->
         <activity
             android:name=".web.WebTakeoverActivity"
