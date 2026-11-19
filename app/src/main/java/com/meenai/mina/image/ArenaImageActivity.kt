@@ -34,6 +34,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.getValue
@@ -361,6 +362,23 @@ class ArenaImageActivity : ComponentActivity() {
                         });
                 }
 
+                window.extractCurrentArenaImage = function() {
+                    log("Manual capture triggered by user");
+                    const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                        const src = img.src || '';
+                        return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
+                               !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
+                               (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
+                    });
+                    if (imgs.length > 0) {
+                        extractImage(imgs[imgs.length - 1]);
+                        return true;
+                    } else {
+                        log("No generated image found on page yet");
+                        return false;
+                    }
+                };
+
                 setTimeout(() => {
                     ensureModel(() => {
                         enterPrompt();
@@ -545,6 +563,18 @@ class ArenaImageActivity : ComponentActivity() {
                                     )
                                 }
                             },
+                            actions = {
+                                TextButton(onClick = {
+                                    webView?.evaluateJavascript("if (window.extractCurrentArenaImage) window.extractCurrentArenaImage();", null)
+                                }) {
+                                    Text(
+                                        text = "Capture",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             )
@@ -580,6 +610,26 @@ class ArenaImageActivity : ComponentActivity() {
         activeSession?.resultDeferred?.completeExceptionally(CancellationException("LM Arena cancelled by user"))
         activeSession = null
         finish()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val session = activeSession ?: return
+        val targetModel = session.model.ifBlank { "mai-image-2.7" }
+        val modelParam = when {
+            targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.7"
+            targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
+            targetModel.contains("muse", ignoreCase = true) -> "muse-image"
+            targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
+            targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
+            targetModel.contains("ideogram", ignoreCase = true) -> "ideogram-4.5"
+            targetModel.contains("qwen", ignoreCase = true) -> "qwen-image-2.0"
+            targetModel.contains("flux", ignoreCase = true) -> "flux-3-image-klein"
+            else -> "mai-image-2.7"
+        }
+        val targetUrl = "$ARENA_URL?model_a=$modelParam&model=$modelParam"
+        webView?.loadUrl(targetUrl)
     }
 
     override fun onDestroy() {

@@ -25,15 +25,8 @@ class CompositeArenaImageClient(
             logger?.invoke("CompositeArenaImageClient: checking remote/local harness service first...")
             return remoteClient.generate(apiKey, model, prompt, size)
         } catch (t: Throwable) {
-            val msg = t.message.orEmpty()
-            if (t is ConnectException ||
-                t is SocketTimeoutException ||
-                msg.contains("Connection refused", ignoreCase = true) ||
-                msg.contains("Failed to connect", ignoreCase = true)) {
-                logger?.invoke("CompositeArenaImageClient: port 3000 offline, seamlessly running Native In-App LM Arena automation")
-                return nativeClient.generate(apiKey, model, prompt, size)
-            }
-            throw t
+            logger?.invoke("CompositeArenaImageClient: remote microservice unavailable (${t.message}), seamlessly running Native In-App LM Arena automation")
+            return nativeClient.generate(apiKey, model, prompt, size)
         }
     }
 
@@ -46,15 +39,8 @@ class CompositeArenaImageClient(
         try {
             return remoteClient.edit(apiKey, model, prompt, imageBase64)
         } catch (t: Throwable) {
-            val msg = t.message.orEmpty()
-            if (t is ConnectException ||
-                t is SocketTimeoutException ||
-                msg.contains("Connection refused", ignoreCase = true) ||
-                msg.contains("Failed to connect", ignoreCase = true)) {
-                logger?.invoke("CompositeArenaImageClient: port 3000 offline, seamlessly running Native In-App LM Arena for edit")
-                return nativeClient.edit(apiKey, model, prompt, imageBase64)
-            }
-            throw t
+            logger?.invoke("CompositeArenaImageClient: remote microservice unavailable for edit (${t.message}), seamlessly running Native In-App LM Arena for edit")
+            return nativeClient.edit(apiKey, model, prompt, imageBase64)
         }
     }
 }

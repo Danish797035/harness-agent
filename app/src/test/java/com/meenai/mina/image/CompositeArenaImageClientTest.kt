@@ -97,33 +97,31 @@ class CompositeArenaImageClientTest {
     }
 
     @Test
-    fun nonConnectionErrorsAreRethrownWithoutFallingBack() = runBlocking {
+    fun generateFallsBackToNativeClientOnCleartextOrRemoteError() = runBlocking {
+        val nativeBytes = "NATIVE_IMAGE".toByteArray()
         val nativeCalled = AtomicBoolean(false)
 
         val remoteClient = object : ImageClient {
             override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray =
-                throw ImageClientException("HTTP 400 Bad Request")
+                throw java.io.IOException("CLEARTEXT communication to 127.0.0.1 not permitted by network security policy")
             override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray =
-                throw ImageClientException("HTTP 400 Bad Request")
+                throw java.io.IOException("CLEARTEXT communication to 127.0.0.1 not permitted by network security policy")
         }
         val nativeClient = object : ImageClient {
             override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
                 nativeCalled.set(true)
-                return ByteArray(0)
+                return nativeBytes
             }
             override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
                 nativeCalled.set(true)
-                return ByteArray(0)
+                return nativeBytes
             }
         }
 
         val composite = CompositeArenaImageClient(remoteClient, nativeClient)
-        try {
-            composite.generate("key", "mai-image-2.6", "prompt", null)
-            fail("Expected ImageClientException")
-        } catch (e: ImageClientException) {
-            assertEquals("HTTP 400 Bad Request", e.message)
-        }
-        assertEquals(false, nativeCalled.get())
+        val result = composite.generate("key", "mai-image-2.6", "prompt", null)
+
+        assertTrue(result.contentEquals(nativeBytes))
+        assertEquals(true, nativeCalled.get())
     }
 }

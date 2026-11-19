@@ -487,7 +487,7 @@ class GeminiWebModel(
         val actionKeywords = listOf(
             "open", "launch", "khol", "kholo", "chalao", "start", "search", "dhundo", "dhoondo",
             "click", "tap", "type", "send", "bhejo", "call", "lagao", "install", "download",
-            "create", "banao", "generate", "image", "photo", "pic", "picture", "draw", "screen",
+            "create", "banao", "generate", "genrate", "make", "dikhao", "image", "photo", "pic", "picture", "draw", "screen",
             "phone", "setting", "app", "read", "check", "order", "buy", "cart", "pay", "delete",
             "remove", "clear", "scroll", "swipe", "press", "back", "home", "play", "music", "video"
         )
