@@ -65,6 +65,48 @@ class LeakedToolMarkupTest {
         assertEquals("", scan.text)
     }
 
+    @Test fun recoversRawToolCallsJsonObject() {
+        val text = """
+            {
+              "tool_calls": [
+                {
+                  "name": "generate_image",
+                  "arguments": {
+                    "prompt": "A cute cat",
+                    "reason": "Generating a cat image"
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val scan = LeakedToolMarkup.scan(text)
+        assertEquals(1, scan.calls.size)
+        assertEquals("generate_image", scan.calls[0].name)
+        assertTrue(scan.calls[0].argsJson.contains("A cute cat"))
+        assertEquals("", scan.text)
+    }
+
+    @Test fun recoversFencedToolCallsJsonBlock() {
+        val text = """
+            ```json
+            {
+              "tool_calls": [
+                {
+                  "name": "generate_image",
+                  "arguments": {
+                    "prompt": "A cute cat"
+                  }
+                }
+              ]
+            }
+            ```
+        """.trimIndent()
+        val scan = LeakedToolMarkup.scan(text)
+        assertEquals(1, scan.calls.size)
+        assertEquals("generate_image", scan.calls[0].name)
+        assertEquals("", scan.text)
+    }
+
     @Test fun plainTextIsUntouched() {
         val text = "2 < 3，今天天气不错，用 <b> 标签也行"
         val scan = LeakedToolMarkup.scan(text)

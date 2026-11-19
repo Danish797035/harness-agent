@@ -219,7 +219,7 @@ class GeminiWebModel(
             reasoningTokens = fullThoughts.length / 4
         )
 
-        return ModelReply(parts, stopReason, usage)
+        return LeakedToolMarkup.repair(ModelReply(parts, stopReason, usage))
     }
 
     private fun createPostRequest(
@@ -300,6 +300,7 @@ class GeminiWebModel(
         var s = text.replace(Regex("""```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```"""), "")
             .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
             .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
+            .replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
         val trimmed = s.trim()
         if (trimmed.startsWith("{") || trimmed.startsWith("```") || trimmed.startsWith("[") ||
             trimmed.startsWith("]") || trimmed.startsWith("}")) {

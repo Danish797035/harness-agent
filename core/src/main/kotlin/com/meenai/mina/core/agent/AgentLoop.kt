@@ -511,6 +511,7 @@ class AgentLoop(
                 continue
             }
             var (reply, used) = routed
+            reply = com.meenai.mina.core.model.LeakedToolMarkup.repair(reply)
             val proposed = reply.parts.filterIsInstance<Part.ToolCall>().firstOrNull()
             if (provenance.origin == RunOrigin.Ui && intentGate != null && proposed != null &&
                 tools.verb(proposed.name) !in DISCUSSION_LOOKUP_VERBS) {
@@ -522,6 +523,7 @@ class AgentLoop(
                     reply = try { caller.ask(discussion, emptyList(), step, using = model, onText = previewFor(step)) }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { return StopRules.modelFailed(e) }
+                    reply = com.meenai.mina.core.model.LeakedToolMarkup.repair(reply)
                     used = model
                 }
             }

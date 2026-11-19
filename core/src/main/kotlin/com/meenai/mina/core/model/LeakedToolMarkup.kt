@@ -57,6 +57,14 @@ object LeakedToolMarkup {
         "<" + B + "{1,2}tool_call" + B + "{1,2}\\s*>(.*?)</" + B + "{1,2}tool_call" + B + "{1,2}\\s*>",
         RegexOption.DOT_MATCHES_ALL,
     )
+    private val FENCED_TOOL_CALLS_BLOCK = Regex(
+        "```(?:json)?\\s*(\\{[\\s\\S]*?\"(?:tool_calls|name)\"[\\s\\S]*?\\})\\s*```",
+        RegexOption.DOT_MATCHES_ALL,
+    )
+    private val RAW_TOOL_CALLS_BLOCK = Regex(
+        "(?:^|\\n)\\s*(\\{[\\s\\S]*?\"tool_calls\"\\s*:\\s*\\[[\\s\\S]*?\\][\\s\\S]*?\\})\\s*(?:$|\\n)",
+        RegexOption.DOT_MATCHES_ALL,
+    )
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -89,6 +97,10 @@ object LeakedToolMarkup {
         // 2. <tool_call>{…}</tool_call>(里面是 JSON,可能是一个对象或一组)
         rest = extractJsonBlocks(rest, TOOL_CALL_BLOCK, calls)
         rest = extractJsonBlocks(rest, PIPE_TOOL_CALL_BLOCK, calls)
+        rest = extractJsonBlocks(rest, FENCED_TOOL_CALLS_BLOCK, calls)
+        if (rest.contains("\"tool_calls\"")) {
+            rest = extractJsonBlocks(rest, RAW_TOOL_CALLS_BLOCK, calls)
+        }
 
         // 流式预览:末尾还没收全的半个标记(<｜｜DSML｜、<｜…)也别显示出来
         val lt = rest.lastIndexOf('<')
@@ -173,17 +185,27 @@ object LeakedToolMarkup {
         }
         val items = when (element) {
             is JsonArray -> element.toList()
-            is JsonObject -> listOf(element)
+            is JsonObject -> {
+                val toolCallsArr = element["tool_calls"] as? JsonArray
+                if (toolCallsArr != null) {
+                    toolCallsArr.toList()
+                } else {
+                    listOf(element)
+                }
+            }
             else -> return emptyList()
         }
         return items.mapNotNull { item ->
             val obj = item as? JsonObject ?: return@mapNotNull null
-            val name = (obj["name"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            val fnObj = obj["function"] as? JsonObject
+            val name = (obj["name"] as? JsonPrimitive)?.contentOrNull?.trim()
+                ?: (fnObj?.get("name") as? JsonPrimitive)?.contentOrNull?.trim()
+                ?: return@mapNotNull null
             if (name.isEmpty()) return@mapNotNull null
-            val args = obj["arguments"] ?: obj["parameters"]
+            val args = obj["arguments"] ?: obj["parameters"] ?: fnObj?.get("arguments")
             Invocation(name, when (args) {
                 null -> "{}"
-                is JsonPrimitive -> (args as JsonPrimitive).contentOrNull ?: "{}"
+                is JsonPrimitive -> args.contentOrNull ?: "{}"
                 else -> args.toString()
             })
         }
