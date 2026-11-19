@@ -4,6 +4,15 @@
     <style name="Theme.Harness" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/harness_bg</item>
     </style>
+    <style name="Theme.Harness.BottomSheet" parent="Theme.Harness">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.5</item>
+    </style>
     <style name="Theme.Mina" parent="Theme.Harness" />
     <color name="harness_bg">#F7F7F8</color>
     <color name="mina_bg">@color/harness_bg</color>

@@ -124,7 +124,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:theme="@style/Theme.Harness" />
+            android:theme="@style/Theme.Harness.BottomSheet" />
 
         <!-- 网页接管:把后台的网页标签(同一个 WebView)拿到主屏给用户处理 -->
         <activity

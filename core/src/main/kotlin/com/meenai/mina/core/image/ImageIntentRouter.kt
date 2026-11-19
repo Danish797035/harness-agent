@@ -104,11 +104,15 @@ class ImageIntentRouter(
             )
             if (strongMarkers.any { lower.contains(it) }) return true
 
-            val visualKeywords = listOf("portrait", "photo", "image", "tasveer", "picture", "chhavi", "illustration", "painting", "rendering")
+            val visualKeywords = listOf("portrait", "photo", "image", "tasveer", "picture", "chhavi", "illustration", "painting", "rendering", "wallpaper")
+            val creationVerbs = listOf("generate", "genrate", "create", "make", "draw", "render", "banao", "banaye", "karo", "dikhao", "chahiye")
             val styleKeywords = listOf("cinematic", "realistic", "lighting", "detailed", "textured", "outfit:", "pose:", "setting:")
+
             val hasVisual = visualKeywords.any { lower.contains(it) }
+            val hasCreation = creationVerbs.any { lower.contains(it) }
             val hasStyle = styleKeywords.any { lower.contains(it) }
-            return hasVisual && hasStyle
+
+            return (hasVisual && (hasCreation || hasStyle))
         }
     }
 

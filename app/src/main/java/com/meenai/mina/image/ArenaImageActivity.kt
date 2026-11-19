@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Message
 import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -17,29 +18,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,9 +59,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Visible In-App Activity for LM Arena automation (arena.ai/image/direct).
- * Gives the user full visibility over page load, prompt entry, and allows
- * tapping the Cloudflare "Verify you are human" checkbox directly if requested.
+ * Visible In-App Bottom Sheet Activity for LM Arena automation (arena.ai/image/direct).
+ * Opens as a bottom sheet modal (~68% screen height) over chat.
+ * Allows user to log in with Google/credentials (cookies permanently saved),
+ * complete Cloudflare verification, monitor generation, and capture images.
  * Automatically closes as soon as the image generation completes.
  */
 class ArenaImageActivity : ComponentActivity() {
@@ -103,7 +107,6 @@ class ArenaImageActivity : ComponentActivity() {
     private var webProgress by mutableFloatStateOf(0.1f)
     private var isPageLoaded by mutableStateOf(false)
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -145,31 +148,25 @@ class ArenaImageActivity : ComponentActivity() {
                 const promptText = $promptEscaped;
                 log("Visible Arena automation started for: " + targetModel);
 
-                function dismissPopups() {
+                function dismissTermsOnly() {
                     try {
                         const buttons = Array.from(document.querySelectorAll('button'));
                         const agreeBtn = buttons.find(b => {
                             const t = (b.textContent || '').trim().toLowerCase();
-                            return t === 'agree' || t === 'i agree' || t === 'accept';
+                            return t === 'agree' || t === 'i agree' || t === 'accept terms';
                         });
                         if (agreeBtn) {
-                            log("Dismissing Terms modal (Agree)");
+                            log("Accepting Terms modal");
                             agreeBtn.click();
                         }
-
-                        const bannerBtn = document.querySelector('button[aria-label="Dismiss banner"]');
-                        if (bannerBtn) bannerBtn.click();
-
-                        const closeBtn = document.querySelector('button[aria-label="Close"], button[aria-label="dismiss" i]');
-                        if (closeBtn) closeBtn.click();
                     } catch (e) {
-                        log("dismissPopups err: " + e.message);
+                        log("dismissTermsOnly err: " + e.message);
                     }
                 }
 
                 let modelAttempts = 0;
                 function ensureModel(onReady) {
-                    dismissPopups();
+                    dismissTermsOnly();
                     const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
                     const buttons = Array.from(document.querySelectorAll('button'));
 
@@ -215,8 +212,7 @@ class ArenaImageActivity : ComponentActivity() {
                                 match.click();
                                 setTimeout(onReady, 600);
                             } else {
-                                log("Model not found in list, dismissing menu");
-                                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+                                log("Model not found in list, proceeding with current selection");
                                 onReady();
                             }
                         }, 800);
@@ -231,7 +227,7 @@ class ArenaImageActivity : ComponentActivity() {
                 }
 
                 function enterPrompt() {
-                    dismissPopups();
+                    dismissTermsOnly();
                     log("Looking for textarea...");
                     const textarea = document.querySelector('textarea[name="message"], textarea[placeholder*="Describe the image" i], textarea[placeholder*="prompt" i], textarea[placeholder*="message" i], textarea');
                     if (!textarea) {
@@ -259,7 +255,7 @@ class ArenaImageActivity : ComponentActivity() {
                     } catch (_) {}
 
                     setTimeout(() => {
-                        dismissPopups();
+                        dismissTermsOnly();
                         log("Submitting prompt...");
                         const sendBtn = document.querySelector('button[aria-label="Send message"], button[data-perf-target="send"], button[type="submit"]') ||
                             Array.from(document.querySelectorAll('button')).find(b => {
@@ -283,11 +279,6 @@ class ArenaImageActivity : ComponentActivity() {
                             } catch (_) {}
                         }
 
-                        setTimeout(() => {
-                            dismissPopups();
-                            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-                        }, 800);
-
                         pollForOutput();
                     }, 600);
                 }
@@ -299,7 +290,7 @@ class ArenaImageActivity : ComponentActivity() {
 
                     const timer = setInterval(() => {
                         checks++;
-                        dismissPopups();
+                        dismissTermsOnly();
 
                         const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
                             const src = img.src || '';
@@ -445,6 +436,7 @@ class ArenaImageActivity : ComponentActivity() {
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 useWideViewPort = true
                 loadWithOverviewMode = true
+                setSupportMultipleWindows(true)
                 javaScriptCanOpenWindowsAutomatically = true
                 // Remove '; wv' tag so Cloudflare treats it as normal Chrome Mobile browser
                 val defaultUa = userAgentString
@@ -461,6 +453,10 @@ class ArenaImageActivity : ComponentActivity() {
                 if (automationInjected || view == null) return
                 view.evaluateJavascript("""
                     (function() {
+                        const href = (window.location.href || '').toLowerCase();
+                        if (href.includes('accounts.google.com') || href.includes('/login') || href.includes('/auth')) {
+                            return "login";
+                        }
                         const title = (document.title || '').toLowerCase();
                         const isJustAMoment = title.includes('just a moment');
                         const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
@@ -474,7 +470,10 @@ class ArenaImageActivity : ComponentActivity() {
                     })();
                 """.trimIndent()) { state ->
                     val cleanState = state?.replace("\"", "")?.trim()
-                    if (cleanState == "challenge") {
+                    if (cleanState == "login") {
+                        statusMessage = "Please sign in to your account..."
+                        view.postDelayed({ tryInject(view) }, 1500)
+                    } else if (cleanState == "challenge") {
                         statusMessage = "Cloudflare verification needed — please tap checkbox below"
                         // Do not abort! Allow user to tap the Turnstile checkbox on screen
                         view.postDelayed({ tryInject(view) }, 1000)
@@ -490,9 +489,23 @@ class ArenaImageActivity : ComponentActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val url = request?.url?.toString().orEmpty()
+                    session.logger?.invoke("ArenaImageActivity: shouldOverrideUrlLoading: $url")
+                    if (url.contains("accounts.google.com") || url.contains("login") || url.contains("auth")) {
+                        statusMessage = "Please sign in to your account..."
+                    }
+                    return false
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    CookieManager.getInstance().flush()
                     val mainUrl = view?.url ?: url ?: ""
+                    if (mainUrl.contains("accounts.google.com") || mainUrl.contains("login") || mainUrl.contains("auth")) {
+                        statusMessage = "Please sign in to your account..."
+                        return
+                    }
                     if (!automationInjected && (mainUrl.contains("arena.ai") || mainUrl.contains("lmarena.ai"))) {
                         tryInject(view)
                     }
@@ -515,6 +528,18 @@ class ArenaImageActivity : ComponentActivity() {
                         tryInject(view)
                     }
                 }
+
+                override fun onCreateWindow(
+                    view: WebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message?
+                ): Boolean {
+                    val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                    transport.webView = view
+                    resultMsg.sendToTarget()
+                    return true
+                }
             }
 
             session.logger?.invoke("ArenaImageActivity: loading $targetUrl")
@@ -527,46 +552,97 @@ class ArenaImageActivity : ComponentActivity() {
                     handleUserClose()
                 }
 
-                Scaffold(
-                    topBar = {
-                        TopAppBar(
-                            title = {
-                                Column {
+                // Modal backdrop dim with bottom sheet modal surface
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable { handleUserClose() },
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.68f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {},
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 8.dp
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Drag handle indicator
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp, bottom = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 36.dp, height = 4.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                )
+                            }
+
+                            // Compact Header
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { handleUserClose() },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = MinaIcons.Close,
+                                        contentDescription = "Close",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Spacer(Modifier.width(8.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = "LM Arena",
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
+                                            fontSize = 14.sp,
                                             color = MaterialTheme.colorScheme.onSurface,
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text(
                                             text = "• $targetModel",
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
                                         )
                                     }
                                     Text(
                                         text = statusMessage,
                                         fontSize = 11.sp,
-                                        color = if (statusMessage.contains("Cloudflare")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (statusMessage.contains("Cloudflare") || statusMessage.contains("sign in", ignoreCase = true))
+                                            MaterialTheme.colorScheme.error
+                                        else
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                     )
                                 }
-                            },
-                            navigationIcon = {
-                                IconButton(onClick = { handleUserClose() }) {
-                                    Icon(
-                                        imageVector = MinaIcons.Close,
-                                        contentDescription = "Close",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            },
-                            actions = {
-                                TextButton(onClick = {
-                                    webView?.evaluateJavascript("if (window.extractCurrentArenaImage) window.extractCurrentArenaImage();", null)
-                                }) {
+
+                                TextButton(
+                                    onClick = {
+                                        webView?.evaluateJavascript("if (window.extractCurrentArenaImage) window.extractCurrentArenaImage();", null)
+                                    }
+                                ) {
                                     Text(
                                         text = "Capture",
                                         color = MaterialTheme.colorScheme.primary,
@@ -574,31 +650,22 @@ class ArenaImageActivity : ComponentActivity() {
                                         fontSize = 13.sp,
                                     )
                                 }
-                            },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                            )
-                        )
-                    }
-                ) { innerPadding ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
-                        if (webProgress < 1.0f) {
-                            LinearProgressIndicator(
-                                progress = { webProgress },
-                                modifier = Modifier.fillMaxWidth().height(2.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                            }
 
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            AndroidView(
-                                factory = { webView!! },
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (webProgress < 1.0f) {
+                                LinearProgressIndicator(
+                                    progress = { webProgress },
+                                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                AndroidView(
+                                    factory = { webView!! },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }

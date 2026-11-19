@@ -158,6 +158,9 @@ class GeminiWebModel(
                         // Signal that tokens have arrived (tool call or thoughts) so watchdog cancels immediately
                         onText("")
                     }
+                    if (parsedChunk.isCompleted) {
+                        break
+                    }
                 }
                 line = reader.readLine()
             }

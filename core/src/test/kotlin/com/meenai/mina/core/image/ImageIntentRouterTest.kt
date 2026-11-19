@@ -256,6 +256,9 @@ class ImageIntentRouterTest {
         assertTrue("Complex prompt should be recognized as visual prompt", ImageIntentRouter.isVisualPrompt(prompt))
         assertTrue(ImageIntentRouter.isVisualPrompt("cinematic portrait of warrior in armor, ar 16:9"))
         assertTrue(ImageIntentRouter.isVisualPrompt("Ultra-realistic photo of a cute kitten, shallow depth of field"))
+        assertTrue(ImageIntentRouter.isVisualPrompt("genrate a dog image"))
+        assertTrue(ImageIntentRouter.isVisualPrompt("generate an image of a cat"))
+        assertTrue(ImageIntentRouter.isVisualPrompt("ek billi ki photo banao"))
         org.junit.Assert.assertFalse(ImageIntentRouter.isVisualPrompt("kya haal hai bhai"))
         org.junit.Assert.assertFalse(ImageIntentRouter.isVisualPrompt("video banao dancing cat ka"))
     }
