@@ -612,7 +612,7 @@ class ArenaImageActivity : ComponentActivity() {
         finish()
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         val session = activeSession ?: return
