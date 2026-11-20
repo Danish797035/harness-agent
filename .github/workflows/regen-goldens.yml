@@ -1,6 +1,8 @@
 name: Regenerate prompt goldens (temporary)
 
 on:
+  push:
+    branches: [ "fix/audit-top-fixes" ]
   workflow_dispatch:
 
 jobs:
