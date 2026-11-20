@@ -4,6 +4,7 @@ import com.meenai.mina.core.access.*
 import com.meenai.mina.core.agent.AgentLoop
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.core.assembly.toolDispatcher
+import com.meenai.mina.core.gate.ConfirmationGate
 import com.meenai.mina.core.guard.OperationGuards
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ChatModel
@@ -20,7 +21,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AppAccessEnforcementTest {
-    @Test fun blockedScreenIsRefusedBeforeReadButShellStillRuns() = runTest {
+    @Test fun blockedScreenIsRefusedBeforeReadAndShellNeverRunsUnattended() = runTest {
         var reads = 0
         var commands = 0
         val screen = object : ScreenPort by FakeScreen() {
@@ -34,10 +35,25 @@ class AppAccessEnforcementTest {
         assertTrue(blocked is ActionOutcome.Refused)
         assertEquals("app_blocked", (blocked as ActionOutcome.Refused).code)
         assertEquals(0, reads)
+        // 无人值守时问不到人:shell 不做,而不是直接执行
         val shell = executor.run(Part.ToolCall("shell", "phone_system_command", """{"command":"id"}"""), Origin.Model(2))
-        assertTrue("$shell", shell is ActionOutcome.Ran)
-        assertEquals(1, commands)
+        assertTrue("$shell", shell is ActionOutcome.Refused)
+        assertEquals("approval_unavailable", (shell as ActionOutcome.Refused).code)
+        assertEquals(0, commands)
         assertEquals(0, reads)
+    }
+
+    @Test fun shellAsksThePersonBeforeRunning() = runTest {
+        var commands = 0
+        val screen = object : ScreenPort by FakeScreen() {
+            override suspend fun systemCommand(command: String): SystemCommandResult { commands++; return SystemCommandResult(0, "shell output") }
+        }
+        val executor = ActionExecutor(toolDispatcher(screen), OperationGuards(), ConfirmationGate(), gate = {},
+            recorder = ActionRecorder(com.meenai.mina.core.record.RunSink.NONE))
+        val shell = executor.run(Part.ToolCall("shell", "phone_system_command", """{"command":"id"}"""), Origin.Model(1))
+        assertTrue("$shell", shell is ActionOutcome.Refused)
+        assertEquals("confirmation_required", (shell as ActionOutcome.Refused).code)
+        assertEquals(0, commands)
     }
 
     @Test fun allowedLaunchCanLeaveBlockedAppWithoutReadingIt() = runTest {

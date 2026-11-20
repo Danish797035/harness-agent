@@ -185,5 +185,4 @@ class ChatCopyTest {
         assertEquals("Screen dekh raha hai…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = true))
         assertEquals("Reading screen…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = false))
     }
-    }
 }
