@@ -91,29 +91,31 @@ android {
     // 评测任务集(仓库根目录 eval/tasks)打进测试包的 assets,真机评测跑器从那里读题
     sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("eval/tasks"))
 
+    // GitHub Actions sets an env var for a secret that does not exist to the
+    // empty string, so blank must count as "not set": an empty keyAlias or
+    // storePassword otherwise fails the release build with "key  not found".
+    fun envOr(fallback: String, vararg names: String): String =
+        names.mapNotNull { System.getenv(it)?.takeIf(String::isNotBlank) }.firstOrNull() ?: fallback
+
     signingConfigs {
         // minSdk 30 se AGP v1 (JAR) signing band kar deta hai; kuch devices archive se
         // sirf v1 signatures padh paate hain, isliye update pre-check ke liye v1 on rakho.
         getByName("debug") {
             enableV1Signing = true
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "android"
-            keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "androiddebugkey"
-            keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "android"
+            storeFile = file(envOr("${System.getProperty("user.home")}/.android/debug.keystore", "DEBUG_KEYSTORE_FILE"))
+            storePassword = envOr("android", "SIGNING_STORE_PASSWORD")
+            keyAlias = envOr("androiddebugkey", "SIGNING_KEY_ALIAS")
+            keyPassword = envOr("android", "SIGNING_KEY_PASSWORD")
         }
         // Release builds must not be debuggable. By default they reuse the same
         // keystore as the debug build so existing installs can still upgrade;
         // CI can point RELEASE_KEYSTORE_FILE at a dedicated release keystore.
         create("release") {
             enableV1Signing = true
-            storeFile = file(System.getenv("RELEASE_KEYSTORE_FILE")
-                ?: "${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-                ?: System.getenv("SIGNING_STORE_PASSWORD") ?: "android"
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                ?: System.getenv("SIGNING_KEY_ALIAS") ?: "androiddebugkey"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
-                ?: System.getenv("SIGNING_KEY_PASSWORD") ?: "android"
+            storeFile = file(envOr("${System.getProperty("user.home")}/.android/debug.keystore", "RELEASE_KEYSTORE_FILE"))
+            storePassword = envOr("android", "RELEASE_STORE_PASSWORD", "SIGNING_STORE_PASSWORD")
+            keyAlias = envOr("androiddebugkey", "RELEASE_KEY_ALIAS", "SIGNING_KEY_ALIAS")
+            keyPassword = envOr("android", "RELEASE_KEY_PASSWORD", "SIGNING_KEY_PASSWORD")
         }
     }
 
