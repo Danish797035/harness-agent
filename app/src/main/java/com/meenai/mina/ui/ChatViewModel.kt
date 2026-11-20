@@ -1241,12 +1241,13 @@ class ChatViewModel(
             TaskState.Idle -> ex
             is TaskState.Running -> {
                 val progress = s.progress?.let(StatusCopy::progress)
-                // 「在做什么」先用模型随调用写的话,没有再用调用里的用意
+                // 「在做什么」先用模型随调用写的话,没有再用调用里的用意或动态操作状态
                 val said = (s.narration ?: s.reason)?.takeIf(String::isNotBlank)
                 val waiting = progress == null && s.tool == null && said == null
+                val actionLabel = if (waiting) "" else progress ?: said ?: ChatCopy.liveActionLabel(s.tool, s.note, isHindi = true).orEmpty()
                 ex.copy(
                     status = ExchangeStatus.Working, waitingForModel = waiting, draft = s.preview,
-                    line = if (waiting) "" else progress ?: said.orEmpty(),
+                    line = actionLabel,
                     notes = if (s.step > 0 && said != null) ex.notes + (s.step to said) else ex.notes,
                 )
             }

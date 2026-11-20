@@ -124,11 +124,73 @@ object ChatCopy {
     fun isHindiLocale(uiLocaleTag: String): Boolean =
         java.util.Locale.forLanguageTag(uiLocaleTag).language.equals("hi", ignoreCase = true)
 
-    /** Model response wait label showing elapsed seconds and optional model name */
+    /** Model thinking wait label showing elapsed seconds and optional model name (Claude AI style) */
     fun modelWaitLabel(seconds: Int, modelName: String = "", isHindi: Boolean = true): String {
         val s = seconds.coerceAtLeast(0)
-        val base = if (isHindi) "Model ka jawab aa raha hai · ${s}s" else "Waiting for model reply · ${s}s"
+        val base = if (isHindi) "Soch raha hai · ${s}s" else "Thinking · ${s}s"
         return if (modelName.isNotBlank()) "$base · $modelName" else base
+    }
+
+    /** Real-time live action description (Claude AI style) showing what the agent is actively executing */
+    fun liveActionLabel(tool: String?, note: String? = null, isHindi: Boolean = true): String? {
+        if (tool.isNullOrBlank()) return null
+        val noteLower = note?.lowercase().orEmpty()
+        val toolLower = tool.lowercase()
+
+        return when {
+            toolLower.contains("launch") || toolLower == "phone_run" -> {
+                when {
+                    noteLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
+                    noteLower.contains("instagram") -> if (isHindi) "Instagram khol raha hai…" else "Opening Instagram…"
+                    noteLower.contains("whatsapp") -> if (isHindi) "WhatsApp khol raha hai…" else "Opening WhatsApp…"
+                    noteLower.contains("chrome") || noteLower.contains("browser") -> if (isHindi) "Browser khol raha hai…" else "Opening Browser…"
+                    noteLower.contains("settings") -> if (isHindi) "Settings khol raha hai…" else "Opening Settings…"
+                    noteLower.contains("spotify") -> if (isHindi) "Spotify khol raha hai…" else "Opening Spotify…"
+                    else -> if (isHindi) "App khol raha hai…" else "Opening app…"
+                }
+            }
+            toolLower.contains("type") -> {
+                if (isHindi) "Type kar raha hai…" else "Typing…"
+            }
+            toolLower.contains("find") || toolLower.contains("locate") -> {
+                if (isHindi) "Screen par dhoondh raha hai…" else "Finding on screen…"
+            }
+            toolLower.contains("observe") || toolLower.contains("screenshot") || toolLower.contains("view_user_screen") -> {
+                if (isHindi) "Screen dekh raha hai…" else "Reading screen…"
+            }
+            toolLower.contains("tap") -> {
+                if (isHindi) "Tap kar raha hai…" else "Tapping…"
+            }
+            toolLower.contains("scroll") || toolLower.contains("swipe") -> {
+                if (isHindi) "Scroll kar raha hai…" else "Scrolling…"
+            }
+            toolLower.contains("back") -> {
+                if (isHindi) "Wapas ja raha hai…" else "Going back…"
+            }
+            toolLower.contains("web_navigate") -> {
+                when {
+                    noteLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
+                    noteLower.contains("google") -> if (isHindi) "Google search kar raha hai…" else "Searching Google…"
+                    else -> if (isHindi) "Web page khol raha hai…" else "Opening web page…"
+                }
+            }
+            toolLower.contains("generate_image") -> {
+                if (isHindi) "Image generate kar raha hai…" else "Generating image…"
+            }
+            toolLower.contains("edit_image") -> {
+                if (isHindi) "Image edit kar raha hai…" else "Editing image…"
+            }
+            toolLower.contains("command") -> {
+                if (isHindi) "Command chala raha hai…" else "Running command…"
+            }
+            toolLower.contains("ask_user") -> {
+                if (isHindi) "Aap se poochh raha hai…" else "Asking question…"
+            }
+            else -> {
+                val clean = tool.removePrefix("phone_").removePrefix("web_").replace('_', ' ')
+                if (isHindi) "$clean kar raha hai…" else "${clean.replaceFirstChar { it.uppercase() }}…"
+            }
+        }
     }
 
     /** Model response wait label resolved from the active UI locale tag (R.string.ui_locale). */

@@ -145,11 +145,11 @@ class ChatCopyTest {
     @Test fun modelWaitLabelFollowsAppLocaleForEnglishAndHindi() {
         // EnglishTexts @Rule is active by default: ui_locale = "en"
         assertEquals(
-            "Waiting for model reply · 1s · Gemini Flash",
+            "Thinking · 1s · Gemini Flash",
             ChatCopy.modelWaitLabelForLocale(1, "Gemini Flash"),
         )
         assertEquals(
-            "Waiting for model reply · 5s",
+            "Thinking · 5s",
             ChatCopy.modelWaitLabelForLocale(5, ""),
         )
         assertEquals(false, ChatCopy.isHindiLocale("en"))
@@ -161,11 +161,11 @@ class ChatCopyTest {
             com.meenai.mina.i18n.UiText.source =
                 com.meenai.mina.i18n.ResFileTexts("values-hi", java.util.Locale.forLanguageTag("hi"))
             assertEquals(
-                "Model ka jawab aa raha hai · 1s · Gemini Flash",
+                "Soch raha hai · 1s · Gemini Flash",
                 ChatCopy.modelWaitLabelForLocale(1, "Gemini Flash"),
             )
             assertEquals(
-                "Model ka jawab aa raha hai · 5s",
+                "Soch raha hai · 5s",
                 ChatCopy.modelWaitLabelForLocale(5, ""),
             )
             assertTrue(ChatCopy.isHindiLocale("hi"))
@@ -173,5 +173,17 @@ class ChatCopyTest {
         } finally {
             com.meenai.mina.i18n.UiText.source = previous
         }
+    }
+
+    @Test fun liveActionLabelProvidesClaudeStyleRealTimeStatus() {
+        assertEquals("YouTube khol raha hai…", ChatCopy.liveActionLabel("phone_launch_app", "youtube", isHindi = true))
+        assertEquals("Opening YouTube…", ChatCopy.liveActionLabel("phone_launch_app", "youtube", isHindi = false))
+        assertEquals("Type kar raha hai…", ChatCopy.liveActionLabel("phone_type_text", "honey singh", isHindi = true))
+        assertEquals("Typing…", ChatCopy.liveActionLabel("phone_type_text", "honey singh", isHindi = false))
+        assertEquals("Screen par dhoondh raha hai…", ChatCopy.liveActionLabel("phone_find", null, isHindi = true))
+        assertEquals("Finding on screen…", ChatCopy.liveActionLabel("phone_find", null, isHindi = false))
+        assertEquals("Screen dekh raha hai…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = true))
+        assertEquals("Reading screen…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = false))
+    }
     }
 }

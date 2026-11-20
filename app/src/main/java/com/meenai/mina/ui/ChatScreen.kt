@@ -848,11 +848,18 @@ private fun WorkBlock(
     val elapsed = rememberElapsed(ex.startedAt)
     val isWaitingForModel = ex.waitingForModel
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
+    val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
     val progressText = if (isWaitingForModel) {
-        val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
-        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
+        val waitLabel = ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
+        val thoughtPreview = ex.draft?.trim()?.takeIf { it.isNotEmpty() }
+        if (thoughtPreview != null) {
+            val cleanSnippet = thoughtPreview.takeLast(70).replace('\n', ' ')
+            "$waitLabel · $cleanSnippet"
+        } else {
+            waitLabel
+        }
     } else {
-        ChatCopy.progressLine(ex)
+        ex.line.takeIf { it.isNotBlank() } ?: ChatCopy.progressLine(ex)
     }
     Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Row(

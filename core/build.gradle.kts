@@ -26,6 +26,8 @@ protobuf {
         val isCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
         val localProtoc = if (!isCi) {
             listOf(
+                "/data/data/ai.antigem/files/usr/bin/protoc",
+                "/data/user/0/ai.antigem/files/usr/bin/protoc",
                 "/data/data/com.termux/files/usr/bin/protoc",
                 "/data/user/0/com.termux/files/usr/bin/protoc"
             ).map { file(it) }.firstOrNull { it.canExecute() }

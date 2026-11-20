@@ -184,17 +184,17 @@ class RouterUiTest {
     @Test
     fun waitLabelIncrementsSecondsAndIncludesModelName() {
         val label0 = ChatCopy.modelWaitLabel(0, "Qwen 2.5 72B")
-        assertEquals("Model ka jawab aa raha hai · 0s · Qwen 2.5 72B", label0)
+        assertEquals("Soch raha hai · 0s · Qwen 2.5 72B", label0)
 
         val label25 = ChatCopy.modelWaitLabel(25, "Qwen 2.5 72B")
-        assertEquals("Model ka jawab aa raha hai · 25s · Qwen 2.5 72B", label25)
+        assertEquals("Soch raha hai · 25s · Qwen 2.5 72B", label25)
 
         val label40NoModel = ChatCopy.modelWaitLabel(40, "")
-        assertEquals("Model ka jawab aa raha hai · 40s", label40NoModel)
+        assertEquals("Soch raha hai · 40s", label40NoModel)
 
         for (sec in 0..40) {
             val label = ChatCopy.modelWaitLabel(sec, "Qwen 2.5 72B")
-            assertEquals("Model ka jawab aa raha hai · ${sec}s · Qwen 2.5 72B", label)
+            assertEquals("Soch raha hai · ${sec}s · Qwen 2.5 72B", label)
         }
     }
 
@@ -245,7 +245,7 @@ class RouterUiTest {
         assertEquals("Gemini 2.0 Flash", waitModelName(resolvedRunning))
         assertEquals("Gemini 2.0 Flash · 3/50 today", formatChipText(resolvedRunning, todayLabel = "today"))
         assertEquals(
-            "Waiting for model reply · 1s · Gemini 2.0 Flash",
+            "Thinking · 1s · Gemini 2.0 Flash",
             ChatCopy.modelWaitLabel(1, waitModelName(resolvedRunning), isHindi = false),
         )
         assertFalse(resolvedRunning.isEstimate)
