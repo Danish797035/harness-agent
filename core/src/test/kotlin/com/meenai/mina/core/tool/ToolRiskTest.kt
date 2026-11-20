@@ -54,7 +54,7 @@ class ToolRiskTest {
 
     @Test fun externalToolsDeclareHowTheirTargetIsJudged() {
         for (t in allTools()) assertEquals(t.name, t.risk == Risk.External, t.gateTarget != null || t.approvalRisk != null)
-        assertEquals(both("tap", "type_text", "press_key", "swipe", "scroll") + setOf("web_interact", "web_upload", "schedule_task"),
+        assertEquals(both("tap", "type_text", "press_key", "swipe", "scroll") + setOf("web_interact", "web_upload", "schedule_task", "phone_system_command"),
             allTools().filter { it.risk == Risk.External }.map { it.name }.toSet())
     }
 

@@ -58,6 +58,14 @@ class ConfirmDecision(
     /** 判定放在锁屏等待之后:按此刻重新读的一屏判。 */
     suspend fun judge(tool: String, args: JsonObject, origin: Origin): Decision {
         outwardSite = null
+        // Tools that declare alwaysAsk (an arbitrary shell command) must be
+        // confirmed even in autonomous mode. Autonomous runs cannot show a
+        // prompt, so they are denied instead of silently executing.
+        val mustAsk = tools.approvalRisk(tool)?.takeIf { it.alwaysAsk }
+        if (mustAsk != null) {
+            if (autonomous || approvals.autonomous()) return Decision.Denied
+            return approve(tool, args, origin, null, mustAsk, null, null, null) ?: Decision.Clear
+        }
         if (autonomous || approvals.autonomous()) {
             val target = tools.gateTarget(tool)
             if (IrreversibleDetector.needsCheck(target, args)) {

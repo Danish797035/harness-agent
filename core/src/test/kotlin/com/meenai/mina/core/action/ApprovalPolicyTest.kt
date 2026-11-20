@@ -24,4 +24,15 @@ class ApprovalPolicyTest {
             assertEquals("$origin $attendance $level payment", expected, ApprovalPolicy.decide(Risk(level, payment = true), run))
         }
     }
+
+    @Test fun alwaysAskToolsNeedThePersonOnThePhone() {
+        for (level in ActionRisk.entries) {
+            assertEquals("$level", Approval.Ask, ApprovalPolicy.decide(Risk(level, alwaysAsk = true)))
+            for (origin in RunOrigin.entries) for (attendance in Attendance.entries) {
+                val run = RunProvenance(origin, attendance)
+                val expected = if (origin == RunOrigin.Ui && attendance != Attendance.Unattended) Approval.Ask else Approval.Deny
+                assertEquals("$origin $attendance $level", expected, ApprovalPolicy.decide(Risk(level, alwaysAsk = true), run))
+            }
+        }
+    }
 }

@@ -15,7 +15,7 @@ enum class ActionRisk { Read, Change, External, Irreversible, Unknown;
 }
 
 /** [payment] 为 true 时这一步要花钱(付款、下单,或屏上有应付金额时的对外动作):询问时只有它先问用户。 */
-data class Risk(val level: ActionRisk, val payment: Boolean = false)
+data class Risk(val level: ActionRisk, val payment: Boolean = false, val alwaysAsk: Boolean = false)
 
 /** 用户在确认卡片上的选择:同意这一次,或不同意。 */
 enum class ConfirmChoice { Once, Deny;
@@ -43,9 +43,10 @@ sealed interface Approval {
     data object Deny : Approval
 }
 
-/** 审批判定:纯函数。只有付款要问;问不到人(无人值守、子任务)或不在手机上(渠道、定时、MCP 发起的)时付款不做。 */
+/** 审批判定:纯函数。只有付款和标了 [Risk.alwaysAsk] 的工具要问;问不到人(无人值守、子任务)或不在手机上(渠道、定时、MCP 发起的)时不做。 */
 object ApprovalPolicy {
     fun decide(risk: Risk, run: RunProvenance = RunProvenance()): Approval = when {
+        risk.alwaysAsk -> if (run.attendance == Attendance.Unattended || run.origin != RunOrigin.Ui) Approval.Deny else Approval.Ask
         !risk.payment -> Approval.Allow
         run.attendance == Attendance.Unattended || run.origin != RunOrigin.Ui -> Approval.Deny
         else -> Approval.Ask

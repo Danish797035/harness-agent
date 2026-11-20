@@ -2,6 +2,8 @@ package com.meenai.mina.core.cap.phone
 
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.observation.Untrusted
+import com.meenai.mina.core.action.ActionRisk
+import com.meenai.mina.core.action.Risk as ApprovalRisk
 import com.meenai.mina.core.prompt.Feedback
 import com.meenai.mina.core.prompt.Prompts
 import com.meenai.mina.core.tool.ArgError
@@ -312,7 +314,11 @@ internal object PhoneCommand : PhoneTool {
     /** 连着失败这么多次就提醒别再换着写法试。 */
     private const val REPEATED_FAILURES = 2
     override val verb = Verb.PhoneCommand
-    override val risk = Risk.Write
+    override val risk = Risk.External
+    /** An arbitrary shell command is irreversible and must always be confirmed
+     *  by the person holding the phone. Sandbox scripts cannot reach it. */
+    override val approvalRisk = ApprovalRisk(ActionRisk.Irreversible, alwaysAsk = true)
+    override val sandboxCallable = false
     override val offScreen = true
     override val label = "System command"
     override val def = ToolDef("phone_system_command", Prompts.tool("phone_system_command"), mapOf(
