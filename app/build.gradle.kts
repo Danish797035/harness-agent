@@ -101,6 +101,20 @@ android {
             keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "androiddebugkey"
             keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "android"
         }
+        // Release builds must not be debuggable. By default they reuse the same
+        // keystore as the debug build so existing installs can still upgrade;
+        // CI can point RELEASE_KEYSTORE_FILE at a dedicated release keystore.
+        create("release") {
+            enableV1Signing = true
+            storeFile = file(System.getenv("RELEASE_KEYSTORE_FILE")
+                ?: "${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                ?: System.getenv("SIGNING_STORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                ?: System.getenv("SIGNING_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+                ?: System.getenv("SIGNING_KEY_PASSWORD") ?: "android"
+        }
     }
 
     buildTypes {
@@ -108,6 +122,14 @@ android {
         if (providers.gradleProperty("devInstall").isPresent) getByName("debug") {
             applicationIdSuffix = ".dev"
             resValue("string", "app_name", "Harness Agent Dev")
+        }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            // R8 needs keep rules for kotlinx.serialization, reflection and the
+            // JS bridges; enable shrinking only after a device test of the
+            // minified build.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
         // 看流畅度用的包:和发布版一样不可调试(调试包不做预先编译,界面慢好几倍,手感不作数),
         // 用本机调试签名,能直接覆盖调试包、保留数据;可被性能工具采样。./gradlew :app:assemblePerf
