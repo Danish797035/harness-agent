@@ -1,6 +1,7 @@
 package com.meenai.mina.settings
 
 import android.content.Context
+import android.util.Log
 import com.meenai.mina.core.agent.ContextLimits
 import com.meenai.mina.core.chatgpt.ChatGptAuth
 import com.meenai.mina.core.chatgpt.ChatGptSession
@@ -45,6 +46,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -294,7 +297,9 @@ class ProviderStore(
     /** 每个订阅账号一份,和 ChatGPT 一样同一时刻只有一个在换令牌。 */
     private val accountTokens = mutableMapOf<String, AccountTokens>()
     private val configFile = File(dir, CONFIG_FILE)
+    private val configBackup = File(dir, "$CONFIG_FILE.bak")
     private val keyFile = File(dir, KEY_FILE)
+    private val keyBackup = File(dir, "$KEY_FILE.bak")
     private val chatGptHostFile = File(dir, CHATGPT_HOST_FILE)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -907,16 +912,73 @@ class ProviderStore(
     }
 
     private fun load() {
-        if (configFile.isFile) runCatching {
-            val root = json.parseToJsonElement(configFile.readText()).jsonObject
-            _providers.value = root["services"]?.jsonArray?.mapNotNull { runCatching { providerOf(it.jsonObject) }.getOrNull() }.orEmpty()
-            _configs.value = root["providers"]?.jsonArray?.mapNotNull { runCatching { configOf(it.jsonObject) }.getOrNull() }.orEmpty()
-            val uses = root["uses"]?.jsonObject
-            _roles.value = if (uses != null) choicesOf(uses) else migrateRoles(root["roles"]?.jsonObject)
+        var configHealthy = true
+        var root: JsonObject? = null
+
+        if (configFile.isFile) {
+            root = readJsonObject(configFile)
+            if (root == null) {
+                // Not valid JSON (truncated write, hand edit, full disk). Never
+                // replace it with an empty config: try the last good copy and
+                // otherwise leave the file untouched so the user can recover it.
+                val backup = readJsonObject(configBackup)
+                if (backup != null) {
+                    root = backup
+                    runCatching { writeAtomically(configFile, configBackup.readText()) }
+                } else {
+                    configHealthy = false
+                }
+            }
+
+            val parsed = root
+            if (parsed != null) {
+                var dropped = 0
+                _providers.value = parsed.array("services").mapNotNull { e ->
+                    runCatching { providerOf(e.jsonObject) }.getOrElse { dropped++; null }
+                }
+                _configs.value = parsed.array("providers").mapNotNull { e ->
+                    runCatching { configOf(e.jsonObject) }.getOrElse { dropped++; null }
+                }
+                val uses = runCatching { parsed["uses"]?.jsonObject }.getOrNull()
+                _roles.value = runCatching {
+                    if (uses != null) choicesOf(uses) else migrateRoles(parsed["roles"] as? JsonObject)
+                }.getOrElse { RoleChoices() }
+                // An entry that could not be read is still on disk. Rewriting
+                // the file here would delete it permanently, so skip the
+                // automatic migration/write-back for this launch.
+                if (dropped > 0) configHealthy = false
+            }
         }
-        if (keyFile.isFile) runCatching {
-            keys = json.parseToJsonElement(keyFile.readText()).jsonObject.mapValues { it.value.jsonPrimitive.content }
+
+        var keysHealthy = true
+        if (keyFile.isFile) {
+            var obj = readJsonObject(keyFile)
+            if (obj == null) {
+                val backup = readJsonObject(keyBackup)
+                if (backup != null) {
+                    obj = backup
+                    runCatching { writeAtomically(keyFile, keyBackup.readText()) }
+                } else {
+                    keysHealthy = false
+                }
+            }
+            if (obj != null) keys = obj.mapNotNull { (id, raw) ->
+                runCatching { id to raw.jsonPrimitive.content }.getOrNull()
+            }.toMap()
         }
+
+        if (!configHealthy || !keysHealthy) {
+            Log.w("ProviderStore", "providers.json or provider-keys.json could not be read completely; leaving it untouched")
+            return
+        }
+
+        if (configFile.isFile && !configBackup.isFile) {
+            runCatching { configFile.copyTo(configBackup, overwrite = true) }
+        }
+        if (keyFile.isFile && !keyBackup.isFile) {
+            runCatching { keyFile.copyTo(keyBackup, overwrite = true) }
+        }
+
         migrate()
         repairGeminiWebBindings()
         // 指向不存在的配置的选择退回默认,没人用的配置删掉;和文件里的不一样(含刚迁移的用途)才写回
@@ -928,13 +990,19 @@ class ProviderStore(
         }
     }
 
+    private fun readJsonObject(file: File): JsonObject? =
+        runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull()
+
+    private fun JsonObject.array(key: String): List<JsonElement> =
+        (this[key] as? JsonArray)?.toList().orEmpty()
+
     /**
      * 旧版本的 `roles` 只记显式指定的配置 id,没指定的按默认规则分配:主模型取第一个配置,看图在主模型能看图时由它兼任,
      * 轻量跟随主模型。这里把那时实际生效的分配写明成 [RoleChoices],之后不再有隐含的规则。
      */
     private fun migrateRoles(old: JsonObject?): RoleChoices {
         val ids = _configs.value.map { it.id }.toSet()
-        fun explicit(role: ModelRole) = old?.get(role.name)?.jsonPrimitive?.content?.takeIf { it in ids }
+        fun explicit(role: ModelRole) = (old?.get(role.name) as? JsonPrimitive)?.content?.takeIf { it in ids }
         val main = explicit(ModelRole.Main) ?: _configs.value.firstOrNull()?.id
         val mainSees = _configs.value.firstOrNull { it.id == main }?.capabilities?.vision == true
         return RoleChoices(
@@ -1143,6 +1211,14 @@ class ProviderStore(
             f.delete()
             check(tmp.renameTo(f)) { "cannot write ${f.name}" }
         }
+        // Keep the last successfully written file so a later truncated write or
+        // hand edit can be recovered instead of silently losing providers/keys.
+        val backup = when (f) {
+            configFile -> configBackup
+            keyFile -> keyBackup
+            else -> null
+        }
+        if (backup != null) runCatching { f.copyTo(backup, overwrite = true) }
     }
 
     private fun encode(b: ByteArray) = Base64.getEncoder().encodeToString(b)

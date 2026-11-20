@@ -119,6 +119,37 @@ class ProviderStoreTest {
             store().provider(p.id)!!.contextSettings)
     }
 
+    /** 写到一半断掉的文件不能变成空配置:从上一份好的副本恢复,Key 也还在。 */
+    @Test fun truncatedConfigRecoversFromLastGoodCopy() {
+        val s = store()
+        s.saveAsMain(cfg("a"), "sk-a")
+        val file = File(tmp.root, "providers.json")
+        val good = file.readText()
+        assertTrue("backup written", File(tmp.root, "providers.json.bak").isFile)
+        file.writeText(good.take(good.length / 2))
+
+        val reopened = store()
+        assertEquals(listOf("a"), reopened.list().map { it.id })
+        assertEquals(good, file.readText())
+        assertEquals("sk-a", reopened.apiKey("a"))
+    }
+
+    /** 一条读不出来的配置留在文件里,不能因为写回把它永久删掉。 */
+    @Test fun unreadableEntryIsLeftOnDiskInsteadOfBeingDropped() {
+        val s = store()
+        s.saveAsMain(cfg("a"), "sk-a")
+        val file = File(tmp.root, "providers.json")
+        val keys = File(tmp.root, "provider-keys.json")
+        val broken = file.readText().replace("\"kind\":\"OpenAiCompat\"", "\"kind\":\"NoSuchKind\"")
+        val keysBefore = keys.readText()
+        file.writeText(broken)
+
+        val reopened = store()
+        assertTrue("no provider read", reopened.list().isEmpty())
+        assertEquals("file preserved", broken, file.readText())
+        assertEquals("keys preserved", keysBefore, keys.readText())
+    }
+
     @Test fun failedContextSaveLeavesBothTheStoredAndActiveModelAloneAndCanBeRetried() {
         val s = store()
         val p = connected(s)
