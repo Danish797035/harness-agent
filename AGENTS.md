@@ -28,3 +28,6 @@ CI loop (do this yourself, do not ask)
 Report (short, in Hinglish)
 - What was built, in 3-5 lines.
 - Commit hashes, git status --short, CI run ID, result per job.
+- After every successful build, always give the installable APK: upload it
+  as a GitHub Release asset and paste the direct download link, plus the
+  local file path. Never stop at "build passed".
