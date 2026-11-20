@@ -173,6 +173,8 @@ data class Exchange(
     val notes: Map<Int, String> = emptyMap(),
     /** 此刻在做什么:模型这一步的话,或不经模型连做几步时的进度;没有时为空。 */
     val line: String = "",
+    /** 工具已选、动作还没记下时的「正在打开…」一类说法;有了实际步骤就让位给它。 */
+    val liveAction: String? = null,
     /** 任务进行中用户在这里插的话和它们的去向。 */
     val steers: List<SteerNote> = emptyList(),
     /** 这一轮结束后留在后台运行的那一页的站点(见 [Turn.keptPage]);没留为 null。 */
@@ -197,7 +199,7 @@ fun liveLine(ex: Exchange): String? {
         else -> Unit
     }
     if (ex.waitingForModel) return tr(R.string.chat_working)
-    return ex.line.ifEmpty { null } ?: ex.steps.lastOrNull()?.text
+    return ex.line.ifEmpty { null } ?: ex.steps.lastOrNull()?.text ?: ex.liveAction
 }
 
 /** 插话下面那行小字;还没有去向时不写。 */
@@ -1242,23 +1244,19 @@ class ChatViewModel(
             TaskState.Idle -> ex
             is TaskState.Running -> {
                 val progress = s.progress?.let(StatusCopy::progress)
-                // 「在做什么」先用模型随调用写的话,没有再用调用里的用意或动态操作状态
+                // 「在做什么」先用模型随调用写的话,没有再用调用里的用意;动作还没记下时补一句「正在打开…」
                 val said = (s.narration ?: s.reason)?.takeIf(String::isNotBlank)
                 val waiting = progress == null && s.tool == null && said == null
-                // 这一步的动作已经记下:显示实际做过的事,不再显示「正在打开」
-                val done = s.tool != null && ex.activities.any { it.step == s.step && it.label == s.tool }
-                val actionLabel = when {
-                    waiting -> ""
-                    progress != null -> progress
-                    said != null -> said
-                    done -> ""
-                    else -> ChatCopy.liveActionLabel(
+                val label = if (waiting) "" else progress ?: said.orEmpty()
+                val liveAction = if (label.isEmpty() && s.tool != null) {
+                    ChatCopy.liveActionLabel(
                         s.tool, s.note, isHindi = ChatCopy.isHindiLocale(uiLocale().toLanguageTag()),
-                    ).orEmpty()
-                }
+                    )
+                } else null
                 ex.copy(
                     status = ExchangeStatus.Working, waitingForModel = waiting, draft = s.preview,
-                    line = actionLabel,
+                    line = label,
+                    liveAction = liveAction,
                     notes = if (s.step > 0 && said != null) ex.notes + (s.step to said) else ex.notes,
                 )
             }
