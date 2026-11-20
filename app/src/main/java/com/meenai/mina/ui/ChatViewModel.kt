@@ -4,6 +4,7 @@ import com.meenai.mina.R
 import com.meenai.mina.cap.web.KeptPage
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.i18n.trPlural
+import com.meenai.mina.i18n.uiLocale
 import com.meenai.mina.core.assembly.legacyNames
 import com.meenai.mina.core.tool.LegacyNames
 import com.meenai.mina.chat.ConversationStore
@@ -1244,7 +1245,17 @@ class ChatViewModel(
                 // 「在做什么」先用模型随调用写的话,没有再用调用里的用意或动态操作状态
                 val said = (s.narration ?: s.reason)?.takeIf(String::isNotBlank)
                 val waiting = progress == null && s.tool == null && said == null
-                val actionLabel = if (waiting) "" else progress ?: said ?: ChatCopy.liveActionLabel(s.tool, s.note, isHindi = true).orEmpty()
+                // 这一步的动作已经记下:显示实际做过的事,不再显示「正在打开」
+                val done = s.tool != null && ex.activities.any { it.step == s.step && it.label == s.tool }
+                val actionLabel = when {
+                    waiting -> ""
+                    progress != null -> progress
+                    said != null -> said
+                    done -> ""
+                    else -> ChatCopy.liveActionLabel(
+                        s.tool, s.note, isHindi = ChatCopy.isHindiLocale(uiLocale().toLanguageTag()),
+                    ).orEmpty()
+                }
                 ex.copy(
                     status = ExchangeStatus.Working, waitingForModel = waiting, draft = s.preview,
                     line = actionLabel,
