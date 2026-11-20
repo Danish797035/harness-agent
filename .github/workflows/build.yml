@@ -90,6 +90,16 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: ./gradlew testDebugUnitTest
 
+      - name: Upload App Test Report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-test-report
+          path: |
+            app/build/reports/tests/testDebugUnitTest
+            app/build/test-results/testDebugUnitTest
+          if-no-files-found: warn
+
   apk:
     needs: [core-tests, app-tests]
     runs-on: ubuntu-latest
