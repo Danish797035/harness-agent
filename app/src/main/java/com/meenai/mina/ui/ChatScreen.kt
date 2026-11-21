@@ -914,23 +914,25 @@ private fun WorkBlock(
 private fun UsageLine(u: com.meenai.mina.core.usage.RunUsage) {
     val c = MinaTheme.colors
     val model by LocalRouterStatus.current.current.collectAsState()
-    val parts = buildList {
-        add(stringResource(R.string.chat_usage_calls, u.calls))
-        if (u.inputTokens + u.outputTokens > 0) {
-            add(stringResource(R.string.chat_usage_tokens, UsageCopy.tokens(u.inputTokens), UsageCopy.tokens(u.outputTokens)))
-        }
-        if (u.contextLimit > 0) {
-            add(stringResource(R.string.chat_usage_context, UsageCopy.tokens(u.contextTokens.toLong()), UsageCopy.tokens(u.contextLimit.toLong()), UsageCopy.tokens(u.contextLeft.toLong())))
-        } else if (u.contextTokens > 0) {
-            add(stringResource(R.string.chat_usage_context_open, UsageCopy.tokens(u.contextTokens.toLong())))
-        }
-        model.limit?.takeIf { it > 0 }?.let { limit ->
-            val left = (limit - model.usedToday).coerceAtLeast(0)
-            add(stringResource(R.string.chat_usage_quota_left, left, stringResource(R.string.router_today)))
-        }
+    val calls = stringResource(R.string.chat_usage_calls, u.calls)
+    val tokens = if (u.inputTokens + u.outputTokens > 0) {
+        stringResource(R.string.chat_usage_tokens, UsageCopy.tokens(u.inputTokens), UsageCopy.tokens(u.outputTokens))
+    } else null
+    val context = when {
+        u.contextLimit > 0 -> stringResource(
+            R.string.chat_usage_context,
+            UsageCopy.tokens(u.contextTokens.toLong()),
+            UsageCopy.tokens(u.contextLimit.toLong()),
+            UsageCopy.tokens(u.contextLeft.toLong()),
+        )
+        u.contextTokens > 0 -> stringResource(R.string.chat_usage_context_open, UsageCopy.tokens(u.contextTokens.toLong()))
+        else -> null
+    }
+    val quota = model.limit?.takeIf { it > 0 }?.let { limit ->
+        stringResource(R.string.chat_usage_quota_left, (limit - model.usedToday).coerceAtLeast(0), stringResource(R.string.router_today))
     }
     Text(
-        parts.joinToString(" · "), Modifier.padding(top = 3.dp),
+        listOfNotNull(calls, tokens, context, quota).joinToString(" · "), Modifier.padding(top = 3.dp),
         style = NoteText.copy(fontFeatureSettings = "tnum"), color = c.ink3,
     )
 }
