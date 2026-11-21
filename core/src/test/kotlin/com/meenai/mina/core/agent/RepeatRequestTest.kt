@@ -1,5 +1,6 @@
 package com.meenai.mina.core.agent
 
+import com.meenai.mina.core.prompt.Feedback
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,5 +22,9 @@ class RepeatRequestTest {
         assertFalse(RepeatRequest.matches("The page failed to load; please try again later."))
         assertFalse(RepeatRequest.matches("I searched and found the song."))
         assertFalse(RepeatRequest.matches(""))
+    }
+
+    @Test fun theNudgeTextExists() {
+        assertTrue(Feedback.has("repeat_request_nudge"))
     }
 }
