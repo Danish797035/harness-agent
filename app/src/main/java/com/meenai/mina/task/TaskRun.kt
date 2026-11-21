@@ -5,7 +5,6 @@ import com.meenai.mina.i18n.tr
 import com.meenai.mina.i18n.trPlural
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.uistate.IdleScroll
-import com.meenai.mina.core.cap.web.PagePacing
 import com.meenai.mina.core.uistate.PlacePace
 import kotlin.random.Random
 import com.meenai.mina.core.action.OutwardPacing
@@ -716,7 +715,7 @@ class TaskRun(
             val childRunner = if (provenance.origin == RunOrigin.Ui && web != null) ChildAgentRunner(
                 create = { childSpec ->
                     val childTools = toolDispatcher(accessedPhone, model.capabilities.vision,
-                        web = web, webPacing = { PagePacing.human() }, webPlacePace = { PlacePace.of(catalog.sitePace(it)) },
+                        web = web, webPacing = { pace.webPacing() }, webPlacePace = { PlacePace.of(catalog.sitePace(it)) },
                         webIdleScroll = { IdleScroll(Random.Default) },
                         appPacing = { pace.appPacing() }, appPace = { PlacePace.of(catalog.appPace(it)) }, appIdleScroll = { IdleScroll(Random.Default) },
                         sandbox = sandbox, workspace = { conversationId }, runSpec = childSpec,
@@ -740,8 +739,8 @@ class TaskRun(
                 deepLinks = speed.deepLinks, memory = memory, profile = if (memory != null) memoryRuntime.profile() else null,
                 utterances = utterances, conversationId = conversationId,
                 web = web,
-                // 同一个网站一页一页看:换页前补足停留,不连着秒开
-                webPacing = { PagePacing.human() },
+                // 同一个网站一页一页看:换页前补足停留,不连着秒开(快/标准/像人按设置里的操作节奏)
+                webPacing = { pace.webPacing() },
                 // 停留时像人一样把页面轻轻滚几下
                 webIdleScroll = { IdleScroll(Random.Default) },
                 // 在 App 里一步一步操作:动作之间停一会儿,限制浏览快慢的 App 停得更久、屏数有上限(按设置里的操作节奏)

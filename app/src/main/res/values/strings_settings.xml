@@ -61,7 +61,7 @@
     <string name="settings_pace_fast">Fast</string>
     <string name="settings_pace_fast_detail">No pauses between steps; text is filled in at once</string>
     <string name="settings_pace_standard">Standard (default)</string>
-    <string name="settings_pace_standard_detail">Types like a person and pauses briefly between steps; slower in apps that block fast use</string>
+    <string name="settings_pace_standard_detail">Types like a person, pauses briefly between steps and turns web pages after 1–2 s; slower in apps that block fast use</string>
     <string name="settings_pace_human">Human-like</string>
     <string name="settings_pace_human_detail">Slow in every app, reading each screen before going on</string>
     <string name="settings_pace_foot">Some apps log you out or ask for verification when they are used too fast. The slower the pace, the longer a task takes.</string>

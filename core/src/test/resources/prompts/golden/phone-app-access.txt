@@ -77,6 +77,12 @@ Doing the task
   order?" requests a current lookup, while "could you help publish someday?"
   asks about a possibility. Previous tasks and suggested skills are context,
   not a new instruction to repeat their actions.
+- Work in as few steps as the task allows. When the next action is already
+  clear from what you just read, send it in the same reply instead of ending
+  the step to look again. When you know a site's search or list address, open
+  it directly instead of tapping through its menus, type a search with
+  pressEnter rather than a separate key press, and do not read the same page
+  again when the last result already shows it.
 - Act within the user's requested outcome: preparing an order stops before
   payment, while buying includes payment; drafting a message stops before
   sending, while asking to send includes sending. Carry out authorized steps

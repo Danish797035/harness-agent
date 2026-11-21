@@ -1,15 +1,16 @@
 package com.meenai.mina.core.cap.phone
 
+import com.meenai.mina.core.cap.web.PagePacing
 import com.meenai.mina.core.uistate.PlacePace
 import kotlin.random.Random
 
 /**
  * 设置里的「操作节奏」:在 App 里操作快还是像人。手势本身(落指停顿、按住时长、落点偏差、弧线)三种都像人,见 [GesturePacing]。
  *
- * - [FAST]:动作之间不另停、打字一次写入全文、不设屏数上限(以前的做法);
+ * - [FAST]:动作之间不另停、打字一次写入全文、网页换页也不停、不设屏数上限(以前的做法);
  * - [STANDARD](默认):打字一段一段打出来,动作之间停一小会儿(同一屏约 0.5–1.2 秒、新的一屏约 1–2 秒),
- *   App 知识说限制浏览快慢的 App 按慢的那一套(停得更久、按字数读、屏数有上限、打字更慢);
- * - [HUMAN]:所有 App 都按慢的那一套停留和打字;屏数上限仍只给限制浏览快慢的 App。
+ *   网页换页前停 1.5–2.5 秒;App 知识说限制浏览快慢的 App 按慢的那一套(停得更久、按字数读、屏数有上限、打字更慢);
+ * - [HUMAN]:所有 App 和网页都按慢的那一套停留和打字;屏数上限仍只给限制浏览快慢的 App。
  */
 enum class OperatingPace {
     FAST, STANDARD, HUMAN;
@@ -19,6 +20,21 @@ enum class OperatingPace {
         FAST -> AppPacing.Off
         STANDARD -> AppPacing.human(random)
         HUMAN -> AppPacing.human(random, limits = AppPacing.Limits.CAREFUL)
+    }
+
+    /**
+     * 这个任务在网页上一页一页看的节奏(换页前补足的停留)。
+     * 网页以前不论设置都按像人的 4–7 秒停,一个搜索要点好几页就白等半分钟;现在跟着设置走:
+     * [FAST] 不停,[STANDARD] 只停 1.5–2.5 秒,[HUMAN] 照旧像人。
+     */
+    fun webPacing(random: Random = Random.Default): PagePacing = when (this) {
+        FAST -> PagePacing.Off
+        STANDARD -> PagePacing.human(
+            random,
+            limits = PagePacing.Limits(firstDwellMs = 1_500L..2_500L, perPageMs = 300L to 500L, maxDwellMs = 4_000L),
+            careful = PagePacing.Limits(firstDwellMs = 4_000L..7_000L, perPageMs = 600L to 1_000L, maxDwellMs = 12_000L),
+        )
+        HUMAN -> PagePacing.human(random)
     }
 
     /** 在 App 知识说 [pace] 的 App 里打字的节奏。 */

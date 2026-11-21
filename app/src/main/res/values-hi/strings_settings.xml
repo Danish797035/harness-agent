@@ -59,7 +59,7 @@
     <string name="settings_pace_fast">तेज़</string>
     <string name="settings_pace_fast_detail">चरणों के बीच कोई विराम नहीं; पाठ एक ही बार में भर जाता है</string>
     <string name="settings_pace_standard">मानक (डिफ़ॉल्ट)</string>
-    <string name="settings_pace_standard_detail">एक व्यक्ति की तरह प्रकार और चरणों के बीच संक्षेप में रुकता है; उन ऐप्स में धीमा जो तेज़ उपयोग को रोकते हैं</string>
+    <string name="settings_pace_standard_detail">एक व्यक्ति की तरह टाइप करता है, चरणों के बीच थोड़ा रुकता है और वेब पेज 1–2 सेकंड में बदलता है; तेज़ उपयोग रोकने वाले ऐप्स में धीमा</string>
     <string name="settings_pace_human">मानव की तरह</string>
     <string name="settings_pace_human_detail">प्रत्येक ऐप को धीमा करें, आगे बढ़ने से पहले प्रत्येक स्क्रीन को पढ़ें</string>
     <string name="settings_pace_foot">कुछ ऐप्स बहुत तेजी से उपयोग किए जाने पर आपको लॉग आउट कर देते हैं या सत्यापन मांगते हैं। गति जितनी धीमी होगी, कार्य में उतना ही अधिक समय लगेगा।</string>

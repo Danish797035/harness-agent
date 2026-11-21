@@ -1412,17 +1412,17 @@ class WebScreen(
         const val SELECT_NOT_APPLIED = "select_not_applied"
         val UNCERTAIN = ActionResult.Failed("input_uncertain")
         const val KEEP_SNAPSHOTS = 4
-        const val QUIET_MS = 500L
-        const val CAP_MS = 3_000L
+        const val QUIET_MS = 400L
+        const val CAP_MS = 2_000L
         /** 有 DevTools 时动作后等「网络空闲 + 页面安静」的总上限。 */
-        const val SETTLE_CAP_MS = 5_000L
+        const val SETTLE_CAP_MS = 3_500L
         const val WAIT_POLL_MS = 250L
         /** 读页前等正文稳定:每 [CONTENT_POLL_MS] 取一次样,连续这么多次不变算稳定;一个字都没有时要更久。 */
         const val CONTENT_POLL_MS = 250L
         const val CONTENT_STABLE_POLLS = 2
         const val CONTENT_EMPTY_POLLS = 6
-        const val CONTENT_CAP_MS = 4_000L
-        const val CONTENT_AFTER_SCROLL_CAP_MS = 2_500L
+        const val CONTENT_CAP_MS = 2_500L
+        const val CONTENT_AFTER_SCROLL_CAP_MS = 1_500L
         /** 全进程同时开着的读页后台标签至多几个;多的排队。 */
         const val BACKGROUND_READS = 3
         val backgroundReads = Semaphore(BACKGROUND_READS)
