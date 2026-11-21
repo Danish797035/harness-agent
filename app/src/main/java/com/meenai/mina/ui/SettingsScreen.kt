@@ -67,12 +67,7 @@ import kotlinx.coroutines.withContext
 
 import com.meenai.mina.about.UpdateState
 import com.meenai.mina.about.CheckStatus
-import com.meenai.mina.ui.router.LocalRouterStatus
-import com.meenai.mina.ui.router.RouterStatus
-import com.meenai.mina.ui.router.RouterUsageCard
 import android.widget.Toast
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 
 /** 设置里能进入的子页面;[Home] 是设置首页。 */
 private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, ModelSpecialist }
@@ -101,7 +96,6 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit = {},
     onCheckUpdates: (() -> Unit)? = null,
     updateState: UpdateState? = null,
-    routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
     val configs by store.configs.collectAsState()
     val roles by store.roles.collectAsState()
@@ -133,15 +127,6 @@ fun SettingsScreen(
     var operatingPace by remember { mutableStateOf(flags.operatingPace()) }
     var selfConfig by remember { mutableStateOf(flags.selfConfig()) }
     var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
-    var showSwitchNotice by remember { mutableStateOf(flags.showSwitchNotice()) }
-    val activeModel by routerStatus.current.collectAsState()
-    val routerUsages by routerStatus.usage.collectAsState()
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            routerStatus.refresh()
-            delay(4_000)
-        }
-    }
     // 换语言时界面会重建,这里每次进来读一次即可
     val language = remember { AppLanguage.current(context) }
     val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
@@ -222,11 +207,6 @@ fun SettingsScreen(
             onCheckUpdates = onCheckUpdates?.let { fn -> { waitingRound = (updateState?.manualRounds ?: 0) + 1; fn() } },
             updateState = updateState,
             onOpenSpecialist = { page = SettingsPage.ModelSpecialist },
-            routerStatus = routerStatus,
-            routerUsages = routerUsages,
-            activeModel = activeModel,
-            showSwitchNotice = showSwitchNotice,
-            onToggleSwitchNotice = { flags.setShowSwitchNotice(it); showSwitchNotice = it },
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
@@ -350,28 +330,12 @@ fun SettingsContent(
     onCheckUpdates: (() -> Unit)? = null,
     updateState: UpdateState? = null,
     onOpenSpecialist: () -> Unit = {},
-    routerStatus: RouterStatus = LocalRouterStatus.current,
-    routerUsages: List<com.meenai.mina.ui.router.ProviderUsage> = emptyList(),
-    activeModel: com.meenai.mina.ui.router.ActiveModel? = null,
-    showSwitchNotice: Boolean = true,
-    onToggleSwitchNotice: (Boolean) -> Unit = {},
 ) {
     val check = Prerequisites.check(status, hasMainModel = mainModel != null)
-    val currentActive by routerStatus.current.collectAsState()
-    val liveActive = activeModel ?: currentActive
     PageScaffold(stringResource(R.string.settings_title), onBack) {
         StatusSummary(check, onProblem)
 
         GroupLabel(stringResource(R.string.settings_basic))
-        RouterUsageCard(
-            usages = routerUsages,
-            showSwitchNotice = showSwitchNotice,
-            onToggleSwitchNotice = onToggleSwitchNotice,
-            activeModel = liveActive,
-            onPinClick = { routerStatus.pinModel(if (liveActive.isPinned) null else liveActive.id) },
-            onSelectModel = { routerStatus.pinModel(it) },
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
         GroupCard {
             ListRow(MinaIcons.Spark, stringResource(R.string.settings_model), first = true, onClick = onOpenModels) {
                 RowValue(mainModel ?: stringResource(R.string.settings_not_set))
