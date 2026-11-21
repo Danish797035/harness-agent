@@ -38,4 +38,23 @@
     <string name="usage_unit_k">K</string>
     <string name="usage_unit_m">M</string>
     <string name="usage_unit_b">B</string>
+    <string name="usage_limits_pro">PRO</string>
+    <string name="usage_limits_title">Usage limits</string>
+    <string name="usage_limits_desc">Your daily budget and this app\'s live usage. Bars fill as you use requests.</string>
+    <string name="usage_limits_live">LIVE</string>
+    <string name="usage_limits_updated">Updated just now</string>
+    <string name="usage_limits_current">Current usage</string>
+    <string name="usage_limits_weekly">Weekly limit</string>
+    <string name="usage_limits_used_pct">%1$d%% used</string>
+    <string name="usage_limits_of">%1$d of %2$d requests</string>
+    <string name="usage_limits_resets_daily">Resets at 12:00 am</string>
+    <string name="usage_limits_rolling">Rolling 7 days</string>
+    <string name="usage_limits_budget">Daily budget</string>
+    <string name="usage_limits_budget_value">%1$d requests</string>
+    <string name="usage_limits_budget_note">Bars show live usage against your budget. Set it to what you want to stay under.</string>
+    <string name="usage_limits_tokens">%1$s tokens</string>
+    <string name="usage_limits_note">Counts are this app\'s requests only and stay on this phone.</string>
+    <string name="usage_limits_less">Decrease budget</string>
+    <string name="usage_limits_more">Increase budget</string>
+    <string name="usage_limits_today_value">%1$d today</string>
 </resources>

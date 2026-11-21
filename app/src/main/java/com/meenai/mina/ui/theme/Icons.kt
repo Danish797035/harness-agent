@@ -37,6 +37,9 @@ object HarnessIcons {
     val Chevron = stroke("chevron", "M9 6 l6 6 l-6 6", width = 2f)
     val ChevronDown = stroke("chevron_down", "M6 9 l6 6 l6 -6", width = 2f)
     val Plus = stroke("plus", "M12 5 v14 M5 12 h14")
+    val Minus = stroke("minus", "M5 12 h14", width = 2f)
+    /** 用量上限:仪表盘。 */
+    val Gauge = stroke("gauge", "M4 17 a8 8 0 1 1 16 0", "M12 17 l4.5 -5.5")
     /** 发送。 */
     val Up = stroke("up", "M12 19 V5 M6 11 l6 -6 l6 6", width = 2.2f)
     val Check = stroke("check", "M5 12.5 l4.5 4.5 L19 7.5", width = 2.2f)

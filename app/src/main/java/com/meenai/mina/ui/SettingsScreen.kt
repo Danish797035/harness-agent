@@ -36,6 +36,7 @@ import com.meenai.mina.settings.AccessibilityState
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.Prerequisites
 import com.meenai.mina.settings.Problem
+import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
 import com.meenai.mina.settings.NetProxyStore
 import com.meenai.mina.cap.web.WebProxy
@@ -56,6 +57,7 @@ import com.meenai.mina.ui.components.StateCard
 import com.meenai.mina.ui.components.StatusPill
 import com.meenai.mina.ui.components.TileTone
 import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.core.usage.UsageLimitsQuery
 import com.meenai.mina.core.usage.UsageQuery
 import com.meenai.mina.core.usage.UsageRange
 import com.meenai.mina.i18n.AppLanguage
@@ -70,7 +72,7 @@ import com.meenai.mina.about.CheckStatus
 import android.widget.Toast
 
 /** 设置里能进入的子页面;[Home] 是设置首页。 */
-private enum class SettingsPage { Home, AppAccess, Usage, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, ModelSpecialist }
+private enum class SettingsPage { Home, AppAccess, Usage, UsageLimits, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, ModelSpecialist }
 
 /**
  * 设置页:总状态卡 + 基本 / 隐私与数据 / 高级 / 关于四组。各子页面在这里切换(返回键先回首页),
@@ -153,10 +155,20 @@ fun SettingsScreen(
     val usage = remember { (context.applicationContext as com.meenai.mina.HarnessApp).usage }
     val usageVersion by usage.version.collectAsState()
     var usageWeek by remember { mutableStateOf<Long?>(null) }
+    var usageToday by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(usageVersion) {
-        usageWeek = withContext(Dispatchers.Default) {
-            UsageQuery.report(usage.snapshot(), UsageRange.LastDays(7), Instant.now(), ZoneId.systemDefault(), emptyMap()).totals.tokens
+        val (week, today) = withContext(Dispatchers.Default) {
+            val now = Instant.now()
+            val snapshot = usage.snapshot()
+            val weekTokens = UsageQuery.report(snapshot, UsageRange.LastDays(7), now, ZoneId.systemDefault(), emptyMap()).totals.tokens
+            val gemini = store.providers.value.firstOrNull {
+                it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == ProviderStore.GEMINI_WEB_SIGN_IN
+            }?.id
+            val dayCalls = UsageLimitsQuery.report(snapshot, gemini, now, ZoneId.of("Asia/Kolkata")).dailyCalls.toInt()
+            weekTokens to dayCalls
         }
+        usageWeek = week
+        usageToday = today
     }
     val parallel = if (!speed.parallelTasks) null else ParallelSetting(
         parallelMax,
@@ -189,6 +201,7 @@ fun SettingsScreen(
             onBack = onBack, onProblem = onProblem, onOpenModels = onOpenModels,
             proxy = proxy, proxyNote = proxy?.let { NetProxyCopy.subtitle(it, browserProxy) }, onOpenProxy = { editingProxy = true },
             usageTokens = usageWeek, onOpenUsage = { page = SettingsPage.Usage },
+            usageToday = usageToday, onOpenUsageLimits = { page = SettingsPage.UsageLimits },
             onOpenPhoneOps = { page = SettingsPage.PhoneOps },
             onOpenAppAccess = { page = SettingsPage.AppAccess },
             onOpenDuringWork = { page = SettingsPage.DuringWork },
@@ -210,6 +223,7 @@ fun SettingsScreen(
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
+        SettingsPage.UsageLimits -> UsageLimitsScreen(usage, store.providers, onBack = toHome)
         SettingsPage.PhoneOps -> PhoneOpsScreen(
             status, androidRelease, onProblem,
             onOpenNotifications = { notificationsFrom = SettingsPage.PhoneOps; page = SettingsPage.Notifications },
@@ -298,6 +312,9 @@ fun SettingsContent(
     /** 近 7 天用了多少 token;为空(还没统计出来)时不显示这一行。 */
     usageTokens: Long? = null,
     onOpenUsage: () -> Unit = {},
+    /** 今天发了多少请求;为空(还没统计出来)时不显示「用量上限」这一行。 */
+    usageToday: Int? = null,
+    onOpenUsageLimits: () -> Unit = {},
     onOpenPhoneOps: () -> Unit = {},
     onOpenAppAccess: () -> Unit = {},
     onOpenDuringWork: () -> Unit = {},
@@ -360,6 +377,12 @@ fun SettingsContent(
             usageTokens?.let {
                 ListRow(MinaIcons.Chart, UsageCopy.TITLE, onClick = onOpenUsage) {
                     RowValue(UsageCopy.settingsValue(it))
+                    RowChevron()
+                }
+            }
+            usageToday?.let {
+                ListRow(MinaIcons.Gauge, stringResource(R.string.usage_limits_title), onClick = onOpenUsageLimits) {
+                    RowValue(stringResource(R.string.usage_limits_today_value, it))
                     RowChevron()
                 }
             }

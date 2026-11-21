@@ -132,6 +132,14 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(SHOW_SWITCH_NOTICE, on).commit()
     }
 
+    /** 用量上限页自己设的每日预算(请求数);进度条按它算,默认 [DEFAULT_USAGE_BUDGET]。 */
+    fun usageDailyBudget(): Int =
+        prefs.getInt(USAGE_DAILY_BUDGET, DEFAULT_USAGE_BUDGET).coerceIn(MIN_USAGE_BUDGET, MAX_USAGE_BUDGET)
+
+    fun setUsageDailyBudget(n: Int) {
+        prefs.edit().putInt(USAGE_DAILY_BUDGET, n.coerceIn(MIN_USAGE_BUDGET, MAX_USAGE_BUDGET)).apply()
+    }
+
     companion object {
         const val PREFS = "feature_flags"
         private const val SHOW_SWITCH_NOTICE = "show_switch_notice"
@@ -154,6 +162,11 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         private const val CAPSULE_SIDE = "capsule_side"
         private const val CAPSULE_HEIGHT = "capsule_height"
         private const val CAPSULE_CARD_HEIGHT = "capsule_card_height"
+        private const val USAGE_DAILY_BUDGET = "usage_daily_budget"
+        const val DEFAULT_USAGE_BUDGET = 100
+        const val MIN_USAGE_BUDGET = 25
+        const val MAX_USAGE_BUDGET = 2_000
+        const val USAGE_BUDGET_STEP = 25
 
         fun get(context: Context) = FeatureFlags(context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }

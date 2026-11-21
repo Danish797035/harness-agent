@@ -38,4 +38,23 @@
     <string name="usage_unit_k">K</string>
     <string name="usage_unit_m">M</string>
     <string name="usage_unit_b">B</string>
+    <string name="usage_limits_pro">प्रो</string>
+    <string name="usage_limits_title">उपयोग सीमा</string>
+    <string name="usage_limits_desc">आपका रोज़ का बजट और इस ऐप का लाइव उपयोग। रिक्वेस्ट बढ़ने पर बार भरते हैं।</string>
+    <string name="usage_limits_live">लाइव</string>
+    <string name="usage_limits_updated">अभी अपडेट हुआ</string>
+    <string name="usage_limits_current">अभी का उपयोग</string>
+    <string name="usage_limits_weekly">हफ़्ते की सीमा</string>
+    <string name="usage_limits_used_pct">%1$d%% इस्तेमाल</string>
+    <string name="usage_limits_of">%2$d में से %1$d रिक्वेस्ट</string>
+    <string name="usage_limits_resets_daily">रात 12:00 बजे रीसेट</string>
+    <string name="usage_limits_rolling">पिछले 7 दिन</string>
+    <string name="usage_limits_budget">रोज़ का बजट</string>
+    <string name="usage_limits_budget_value">%1$d रिक्वेस्ट</string>
+    <string name="usage_limits_budget_note">बार आपके बजट के हिसाब से लाइव उपयोग दिखाते हैं। जितने तक रहना हो उतना सेट करें।</string>
+    <string name="usage_limits_tokens">%1$s टोकन</string>
+    <string name="usage_limits_note">गिनती सिर्फ़ इस ऐप की रिक्वेस्ट की है और इसी फ़ोन पर रहती है।</string>
+    <string name="usage_limits_less">बजट कम करें</string>
+    <string name="usage_limits_more">बजट बढ़ाएँ</string>
+    <string name="usage_limits_today_value">आज %1$d</string>
 </resources>
