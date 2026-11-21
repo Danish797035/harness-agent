@@ -65,6 +65,7 @@
     <string name="task_stopped">कार्य रुक गया</string>
     <string name="task_stopped_body">आपने यह कार्य रोक दिया</string>
     <string name="gate_user_on_page">आप पेज का उपयोग कर रहे हैं, इसलिए Harness Agent रुक गई</string>
+    <string name="gate_user_paused">रुका हुआ. तैयार हों तो जारी रखें दबाएँ</string>
     <string name="task_no_phone_helper_usb">फ़ोन सहायक बंद हो गया है (आमतौर पर फ़ोन पुनरारंभ होने के बाद)। Harness Agent खोलें और USB स्टार्ट कमांड फिर से चलाएँ; आप इसे "सेट अप फ़ोन नियंत्रण" में कॉपी कर सकते हैं। वेब और फ़ाइल कार्य प्रभावित नहीं होंगे.</string>
     <string name="drawer_screens">पृष्ठभूमि स्क्रीन</string>
     <string name="screens_title">पृष्ठभूमि स्क्रीन</string>

@@ -59,6 +59,7 @@ interface TaskActions {
     fun steer(conversationId: String, messageId: String, text: String) = start(text, conversationId)
     fun withdrawSteer(conversationId: String, messageId: String): Boolean = false
     fun cancel()
+    fun pause() {}
     fun resume()
     fun takeOver()
     fun handBack()
@@ -73,6 +74,7 @@ interface TaskActions {
 
     // 并行任务时应用内的按钮带着屏上的对话,只作用于该对话的任务;它已经没有任务就作废。默认同不带对话的版本。
     fun cancelIn(conversationId: String) = cancel()
+    fun pauseIn(conversationId: String) = pause()
     fun resumeIn(conversationId: String) = resume()
     fun takeOverIn(conversationId: String) = takeOver()
     fun handBackIn(conversationId: String) = handBack()
@@ -152,6 +154,8 @@ data class Exchange(
     val runId: String? = null,
     /** 模型请求在途时只显示状态，不把等待伪装成一次执行步骤。 */
     val waitingForModel: Boolean = false,
+    /** 到此刻的模型用量(调用次数、token、上下文还剩多少),实时更新。 */
+    val usage: com.meenai.mina.core.usage.RunUsage? = null,
     /** 模型这次请求已经给出的可见文字；完成前可能成为进度说明或答复。 */
     val draft: String? = null,
     /** 结果卡片下的记忆提示(记住了 / 更新了 / 忘掉了 / 要我以后都这样做吗)。 */
@@ -632,9 +636,9 @@ class ChatViewModel(
         }
     }
 
-    private fun canAttach(ui: ChatUi) = ui.attachEnabled && ui.composer == ComposerMode.Idle && !ui.importing
+    private fun canAttach(ui: ChatUi) = ui.attachEnabled && ui.composer != ComposerMode.Answer && !ui.importing
 
-    /** 从相机、相册、文件选择器拿到的文件:没有任务在跑、沙箱就绪时才收;读出名字和大小后挂在输入框上方,随下一句话发出去。 */
+    /** 从相机、相册、文件选择器拿到的文件:沙箱就绪时才收;读出名字和大小后挂在输入框上方,随下一句话发出去(任务在跑时作为插话)。 */
     fun attach(uris: List<String>) {
         if (uris.isEmpty() || !canAttach(_ui.value)) return
         scope.launch {
@@ -699,8 +703,10 @@ class ChatViewModel(
     }
 
     private fun sendQuoted(words: String, ui: ChatUi, check: Prerequisites.Check): Boolean {
-        // 附件只跟新任务走;回答问题时不带
-        if (ui.composer == ComposerMode.Idle && ui.attachments.isNotEmpty()) return sendWithAttachments(QuoteMessage.compose(ui.quote, words), ui.attachments, check)
+        // 附件跟新任务走,任务在跑时跟着插话走;回答问题时不带
+        if (ui.composer != ComposerMode.Answer && ui.attachments.isNotEmpty()) {
+            return sendWithAttachments(QuoteMessage.compose(ui.quote, words), ui.attachments, check, steerToTask = ui.composer == ComposerMode.Busy)
+        }
         // 只有引用、没写话时不发
         if (words.isEmpty()) return false
         val goal = QuoteMessage.compose(ui.quote, words)
@@ -721,11 +727,11 @@ class ChatViewModel(
     }
 
     /**
-     * 带着附件开新任务:先把附件复制进对话工作区的 inbox/(期间输入框上方显示正在添加),
-     * 再把每个附件写成一行「附件:<路径>(<大小>)」接在话后面开始任务。没收下的列在输入框上方;话和附件都没有了就不发。
-     * 复制期间换了对话或开始了别的任务就不发了(复制进去的文件留在原对话的工作区里)。
+     * 带着附件发送:先把附件复制进对话工作区的 inbox/(期间输入框上方显示正在添加),
+     * 再把每个附件写成一行「附件:<路径>(<大小>)」接在话后面。没在跑任务时开新任务,任务在跑时([steerToTask])作为插话交给它。
+     * 没收下的列在输入框上方;话和附件都没有了就不发。复制期间换了对话、或任务的状态变了就不发了(复制进去的文件留在原对话的工作区里)。
      */
-    private fun sendWithAttachments(text: String, items: List<PendingAttachment>, check: Prerequisites.Check): Boolean {
+    private fun sendWithAttachments(text: String, items: List<PendingAttachment>, check: Prerequisites.Check, steerToTask: Boolean = false): Boolean {
         if (!check.canStartTask) {
             _ui.update { it.copy(blocked = check.blockers) }
             return false
@@ -737,8 +743,12 @@ class ChatViewModel(
             val goal = withAttachments(text, r.added)
             _ui.update { it.copy(importing = false, attachments = emptyList(), rejectedAttachments = r.rejected) }
             val now = _ui.value
-            if (goal.isEmpty() || now.conversationId != id || now.composer != ComposerMode.Idle) return@launch
-            begin(goal, id)
+            if (goal.isEmpty() || now.conversationId != id) return@launch
+            if (steerToTask) {
+                if (now.composer == ComposerMode.Busy) steer(goal, check)
+            } else if (now.composer == ComposerMode.Idle) {
+                begin(goal, id)
+            }
         }
         return true
     }
@@ -980,6 +990,7 @@ class ChatViewModel(
         liveIndex = -1
     }
     fun resume() = act({ actions.resume() }) { actions.resumeIn(it) }
+    fun pause() = act({ actions.pause() }) { actions.pauseIn(it) }
     fun takeOver() = act({ actions.takeOver() }) { actions.takeOverIn(it) }
     fun handBack() = act({ actions.handBack() }) { actions.handBackIn(it) }
     fun finishedMyself() = act({ actions.finishedMyself() }) { actions.finishedMyselfIn(it) }
@@ -1255,6 +1266,7 @@ class ChatViewModel(
                 } else null
                 ex.copy(
                     status = ExchangeStatus.Working, waitingForModel = waiting, draft = s.preview,
+                    usage = s.usage,
                     line = label,
                     liveAction = liveAction,
                     notes = if (s.step > 0 && said != null) ex.notes + (s.step to said) else ex.notes,

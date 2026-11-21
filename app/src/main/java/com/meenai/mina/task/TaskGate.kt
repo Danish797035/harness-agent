@@ -26,9 +26,13 @@ class TaskGate(
 ) {
     private val movedAway = MutableStateFlow(false)
     private val userOnPage = MutableStateFlow(false)
+    /** 用户自己按了暂停:下一步改动屏幕之前停下,点「继续」再接着做。 */
+    private val userPaused = MutableStateFlow(false)
     private val resumes = MutableStateFlow(0)
     /** 发现被挪走那一刻的点击计数:之后点的「继续」都算数,哪怕 Agent 还没走到 gate。 */
     @Volatile private var resumesAtMove = 0
+    /** 按下暂停那一刻的点击计数:按下之前点的「继续」不算。 */
+    @Volatile private var resumesAtPause = 0
 
     fun onTaskMovedAway() {
         if (!movedAway.value) resumesAtMove = resumes.value
@@ -47,10 +51,20 @@ class TaskGate(
     /** 用户在借出的页面上操作、还没点「继续」。 */
     val userOnPagePending: Boolean get() = userOnPage.value
 
+    /** 用户按了暂停、还没点「继续」:任务服务据此立即显示暂停,不必等到下一个改动屏幕的工具。 */
+    val userPausedPending: Boolean get() = userPaused.value
+
+    /** 用户按了暂停。正在等模型的这一步照样做完,下一步改动屏幕之前停下。 */
+    fun pause() {
+        if (!userPaused.value) resumesAtPause = resumes.value
+        userPaused.value = true
+    }
+
     /** 用户点了「继续」。只对点击之后才开始的、或正在进行的暂停有效;用户在页面上操作的那种暂停当场解除。 */
     fun resume() {
         resumes.update { it + 1 }
         userOnPage.value = false
+        userPaused.value = false
     }
 
     suspend fun pass(phone: () -> Boolean = { true }, setWaiting: (TaskState?) -> Unit) {
@@ -60,6 +74,14 @@ class TaskGate(
                 userOnPage.value -> {
                     setWaiting(TaskState.Held(paused(USER_ON_PAGE)))
                     userOnPage.first { !it }
+                }
+                userPaused.value -> {
+                    // 还没走到这里就已经点了「继续」:不再停
+                    if (resumes.value != resumesAtPause) {
+                        userPaused.value = false
+                        continue
+                    }
+                    pauseUntilResume(USER_PAUSED, setWaiting, resumesAtPause)
                 }
                 onPhone && !shellAvailable.value -> {
                     pauseUntilResume(SHELL_DOWN, setWaiting)
@@ -115,5 +137,8 @@ class TaskGate(
         val SHELL_DOWN: String get() = tr(R.string.gate_shell_down)
         /** 用户在浏览器页上亲手操作借给任务的页面时暂停的原因(界面据此认出这种暂停)。 */
         val USER_ON_PAGE: String get() = tr(R.string.gate_user_on_page)
+
+        /** 用户自己按了暂停。 */
+        val USER_PAUSED: String get() = tr(R.string.gate_user_paused)
     }
 }

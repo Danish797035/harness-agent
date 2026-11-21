@@ -16,6 +16,7 @@ import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.tool.ToolDispatcher
 import com.meenai.mina.core.tool.parseArgs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -180,6 +181,8 @@ internal class ModelCaller(
             if (raw.rewritten) anchors.clear()
             val restored = ContextRecovery.ensure(history, raw.messages)
             val sent = if (restored === raw.messages) raw else raw.copy(messages = restored, estimate = TokenEstimate.of(restored))
+            // 界面实时显示上下文用了多少、还剩多少(没报用量的服务商也有估算)
+            currentCoroutineContext()[com.meenai.mina.core.usage.RunUsageTally]?.noteContext(sent.estimate + overhead, contextTokens)
             val (next, report) = CompactionPolicy.sent(compaction, sent.foldedSteps)
             if (report) emit(RunEvent.Compressed(now(), sent.foldedSteps))
             compaction = next

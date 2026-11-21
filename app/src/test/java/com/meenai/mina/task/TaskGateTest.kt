@@ -49,6 +49,25 @@ class TaskGateTest {
         assertEquals(null, reported.last())
     }
 
+    /** 用户自己按暂停:下一个改动屏幕的动作之前停下,点「继续」才走;按下之前点的「继续」不算。 */
+    @Test
+    fun userPauseWaitsForContinue() = runTest {
+        gate.resume() // 暂停之前的「继续」不算数
+        gate.pause()
+        assertTrue(gate.userPausedPending)
+        var passed = false
+        launch { gate.pass { reported += it }; passed = true }
+        runCurrent()
+        assertFalse(passed)
+        assertEquals(TaskState.Held(TaskGate.paused(TaskGate.USER_PAUSED)), reported.last())
+
+        gate.resume()
+        runCurrent()
+        assertTrue(passed)
+        assertEquals(null, reported.last())
+        assertFalse(gate.userPausedPending)
+    }
+
     @Test
     fun movedAwayPausesUntilUserContinuesThenMovesBack() = runTest {
         gate.resume() // 暂停之前的「继续」不算数

@@ -143,6 +143,8 @@ interface CardActions {
     fun stop(runKey: String)
     fun takeOver(runKey: String)
     fun resume(runKey: String)
+    /** 暂停:下一步改动屏幕之前停下,等「继续」。 */
+    fun pause(runKey: String) {}
     fun answer(runKey: String, text: String)
     fun approve(runKey: String, requestKey: Int)
     fun decline(runKey: String, requestKey: Int)

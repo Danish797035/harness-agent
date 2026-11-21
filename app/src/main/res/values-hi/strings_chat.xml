@@ -46,6 +46,14 @@
     <string name="chat_open">खुला</string>
     <string name="chat_attach_rejected">जोड़ा नहीं जा सका: %1$s (प्रत्येक फ़ाइल 200 एमबी से कम होनी चाहिए)</string>
     <string name="chat_stop">रुकना</string>
+    <string name="chat_pause">रोकें</string>
+    <string name="chat_resume">जारी रखें</string>
+    <string name="chat_usage_calls">%1$d कॉल</string>
+    <string name="chat_usage_tokens">%1$s इन · %2$s आउट</string>
+    <string name="chat_usage_context">संदर्भ %1$s / %2$s · %3$s बाकी</string>
+    <string name="chat_usage_context_open">संदर्भ %1$s</string>
+    <string name="chat_usage_quota_left">%2$s %1$d बाकी</string>
+    <string name="page_browsing">पेज पर ब्राउज़ कर रही है…</string>
     <string name="chat_send">भेजना</string>
     <string name="drawer_running_task">चल रहा कार्य</string>
     <string name="drawer_running">दौड़ना</string>

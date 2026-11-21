@@ -310,6 +310,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 override fun withdrawSteer(conversationId: String, messageId: String) = taskState.run(conversationId)?.withdrawSteer(messageId) ?: false
                 override fun cancel() = TaskService.cancel(app)
                 override fun resume() = TaskService.resume(app)
+                override fun pause() = TaskService.pause(app)
                 override fun takeOver() = TaskService.takeOver(app)
                 override fun handBack() = TaskService.handBack(app)
                 override fun finishedMyself() = TaskService.finishedMyself(app)
@@ -323,6 +324,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 private fun key(conversationId: String) = taskState.run(conversationId)?.key
                 override fun cancelIn(conversationId: String) { key(conversationId)?.let { TaskService.cancel(app, it) } }
                 override fun resumeIn(conversationId: String) { key(conversationId)?.let { TaskService.resume(app, it) } }
+                override fun pauseIn(conversationId: String) { key(conversationId)?.let { TaskService.pause(app, it) } }
                 override fun takeOverIn(conversationId: String) { key(conversationId)?.let { TaskService.takeOver(app, runKey = it) } }
                 override fun handBackIn(conversationId: String) { key(conversationId)?.let { TaskService.handBack(app, runKey = it) } }
                 override fun finishedMyselfIn(conversationId: String) { key(conversationId)?.let { TaskService.finishedMyself(app, runKey = it) } }

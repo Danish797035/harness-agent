@@ -197,6 +197,13 @@ fun ChatScreen(
     val ui by vm.ui.collectAsState()
     val last = ui.exchanges.lastOrNull()
     val isTaskRunning = last?.status?.isActive() == true
+    // 任务在跑时模型用量在变:定时刷新,模型标签上的「今天几次 / 还剩多少」跟着走
+    LaunchedEffect(isTaskRunning) {
+        while (isTaskRunning) {
+            routerStatus.refresh()
+            delay(4_000L)
+        }
+    }
     val activeModel = remember(routerActiveModel, routerUsages, isTaskRunning, last?.activeModel) {
         resolveDisplayModel(
             routerModel = routerActiveModel,
@@ -390,7 +397,9 @@ fun ChatScreen(
             hasHistory = ui.exchanges.isNotEmpty(),
             onSend = { if (vm.send(input, check)) input = "" },
             onStop = vm::cancel,
-            attachPanel = if (ui.attachEnabled && ui.composer == ComposerMode.Idle) ({
+            paused = (last?.status as? ExchangeStatus.Paused)?.resumable == true,
+            onPause = { if ((last?.status as? ExchangeStatus.Paused)?.resumable == true) vm.resume() else vm.pause() },
+            attachPanel = if (ui.attachEnabled && ui.composer != ComposerMode.Answer) ({
                 AttachPanelHost(ui.attachments, onPicked = vm::attach, onToggle = vm::toggleAttachment)
             }) else null,
             attachments = ui.attachments,
@@ -877,6 +886,7 @@ private fun WorkBlock(
             )
             if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
         }
+        ex.usage?.takeIf { it.calls > 0 }?.let { UsageLine(it) }
         if (ex.steps.isNotEmpty()) StepLine(ex.steps, ex.stepActions, live = true, paused = paused)
         // 跑的时候就能进运行过程(页面按秒接着长);结束后收进「做了 N 步 · 查看过程」那一行
         ex.runId?.let { id ->
@@ -897,6 +907,32 @@ private fun WorkBlock(
             }
         }
     }
+}
+
+/** 实时用量:调用次数、这次进出的 token、上下文用了多少、还剩多少。 */
+@Composable
+private fun UsageLine(u: com.meenai.mina.core.usage.RunUsage) {
+    val c = MinaTheme.colors
+    val model by LocalRouterStatus.current.current.collectAsState()
+    val parts = buildList {
+        add(stringResource(R.string.chat_usage_calls, u.calls))
+        if (u.inputTokens + u.outputTokens > 0) {
+            add(stringResource(R.string.chat_usage_tokens, UsageCopy.tokens(u.inputTokens), UsageCopy.tokens(u.outputTokens)))
+        }
+        if (u.contextLimit > 0) {
+            add(stringResource(R.string.chat_usage_context, UsageCopy.tokens(u.contextTokens.toLong()), UsageCopy.tokens(u.contextLimit.toLong()), UsageCopy.tokens(u.contextLeft.toLong())))
+        } else if (u.contextTokens > 0) {
+            add(stringResource(R.string.chat_usage_context_open, UsageCopy.tokens(u.contextTokens.toLong())))
+        }
+        model.limit?.takeIf { it > 0 }?.let { limit ->
+            val left = (limit - model.usedToday).coerceAtLeast(0)
+            add(stringResource(R.string.chat_usage_quota_left, left, stringResource(R.string.router_today)))
+        }
+    }
+    Text(
+        parts.joinToString(" · "), Modifier.padding(top = 3.dp),
+        style = NoteText.copy(fontFeatureSettings = "tnum"), color = c.ink3,
+    )
 }
 
 /** 从 [startedAt] 起的用时,每秒更新;不知道开始时刻(为 0)时为 null。 */
@@ -1310,7 +1346,7 @@ private fun openShared(context: Context, f: SharedFile) = FileViewer.open(contex
 private enum class Panel { Closed, Open, Yielding }
 
 /**
- * 玻璃胶囊输入栏:左边「＋」,右边发送(没内容时灰);任务在跑时多一个停止,输入框的灰字提示插话会交给当前任务。
+ * 玻璃胶囊输入栏:左边「＋」,右边发送(没内容时灰);任务在跑时多一个暂停和停止,输入框的灰字提示插话会交给当前任务。
  * 「＋」点开的附件面板([attachPanel])在输入栏下面、占键盘那块位置,和键盘互换:开面板收键盘,
  * 再点「＋」(这时是 ×)或点输入框就收起面板、换成键盘;返回先收面板。待发的附件在输入栏上方一排([PendingTray])。
  */
@@ -1323,7 +1359,10 @@ internal fun Composer(
     hasHistory: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    /** 沙箱就绪、没有任务在跑时才有「＋」;点开是这块面板。 */
+    /** 任务被用户暂停了:停止旁边显示「继续」。 */
+    paused: Boolean = false,
+    onPause: () -> Unit = {},
+    /** 沙箱就绪、没在等回答时才有「＋」(任务在跑时也能加,随插话发出去);点开是这块面板。 */
     attachPanel: (@Composable () -> Unit)? = null,
     attachments: List<PendingAttachment> = emptyList(),
     importing: Boolean = false,
@@ -1496,6 +1535,17 @@ internal fun Composer(
                 }
                 // 任务在跑时停止一直在;写了字再多一个发送,发出去的话交给当前任务
                 if (busy) {
+                    val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
+                    Box(
+                        Modifier.size(MinaSize.IconButton).clip(CircleShape)
+                            .clickable(onClickLabel = pauseLabel, onClick = onPause),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (paused) MinaIcons.Play else MinaIcons.Pause, pauseLabel,
+                            Modifier.size(20.dp), tint = c.ink,
+                        )
+                    }
                     Box(
                         Modifier.size(MinaSize.IconButton).background(c.ink, CircleShape).clip(CircleShape)
                             .clickable(onClickLabel = stringResource(R.string.chat_stop), onClick = onStop),

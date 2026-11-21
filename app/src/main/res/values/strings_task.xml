@@ -65,6 +65,7 @@
     <string name="task_stopped">Task stopped</string>
     <string name="task_stopped_body">You stopped this task</string>
     <string name="gate_user_on_page">You’re using the page, so Harness Agent paused</string>
+    <string name="gate_user_paused">Paused. Tap Continue when you’re ready</string>
     <string name="task_no_phone_helper_usb">The phone helper has stopped (usually after a phone restart). Open Harness Agent and run the USB start command again; you can copy it in “Set up phone control”. Web and file tasks aren’t affected.</string>
     <string name="drawer_screens">Background screens</string>
     <string name="screens_title">Background screens</string>

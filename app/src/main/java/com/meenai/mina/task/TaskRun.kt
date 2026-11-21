@@ -172,6 +172,8 @@ class TaskRun(
     private val memoryRuntime = MemoryRuntime.of(service)
     private val routeStore = FileRouteStore.shared(service)
     private val recovery = TaskRecovery.of(service)
+    /** 这次运行里经计量的模型请求(含旁路调用);界面实时读它的快照。 */
+    private val usageTally = com.meenai.mina.core.usage.RunUsageTally()
 
     private inner class Mirrored<T>(initial: T, private val shown: MutableStateFlow<T>) {
         private val own = MutableStateFlow(initial)
@@ -290,6 +292,13 @@ class TaskRun(
         g.resume()
         // 用户在页面上操作的那种暂停:循环可能还没走到关卡(还在想),按它此刻的状态重新显示,不再写着暂停
         if (wasOnPage) loop?.state?.value?.takeIf { it is TaskState.Running }?.let(::publish)
+    }
+
+    /** 用户按了暂停:正在等模型的那一步做完后,在下一个改动屏幕的动作前停下;界面上马上显示暂停。 */
+    fun pause() {
+        val g = gate ?: return
+        g.pause()
+        loop?.state?.value?.takeIf { it is TaskState.Running }?.let(::publish)
     }
     fun takeOver(waitKey: Int?) { takeover?.let { t -> scope.launch { t.handOver(waitKey) } } }
     fun handBack(waitKey: Int?) { takeover?.let { t -> scope.launch { t.handBack(waitKey) } } }
@@ -474,7 +483,8 @@ class TaskRun(
         var record: RunHandle? = null
         var runStore: RunStore? = null
         // 这次运行里经计量的模型请求(含旁路调用),收尾时记进运行记录
-        val tally = RunUsageTally()
+        val tally = usageTally
+        tally.onChange = { scope.launch { publishUsage() } }
         // 第一次打开网址时才建;没建过就不用关
         var webStack: WebStack? = null
         // 当前界面(手机/网页)要看分发器;画中画的画面来源随它切换
@@ -960,6 +970,7 @@ class TaskRun(
             _frames.value = null
             _webOpen.value = false
             synchronized(publishLock) { ended = true }
+            usageTally.onChange = null
             awake?.close()
             awake = null
             shellDeath?.let { d -> runCatching { shellBinder?.unlinkToDeath(d, 0) } }
@@ -1224,6 +1235,12 @@ class TaskRun(
         }
     }
 
+    /** 模型用量变了:把实时用量推到界面上(只在任务还在跑时)。 */
+    private fun publishUsage() {
+        val s = _state.value
+        if (s is TaskState.Running) publish(s)
+    }
+
     private fun publish(state: TaskState) {
         // 被挪走后到 gate 拦下之前,循环可能还在推理:对外先显示暂停
         // 循环自己报的终态不往外发:终态只由 [end] 在记好运行编号之后写,否则界面先收到结束、拿不到编号
@@ -1232,6 +1249,13 @@ class TaskRun(
             state is TaskState.Running && gate?.movedAwayPending == true -> TaskState.Held(TaskGate.paused(TaskGate.MOVED_AWAY))
             // 用户在借出的页面上操作:到关卡之前也先显示暂停
             state is TaskState.Running && gate?.userOnPagePending == true -> TaskState.Held(TaskGate.paused(TaskGate.USER_ON_PAGE))
+            // 用户自己按了暂停
+            state is TaskState.Running && gate?.userPausedPending == true -> TaskState.Held(TaskGate.paused(TaskGate.USER_PAUSED))
+            // 实时用量:每次模型调用、每次记下上下文都跟着更新
+            state is TaskState.Running -> {
+                val u = usageTally.snapshot()
+                if (u.calls == 0 && u.contextTokens == 0) state else state.copy(usage = u)
+            }
             else -> state
         }
         synchronized(publishLock) {

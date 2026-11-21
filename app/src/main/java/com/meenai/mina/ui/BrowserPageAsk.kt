@@ -342,6 +342,7 @@ class PageChat(private val context: Context, private val browser: UserBrowser, p
         override fun stop(runKey: String) = TaskService.cancel(context, runKey)
         override fun takeOver(runKey: String) = TaskService.takeOver(context, waitKey = run?.takeover?.waitKey, runKey = runKey)
         override fun resume(runKey: String) = TaskService.resume(context, runKey)
+        override fun pause(runKey: String) = TaskService.pause(context, runKey)
         override fun answer(runKey: String, text: String) = TaskService.answer(context, text, runKey)
         override fun approve(runKey: String, requestKey: Int) = TaskService.approve(context, requestKey, runKey)
         override fun decline(runKey: String, requestKey: Int) = TaskService.decline(context, requestKey, runKey)
@@ -641,7 +642,10 @@ fun PagePanel(chat: PageChat, site: String, pageTitle: String, modifier: Modifie
             else -> CapsuleCards.HINT_CONTINUE
         }
         val stoppable = live && (content is CardContent.Working || content is CardContent.Question || content is CardContent.Held)
-        if (hint != null) Column(Modifier.padding(top = 8.dp, bottom = 10.dp)) {
+        if (content is CardContent.Working) {
+            // 任务自己在浏览器里操作时不给输入框(像 Google 的智能体浏览):只留暂停和停止,不让人在它干活时插话
+            BrowsingBar(card?.line.orEmpty(), card?.run?.key, chat.actions)
+        } else if (hint != null) Column(Modifier.padding(top = 8.dp, bottom = 10.dp)) {
             chat.selection?.let { SelectionChip(it) { chat.selection = null } }
             AskField(chat, hint, stop = if (stoppable) ({ card?.run?.key?.let(chat.actions::stop) }) else null)
         } else Box(Modifier.height(10.dp))
@@ -649,6 +653,31 @@ fun PagePanel(chat: PageChat, site: String, pageTitle: String, modifier: Modifie
 }
 
 private val StepsMax = 132.dp
+
+/** 智能体自己在浏览器里干活时底下的控制条:一句在做什么,右边暂停和停止;不给输入框。 */
+@Composable
+private fun BrowsingBar(line: String, runKey: String?, actions: CardActions) {
+    val c = MinaTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.fill)
+            .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp).testTag("page-browsing-bar"),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(7.dp).clip(MinaShapes.Pill).background(GlowColor))
+        Text(
+            line.ifBlank { tr(R.string.page_browsing) }, Modifier.weight(1f),
+            style = MinaType.Caption, color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        runKey?.let { key ->
+            Box(
+                Modifier.size(34.dp).clip(MinaShapes.Pill).clickable(role = Role.Button, onClickLabel = tr(R.string.chat_pause)) { actions.pause(key) }
+                    .semantics { contentDescription = tr(R.string.chat_pause) }.testTag("page-pause"),
+                contentAlignment = Alignment.Center,
+            ) { Icon(MinaIcons.Pause, null, Modifier.size(18.dp), tint = c.ink2) }
+            StopKey { actions.stop(key) }
+        }
+    }
+}
 
 /**
  * 面板收起时底部的小卡片:那件事此刻在做什么,点一下展开。你在页面上动手而暂停时写「已暂停」和「继续」。

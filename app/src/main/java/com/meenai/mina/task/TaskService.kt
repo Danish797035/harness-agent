@@ -197,6 +197,7 @@ class TaskService : Service() {
                 ?.let { r -> if (center.cancelIfQueued(r)) cancelQueued(r) else r.cancel() }
             ACTION_CANCEL -> if (run != null && center.cancelIfQueued(run)) cancelQueued(run) else run?.cancel()
             ACTION_RESUME -> run?.resume()
+            ACTION_PAUSE -> run?.pause()
             ACTION_TAKE_OVER -> run?.takeOver(waitKeyOf(intent))
             ACTION_HAND_BACK -> run?.handBack(waitKeyOf(intent))
             ACTION_FINISHED_MYSELF -> run?.finishedMyself(waitKeyOf(intent))
@@ -818,6 +819,7 @@ class TaskService : Service() {
         const val ACTION_CANCEL_MCP = "com.meenai.mina.task.CANCEL_MCP"
         const val ACTION_CANCEL = "com.meenai.mina.task.CANCEL"
         const val ACTION_RESUME = "com.meenai.mina.task.RESUME"
+        const val ACTION_PAUSE = "com.meenai.mina.task.PAUSE"
         const val ACTION_TAKE_OVER = "com.meenai.mina.task.TAKE_OVER"
         const val ACTION_HAND_BACK = "com.meenai.mina.task.HAND_BACK"
         const val ACTION_FINISHED_MYSELF = "com.meenai.mina.task.FINISHED_MYSELF"
@@ -914,6 +916,9 @@ class TaskService : Service() {
 
         /** 用户点了「继续」:被挪走的 App 会被挪回 Mina 的屏幕。 */
         fun resume(context: Context, runKey: String? = null) = send(context, ACTION_RESUME, runKey = runKey)
+
+        /** 用户按了暂停:下一步改动屏幕之前停下,等「继续」。 */
+        fun pause(context: Context, runKey: String? = null) = send(context, ACTION_PAUSE, runKey = runKey)
 
         /** 「我来处理」:把 App 挪到主屏并恢复它的声音。 */
         fun takeOver(context: Context, waitKey: Int? = null, runKey: String? = null) = send(context, ACTION_TAKE_OVER, waitKey, runKey)

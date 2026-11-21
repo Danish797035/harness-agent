@@ -46,6 +46,14 @@
     <string name="chat_open">Open</string>
     <string name="chat_attach_rejected">Couldn’t add: %1$s (each file must be under 200 MB)</string>
     <string name="chat_stop">Stop</string>
+    <string name="chat_pause">Pause</string>
+    <string name="chat_resume">Resume</string>
+    <string name="chat_usage_calls">%1$d calls</string>
+    <string name="chat_usage_tokens">%1$s in · %2$s out</string>
+    <string name="chat_usage_context">Context %1$s / %2$s · %3$s left</string>
+    <string name="chat_usage_context_open">Context %1$s</string>
+    <string name="chat_usage_quota_left">%1$d left %2$s</string>
+    <string name="page_browsing">Browsing the page…</string>
     <string name="chat_send">Send</string>
     <string name="drawer_running_task">Running task</string>
     <string name="drawer_running">Running</string>
