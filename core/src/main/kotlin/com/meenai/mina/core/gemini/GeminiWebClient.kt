@@ -2,6 +2,7 @@ package com.meenai.mina.core.gemini
 
 import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.ModelError
+import com.meenai.mina.core.net.NetProxy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,11 +37,46 @@ object GeminiWebClient {
     val EMAIL_REGEX = Regex(""""o3H74c":\s*"([^"]+)"""")
 
     val geminiWebHttp: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
+        // Same proxy/DNS rules as the other model clients: a signed-in Google
+        // session is useless when the request cannot leave the device.
+        NetProxy.shared.client(
+            OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .cookieJar(cookieJar)
+        )
+    }
+
+    /** Rotated Google cookies; see [GeminiCookieJar]. */
+    internal val cookieJar = GeminiCookieJar()
+
+    fun seedCookies(header: String) = cookieJar.seed(header)
+
+    fun clearCookies() = cookieJar.clear()
+
+    /** Cookies as they stand now, including values Google rotated after login. */
+    fun cookieSnapshot(): String = cookieJar.snapshot()
+
+    /** One `Cookie:` header value: no line breaks, no empty `;;`, no trailing `;`. */
+    fun sanitizeCookieHeader(raw: String): String = raw
+        .replace(Regex("[\\r\\n]+"), ";")
+        .split(';')
+        .map { it.replace(Regex("[\\t ]+"), " ").trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("; ")
+
+    /**
+     * Accepts both a full cookie header and a bare `__Secure-1PSID` value (what
+     * the manual sign-in box asks for). A raw value can contain `=`, so it must
+     * not be mistaken for `name=value`.
+     */
+    fun normalizeCookieHeader(raw: String): String {
+        val text = raw.trim().trim('"')
+        if (text.isEmpty()) return ""
+        val single = sanitizeCookieHeader(text)
+        return if (single.contains("__Secure-1PSID") || single.contains(';')) single
+        else sanitizeCookieHeader("__Secure-1PSID=$single")
     }
 
     val DEFAULT_MODELS: List<ListedModel> = listOf(
@@ -103,22 +139,25 @@ object GeminiWebClient {
     }
 
     suspend fun fetchSessionFromCookies(http: OkHttpClient, cookies: String): GeminiWebSession {
+        val header = normalizeCookieHeader(cookies)
         val request = Request.Builder()
             .url(INIT_URL)
             .header("User-Agent", CHROME_USER_AGENT)
-            .header("Cookie", cookies)
+            .header("Cookie", header)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Referer", "https://accounts.google.com/")
             .get()
             .build()
 
         val response = http.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw ModelError.SignInExpired("Google Gemini (HTTP ${response.code})")
+        response.use {
+            if (!it.isSuccessful) {
+                throw ModelError.SignInExpired("Google Gemini (HTTP ${it.code})")
+            }
+            val html = it.body?.string().orEmpty()
+            return extractSessionFromHtml(html, header)
+                ?: throw ModelError.SignInExpired("Failed to extract SNlM0e token from Gemini page. Please sign in again.")
         }
-        val html = response.body?.string().orEmpty()
-        return extractSessionFromHtml(html, cookies)
-            ?: throw ModelError.SignInExpired("Failed to extract SNlM0e token from Gemini page. Please sign in again.")
     }
 
     fun modelNumberFor(model: String): Int = when {

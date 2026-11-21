@@ -62,7 +62,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -209,6 +208,7 @@ private fun createGoogleLoginWebView(
 ): WebView {
     val json = Json { ignoreUnknownKeys = true }
     var loginHandled = false
+    var captureAttempts = 0
 
     return WebView(context).apply {
         settings.apply {
@@ -224,6 +224,68 @@ private fun createGoogleLoginWebView(
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(this, true)
 
+        fun isGeminiUrl(url: String?): Boolean =
+            url != null && (url.startsWith("https://gemini.google.com") || url.contains("gemini.google.com/app"))
+
+        // Gemini is a single-page app: onPageFinished fires before WIZ_global_data
+        // exists, so reading it once left the dialog stuck at "signing in".
+        // Poll for a few seconds and re-read on every in-app navigation instead.
+        fun capture() {
+            if (loginHandled || captureAttempts > 20) return
+            val rawCookies = cookieManager.getCookie("https://gemini.google.com").orEmpty()
+            if (!rawCookies.contains("__Secure-1PSID")) return
+            captureAttempts++
+            evaluateJavascript(
+                """
+                (function() {
+                    try {
+                        var wiz = window.WIZ_global_data || {};
+                        return JSON.stringify({
+                            snlm0e: wiz.SNlM0e || "",
+                            cfb2h: wiz.cfb2h || "",
+                            fdrfje: wiz.FdrFJe || "",
+                            email: wiz.o3H74c || ""
+                        });
+                    } catch(e) {
+                        return "{}";
+                    }
+                })();
+                """.trimIndent()
+            ) { result ->
+                if (loginHandled) return@evaluateJavascript
+                try {
+                    val cleanJson = if (result.startsWith("\"") && result.endsWith("\"")) {
+                        json.parseToJsonElement(result).jsonPrimitive.content
+                    } else result
+
+                    val parsed = json.parseToJsonElement(cleanJson).jsonObject
+                    val snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
+                    val cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
+                    val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
+                    val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
+
+                    if (snlm0e.isNotBlank()) {
+                        loginHandled = true
+                        cookieManager.flush()
+                        onLoginCaptured(
+                            GeminiWebSession(
+                                cookies = rawCookies,
+                                snlm0e = snlm0e,
+                                cfb2h = cfb2h,
+                                fdrfje = fdrfje,
+                                email = email,
+                                signedIn = true
+                            )
+                        )
+                    } else {
+                        postDelayed({ capture() }, 500)
+                    }
+                } catch (_: Exception) {
+                    postDelayed({ capture() }, 500)
+                }
+            }
+        }
+
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
@@ -233,61 +295,17 @@ private fun createGoogleLoginWebView(
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 onLoadingChange(false)
+                if (isGeminiUrl(url)) capture()
+            }
 
-                if (url == null || loginHandled) return
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                super.onPageCommitVisible(view, url)
+                if (isGeminiUrl(url)) capture()
+            }
 
-                val isGeminiApp = url.startsWith("https://gemini.google.com") || url.contains("gemini.google.com/app")
-
-                if (isGeminiApp) {
-                    val rawCookies = cookieManager.getCookie("https://gemini.google.com").orEmpty()
-
-                    if (rawCookies.contains("__Secure-1PSID")) {
-                        // Extract WIZ_global_data from the loaded page
-                        evaluateJavascript(
-                            """
-                            (function() {
-                                try {
-                                    var wiz = window.WIZ_global_data || {};
-                                    return JSON.stringify({
-                                        snlm0e: wiz.SNlM0e || "",
-                                        cfb2h: wiz.cfb2h || "",
-                                        fdrfje: wiz.FdrFJe || "",
-                                        email: wiz.o3H74c || ""
-                                    });
-                                } catch(e) {
-                                    return "{}";
-                                }
-                            })();
-                            """.trimIndent()
-                        ) { result ->
-                            if (loginHandled) return@evaluateJavascript
-                            try {
-                                val cleanJson = if (result.startsWith("\"") && result.endsWith("\"")) {
-                                    json.parseToJsonElement(result).jsonPrimitive.content
-                                } else result
-
-                                val parsed = json.parseToJsonElement(cleanJson).jsonObject
-                                val snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
-                                val cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
-                                val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
-                                val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
-
-                                if (snlm0e.isNotBlank()) {
-                                    loginHandled = true
-                                    val session = GeminiWebSession(
-                                        cookies = rawCookies,
-                                        snlm0e = snlm0e,
-                                        cfb2h = cfb2h,
-                                        fdrfje = fdrfje,
-                                        email = email,
-                                        signedIn = true
-                                    )
-                                    onLoginCaptured(session)
-                                }
-                            } catch (_: Exception) {}
-                        }
-                    }
-                }
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                if (isGeminiUrl(url)) capture()
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -380,7 +398,7 @@ private fun ManualCookieEntry(
                     return@MinaButton
                 }
 
-                val fullCookies = if (!raw.contains("=")) "__Secure-1PSID=$raw" else raw
+                val fullCookies = GeminiWebClient.normalizeCookieHeader(raw)
                 isSubmitting = true
                 errorMsg = null
 
@@ -389,14 +407,15 @@ private fun ManualCookieEntry(
                         val session = if (tokenInput.isNotBlank()) {
                             GeminiWebSession(
                                 cookies = fullCookies,
-                                snlm0e = tokenInput.trim(),
+                                snlm0e = tokenInput.trim().trim('"'),
                                 email = emailInput.trim(),
                                 signedIn = true
                             )
                         } else {
-                            withContext(Dispatchers.IO) {
-                                GeminiWebClient.fetchSessionFromCookies(OkHttpClient(), fullCookies)
-                            }.copy(email = emailInput.trim().ifEmpty { emailInput })
+                            val detected = withContext(Dispatchers.IO) {
+                                GeminiWebClient.fetchSessionFromCookies(GeminiWebClient.geminiWebHttp, fullCookies)
+                            }
+                            detected.copy(email = emailInput.trim().ifBlank { detected.email })
                         }
                         onSuccess(session)
                     } catch (e: Exception) {

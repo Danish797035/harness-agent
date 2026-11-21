@@ -440,7 +440,133 @@ class GeminiWebModelTest {
         val reply = model.complete("sys", greetingMsg, tools)
 
         assertTrue(reply.parts.any { it is Part.Text && it.text.contains("Hello!") })
-        // Verify tools were NOT sent in the prompt for greeting
-        assertTrue("Greeting prompt should omit [Available Tools] for fast 1-second response", !recordedBody.contains("[Available Tools]"))
+        // Verify tools were NOT sent in the prompt for greeting. The request body
+        // is form-encoded, so decode it before looking for the literal marker.
+        assertTrue(
+            "Greeting prompt should omit [Available Tools] for fast 1-second response",
+            !decodedBody(recordedBody).contains("[Available Tools]")
+        )
+    }
+
+    /** Request bodies are form-encoded; decode before asserting on prompt text. */
+    private fun decodedBody(raw: String): String =
+        runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+
+    private fun textPayload(text: String): String = buildJsonArray {
+        add(JsonPrimitive(null as String?))
+        add(JsonPrimitive(null as String?))
+        add(JsonPrimitive(null as String?))
+        add(JsonPrimitive(null as String?))
+        add(buildJsonArray {
+            add(buildJsonArray {
+                add(JsonPrimitive("rc_1"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+            })
+        })
+    }.toString()
+
+    private fun redirectingClient(record: ((String) -> Unit)? = null, jar: okhttp3.CookieJar? = null): OkHttpClient =
+        OkHttpClient.Builder()
+            .apply { if (jar != null) cookieJar(jar) }
+            .addInterceptor { chain ->
+                val original = chain.request()
+                if (record != null) {
+                    val buffer = okio.Buffer()
+                    original.newBuilder().build().body?.writeTo(buffer)
+                    record(buffer.readUtf8())
+                }
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+    @Test
+    fun shortRequestThatIsNotAGreetingStillGetsTools() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("ok"))))
+
+        var recordedBody = ""
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(record = { recordedBody = it })
+        )
+
+        val msg = listOf(Message(Role.User, listOf(Part.Text("weather batao")), Author.User))
+        model.complete("sys", msg, listOf(ToolSpec("phone_tap", "Tap on phone screen", "{}")))
+
+        assertTrue(
+            "A short real request must keep its tools",
+            decodedBody(recordedBody).contains("[Available Tools]")
+        )
+    }
+
+    @Test
+    fun everyFrameOnOneLineIsRead() = runTest {
+        val line = buildJsonArray {
+            add(buildJsonArray {
+                add(JsonPrimitive("wrb.fr"))
+                add(JsonPrimitive(null as String?))
+                add(JsonPrimitive(textPayload("Hello")))
+            })
+            add(buildJsonArray {
+                add(JsonPrimitive("wrb.fr"))
+                add(JsonPrimitive(null as String?))
+                add(JsonPrimitive(textPayload("Hello world")))
+            })
+        }.toString()
+        server.enqueue(MockResponse().setResponseCode(200).setBody(")]}'\n120\n$line\n"))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+        assertEquals("Hello world", reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text })
+    }
+
+    @Test
+    fun rotatedCookiesAreSavedBackToTheSession() = runTest {
+        GeminiWebClient.clearCookies()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .addHeader("Set-Cookie", "__Secure-1PSIDTS=rotated; Path=/; Secure; HttpOnly")
+                .setBody(makeStreamData(textPayload("ok")))
+        )
+
+        var saved: GeminiWebSession? = null
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+            onSessionUpdated = { saved = it }
+        )
+
+        model.complete("sys", userMsg, emptyList())
+
+        assertNotNull("A rotated cookie must be written back", saved)
+        assertTrue(saved!!.cookies.contains("__Secure-1PSIDTS=rotated"))
+        assertTrue(saved!!.cookies.contains("__Secure-1PSID=test-sid"))
+    }
+
+    @Test
+    fun normalizeCookieHeaderAcceptsARawOnePsidValue() {
+        assertEquals("__Secure-1PSID=abc.def==", GeminiWebClient.normalizeCookieHeader("abc.def=="))
+    }
+
+    @Test
+    fun normalizeCookieHeaderKeepsAFullHeaderAndRemovesLineBreaks() {
+        assertEquals(
+            "__Secure-1PSID=a; __Secure-1PSIDTS=b",
+            GeminiWebClient.normalizeCookieHeader("__Secure-1PSID=a;\n__Secure-1PSIDTS=b")
+        )
     }
 }

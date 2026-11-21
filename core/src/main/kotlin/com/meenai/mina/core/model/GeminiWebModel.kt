@@ -2,6 +2,14 @@ package com.meenai.mina.core.model
 
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -16,10 +24,15 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.BufferedReader
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
+
+private const val DEFAULT_BUILD_LABEL = "boq_assistant-bard-web-server_20250101.00_p0"
 
 class GeminiWebModel(
     private var session: GeminiWebSession,
@@ -29,6 +42,8 @@ class GeminiWebModel(
     private val headers: Map<String, String> = emptyMap(),
     private val reasoningEffort: String? = null,
     private val onSessionUpdated: ((GeminiWebSession) -> Unit)? = null,
+    /** How long to wait for the first frame before closing the socket (0 = no limit). */
+    private val firstTokenTimeoutMs: Long = 90_000L,
 ) : StreamingChatModel {
 
     override val name: String get() = model
@@ -51,7 +66,7 @@ class GeminiWebModel(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit
-    ): ModelReply {
+    ): ModelReply = withContext(Dispatchers.IO) {
         val isChat = isConversational(messages)
         val effectiveTools = if (isChat) emptyList() else tools
         val prompt = formatPrompt(system, messages, effectiveTools)
@@ -63,73 +78,130 @@ class GeminiWebModel(
         val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)
         val modelHeader = GeminiWebClient.buildModelHeader(modelHexId, capacity = 2, modelNumber, thinkingFlag, uuid)
 
+        // Google rotates __Secure-1PSIDTS on most responses. Seed once, then keep
+        // whatever the jar collected so a rotated token is not overwritten by the
+        // stale header saved at login time.
+        GeminiWebClient.seedCookies(session.cookies)
         var currentSession = session
-        var bl = currentSession.cfb2h.ifBlank { "boq_assistant-bard-web-server_20250101.00_p0" }
-        var request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
+        var refreshed = false
 
-        var response = try {
-            http.newCall(request).execute()
-        } catch (e: Exception) {
-            throw ModelError.Network(e)
+        while (true) {
+            val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
+            val request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
+            val response = try {
+                http.newCall(request).execute()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw ModelError.Network(e)
+            }
+            try {
+                // Only peek when the status says something went wrong: peeking a
+                // healthy stream would wait for the first bytes and delay the reply.
+                if (response.code in 401..403 || response.code == 400) {
+                    val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
+                    if (isSessionFailure(response.code, peek)) {
+                        val next = if (refreshed) null else refreshSession(currentSession)
+                        if (next == null) throw ModelError.SignInExpired("Google Gemini")
+                        refreshed = true
+                        currentSession = next
+                        continue
+                    }
+                }
+                if (response.code in 401..403) throw ModelError.SignInExpired("Google Gemini")
+                if (response.code == 429) throw ModelError.RateLimited(null)
+                if (response.code >= 500) throw ModelError.Server(response.code)
+                if (!response.isSuccessful) {
+                    val body = response.body?.string().orEmpty()
+                    if (response.code == 400 && isSessionFailure(400, body)) {
+                        throw ModelError.SignInExpired("Google Gemini")
+                    }
+                    throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}")
+                }
+
+                val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
+                val (fullText, fullThoughts) = readStream(response, body.byteStream(), onText)
+                persistCookies()
+
+                val cleanText = cleanupText(fullText)
+                val toolCalls = parseToolCalls(cleanText)
+
+                val parts = mutableListOf<Part>()
+                if (fullThoughts.isNotBlank()) {
+                    parts.add(Part.Thinking(fullThoughts.trim()))
+                }
+
+                val stopReason = if (toolCalls.isNotEmpty()) {
+                    val prefixText = stripToolCalls(cleanText)
+                    if (prefixText.isNotBlank()) {
+                        parts.add(Part.Text(prefixText))
+                    }
+                    parts.addAll(toolCalls)
+                    StopReason.ToolUse
+                } else {
+                    val trimmedText = cleanText.trim()
+                    val isBracketJunk = trimmedText.isEmpty() ||
+                        trimmedText == "]" || trimmedText == "}" || trimmedText == "]\n}" || trimmedText == "}\n]" ||
+                        trimmedText == "{}" || trimmedText == "[]" ||
+                        ((trimmedText.startsWith("{") || trimmedText.startsWith("[")) && (trimmedText.endsWith("}") || trimmedText.endsWith("]")))
+
+                    val sanitizedText = if (isBracketJunk) {
+                        val lastUserText = messages.lastOrNull { it.role == Role.User }?.parts
+                            ?.filterIsInstance<Part.Text>()?.joinToString(" ") { it.text }?.trim().orEmpty()
+                        if (lastUserText.equals("hi", ignoreCase = true) || lastUserText.equals("hello", ignoreCase = true)) {
+                            "Hello! How can I help you today?"
+                        } else {
+                            ""
+                        }
+                    } else {
+                        cleanText
+                    }
+
+                    if (sanitizedText.isNotBlank()) {
+                        parts.add(Part.Text(sanitizedText))
+                    }
+                    StopReason.EndTurn
+                }
+
+                val usage = Usage(
+                    inputTokens = prompt.length / 4,
+                    outputTokens = (fullText.length + fullThoughts.length) / 4,
+                    reasoningTokens = fullThoughts.length / 4
+                )
+
+                return@withContext LeakedToolMarkup.repair(ModelReply(parts, stopReason, usage))
+            } finally {
+                response.close()
+            }
         }
+        throw IllegalStateException("unreachable")
+    }
+
+    /** Reads the length-prefixed frame stream. Cancelling the call closes the socket instead of waiting 300 s. */
+    private suspend fun readStream(
+        response: Response,
+        stream: InputStream,
+        onText: (String) -> Unit,
+    ): Pair<String, String> = coroutineScope {
+        val reader = BufferedReader(InputStreamReader(stream, Charsets.UTF_8))
         var fullText = ""
         var fullThoughts = ""
         var lastReportedVisible = ""
-        
-        try { if (response.code in 401..403 || response.code == 400) {
-            val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
-            val isSessionError = response.code in 401..403 ||
-                peek.contains("af.httprm") || peek.contains("141") || peek.contains("\"er\"")
+        val firstFrame = AtomicBoolean(false)
+        val timedOut = AtomicBoolean(false)
 
-            if (isSessionError) {
-                val refreshed = runCatching {
-                    GeminiWebClient.fetchSessionFromCookies(http, currentSession.cookies)
-                }.getOrNull()
-
-                if (refreshed != null && refreshed.snlm0e.isNotBlank()) {
-                    response.close()
-                    session = refreshed
-                    currentSession = refreshed
-                    onSessionUpdated?.invoke(refreshed)
-                    bl = refreshed.cfb2h.ifBlank { bl }
-                    request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
-                    response = try {
-                        http.newCall(request).execute()
-                    } catch (e: Exception) {
-                        throw ModelError.Network(e)
-                    }
-                } else {
-                    response.close()
-                    throw ModelError.SignInExpired("Google Gemini")
-                }
+        val watchdog = if (firstTokenTimeoutMs > 0) launch {
+            delay(firstTokenTimeoutMs)
+            if (!firstFrame.get()) {
+                timedOut.set(true)
+                response.close()
             }
-        }
-
-        if (response.code in 401..403) {
-            throw ModelError.SignInExpired("Google Gemini")
-        }
-        if (response.code == 429) {
-            throw ModelError.RateLimited(null)
-        }
-        if (response.code >= 500) {
-            throw ModelError.Server(response.code)
-        }
-        if (!response.isSuccessful) {
-            val body = response.body?.string().orEmpty()
-            if (response.code == 400 && (body.contains("af.httprm") || body.contains("141") || body.contains("\"er\""))) {
-                throw ModelError.SignInExpired("Google Gemini")
-            }
-            throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}")
-        }
-
-        val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
-
-        val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
-
+        } else null
 
         try {
             var line: String? = reader.readLine()
             while (line != null) {
+                currentCoroutineContext().ensureActive()
                 val trimmed = line.trim()
                 if (trimmed.startsWith(")]}'") || trimmed.all { it.isDigit() } || trimmed.isEmpty()) {
                     line = reader.readLine()
@@ -138,6 +210,7 @@ class GeminiWebModel(
 
                 val parsedChunk = parseChunk(trimmed)
                 if (parsedChunk != null) {
+                    if (!firstFrame.getAndSet(true)) watchdog?.cancel()
                     var chunkArrived = false
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
@@ -155,7 +228,7 @@ class GeminiWebModel(
                         }
                     }
                     if (chunkArrived && lastReportedVisible.isEmpty()) {
-                        // Signal that tokens have arrived (tool call or thoughts) so watchdog cancels immediately
+                        // Signal that tokens have arrived (tool call or thoughts) so the router watchdog cancels immediately
                         onText("")
                     }
                     if (parsedChunk.isCompleted) {
@@ -165,64 +238,61 @@ class GeminiWebModel(
                 line = reader.readLine()
             }
         } catch (e: java.net.SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
             if (fullText.isEmpty() && fullThoughts.isEmpty()) {
                 throw ModelError.FirstTokenTimeout()
             } else {
                 throw ModelError.StreamCut()
             }
         } catch (e: java.io.IOException) {
+            currentCoroutineContext().ensureActive()
+            if (timedOut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
+                throw ModelError.FirstTokenTimeout()
+            }
             throw ModelError.Network(e)
         } finally {
-            reader.close() } } finally { response.close()
+            watchdog?.cancel()
+            runCatching { reader.close() }
         }
 
-        val cleanText = cleanupText(fullText)
-        val toolCalls = parseToolCalls(cleanText)
-
-        val parts = mutableListOf<Part>()
-        if (fullThoughts.isNotBlank()) {
-            parts.add(Part.Thinking(fullThoughts.trim()))
+        if (timedOut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
+            throw ModelError.FirstTokenTimeout()
         }
+        fullText to fullThoughts
+    }
 
-        val stopReason = if (toolCalls.isNotEmpty()) {
-            val prefixText = stripToolCalls(cleanText)
-            if (prefixText.isNotBlank()) {
-                parts.add(Part.Text(prefixText))
-            }
-            parts.addAll(toolCalls)
-            StopReason.ToolUse
-        } else {
-            val trimmedText = cleanText.trim()
-            val isBracketJunk = trimmedText.isEmpty() ||
-                trimmedText == "]" || trimmedText == "}" || trimmedText == "]\n}" || trimmedText == "}\n]" ||
-                trimmedText == "{}" || trimmedText == "[]" ||
-                ((trimmedText.startsWith("{") || trimmedText.startsWith("[")) && (trimmedText.endsWith("}") || trimmedText.endsWith("]")))
+    /** Gets a fresh `SNlM0e` from the logged-in page, reusing the rotated cookies when there are any. */
+    private suspend fun refreshSession(old: GeminiWebSession): GeminiWebSession? {
+        val cookies = GeminiWebClient.cookieSnapshot().ifBlank { old.cookies }
+        val refreshed = try {
+            GeminiWebClient.fetchSessionFromCookies(http, cookies)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        if (refreshed.snlm0e.isBlank()) return null
+        val next = refreshed.copy(email = old.email.ifBlank { refreshed.email })
+        session = next
+        GeminiWebClient.seedCookies(next.cookies)
+        onSessionUpdated?.invoke(next)
+        return next
+    }
 
-            val sanitizedText = if (isBracketJunk) {
-                val lastUserText = messages.lastOrNull { it.role == Role.User }?.parts
-                    ?.filterIsInstance<Part.Text>()?.joinToString(" ") { it.text }?.trim().orEmpty()
-                if (lastUserText.equals("hi", ignoreCase = true) || lastUserText.equals("hello", ignoreCase = true)) {
-                    "Hello! How can I help you today?"
-                } else {
-                    ""
-                }
-            } else {
-                cleanText
-            }
+    /** Writes rotated cookies back to the saved session so the next launch keeps the login. */
+    private fun persistCookies() {
+        val latest = GeminiWebClient.cookieSnapshot()
+        if (latest.isBlank() || latest == session.cookies) return
+        session = session.copy(cookies = latest, savedAtMs = System.currentTimeMillis())
+        onSessionUpdated?.invoke(session)
+    }
 
-            if (sanitizedText.isNotBlank()) {
-                parts.add(Part.Text(sanitizedText))
-            }
-            StopReason.EndTurn
-        }
-
-        val usage = Usage(
-            inputTokens = prompt.length / 4,
-            outputTokens = (fullText.length + fullThoughts.length) / 4,
-            reasoningTokens = fullThoughts.length / 4
-        )
-
-        return LeakedToolMarkup.repair(ModelReply(parts, stopReason, usage))
+    private fun isSessionFailure(code: Int, body: String): Boolean {
+        if (code in 401..403) return true
+        if (code != 400) return false
+        val text = body.lowercase()
+        return text.contains("af.httprm") || text.contains("\"er\"") || text.contains("snlm0e") ||
+            text.contains("rpc error") || text.contains("141")
     }
 
     private fun createPostRequest(
@@ -250,7 +320,7 @@ class GeminiWebModel(
             .header("Referer", "https://gemini.google.com/")
             .header("X-Same-Domain", "1")
             .header("User-Agent", GeminiWebClient.CHROME_USER_AGENT)
-            .header("Cookie", currentSession.cookies)
+            .header("Cookie", GeminiWebClient.sanitizeCookieHeader(currentSession.cookies))
             .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
             .header(GeminiWebClient.MODEL_HEADER_KEY, modelHeader)
             .header("x-goog-ext-525005358-jspb", "[\"$uuid\",1]")
@@ -263,7 +333,21 @@ class GeminiWebModel(
             .build()
     }
 
-    private data class ParsedChunk(val text: String, val thoughts: String, val isCompleted: Boolean); private fun throwStreamError(raw: String): Nothing { val l = raw.lowercase(); if (l.contains("401") || l.contains("403") || l.contains("141") || l.contains("1013") || l.contains("auth") || l.contains("session") || l.contains("sign") || l.contains("expired") || l.contains("cookie")) throw ModelError.SignInExpired("Google Gemini"); throw ModelError.BadResponse("Gemini stream error: $raw") }
+    private data class ParsedChunk(val text: String, val thoughts: String, val isCompleted: Boolean)
+
+    /**
+     * Gemini tags stream failures with `er`. Only treat it as an expired login
+     * when the text actually says so; a bare `auth` substring matched words like
+     * "author" and turned ordinary errors into "sign in again".
+     */
+    private fun throwStreamError(raw: String): Nothing {
+        val text = raw.lowercase()
+        val expired = text.contains("af.httprm") || text.contains("snlm0e") ||
+            Regex("""\b(unauthorized|unauthenticated|auth|signin|sign-in|expired|cookie|session)\b""")
+                .containsMatchIn(text)
+        if (expired) throw ModelError.SignInExpired("Google Gemini")
+        throw ModelError.BadResponse("Gemini stream error: ${raw.take(200)}")
+    }
 
     private fun parseChunk(line: String): ParsedChunk? {
         val root = try {
@@ -272,10 +356,18 @@ class GeminiWebModel(
             return null
         }
 
+        var text = ""
+        var thoughts = ""
+        var completed = false
+        var sawCandidate = false
+
+        // One line can carry more than one `wrb.fr` entry (batched frames).
+        // Keeping only the first one dropped the rest of the reply.
         for (item in root) {
             val itemArr = item as? JsonArray ?: continue
             val tag = (itemArr.getOrNull(0) as? JsonPrimitive)?.contentOrNull
-            if (tag == "er") throwStreamError(itemArr.toString()); if (tag != "wrb.fr") continue
+            if (tag == "er") throwStreamError(itemArr.toString())
+            if (tag != "wrb.fr") continue
 
             val payloadStr = (itemArr.getOrNull(2) as? JsonPrimitive)?.contentOrNull ?: continue
             val payload = try {
@@ -286,14 +378,18 @@ class GeminiWebModel(
 
             val candidates = payload.getOrNull(4) as? JsonArray ?: continue
             val firstCandidate = candidates.getOrNull(0) as? JsonArray ?: continue
+            sawCandidate = true
 
-            val text = (firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
-            val thoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            val nextText = (firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (nextText.length >= text.length) text = nextText
+            val nextThoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)
+                ?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (nextThoughts.length >= thoughts.length) thoughts = nextThoughts
             val indicator = (firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull ?: 0
-
-            return ParsedChunk(text = text, thoughts = thoughts, isCompleted = indicator == 2)
+            if (indicator == 2) completed = true
         }
-        return null
+
+        return if (sawCandidate) ParsedChunk(text = text, thoughts = thoughts, isCompleted = completed) else null
     }
 
     private fun stripToolCalls(text: String): String {
@@ -487,18 +583,16 @@ class GeminiWebModel(
         )
         val cleaned = userText.replace(Regex("""[^\w\s]"""), "").trim()
         if (cleaned in greetings) return true
-
-        val actionKeywords = listOf(
-            "open", "launch", "khol", "kholo", "chalao", "start", "search", "dhundo", "dhoondo",
-            "click", "tap", "type", "send", "bhejo", "call", "lagao", "install", "download",
-            "create", "banao", "generate", "genrate", "make", "dikhao", "image", "photo", "pic", "picture", "draw", "screen",
-            "phone", "setting", "app", "read", "check", "order", "buy", "cart", "pay", "delete",
-            "remove", "clear", "scroll", "swipe", "press", "back", "home", "play", "music", "video"
-        )
-        val hasAction = actionKeywords.any { cleaned.contains(Regex("""\b$it\b""")) }
-        if (!hasAction && cleaned.split(Regex("""\s+""")).size <= 6) {
-            return true
-        }
+        // "hi mina", "hello there": still a greeting, not a task.
+        val words = cleaned.split(Regex("""\s+"""))
+        if (words.firstOrNull() in GREETING_WORDS && words.size <= 3) return true
+        // Anything else keeps the tools. The old "six words or fewer" rule
+        // treated short real requests ("weather batao", "kal ka mausam") as chat
+        // and silently removed every tool, so the model could not act at all.
         return false
+    }
+
+    private companion object {
+        val GREETING_WORDS = setOf("hi", "hii", "hiii", "hello", "hey", "hola", "namaste", "pranam")
     }
 }

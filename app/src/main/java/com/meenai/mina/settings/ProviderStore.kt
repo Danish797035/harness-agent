@@ -819,6 +819,7 @@ class ProviderStore(
     @Synchronized
     fun connectGeminiWeb(session: GeminiWebSession, models: List<ListedModel> = emptyList()): Provider {
         val finalModels = if (models.isNotEmpty()) models else GeminiWebClient.DEFAULT_MODELS
+        GeminiWebClient.seedCookies(session.cookies)
         val existing = geminiWebProvider()
         val p = if (existing == null) {
             connect(GEMINI_WEB_NAME, ProviderConfig.Kind.GeminiWeb, GEMINI_WEB_BASE, session.toJson(), finalModels, signIn = GEMINI_WEB_SIGN_IN)
@@ -838,7 +839,20 @@ class ProviderStore(
     fun signOutGeminiWeb(providerId: String): Boolean {
         val s = geminiWebSession(providerId) ?: return true
         setKey(providerId, s.signedOut().toJson())
+        GeminiWebClient.clearCookies()
         return true
+    }
+
+    /**
+     * Only the session changed (Google rotated its cookies or the page handed us
+     * a fresh `SNlM0e`). Writing the key is enough: re-running [connectGeminiWeb]
+     * here would replace the provider's model list with the defaults and rewrite
+     * the whole config from the middle of a streaming reply.
+     */
+    @Synchronized
+    fun updateGeminiWebSession(providerId: String, session: GeminiWebSession) {
+        val id = provider(providerId)?.id ?: geminiWebProvider()?.id ?: return
+        setKey(id, session.toJson())
     }
 
     /** 模型单独指定了接口的,按它的协议选适配器、用它的地址;否则按配置的接口类型和地址。Key 都用服务商的。 */
@@ -884,7 +898,7 @@ class ProviderStore(
                     headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort,
                     onSessionUpdated = { newSess ->
-                        connectGeminiWeb(newSess)
+                        updateGeminiWebSession(cfg.providerId, newSess)
                     }
                 )
             }
