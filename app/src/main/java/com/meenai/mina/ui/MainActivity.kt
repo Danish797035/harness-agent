@@ -404,7 +404,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
                 updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
                 onCheckUpdates = app.updates::checkInBackground,
-                updateState = updateState)
+                updateState = updateState,
+                routerStatus = app.routerStatus)
         }
         Route.Vault -> VaultScreen(vault = app.vault, onBack = back)
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, routerStatus = app.routerStatus)
