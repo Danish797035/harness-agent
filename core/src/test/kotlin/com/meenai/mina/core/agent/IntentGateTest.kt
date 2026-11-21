@@ -33,4 +33,21 @@ class IntentGateTest {
         assertTrue(light.offeredTools.single().isEmpty())
         assertTrue(main.offeredTools.single().isEmpty())
     }
+
+    @Test fun clearCommandsSkipTheJudge() = runTest {
+        val judge = FakeModel(IllegalStateException("judge must not be called"))
+        val gate = IntentGate(judge)
+        assertEquals(IntentGate.Intent.Act, gate.assess("open YouTube", emptyList()))
+        assertEquals(IntentGate.Intent.Act, gate.assess("search Motu Patlu", emptyList()))
+        assertEquals(IntentGate.Intent.Act, gate.assess("can you open YouTube", emptyList()))
+        assertEquals(IntentGate.Intent.Act, gate.assess("youtube kholo", emptyList()))
+        assertTrue("a clear command must not cost a judge call", judge.requests.isEmpty())
+    }
+
+    @Test fun questionsStillGoToTheJudge() = runTest {
+        assertEquals(IntentGate.Intent.Discuss, IntentGate(FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS")))
+            .assess("what can you do", emptyList()))
+        assertEquals(IntentGate.Intent.Discuss, IntentGate(FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS")))
+            .assess("how do I open YouTube", emptyList()))
+    }
 }
