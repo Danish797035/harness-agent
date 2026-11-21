@@ -28,6 +28,9 @@ CI loop (do this yourself, do not ask)
 Report (short, in Hinglish)
 - What was built, in 3-5 lines.
 - Commit hashes, git status --short, CI run ID, result per job.
-- After every successful build, always give the installable APK: upload it
-  as a GitHub Release asset and paste the direct download link, plus the
-  local file path. Never stop at "build passed".
+- After every successful build, always give the installable APK in the same
+  reply: upload it as a GitHub Release asset (prefer publishing from CI, not
+  the phone) and paste (1) the direct download link, (2) the release page
+  link, and (3) the local file path. Never stop at "build passed", and never
+  make the user ask for the link. If the phone upload fails, publish from CI
+  with `gh workflow run build.yml -f release_tag=<tag>`.
