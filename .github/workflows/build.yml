@@ -4,6 +4,11 @@ on:
   push:
     branches: [ "main", "chore/english-only", "feat/password-vault", "feature/push-update", "rename-wip", "cleanup-wip", "router-wip", "router-b", "router-c", "router-wire", "router-app", "router-fix", "capsule-live", "smart-picker", "zh-cleanup", "zh-cleanup-2", "image-gen", "auto-update", "fix-rankings-pipeline", "feat/router-p1-wiring", "feat/router-p1-remaining" ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the APK to (empty = skip)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -173,3 +178,14 @@ jobs:
           gh release create "$TAG" app/build/outputs/apk/release/*.apk \
             --title "Harness Agent $TAG" \
             --generate-notes
+
+      - name: Publish APK to the requested release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Harness Agent $TAG" --generate-notes
+          gh release upload "$TAG" app/build/outputs/apk/release/*.apk --clobber
+          gh release edit "$TAG" --draft=false
