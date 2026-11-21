@@ -60,7 +60,7 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
         private val HINGLISH_ACTION = listOf(
             "khol", "kholo", "bhej", "bhejo", "chala", "chalao", "band", "dikha", "dikhao",
             "likh", "likho", "dhoondh", "dhundo", "chalu",
-        )
+        ).map { word -> Regex("\\b" + Regex.escape(word) + "\\b") }
 
         fun quick(task: String): Intent? {
             var t = task.trim().lowercase()
@@ -70,7 +70,7 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
             if (QUESTION.any { t.startsWith(it) }) return null
             if (ACTION.any { t.startsWith(it) }) return Intent.Act
             if (t.split(Regex("""\s+""")).size <= 4 &&
-                HINGLISH_ACTION.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(t) }
+                HINGLISH_ACTION.any { it.containsMatchIn(t) }
             ) return Intent.Act
             return null
         }
