@@ -761,10 +761,10 @@ class ChatViewModelTest {
         assertTrue(vm.ui.value.attachments.isEmpty())
         assertEquals(listOf("big.iso"), vm.ui.value.rejectedAttachments)
         assertFalse(vm.ui.value.importing)
-        // 任务在跑时不收附件
+        // 任务在跑时也收附件(随插话交给当前任务)
         vm.attach(listOf("content://x/3"))
         runCurrent()
-        assertTrue(vm.ui.value.attachments.isEmpty())
+        assertEquals(listOf("content://x/3"), vm.ui.value.attachments.map { it.uri })
     }
 
     @Test fun attachmentsAloneCanBeSent() = runTest {
