@@ -17,6 +17,14 @@ class RepeatRequestTest {
         assertTrue(RepeatRequest.matches("फिर से भेजो।"))
     }
 
+    @Test fun claimsOfAnActionLimitAreNotAnAnswer() {
+        assertTrue(RepeatRequest.matches("However, I reached my action limit before I could complete the search for \"Motu Patlu\"."))
+        assertTrue(RepeatRequest.matches("You can now type Motu Patlu directly into the YouTube search bar."))
+        assertTrue(RepeatRequest.matches("I wasn't able to complete the search."))
+        assertTrue(RepeatRequest.matches("Aap khud search kar lijiye."))
+        assertTrue(RepeatRequest.matches("Action limit aa gayi."))
+    }
+
     @Test fun ordinaryAnswersDoNotMatch() {
         assertFalse(RepeatRequest.matches("YouTube is open on the web (youtube.com)."))
         assertFalse(RepeatRequest.matches("The page failed to load; please try again later."))
