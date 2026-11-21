@@ -411,6 +411,7 @@ class AgentLoop(
         // 用户回答了追问、还没做别的事:这时就要交回答,先提醒一次照做(见 [owedFollowUp])
         var answered: String? = null
         var followUpNudged = false
+        var repeatNudged = false
         var resultReadNudged = false
         var languageNudged = false
         // 工具调用漏成文字的回复刚退回过一次(见 [LeakedToolCall]);正常调了工具就重新算
@@ -596,6 +597,12 @@ class AgentLoop(
                 if (owed != null) {
                     followUpNudged = true
                     TurnPolicy.followUp(owed).let { history += ctx.notice(it.source, it.text) }
+                    continue
+                }
+                // 已经动过工具,却把「再发一次」当回答:用户的话已经在对话里,退回去让他接着做
+                if (!repeatNudged && acted && RepeatRequest.matches(text)) {
+                    repeatNudged = true
+                    history += ctx.notice("repeat_request", Feedback["repeat_request_nudge"])
                     continue
                 }
                 if (step == 1 && !imagePromptNudged && tools.declared("generate_image") != null &&

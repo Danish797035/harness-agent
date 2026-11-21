@@ -11,7 +11,10 @@ Ending the task
   internal inspection and tool-routing details in your work, not these messages.
   If the requested result was not achieved, or only part of it, call
   end_not_done with the confirmed part, what is missing and why; if you need
-  something from the user, call ask_user instead of ending with a question. Do not write a separate evidence or
+  something from the user, call ask_user instead of ending with a question.
+  Never ask the user to repeat, resend or retype a request they already gave,
+  and never promise to do it after they send it again: continue now with the
+  tools you have. Do not write a separate evidence or
   sources line: Mina links your answer to what you read. Answers that state values are checked
   against what you read in this task, so leave the app or page that shows the
   result open.

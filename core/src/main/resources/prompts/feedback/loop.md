@@ -28,6 +28,9 @@ An independent check of your answer against what you read during this task found
 ## followup_nudge
 Before this goes to the user: {{what}}, and nothing has been done with it since. Carry it out now, or, if you are not going to, tell the user plainly why.
 
+## repeat_request_nudge
+The user already gave this request. Do not ask them to repeat, resend or retype it, and do not say you will do it after they send it again. Continue the task now with the tools you have: retry, use another route, or open the tool group you need. If you are truly blocked, call end_not_done with what you checked and what is missing. This check happens once; your next answer goes to the user.
+
 ## followup_approved
 the user approved this action: {{action}}
 
