@@ -315,106 +315,108 @@ private fun createGoogleLoginWebView(
             onLoginCaptured(session)
         }
 
-        // Gemini is a single-page app: onPageFinished fires before the page has
-        // finished booting, so read the page once per navigation and keep
-        // polling for a while. If WIZ_global_data never exposes SNlM0e (newer
-        // builds keep it in the app bundle), fall back to the HTML session.
-        fun fetchSessionFromHtml(cookies: String) {
-            if (loginHandled || htmlFetchRunning) return
-            htmlFetchRunning = true
-            htmlFallbackAttempts++
-            onHint("Finishing sign-in…")
-            scope.launch {
-                val session = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val http = GeminiWebClient.geminiWebHttp.newBuilder()
-                            .cookieJar(CookieJar.NO_COOKIES)
-                            .callTimeout(30, TimeUnit.SECONDS)
-                            .build()
-                        GeminiWebClient.fetchSessionFromCookies(http, cookies, userAgent)
-                    }.getOrNull()
-                }
-                htmlFetchRunning = false
-                if (session != null && session.snlm0e.isNotBlank()) {
-                    finish(session)
-                } else if (htmlFallbackAttempts < 3) {
-                    onHint("Still finishing sign-in…")
-                    captureAttempts = 0
-                    scheduleCapture(2_000)
-                } else {
-                    onHint("Could not read the Gemini session. Tap Reload or use Manual.")
-                }
-            }
-        }
-
-        fun scheduleCapture(delayMs: Long = 500) {
-            if (loginHandled || captureScheduled) return
-            captureScheduled = true
-            postDelayed({
-                captureScheduled = false
-                capture()
-            }, delayMs)
-        }
-
-        fun capture() {
-            if (loginHandled) return
-            val cookies = collectCookies()
-            if (!cookies.contains("__Secure-1PSID")) {
-                // Still on the Google account page. Keep watching: the user may
-                // need a while to type the password or pass 2-step verification.
-                scheduleCapture(900)
-                return
-            }
-            captureAttempts++
-            evaluateJavascript(
-                """
-                (function() {
-                    try {
-                        var wiz = window.WIZ_global_data || {};
-                        return JSON.stringify({
-                            snlm0e: wiz.SNlM0e || "",
-                            cfb2h: wiz.cfb2h || "",
-                            fdrfje: wiz.FdrFJe || "",
-                            email: wiz.o3H74c || ""
-                        });
-                    } catch(e) {
-                        return "{}";
+        val capturer = object {
+            // Gemini is a single-page app: onPageFinished fires before the page has
+            // finished booting, so read the page once per navigation and keep
+            // polling for a while. If WIZ_global_data never exposes SNlM0e (newer
+            // builds keep it in the app bundle), fall back to the HTML session.
+            fun fetchSessionFromHtml(cookies: String) {
+                if (loginHandled || htmlFetchRunning) return
+                htmlFetchRunning = true
+                htmlFallbackAttempts++
+                onHint("Finishing sign-in…")
+                scope.launch {
+                    val session = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                                .cookieJar(CookieJar.NO_COOKIES)
+                                .callTimeout(30, TimeUnit.SECONDS)
+                                .build()
+                            GeminiWebClient.fetchSessionFromCookies(http, cookies, userAgent)
+                        }.getOrNull()
                     }
-                })();
-                """.trimIndent()
-            ) { result ->
-                if (loginHandled) return@evaluateJavascript
-                try {
-                    val cleanJson = if (result.startsWith("\"") && result.endsWith("\"")) {
-                        json.parseToJsonElement(result).jsonPrimitive.content
-                    } else result
-
-                    val parsed = json.parseToJsonElement(cleanJson).jsonObject
-                    val snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
-                    val cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
-                    val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
-                    val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
-
-                    if (snlm0e.isNotBlank()) {
-                        finish(
-                            GeminiWebSession(
-                                cookies = collectCookies(),
-                                snlm0e = snlm0e,
-                                cfb2h = cfb2h,
-                                fdrfje = fdrfje,
-                                email = email,
-                                userAgent = userAgent,
-                                signedIn = true
-                            )
-                        )
-                    } else if (captureAttempts < LOGIN_MAX_POLLS) {
-                        scheduleCapture(700)
+                    htmlFetchRunning = false
+                    if (session != null && session.snlm0e.isNotBlank()) {
+                        finish(session)
+                    } else if (htmlFallbackAttempts < 3) {
+                        onHint("Still finishing sign-in…")
+                        captureAttempts = 0
+                        scheduleCapture(2_000)
                     } else {
-                        fetchSessionFromHtml(collectCookies())
+                        onHint("Could not read the Gemini session. Tap Reload or use Manual.")
                     }
-                } catch (_: Exception) {
-                    if (captureAttempts < LOGIN_MAX_POLLS) scheduleCapture(700)
-                    else fetchSessionFromHtml(collectCookies())
+                }
+            }
+
+            fun scheduleCapture(delayMs: Long = 500) {
+                if (loginHandled || captureScheduled) return
+                captureScheduled = true
+                mainView.postDelayed({
+                    captureScheduled = false
+                    capture()
+                }, delayMs)
+            }
+
+            fun capture() {
+                if (loginHandled) return
+                val cookies = collectCookies()
+                if (!cookies.contains("__Secure-1PSID")) {
+                    // Still on the Google account page. Keep watching: the user may
+                    // need a while to type the password or pass 2-step verification.
+                    scheduleCapture(900)
+                    return
+                }
+                captureAttempts++
+                mainView.evaluateJavascript(
+                    """
+                    (function() {
+                        try {
+                            var wiz = window.WIZ_global_data || {};
+                            return JSON.stringify({
+                                snlm0e: wiz.SNlM0e || "",
+                                cfb2h: wiz.cfb2h || "",
+                                fdrfje: wiz.FdrFJe || "",
+                                email: wiz.o3H74c || ""
+                            });
+                        } catch(e) {
+                            return "{}";
+                        }
+                    })();
+                    """.trimIndent()
+                ) { result ->
+                    if (loginHandled) return@evaluateJavascript
+                    try {
+                        val cleanJson = if (result.startsWith("\"") && result.endsWith("\"")) {
+                            json.parseToJsonElement(result).jsonPrimitive.content
+                        } else result
+
+                        val parsed = json.parseToJsonElement(cleanJson).jsonObject
+                        val snlm0e = parsed["snlm0e"]?.jsonPrimitive?.content.orEmpty()
+                        val cfb2h = parsed["cfb2h"]?.jsonPrimitive?.content.orEmpty()
+                        val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
+                        val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
+
+                        if (snlm0e.isNotBlank()) {
+                            finish(
+                                GeminiWebSession(
+                                    cookies = collectCookies(),
+                                    snlm0e = snlm0e,
+                                    cfb2h = cfb2h,
+                                    fdrfje = fdrfje,
+                                    email = email,
+                                    userAgent = userAgent,
+                                    signedIn = true
+                                )
+                            )
+                        } else if (captureAttempts < LOGIN_MAX_POLLS) {
+                            scheduleCapture(700)
+                        } else {
+                            fetchSessionFromHtml(collectCookies())
+                        }
+                    } catch (_: Exception) {
+                        if (captureAttempts < LOGIN_MAX_POLLS) scheduleCapture(700)
+                        else fetchSessionFromHtml(collectCookies())
+                    }
                 }
             }
         }
@@ -432,17 +434,17 @@ private fun createGoogleLoginWebView(
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 onLoadingChange(false)
-                if (isGeminiUrl(url)) scheduleCapture(300)
+                if (isGeminiUrl(url)) capturer.scheduleCapture(300)
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
-                if (isGeminiUrl(url)) scheduleCapture(300)
+                if (isGeminiUrl(url)) capturer.scheduleCapture(300)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                if (isGeminiUrl(url)) scheduleCapture(300)
+                if (isGeminiUrl(url)) capturer.scheduleCapture(300)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
