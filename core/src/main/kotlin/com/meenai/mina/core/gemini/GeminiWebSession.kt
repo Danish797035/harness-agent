@@ -27,6 +27,12 @@ data class GeminiWebSession(
     val authUserIndex: String = "",
     /** "GruApd" hydrofoil Mendel flags for the GraphQL request. */
     val mendelFlags: String = "",
+    /**
+     * Exact User-Agent used when the cookies were obtained. Google's
+     * `__Secure-1PSIDTS` cookie is bound to it, so every later request must
+     * send the same string or the session is rejected immediately.
+     */
+    val userAgent: String = "",
     /** Active status flag. False when signed out. */
     val signedIn: Boolean = true,
     /** Timestamp when session was saved or last validated. */
@@ -36,10 +42,14 @@ data class GeminiWebSession(
         signedIn = false,
         cookies = "",
         snlm0e = "",
+        cfb2h = "",
+        fdrfje = "",
+        email = "",
         serverToken = "",
         oxygenUrl = "",
         authUserIndex = "",
         mendelFlags = "",
+        userAgent = "",
     )
 
     fun toJson(): String = JSON.encodeToString(serializer(), this)

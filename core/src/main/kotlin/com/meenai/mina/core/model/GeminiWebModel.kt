@@ -32,7 +32,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-private const val DEFAULT_BUILD_LABEL = "boq_assistant-bard-web-server_20250101.00_p0"
+private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.09_p0"
 
 class GeminiWebModel(
     private var session: GeminiWebSession,
@@ -84,6 +84,11 @@ class GeminiWebModel(
         GeminiWebClient.seedCookies(session.cookies)
         var currentSession = session
         var refreshed = false
+        // Sessions saved by older builds can miss the build label or the token;
+        // read them once from the logged-in page instead of guessing a stale bl.
+        if (currentSession.cfb2h.isBlank() || currentSession.snlm0e.isBlank()) {
+            refreshSession(currentSession)?.let { currentSession = it }
+        }
 
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
@@ -100,9 +105,11 @@ class GeminiWebModel(
                 // healthy stream would wait for the first bytes and delay the reply.
                 if (response.code in 401..403 || response.code == 400) {
                     val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
-                    if (isSessionFailure(response.code, peek)) {
-                        val next = if (refreshed) null else refreshSession(currentSession)
-                        if (next == null) throw ModelError.SignInExpired("Google Gemini")
+                    if (isSessionFailure(response.code, peek) && !refreshed) {
+                        // One refresh only. If the retry still fails, the request
+                        // itself is wrong; do not keep telling the user to sign in.
+                        val next = refreshSession(currentSession)
+                            ?: throw ModelError.SignInExpired("Google Gemini")
                         refreshed = true
                         currentSession = next
                         continue
@@ -113,9 +120,6 @@ class GeminiWebModel(
                 if (response.code >= 500) throw ModelError.Server(response.code)
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
-                    if (response.code == 400 && isSessionFailure(400, body)) {
-                        throw ModelError.SignInExpired("Google Gemini")
-                    }
                     throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}")
                 }
 
@@ -171,6 +175,9 @@ class GeminiWebModel(
 
                 return@withContext LeakedToolMarkup.repair(ModelReply(parts, stopReason, usage))
             } finally {
+                // Keep Google's rotated cookies even when this attempt failed:
+                // otherwise the next message starts from a stale session.
+                runCatching { persistCookies() }
                 response.close()
             }
         }
@@ -265,7 +272,10 @@ class GeminiWebModel(
     private suspend fun refreshSession(old: GeminiWebSession): GeminiWebSession? {
         val cookies = GeminiWebClient.cookieSnapshot().ifBlank { old.cookies }
         val refreshed = try {
-            GeminiWebClient.fetchSessionFromCookies(http, cookies)
+            val sessionHttp = http.newBuilder()
+                .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            GeminiWebClient.fetchSessionFromCookies(sessionHttp, cookies, GeminiWebClient.userAgentFor(old))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -303,7 +313,8 @@ class GeminiWebModel(
         bl: String
     ): Request {
         val reqId = Random.nextInt(10000, 99999)
-        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl&hl=en&_reqid=$reqId&rt=c"
+        val fsidPart = currentSession.fdrfje.takeIf { it.isNotBlank() }?.let { "&f.sid=$it" }.orEmpty()
+        val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl$fsidPart&hl=en&_reqid=$reqId&rt=c"
 
         val formBody = FormBody.Builder()
             .add("at", currentSession.snlm0e)
@@ -319,8 +330,13 @@ class GeminiWebModel(
             .header("Origin", "https://gemini.google.com")
             .header("Referer", "https://gemini.google.com/")
             .header("X-Same-Domain", "1")
-            .header("User-Agent", GeminiWebClient.CHROME_USER_AGENT)
+            .header("User-Agent", GeminiWebClient.userAgentFor(currentSession))
             .header("Cookie", GeminiWebClient.sanitizeCookieHeader(currentSession.cookies))
+            .apply {
+                if (currentSession.authUserIndex.isNotBlank()) {
+                    header("X-Goog-AuthUser", currentSession.authUserIndex)
+                }
+            }
             .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
             .header(GeminiWebClient.MODEL_HEADER_KEY, modelHeader)
             .header("x-goog-ext-525005358-jspb", "[\"$uuid\",1]")

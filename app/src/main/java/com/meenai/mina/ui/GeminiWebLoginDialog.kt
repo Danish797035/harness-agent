@@ -3,33 +3,31 @@ package com.meenai.mina.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Message
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,15 +51,22 @@ import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.ui.components.ButtonKind
+import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.CookieJar
+import java.util.concurrent.TimeUnit
+
+private const val GEMINI_LOGIN_START = "https://gemini.google.com/app"
+private const val LOGIN_MAX_POLLS = 60
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,8 +78,15 @@ fun GeminiWebLoginDialog(
     val c = MinaTheme.colors
     var activeTab by remember { mutableIntStateOf(0) } // 0: WebView, 1: Manual
     var isLoading by remember { mutableStateOf(true) }
-    var detectedEmail by remember { mutableStateOf<String?>(null) }
+    var hint by remember { mutableStateOf<String?>(null) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
     val scope = rememberCoroutineScope()
+
+    // Back should walk the WebView history before it closes the whole sheet.
+    BackHandler(enabled = activeTab == 0) {
+        val wv = webView
+        if (wv != null && wv.canGoBack()) wv.goBack() else onDismiss()
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -145,12 +157,41 @@ fun GeminiWebLoginDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    if (activeTab == 0) {
+                        MinaButton(
+                            text = "Reload",
+                            onClick = {
+                                hint = null
+                                isLoading = true
+                                val wv = webView
+                                if (wv?.url?.startsWith("https://gemini.google.com") == true) {
+                                    wv.reload()
+                                } else {
+                                    wv?.loadUrl(GEMINI_LOGIN_START)
+                                }
+                            },
+                            kind = ButtonKind.Text,
+                            size = ButtonSize.Small,
+                        )
+                    }
 
                     MinaButton(
                         text = ModelSetupCopy.CANCEL,
                         onClick = onDismiss,
-                        kind = ButtonKind.Text
+                        kind = ButtonKind.Text,
+                        size = ButtonSize.Small,
+                    )
+                }
+
+                if (isLoading && activeTab == 0) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp),
+                        color = c.accent,
+                        trackColor = c.hair,
                     )
                 }
 
@@ -161,30 +202,31 @@ fun GeminiWebLoginDialog(
                             factory = { context ->
                                 createGoogleLoginWebView(
                                     context = context,
+                                    scope = scope,
+                                    onWebViewReady = { webView = it },
                                     onLoadingChange = { loading -> isLoading = loading },
+                                    onHint = { message -> hint = message },
                                     onLoginCaptured = { session ->
-                                        detectedEmail = session.email
+                                        isLoading = false
+                                        hint = null
                                         onSuccess(session)
-                                    },
-                                    onError = onError
+                                    }
                                 )
                             },
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        if (isLoading) {
-                            Box(
+                        hint?.let { message ->
+                            Text(
+                                text = message,
+                                style = MinaType.Hint,
+                                color = c.bad,
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp)
                                     .align(Alignment.TopCenter)
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp).align(Alignment.Center),
-                                    strokeWidth = 2.dp,
-                                    color = c.accent
-                                )
-                            }
+                                    .fillMaxWidth()
+                                    .background(c.fill)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
                         }
                     }
                 } else {
@@ -202,22 +244,41 @@ fun GeminiWebLoginDialog(
 @SuppressLint("SetJavaScriptEnabled")
 private fun createGoogleLoginWebView(
     context: Context,
+    scope: CoroutineScope,
+    onWebViewReady: (WebView) -> Unit,
     onLoadingChange: (Boolean) -> Unit,
-    onLoginCaptured: (GeminiWebSession) -> Unit,
-    onError: (String) -> Unit
+    onHint: (String?) -> Unit,
+    onLoginCaptured: (GeminiWebSession) -> Unit
 ): WebView {
     val json = Json { ignoreUnknownKeys = true }
     var loginHandled = false
     var captureAttempts = 0
+    var captureScheduled = false
+    var htmlFetchRunning = false
+    var htmlFallbackAttempts = 0
+    val popups = mutableListOf<WebView>()
+
+    // Use the device's real WebView version (minus the "; wv" marker). Google
+    // rejects old browser versions and its __Secure-1PSIDTS cookie is bound to
+    // the exact User-Agent, so this same string must be used for later API calls.
+    val userAgent = runCatching {
+        WebSettings.getDefaultUserAgent(context)
+            .replace("; wv", "")
+            .replace("Version/4.0 ", "")
+    }.getOrDefault(GeminiWebClient.CHROME_USER_AGENT)
 
     return WebView(context).apply {
+        val mainView = this
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            userAgentString = GeminiWebClient.CHROME_USER_AGENT
+            userAgentString = userAgent
             useWideViewPort = true
             loadWithOverviewMode = true
+            setSupportMultipleWindows(true)
+            javaScriptCanOpenWindowsAutomatically = true
+            cacheMode = WebSettings.LOAD_DEFAULT
         }
 
         val cookieManager = CookieManager.getInstance()
@@ -227,13 +288,83 @@ private fun createGoogleLoginWebView(
         fun isGeminiUrl(url: String?): Boolean =
             url != null && (url.startsWith("https://gemini.google.com") || url.contains("gemini.google.com/app"))
 
-        // Gemini is a single-page app: onPageFinished fires before WIZ_global_data
-        // exists, so reading it once left the dialog stuck at "signing in".
-        // Poll for a few seconds and re-read on every in-app navigation instead.
+        // Cookies for a Google account live on several hosts. Reading only
+        // gemini.google.com can miss the auth cookies the API needs.
+        fun collectCookies(): String {
+            cookieManager.flush()
+            val merged = linkedMapOf<String, String>()
+            for (host in listOf("https://accounts.google.com", "https://google.com", "https://gemini.google.com")) {
+                val raw = cookieManager.getCookie(host).orEmpty()
+                for (part in raw.split(';')) {
+                    val trimmed = part.trim()
+                    val eq = trimmed.indexOf('=')
+                    if (eq <= 0) continue
+                    val name = trimmed.substring(0, eq).trim()
+                    val value = trimmed.substring(eq + 1).trim()
+                    if (name.isNotEmpty()) merged[name] = value
+                }
+            }
+            return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
+        }
+
+        fun finish(session: GeminiWebSession) {
+            if (loginHandled) return
+            loginHandled = true
+            cookieManager.flush()
+            onHint(null)
+            onLoginCaptured(session)
+        }
+
+        // Gemini is a single-page app: onPageFinished fires before the page has
+        // finished booting, so read the page once per navigation and keep
+        // polling for a while. If WIZ_global_data never exposes SNlM0e (newer
+        // builds keep it in the app bundle), fall back to the HTML session.
+        fun fetchSessionFromHtml(cookies: String) {
+            if (loginHandled || htmlFetchRunning) return
+            htmlFetchRunning = true
+            htmlFallbackAttempts++
+            onHint("Finishing sign-in…")
+            scope.launch {
+                val session = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                            .cookieJar(CookieJar.NO_COOKIES)
+                            .callTimeout(30, TimeUnit.SECONDS)
+                            .build()
+                        GeminiWebClient.fetchSessionFromCookies(http, cookies, userAgent)
+                    }.getOrNull()
+                }
+                htmlFetchRunning = false
+                if (session != null && session.snlm0e.isNotBlank()) {
+                    finish(session)
+                } else if (htmlFallbackAttempts < 3) {
+                    onHint("Still finishing sign-in…")
+                    captureAttempts = 0
+                    scheduleCapture(2_000)
+                } else {
+                    onHint("Could not read the Gemini session. Tap Reload or use Manual.")
+                }
+            }
+        }
+
+        fun scheduleCapture(delayMs: Long = 500) {
+            if (loginHandled || captureScheduled) return
+            captureScheduled = true
+            postDelayed({
+                captureScheduled = false
+                capture()
+            }, delayMs)
+        }
+
         fun capture() {
-            if (loginHandled || captureAttempts > 20) return
-            val rawCookies = cookieManager.getCookie("https://gemini.google.com").orEmpty()
-            if (!rawCookies.contains("__Secure-1PSID")) return
+            if (loginHandled) return
+            val cookies = collectCookies()
+            if (!cookies.contains("__Secure-1PSID")) {
+                // Still on the Google account page. Keep watching: the user may
+                // need a while to type the password or pass 2-step verification.
+                scheduleCapture(900)
+                return
+            }
             captureAttempts++
             evaluateJavascript(
                 """
@@ -265,23 +396,25 @@ private fun createGoogleLoginWebView(
                     val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
 
                     if (snlm0e.isNotBlank()) {
-                        loginHandled = true
-                        cookieManager.flush()
-                        onLoginCaptured(
+                        finish(
                             GeminiWebSession(
-                                cookies = rawCookies,
+                                cookies = collectCookies(),
                                 snlm0e = snlm0e,
                                 cfb2h = cfb2h,
                                 fdrfje = fdrfje,
                                 email = email,
+                                userAgent = userAgent,
                                 signedIn = true
                             )
                         )
+                    } else if (captureAttempts < LOGIN_MAX_POLLS) {
+                        scheduleCapture(700)
                     } else {
-                        postDelayed({ capture() }, 500)
+                        fetchSessionFromHtml(collectCookies())
                     }
                 } catch (_: Exception) {
-                    postDelayed({ capture() }, 500)
+                    if (captureAttempts < LOGIN_MAX_POLLS) scheduleCapture(700)
+                    else fetchSessionFromHtml(collectCookies())
                 }
             }
         }
@@ -290,30 +423,84 @@ private fun createGoogleLoginWebView(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 onLoadingChange(true)
+                onHint(null)
+                // A new page means a fresh chance to capture the session.
+                captureAttempts = 0
+                htmlFallbackAttempts = 0
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 onLoadingChange(false)
-                if (isGeminiUrl(url)) capture()
+                if (isGeminiUrl(url)) scheduleCapture(300)
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
-                if (isGeminiUrl(url)) capture()
+                if (isGeminiUrl(url)) scheduleCapture(300)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                if (isGeminiUrl(url)) capture()
+                if (isGeminiUrl(url)) scheduleCapture(300)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 return false
             }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    onLoadingChange(false)
+                    onHint("Could not load Google sign-in. Check your connection and tap Reload.")
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: android.webkit.WebResourceResponse?
+            ) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
+                    onLoadingChange(false)
+                    onHint("Google returned HTTP ${errorResponse?.statusCode}. Tap Reload to try again.")
+                }
+            }
         }
 
-        loadUrl("https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/app")
+        webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?
+            ): Boolean {
+                val message = resultMsg ?: return false
+                val transport = message.obj as? WebView.WebViewTransport ?: return false
+                val popup = WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = userAgent
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                            val target = request?.url?.toString() ?: return false
+                            // Keep one WebView: load the popup target in the main view.
+                            mainView.loadUrl(target)
+                            return true
+                        }
+                    }
+                }
+                popups.add(popup)
+                transport.webView = popup
+                message.sendToTarget()
+                return true
+            }
+        }
+
+        post { onWebViewReady(this) }
+        loadUrl(GEMINI_LOGIN_START)
     }
 }
 
@@ -404,18 +591,37 @@ private fun ManualCookieEntry(
 
                 scope.launch {
                     try {
-                        val session = if (tokenInput.isNotBlank()) {
-                            GeminiWebSession(
+                        val token = tokenInput.trim().trim('"')
+                        // Always try to read the page: it also gives us the build
+                        // label and f.sid the chat endpoint needs.
+                        val detected = withContext(Dispatchers.IO) {
+                            runCatching {
+                                // No cookie jar here: it would replace the pasted
+                                // Cookie header with whatever an old session left.
+                                val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                                    .cookieJar(CookieJar.NO_COOKIES)
+                                    .callTimeout(30, TimeUnit.SECONDS)
+                                    .build()
+                                GeminiWebClient.fetchSessionFromCookies(http, fullCookies)
+                            }.getOrNull()
+                        }
+                        val session = when {
+                            detected != null -> detected.copy(
+                                snlm0e = token.ifBlank { detected.snlm0e },
+                                email = emailInput.trim().ifBlank { detected.email },
+                            )
+                            token.isNotBlank() -> GeminiWebSession(
                                 cookies = fullCookies,
-                                snlm0e = tokenInput.trim().trim('"'),
+                                snlm0e = token,
                                 email = emailInput.trim(),
                                 signedIn = true
                             )
-                        } else {
-                            val detected = withContext(Dispatchers.IO) {
-                                GeminiWebClient.fetchSessionFromCookies(GeminiWebClient.geminiWebHttp, fullCookies)
-                            }
-                            detected.copy(email = emailInput.trim().ifBlank { detected.email })
+                            else -> throw IllegalStateException(
+                                "Could not detect a Gemini session. Check the cookies and try again."
+                            )
+                        }
+                        if (session.snlm0e.isBlank()) {
+                            throw IllegalStateException("The Gemini token is empty. Sign in again.")
                         }
                         onSuccess(session)
                     } catch (e: Exception) {

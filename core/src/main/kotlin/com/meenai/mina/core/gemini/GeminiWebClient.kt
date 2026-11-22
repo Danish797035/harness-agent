@@ -36,7 +36,12 @@ object GeminiWebClient {
     /** UsagePageQuery 的持久化查询 id(网页打包时固定)。 */
     const val USAGE_QUERY_ID = "2/yL2v1aYbA346hkaeglNZmTMJfO37mMT1xFprjCS/Pj4="
 
-    const val CHROME_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+    const val CHROME_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36"
+
+    /** The UA a saved session was created with; old sessions fall back to the current one. */
+    fun userAgentFor(session: GeminiWebSession): String =
+        session.userAgent.ifBlank { CHROME_USER_AGENT }
 
     const val MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
@@ -136,7 +141,11 @@ object GeminiWebClient {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun extractSessionFromHtml(html: String, cookies: String): GeminiWebSession? {
+    fun extractSessionFromHtml(
+        html: String,
+        cookies: String,
+        userAgent: String = CHROME_USER_AGENT,
+    ): GeminiWebSession? {
         val snlm0e = ACCESS_TOKEN_REGEX.find(html)?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: return null
         val cfb2h = BUILD_LABEL_REGEX.find(html)?.groupValues?.get(1).orEmpty()
         val fdrfje = SESSION_ID_REGEX.find(html)?.groupValues?.get(1).orEmpty()
@@ -151,15 +160,20 @@ object GeminiWebClient {
             oxygenUrl = OXYGEN_URL_REGEX.find(html)?.groupValues?.get(1).orEmpty(),
             authUserIndex = AUTH_USER_REGEX.find(html)?.groupValues?.get(1)?.trim()?.trim('"').orEmpty(),
             mendelFlags = MENDEL_FLAGS_REGEX.find(html)?.groupValues?.get(1).orEmpty(),
+            userAgent = userAgent,
             signedIn = true
         )
     }
 
-    suspend fun fetchSessionFromCookies(http: OkHttpClient, cookies: String): GeminiWebSession {
+    suspend fun fetchSessionFromCookies(
+        http: OkHttpClient,
+        cookies: String,
+        userAgent: String = CHROME_USER_AGENT,
+    ): GeminiWebSession {
         val header = normalizeCookieHeader(cookies)
         val request = Request.Builder()
             .url(INIT_URL)
-            .header("User-Agent", CHROME_USER_AGENT)
+            .header("User-Agent", userAgent)
             .header("Cookie", header)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Referer", "https://accounts.google.com/")
@@ -172,7 +186,7 @@ object GeminiWebClient {
                 throw ModelError.SignInExpired("Google Gemini (HTTP ${it.code})")
             }
             val html = it.body?.string().orEmpty()
-            return extractSessionFromHtml(html, header)
+            return extractSessionFromHtml(html, header, userAgent)
                 ?: throw ModelError.SignInExpired("Failed to extract SNlM0e token from Gemini page. Please sign in again.")
         }
     }
@@ -199,7 +213,11 @@ object GeminiWebClient {
         if (current.snlm0e.isBlank()) {
             refreshedOnce = true
             val refreshed = runCatching {
-                fetchSessionFromCookies(client, cookieSnapshot().ifBlank { current.cookies })
+                fetchSessionFromCookies(
+                    client,
+                    cookieSnapshot().ifBlank { current.cookies },
+                    userAgentFor(current),
+                )
             }.getOrNull()
             if (refreshed != null) current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
         }
@@ -207,7 +225,11 @@ object GeminiWebClient {
         // 网页没登录时 HTTP 也是 200,只是 viewer 为 null;换一次新令牌再试
         if (attempt.usage == null && attempt.needsRefresh && !refreshedOnce) {
             val refreshed = runCatching {
-                fetchSessionFromCookies(client, cookieSnapshot().ifBlank { current.cookies })
+                fetchSessionFromCookies(
+                    client,
+                    cookieSnapshot().ifBlank { current.cookies },
+                    userAgentFor(current),
+                )
             }.getOrNull()
             if (refreshed != null) {
                 current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
@@ -235,7 +257,7 @@ object GeminiWebClient {
         }.toString()
         val builder = Request.Builder()
             .url(GRAPHQL_ENDPOINT)
-            .header("User-Agent", CHROME_USER_AGENT)
+            .header("User-Agent", userAgentFor(session))
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .header("Accept-Language", "en")

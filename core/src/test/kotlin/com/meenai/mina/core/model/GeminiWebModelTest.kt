@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -563,6 +564,62 @@ class GeminiWebModelTest {
         assertNotNull("A rotated cookie must be written back", saved)
         assertTrue(saved!!.cookies.contains("__Secure-1PSIDTS=rotated"))
         assertTrue(saved!!.cookies.contains("__Secure-1PSID=test-sid"))
+    }
+
+    @Test
+    fun requestCarriesSessionFsidUserAgentAndAuthUser() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("ok"))))
+
+        val model = GeminiWebModel(
+            session = session.copy(
+                fdrfje = "sid-123",
+                authUserIndex = "2",
+                userAgent = "TestUA/1.0",
+            ),
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        model.complete("sys", userMsg, emptyList())
+
+        val request = server.takeRequest()
+        assertTrue("f.sid must come from the login page", request.path.orEmpty().contains("f.sid=sid-123"))
+        assertEquals("2", request.getHeader("X-Goog-AuthUser"))
+        assertEquals("TestUA/1.0", request.getHeader("User-Agent"))
+    }
+
+    @Test(expected = ModelError.BadResponse::class)
+    fun aSecond400AfterRefreshIsNotReportedAsExpiredSignIn() = runTest {
+        val error = """[["er",null,null,null,null,400,null,null,null,3],["af.httprm",7,"-1",95]]"""
+        server.enqueue(MockResponse().setResponseCode(400).setBody(error))
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """<script>window.WIZ_global_data = {"SNlM0e":"fresh-token","cfb2h":"bl","FdrFJe":"sid"};</script>"""
+            )
+        )
+        server.enqueue(MockResponse().setResponseCode(400).setBody(error))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        model.complete("sys", userMsg, emptyList())
+    }
+
+    @Test
+    fun signedOutSessionClearsEveryCredential() {
+        val out = session.copy(userAgent = "TestUA/1.0").signedOut()
+        assertFalse(out.signedIn)
+        assertEquals("", out.cookies)
+        assertEquals("", out.snlm0e)
+        assertEquals("", out.cfb2h)
+        assertEquals("", out.fdrfje)
+        assertEquals("", out.email)
+        assertEquals("", out.userAgent)
     }
 
     @Test
