@@ -923,6 +923,7 @@ class ModelSetupViewModel(
 
     fun onGeminiWebLoginSuccess(session: GeminiWebSession) {
         scope.launch {
+            var testError: String? = null
             val p = withContext(io) {
                 // Always install the current model list: reusing the list saved by
                 // an older build kept dead model ids that Google no longer serves.
@@ -941,7 +942,7 @@ class ModelSetupViewModel(
                 // End-to-end check: a login that only passes the account probe can
                 // still be unusable from the chat endpoint, and the user deserves
                 // the real error instead of silence.
-                val testError = runCatching {
+                testError = runCatching {
                     val probeModel = GeminiWebModel(
                         session = session,
                         model = "gemini-4-argon",
