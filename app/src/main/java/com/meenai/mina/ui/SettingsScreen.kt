@@ -100,6 +100,7 @@ fun SettingsScreen(
     updateState: UpdateState? = null,
 ) {
     val configs by store.configs.collectAsState()
+    val providerList by store.providers.collectAsState()
     val roles by store.roles.collectAsState()
     // 开发者选项里的「看图定位已验证」跟着看图模型(看图用主模型时是主模型那条配置)
     val visionConfig = remember(configs, roles) { store.configFor(ModelRole.Vision) }
@@ -156,12 +157,12 @@ fun SettingsScreen(
     val usageVersion by usage.version.collectAsState()
     var usageWeek by remember { mutableStateOf<Long?>(null) }
     var usageToday by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(usageVersion) {
+    LaunchedEffect(usageVersion, providerList) {
         val (week, today) = withContext(Dispatchers.Default) {
             val now = Instant.now()
             val snapshot = usage.snapshot()
             val weekTokens = UsageQuery.report(snapshot, UsageRange.LastDays(7), now, ZoneId.systemDefault(), emptyMap()).totals.tokens
-            val gemini = store.providers.value.firstOrNull {
+            val gemini = providerList.firstOrNull {
                 it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == ProviderStore.GEMINI_WEB_SIGN_IN
             }?.id
             val dayCalls = UsageLimitsQuery.report(snapshot, gemini, now, ZoneId.of("Asia/Kolkata")).dailyCalls.toInt()

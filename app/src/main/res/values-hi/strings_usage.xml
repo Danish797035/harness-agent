@@ -56,7 +56,7 @@
     <string name="usage_limits_note">गिनती सिर्फ़ इस ऐप की रिक्वेस्ट की है और इसी फ़ोन पर रहती है।</string>
     <string name="usage_limits_less">बजट कम करें</string>
     <string name="usage_limits_more">बजट बढ़ाएँ</string>
-    <string name="usage_limits_today_value">आज %1$d</string>
+    <string name="usage_limits_today_value">आज %1$d (ऐप)</string>
     <string name="usage_limits_ultra">अल्ट्रा</string>
     <string name="usage_limits_plan_desc">आपके प्लान की सीमाएँ तय करती हैं कि आप समय के साथ Gemini को कितना इस्तेमाल कर सकते हैं। एडवांस मॉडल और फ़ीचर ज़्यादा उपयोग ले सकते हैं।</string>
     <string name="usage_limits_local_desc">Gemini का सर्वर उपयोग अभी नहीं मिल रहा। इस ऐप की रिक्वेस्ट आपके बजट के हिसाब से दिखा रहे हैं।</string>

@@ -56,7 +56,7 @@
     <string name="usage_limits_note">Counts are this app\'s requests only and stay on this phone.</string>
     <string name="usage_limits_less">Decrease budget</string>
     <string name="usage_limits_more">Increase budget</string>
-    <string name="usage_limits_today_value">%1$d today</string>
+    <string name="usage_limits_today_value">%1$d today (app)</string>
     <string name="usage_limits_ultra">ULTRA</string>
     <string name="usage_limits_plan_desc">Your plan\'s limits determine how much you can use Gemini over time. Advanced models and features can take up more usage.</string>
     <string name="usage_limits_local_desc">Gemini\'s server usage isn\'t available right now. Showing this app\'s requests against your budget.</string>

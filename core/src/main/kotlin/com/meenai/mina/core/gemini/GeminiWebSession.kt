@@ -32,7 +32,15 @@ data class GeminiWebSession(
     /** Timestamp when session was saved or last validated. */
     val savedAtMs: Long = System.currentTimeMillis(),
 ) {
-    fun signedOut(): GeminiWebSession = copy(signedIn = false, cookies = "", snlm0e = "")
+    fun signedOut(): GeminiWebSession = copy(
+        signedIn = false,
+        cookies = "",
+        snlm0e = "",
+        serverToken = "",
+        oxygenUrl = "",
+        authUserIndex = "",
+        mendelFlags = "",
+    )
 
     fun toJson(): String = JSON.encodeToString(serializer(), this)
 

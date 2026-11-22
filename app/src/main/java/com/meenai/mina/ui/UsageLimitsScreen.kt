@@ -33,8 +33,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +60,9 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -93,11 +98,15 @@ fun UsageLimitsScreen(
     val live by store.providers.collectAsState()
     var budget by remember { mutableIntStateOf(flags.usageDailyBudget()) }
     var now by remember { mutableStateOf(Instant.now()) }
-    // 页面开着时每 5 秒走一次:跨过零点时今天/这周跟着换
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(5_000)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // 页面在前台时每 5 秒走一次:跨过零点时今天/这周跟着换;退到后台就停,省电
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             now = Instant.now()
+            while (isActive) {
+                delay(5_000)
+                now = Instant.now()
+            }
         }
     }
     val zone = remember { ZoneId.of("Asia/Kolkata") }
@@ -115,31 +124,33 @@ fun UsageLimitsScreen(
     var phase by remember(providerId) {
         mutableStateOf(if (providerId == null) SyncPhase.Local else SyncPhase.Checking)
     }
-    LaunchedEffect(providerId) {
+    LaunchedEffect(providerId, lifecycle) {
         if (providerId == null) return@LaunchedEffect
-        var failures = 0
-        while (isActive) {
-            val fetched = withContext(Dispatchers.IO) {
-                val session = store.geminiWebSession(providerId) ?: return@withContext null
-                val result = runCatching {
-                    GeminiWebClient.fetchUsage(GeminiWebClient.geminiWebHttp, session)
-                }.getOrNull() ?: return@withContext null
-                if (result.session != session) store.updateGeminiWebSession(providerId, result.session)
-                result.usage
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var failures = 0
+            while (isActive) {
+                val fetched = withContext(Dispatchers.IO) {
+                    val session = store.geminiWebSession(providerId) ?: return@withContext null
+                    val result = runCatching {
+                        GeminiWebClient.fetchUsage(GeminiWebClient.geminiWebHttp, session)
+                    }.getOrNull() ?: return@withContext null
+                    if (result.session != session) store.updateGeminiWebSession(providerId, result.session)
+                    result.usage
+                }
+                if (fetched != null) {
+                    serverUsage = fetched
+                    lastSyncAt = System.currentTimeMillis()
+                    phase = SyncPhase.Server
+                    failures = 0
+                } else if (serverUsage == null) {
+                    phase = SyncPhase.Local
+                    failures++
+                } else {
+                    // 之前读到过就继续显示,只把「多久前更新」变旧;失败越多次,重试越慢
+                    failures++
+                }
+                delay(if (failures == 0) 60_000L else (60_000L * failures).coerceAtMost(300_000L))
             }
-            if (fetched != null) {
-                serverUsage = fetched
-                lastSyncAt = System.currentTimeMillis()
-                phase = SyncPhase.Server
-                failures = 0
-            } else if (serverUsage == null) {
-                phase = SyncPhase.Local
-                failures++
-            } else {
-                // 之前读到过就继续显示,只把「多久前更新」变旧;失败越多次,重试越慢
-                failures++
-            }
-            delay(if (failures == 0) 60_000L else (60_000L * failures).coerceAtMost(300_000L))
         }
     }
 
@@ -392,7 +403,10 @@ private fun LimitCard(
                 )
             }
             Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(8.dp).clip(MinaShapes.Pill).background(c.hair)) {
+            Box(
+                Modifier.fillMaxWidth().height(8.dp).clip(MinaShapes.Pill).background(c.hair)
+                    .semantics { progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f) },
+            ) {
                 if (fraction > 0f) {
                     Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(MinaShapes.Pill).background(color))
                 }

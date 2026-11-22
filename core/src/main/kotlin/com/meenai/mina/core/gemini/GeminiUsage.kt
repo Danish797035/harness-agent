@@ -35,10 +35,10 @@ data class GeminiUsage(
  */
 object GeminiUsageParser {
     private val json = Json { ignoreUnknownKeys = true }
+    private val VIEWER_NULL = Regex(""""viewer"\s*:\s*null""")
 
     fun parse(body: String): GeminiUsage? {
-        // Google 的回复前面有防 XSSI 前缀(例如 `)]}'` + 换行),先去干净
-        val text = body.trimStart().let { if (it.startsWith(")]}'")) it.substring(4).trimStart() else it }
+        val text = stripXssiPrefix(body)
         val root = runCatching { json.parseToJsonElement(text) }.getOrNull() ?: return null
         // 网页的 GraphQL 回复是 Relay 数组([{data, errors}]);也接受单个对象,方便测试和旧格式
         val payload = when (root) {
@@ -65,6 +65,21 @@ object GeminiUsageParser {
         val tier = info["subscriptionTier"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
         return GeminiUsage(daily = daily, weekly = weekly, tier = tier)
     }
+
+    /**
+     * 这次回复是不是「登录态不对」:网页没登录/令牌过期时 HTTP 仍是 200,
+     * 但 `viewer` 是 null(或带 UNAUTHENTICATED)。调用方据此换新 token 重试一次。
+     */
+    fun needsFreshSession(body: String): Boolean {
+        val text = stripXssiPrefix(body).trimStart()
+        // 被重定向到登录页时拿到的是 HTML,不是 JSON
+        if (!text.startsWith("[") && !text.startsWith("{")) return true
+        return VIEWER_NULL.containsMatchIn(text) || text.contains("UNAUTHENTICATED")
+    }
+
+    /** Google 的回复前面有防 XSSI 前缀(例如 `)]}'` + 换行),先去干净。 */
+    private fun stripXssiPrefix(body: String): String =
+        body.trimStart().let { if (it.startsWith(")]}'")) it.substring(4).trimStart() else it }
 
     private fun windowOf(pool: JsonObject): GeminiUsageWindow? {
         val fraction = pool["percentageUsed"]?.jsonPrimitive?.let { it.doubleOrNull ?: it.intOrNull?.toDouble() }

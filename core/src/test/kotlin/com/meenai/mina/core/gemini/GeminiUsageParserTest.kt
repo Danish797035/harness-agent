@@ -1,7 +1,9 @@
 package com.meenai.mina.core.gemini
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
@@ -74,6 +76,18 @@ class GeminiUsageParserTest {
             ]}}}}}
         """.trimIndent()
         assertNull(GeminiUsageParser.parse(bad))
+    }
+
+    @Test
+    fun detectsSignedOutResponsesAndLoginHtml() {
+        assertTrue(
+            GeminiUsageParser.needsFreshSession(
+                """[{"data":{"viewer":null},"errors":[{"message":"Internal error encountered."}]}]"""
+            )
+        )
+        assertTrue(GeminiUsageParser.needsFreshSession("<html><body>Sign in</body></html>"))
+        assertTrue(GeminiUsageParser.needsFreshSession(""))
+        assertFalse(GeminiUsageParser.needsFreshSession(")]}'\n[$body]"))
     }
 
     @Test

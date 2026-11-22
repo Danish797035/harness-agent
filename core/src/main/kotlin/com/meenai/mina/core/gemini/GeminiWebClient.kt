@@ -195,8 +195,17 @@ object GeminiWebClient {
             .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
 
+        var refreshedOnce = false
+        if (current.snlm0e.isBlank()) {
+            refreshedOnce = true
+            val refreshed = runCatching {
+                fetchSessionFromCookies(client, cookieSnapshot().ifBlank { current.cookies })
+            }.getOrNull()
+            if (refreshed != null) current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
+        }
         var attempt = requestUsage(client, current)
-        if (attempt.usage == null && attempt.unauthorized) {
+        // 网页没登录时 HTTP 也是 200,只是 viewer 为 null;换一次新令牌再试
+        if (attempt.usage == null && attempt.needsRefresh && !refreshedOnce) {
             val refreshed = runCatching {
                 fetchSessionFromCookies(client, cookieSnapshot().ifBlank { current.cookies })
             }.getOrNull()
@@ -215,7 +224,7 @@ object GeminiWebClient {
         return GeminiUsageFetch(attempt.usage, next)
     }
 
-    /** 发一次 UsagePageQuery;unauthorized 表示 HTTP 401/403,值得换 token 再试。 */
+    /** 发一次 UsagePageQuery;[needsRefresh] 表示登录态/令牌可能过期,值得换新会话再试。 */
     private fun requestUsage(http: OkHttpClient, session: GeminiWebSession): UsageAttempt {
         val payload = buildJsonObject {
             put("querySignature", USAGE_QUERY_ID)
@@ -240,7 +249,11 @@ object GeminiWebClient {
         return response.use {
             val unauthorized = it.code == 401 || it.code == 403
             if (!it.isSuccessful) return@use UsageAttempt(null, unauthorized)
-            UsageAttempt(GeminiUsageParser.parse(it.body?.string().orEmpty()), false)
+            val body = it.body?.string().orEmpty()
+            UsageAttempt(
+                usage = GeminiUsageParser.parse(body),
+                needsRefresh = GeminiUsageParser.needsFreshSession(body),
+            )
         }
     }
 
@@ -355,5 +368,5 @@ object GeminiWebClient {
 /** 一次用量读取的结果:[usage] 为空表示这次没读到,[session] 可能是刷新过的新会话。 */
 data class GeminiUsageFetch(val usage: GeminiUsage?, val session: GeminiWebSession)
 
-/** 单次 GraphQL 尝试:没读到时 [unauthorized] 说明该换 XSRF token 重试。 */
-private data class UsageAttempt(val usage: GeminiUsage?, val unauthorized: Boolean)
+/** 单次 GraphQL 尝试:没读到时 [needsRefresh] 说明该换 XSRF token 重试。 */
+private data class UsageAttempt(val usage: GeminiUsage?, val needsRefresh: Boolean)
