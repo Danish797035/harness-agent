@@ -9,14 +9,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import kotlin.random.Random
 
@@ -26,6 +30,11 @@ object GeminiWebClient {
     const val INIT_URL = "https://gemini.google.com/app"
     const val STREAM_GENERATE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     const val BATCH_EXECUTE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
+    /** Gemini 网页 Usage limits 页的 GraphQL 网关(OmakaseGateway)。 */
+    const val GRAPHQL_PATH = "/\$rpc/gdm.geminiapp.hydrofoil.omakase.OmakaseGateway/ExecuteGraphqlHttp"
+    const val DEFAULT_GRAPHQL_ORIGIN = "https://geminiweb-pa.clients6.google.com"
+    /** UsagePageQuery 的持久化查询 id(网页打包时固定)。 */
+    const val USAGE_QUERY_ID = "2/yL2v1aYbA346hkaeglNZmTMJfO37mMT1xFprjCS/Pj4="
 
     const val CHROME_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
@@ -35,6 +44,10 @@ object GeminiWebClient {
     val BUILD_LABEL_REGEX = Regex(""""cfb2h":\s*"([^"]+)"""")
     val SESSION_ID_REGEX = Regex(""""FdrFJe":\s*"([^"]+)"""")
     val EMAIL_REGEX = Regex(""""o3H74c":\s*"([^"]+)"""")
+    val SERVER_TOKEN_REGEX = Regex(""""PI9WOb":\s*"([^"]+)"""")
+    val OXYGEN_URL_REGEX = Regex(""""dSupif":\s*"([^"]+)"""")
+    val AUTH_USER_REGEX = Regex(""""QrtxK":\s*"?([^",}]+)"?""")
+    val MENDEL_FLAGS_REGEX = Regex(""""GruApd":\s*"([^"]+)"""")
 
     val geminiWebHttp: OkHttpClient by lazy {
         // Same proxy/DNS rules as the other model clients: a signed-in Google
@@ -134,6 +147,10 @@ object GeminiWebClient {
             cfb2h = cfb2h,
             fdrfje = fdrfje,
             email = email,
+            serverToken = SERVER_TOKEN_REGEX.find(html)?.groupValues?.get(1).orEmpty(),
+            oxygenUrl = OXYGEN_URL_REGEX.find(html)?.groupValues?.get(1).orEmpty(),
+            authUserIndex = AUTH_USER_REGEX.find(html)?.groupValues?.get(1)?.trim()?.trim('"').orEmpty(),
+            mendelFlags = MENDEL_FLAGS_REGEX.find(html)?.groupValues?.get(1).orEmpty(),
             signedIn = true
         )
     }
@@ -157,6 +174,53 @@ object GeminiWebClient {
             val html = it.body?.string().orEmpty()
             return extractSessionFromHtml(html, header)
                 ?: throw ModelError.SignInExpired("Failed to extract SNlM0e token from Gemini page. Please sign in again.")
+        }
+    }
+
+    /**
+     * 读取 Gemini 账号自己的用量(和网页 Usage limits 页同一个 GraphQL 查询)。
+     * 会话里缺 serverToken / Mendel flags 时先用 Cookie 重新取一次 /app。
+     * 失败时返回 usage = null 和最新的会话,调用方退回本机计数。
+     */
+    suspend fun fetchUsage(http: OkHttpClient, session: GeminiWebSession): GeminiUsageFetch {
+        var current = session
+        // 和聊天共用同一个 cookie jar:Google 会轮换 cookie,读完要把新的写回会话
+        seedCookies(current.cookies)
+        if (current.serverToken.isBlank() || current.mendelFlags.isBlank()) {
+            val cookies = cookieSnapshot().ifBlank { current.cookies }
+            current = runCatching { fetchSessionFromCookies(http, cookies) }.getOrNull() ?: current
+        }
+        if (!current.signedIn) return GeminiUsageFetch(null, current)
+        val origin = current.oxygenUrl.takeIf { it.startsWith("https://") }?.trimEnd('/')
+            ?: DEFAULT_GRAPHQL_ORIGIN
+        val payload = buildJsonObject {
+            put("persistedQueryId", USAGE_QUERY_ID)
+            put("operationName", "UsagePageQuery")
+            put("variablesJson", "{}")
+            if (current.mendelFlags.isNotBlank()) put("mendelFlags", current.mendelFlags)
+        }.toString()
+        val builder = Request.Builder()
+            .url(origin + GRAPHQL_PATH)
+            .header("User-Agent", CHROME_USER_AGENT)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("Accept-Language", "en")
+            .header("Origin", BASE_URL)
+            .header("Referer", "$BASE_URL/app")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+        if (current.serverToken.isNotBlank()) builder.header("X-Server-Token", current.serverToken)
+        if (current.authUserIndex.isNotBlank()) builder.header("X-Goog-AuthUser", current.authUserIndex)
+        val response = runCatching { http.newCall(builder.build()).execute() }.getOrNull()
+            ?: return GeminiUsageFetch(null, current)
+        return response.use {
+            val latest = cookieSnapshot().ifBlank { current.cookies }
+            val next = if (latest != current.cookies) {
+                current.copy(cookies = latest, savedAtMs = System.currentTimeMillis())
+            } else {
+                current
+            }
+            if (!it.isSuccessful) return@use GeminiUsageFetch(null, next)
+            GeminiUsageFetch(GeminiUsageParser.parse(it.body?.string().orEmpty()), next)
         }
     }
 
@@ -267,3 +331,6 @@ object GeminiWebClient {
         uuid: String
     ): String = buildInnerRequestJson(prompt, modelNumber, if (extendedThinking) 2 else 1, uuid)
 }
+
+/** 一次用量读取的结果:[usage] 为空表示这次没读到,[session] 可能是刷新过的新会话。 */
+data class GeminiUsageFetch(val usage: GeminiUsage?, val session: GeminiWebSession)

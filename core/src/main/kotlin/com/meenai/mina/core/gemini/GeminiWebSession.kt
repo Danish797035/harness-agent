@@ -19,6 +19,14 @@ data class GeminiWebSession(
     val fdrfje: String = "",
     /** Logged-in Google account email if known. */
     val email: String = "",
+    /** "PI9WOb" server token from the Gemini page, sent as X-Server-Token. */
+    val serverToken: String = "",
+    /** "dSupif" Oxygen GraphQL origin, e.g. https://geminiweb-pa.clients6.google.com. */
+    val oxygenUrl: String = "",
+    /** "QrtxK" signed-in account index, sent as X-Goog-AuthUser when present. */
+    val authUserIndex: String = "",
+    /** "GruApd" hydrofoil Mendel flags for the GraphQL request. */
+    val mendelFlags: String = "",
     /** Active status flag. False when signed out. */
     val signedIn: Boolean = true,
     /** Timestamp when session was saved or last validated. */

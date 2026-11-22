@@ -75,7 +75,11 @@ class GeminiWebModelTest {
                 "SNlM0e": "extracted_snlm0e_abc123",
                 "cfb2h": "extracted_bl_456",
                 "FdrFJe": "extracted_fdrfje_789",
-                "o3H74c": "testuser@gmail.com"
+                "o3H74c": "testuser@gmail.com",
+                "PI9WOb": "CAMS_server_token",
+                "dSupif": "https://geminiweb-pa.clients6.google.com",
+                "QrtxK": 0,
+                "GruApd": "mendel_flags_value"
             };
             </script>
             </html>
@@ -87,6 +91,10 @@ class GeminiWebModelTest {
         assertEquals("extracted_bl_456", parsed?.cfb2h)
         assertEquals("extracted_fdrfje_789", parsed?.fdrfje)
         assertEquals("testuser@gmail.com", parsed?.email)
+        assertEquals("CAMS_server_token", parsed?.serverToken)
+        assertEquals("https://geminiweb-pa.clients6.google.com", parsed?.oxygenUrl)
+        assertEquals("0", parsed?.authUserIndex)
+        assertEquals("mendel_flags_value", parsed?.mendelFlags)
         assertEquals("cookie_123=val", parsed?.cookies)
     }
 

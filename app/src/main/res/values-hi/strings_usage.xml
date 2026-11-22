@@ -47,7 +47,7 @@
     <string name="usage_limits_weekly">हफ़्ते की सीमा</string>
     <string name="usage_limits_used_pct">%1$d%% इस्तेमाल</string>
     <string name="usage_limits_of">%2$d में से %1$d रिक्वेस्ट</string>
-    <string name="usage_limits_resets_daily">रात 12:00 बजे रीसेट</string>
+    <string name="usage_limits_resets_daily">रात 12:00 बजे IST रीसेट</string>
     <string name="usage_limits_rolling">पिछले 7 दिन</string>
     <string name="usage_limits_budget">रोज़ का बजट</string>
     <string name="usage_limits_budget_value">%1$d रिक्वेस्ट</string>
@@ -57,4 +57,13 @@
     <string name="usage_limits_less">बजट कम करें</string>
     <string name="usage_limits_more">बजट बढ़ाएँ</string>
     <string name="usage_limits_today_value">आज %1$d</string>
+    <string name="usage_limits_ultra">अल्ट्रा</string>
+    <string name="usage_limits_plan_desc">आपके प्लान की सीमाएँ तय करती हैं कि आप समय के साथ Gemini को कितना इस्तेमाल कर सकते हैं। एडवांस मॉडल और फ़ीचर ज़्यादा उपयोग ले सकते हैं।</string>
+    <string name="usage_limits_local_desc">Gemini का सर्वर उपयोग अभी नहीं मिल रहा। इस ऐप की रिक्वेस्ट आपके बजट के हिसाब से दिखा रहे हैं।</string>
+    <string name="usage_limits_today_app">आज (ऐप)</string>
+    <string name="usage_limits_week_app">पिछले 7 दिन (ऐप)</string>
+    <string name="usage_limits_resets_at">%1$s बजे रीसेट</string>
+    <string name="usage_limits_resets_on">%1$s को %2$s बजे रीसेट</string>
+    <string name="usage_limits_server_note">आपके Gemini अकाउंट से सिंक। प्रतिशत Google का अपना उपयोग है।</string>
+    <string name="usage_limits_app_desc">आपके रोज़ के बजट के हिसाब से इस ऐप की रिक्वेस्ट। रिक्वेस्ट बढ़ने पर बार भरते हैं।</string>
 </resources>

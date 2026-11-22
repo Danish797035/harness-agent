@@ -223,7 +223,7 @@ fun SettingsScreen(
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
-        SettingsPage.UsageLimits -> UsageLimitsScreen(usage, store.providers, onBack = toHome)
+        SettingsPage.UsageLimits -> UsageLimitsScreen(usage, store, onBack = toHome)
         SettingsPage.PhoneOps -> PhoneOpsScreen(
             status, androidRelease, onProblem,
             onOpenNotifications = { notificationsFrom = SettingsPage.PhoneOps; page = SettingsPage.Notifications },

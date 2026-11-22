@@ -47,7 +47,7 @@
     <string name="usage_limits_weekly">Weekly limit</string>
     <string name="usage_limits_used_pct">%1$d%% used</string>
     <string name="usage_limits_of">%1$d of %2$d requests</string>
-    <string name="usage_limits_resets_daily">Resets at 12:00 am</string>
+    <string name="usage_limits_resets_daily">Resets at 12:00 am IST</string>
     <string name="usage_limits_rolling">Rolling 7 days</string>
     <string name="usage_limits_budget">Daily budget</string>
     <string name="usage_limits_budget_value">%1$d requests</string>
@@ -57,4 +57,13 @@
     <string name="usage_limits_less">Decrease budget</string>
     <string name="usage_limits_more">Increase budget</string>
     <string name="usage_limits_today_value">%1$d today</string>
+    <string name="usage_limits_ultra">ULTRA</string>
+    <string name="usage_limits_plan_desc">Your plan\'s limits determine how much you can use Gemini over time. Advanced models and features can take up more usage.</string>
+    <string name="usage_limits_local_desc">Gemini\'s server usage isn\'t available right now. Showing this app\'s requests against your budget.</string>
+    <string name="usage_limits_today_app">Today (app)</string>
+    <string name="usage_limits_week_app">Last 7 days (app)</string>
+    <string name="usage_limits_resets_at">Resets at %1$s</string>
+    <string name="usage_limits_resets_on">Resets on %1$s at %2$s</string>
+    <string name="usage_limits_server_note">Synced from your Gemini account. Percentages are Google\'s own usage.</string>
+    <string name="usage_limits_app_desc">This app\'s requests against your daily budget. Bars fill as you use requests.</string>
 </resources>
