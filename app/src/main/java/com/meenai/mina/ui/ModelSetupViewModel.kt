@@ -990,8 +990,8 @@ class ModelSetupViewModel(
                 store.signOutGeminiWeb(providerId)
                 // The login WebView keeps Google cookies of its own; without
                 // clearing them the next Sign-in loads the old session silently.
-                CookieManager.getInstance().removeAllCookies(null)
-                CookieManager.getInstance().flush()
+                runCatching { CookieManager.getInstance().removeAllCookies(null) }
+                runCatching { CookieManager.getInstance().flush() }
             }
             _state.update { snapshot(it.copy(listing = it.listing - providerId)) }
         }
