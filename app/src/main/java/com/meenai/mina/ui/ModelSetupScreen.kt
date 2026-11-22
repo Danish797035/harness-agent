@@ -144,6 +144,11 @@ fun ModelSetupScreen(
     LaunchedEffect(ui.geminiWebAccount?.signedIn, ui.geminiWebSignIn) {
         if (signInSheet == SignInKind.GeminiWeb && ui.geminiWebAccount?.signedIn == true && ui.geminiWebSignIn == ListState.Idle) signInSheet = null
     }
+    // Gemini 登录后会在服务器上发一条消息检测:检测失败时账号行已经写了原因,
+    // 让它打开一次面板,把失败原因摆给人看。
+    LaunchedEffect(ui.geminiWebSignIn) {
+        if (signInSheet == null && ui.geminiWebSignIn is ListState.Failed) signInSheet = SignInKind.GeminiWeb
+    }
 
     val provider = openProvider?.let { id -> ui.providers.firstOrNull { it.id == id } }
     val role = picking

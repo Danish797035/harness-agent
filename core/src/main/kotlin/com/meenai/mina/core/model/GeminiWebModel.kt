@@ -71,8 +71,7 @@ class GeminiWebModel(
         val effectiveTools = if (isChat) emptyList() else tools
         val prompt = formatPrompt(system, messages, effectiveTools)
         val thinkingFlag = if (isChat) 1 else GeminiWebClient.thinkingFlagFor(reasoningEffort)
-        val modelNumber = GeminiWebClient.modelNumberFor(model)
-        val modelHexId = GeminiWebClient.modelHexIdFor(model)
+        val (modelHexId, modelNumber) = GeminiWebClient.resolveModel(model, session)
         val uuid = UUID.randomUUID().toString().uppercase()
 
         val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)

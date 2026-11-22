@@ -1,7 +1,13 @@
 package com.meenai.mina.ui
 
+import android.webkit.CookieManager
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
+import com.meenai.mina.core.model.Author
+import com.meenai.mina.core.model.GeminiWebModel
+import com.meenai.mina.core.model.Message
+import com.meenai.mina.core.model.Part
+import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.ListFailure
 import com.meenai.mina.core.net.ProxyFailure
 import com.meenai.mina.core.model.Capabilities
@@ -932,12 +938,29 @@ class ModelSetupViewModel(
                 if (store.roles.value.vision is RoleChoice.Off || store.roles.value.vision == null) {
                     argonOption?.let { m -> use(ModelRole.Vision, provider, m.id, options) }
                 }
+                // End-to-end check: a login that only passes the account probe can
+                // still be unusable from the chat endpoint, and the user deserves
+                // the real error instead of silence.
+                val testError = runCatching {
+                    val probeModel = GeminiWebModel(
+                        session = session,
+                        model = "gemini-4-argon",
+                        capabilities = Capabilities(toolCalls = false, vision = false, contextTokens = 1_000_000, reasoning = false),
+                        http = GeminiWebClient.geminiWebHttp,
+                        onSessionUpdated = { store.updateGeminiWebSession(provider.id, it) },
+                    )
+                    probeModel.complete(
+                        "",
+                        listOf(Message(Role.User, listOf(Part.Text("Reply with the single word: OK")), Author.User)),
+                        emptyList()
+                    )
+                }.exceptionOrNull()?.message
                 provider
             }
             _state.update {
                 snapshot(it.copy(
                     signedInProvider = p.id,
-                    geminiWebSignIn = ListState.Idle,
+                    geminiWebSignIn = testError?.let { ListState.Failed("Connected, but the test message failed: $it") } ?: ListState.Idle,
                     geminiWebLoginOpen = false,
                     formOpen = false
                 ))
@@ -960,7 +983,13 @@ class ModelSetupViewModel(
 
     fun signOutGeminiWeb(providerId: String) {
         scope.launch {
-            withContext(io) { store.signOutGeminiWeb(providerId) }
+            withContext(io) {
+                store.signOutGeminiWeb(providerId)
+                // The login WebView keeps Google cookies of its own; without
+                // clearing them the next Sign-in loads the old session silently.
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+            }
             _state.update { snapshot(it.copy(listing = it.listing - providerId)) }
         }
     }

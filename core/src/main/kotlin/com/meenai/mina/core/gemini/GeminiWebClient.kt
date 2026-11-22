@@ -444,6 +444,22 @@ object GeminiWebClient {
         else -> "e6fa609c3fa255c0"
     }
 
+    /**
+     * Hex id + model number for the configured model. For a model whose name is
+     * not one of our four known ones (stale or renamed model ids, e.g. Google's
+     * own "Auto" style entries), fall back to the account's default model from
+     * the login probe instead of guessing a hardcoded id that Google may reject.
+     */
+    fun resolveModel(model: String, session: GeminiWebSession): Pair<String, Int> {
+        val known = listOf("argon", "hydrogen", "pro", "lite", "flash").any {
+            model.contains(it, ignoreCase = true)
+        }
+        if (!known && session.defaultModelId.isNotBlank()) {
+            return session.defaultModelId to session.defaultModelNumber.coerceAtLeast(1)
+        }
+        return modelHexIdFor(model) to modelNumberFor(model)
+    }
+
     fun thinkingFlagFor(effort: String?): Int = when (effort?.lowercase()) {
         "high" -> 2
         "medium", "standard" -> 1

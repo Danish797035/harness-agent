@@ -37,6 +37,10 @@ data class GeminiWebSession(
     val capacity: Int = 2,
     /** Where [capacity] sits in the model header (12 for normal, 13 for some tiers). */
     val capacityField: Int = 12,
+    /** Hex id of the account's default model, from `GetUserStatus`. */
+    val defaultModelId: String = "",
+    /** Model number of [defaultModelId], mirrored into the request payload. */
+    val defaultModelNumber: Int = 0,
     /** Active status flag. False when signed out. */
     val signedIn: Boolean = true,
     /** Timestamp when session was saved or last validated. */
@@ -56,6 +60,8 @@ data class GeminiWebSession(
         userAgent = "",
         capacity = 2,
         capacityField = 12,
+        defaultModelId = "",
+        defaultModelNumber = 0,
     )
 
     fun toJson(): String = JSON.encodeToString(serializer(), this)

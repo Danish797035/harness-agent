@@ -351,35 +351,42 @@ private fun createGoogleLoginWebView(
             }
 
             /**
-             * Ask Google whether the captured cookies are really signed in. The
-             * page probe runs inside the WebView, so it also proves the browser
-             * session itself works; the HTTP probe is only a fallback for pages
-             * where scripted fetch is unavailable.
+             * Ask Google whether the captured cookies are really signed in
+             * (`GetUserStatus`, the same RPC the web app runs on load). Only a
+             * confirmed status of 1000 may close the dialog; anything else keeps
+             * it open with the server's reason. A failed check never "logs in"
+             * a session that is not there.
              */
             fun verify(session: GeminiWebSession) {
                 if (loginHandled) return
                 onHint("Checking your Gemini account…")
                 probeInPage(session) { probe ->
-                    when {
-                        probe == null -> verifyOverHttp(session)
-                        probe.signedIn -> finish(
-                            session.copy(
-                                capacity = probe.capacity,
-                                capacityField = probe.capacityField,
-                            )
+                    if (probe != null) handleProbe(probe, session)
+                    else verifyOverHttp(session)
+                }
+            }
+
+            fun handleProbe(probe: GeminiProbe, session: GeminiWebSession) {
+                if (loginHandled) return
+                if (probe.signedIn) {
+                    finish(
+                        session.copy(
+                            capacity = probe.capacity,
+                            capacityField = probe.capacityField,
+                            defaultModelId = probe.models.firstOrNull()?.id.orEmpty(),
+                            defaultModelNumber = probe.models.firstOrNull()?.modelNumber ?: 0,
                         )
-                        else -> {
-                            onHint(probe.statusMessage() + " Tap Reload to try again.")
-                            captureAttempts = 0
-                            scheduleCapture(3_000)
-                        }
-                    }
+                    )
+                } else {
+                    onHint(probe.statusMessage() + " Tap Reload to try again.")
+                    captureAttempts = 0
+                    scheduleCapture(3_000)
                 }
             }
 
             fun verifyOverHttp(session: GeminiWebSession) {
                 scope.launch {
-                    val probe = withContext(Dispatchers.IO) {
+                    val outcome = withContext(Dispatchers.IO) {
                         runCatching {
                             val http = GeminiWebClient.geminiWebHttp.newBuilder()
                                 .cookieJar(CookieJar.NO_COOKIES)
@@ -389,22 +396,12 @@ private fun createGoogleLoginWebView(
                         }.getOrNull()
                     }
                     if (loginHandled) return@launch
-                    when {
-                        // A blocked check must not block the login: chat will show
-                        // the real error if the session is actually unusable.
-                        probe == null -> finish(session)
-                        probe.signedIn -> finish(
-                            session.copy(
-                                capacity = probe.capacity,
-                                capacityField = probe.capacityField,
-                            )
-                        )
-                        else -> {
-                            onHint(probe.statusMessage() + " Tap Reload to try again.")
-                            captureAttempts = 0
-                            scheduleCapture(3_000)
-                        }
+                    val probe = outcome
+                    if (probe == null) {
+                        onHint("Could not verify the Gemini account. Sign in again with Reload, or use Manual.")
+                        return@launch
                     }
+                    handleProbe(probe, session)
                 }
             }
 
@@ -647,7 +644,12 @@ private fun createGoogleLoginWebView(
         }
 
         post { onWebViewReady(this) }
-        loadUrl(GEMINI_LOGIN_START)
+        // A fresh sign-in must start from no account: leftovers in the shared
+        // WebView cookie store would otherwise "log in" without the user.
+        cookieManager.removeAllCookies {
+            cookieManager.flush()
+            mainView.post { loadUrl(GEMINI_LOGIN_START) }
+        }
     }
 }
 
@@ -775,7 +777,31 @@ private fun ManualCookieEntry(
                                 "Could not detect a Gemini session. Check the cookies and try again."
                             )
                         }
-                        onSuccess(session)
+                        // Manual sessions must be real too: ask Google whether
+                        // these cookies are actually signed in, so we never store
+                        // a stale pair and call it a login.
+                        val probe = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                                    .cookieJar(CookieJar.NO_COOKIES)
+                                    .callTimeout(30, TimeUnit.SECONDS)
+                                    .build()
+                                GeminiWebClient.probeSession(http, session)
+                            }.getOrNull()
+                        }
+                        when {
+                            probe != null && !probe.signedIn ->
+                                throw IllegalStateException(probe.statusMessage() + " Sign in with a real Google account.")
+                            probe != null -> onSuccess(session.copy(
+                                capacity = probe.capacity,
+                                capacityField = probe.capacityField,
+                                defaultModelId = probe.models.firstOrNull()?.id.orEmpty(),
+                                defaultModelNumber = probe.models.firstOrNull()?.modelNumber ?: 0,
+                            ))
+                            else -> throw IllegalStateException(
+                                "Google could not verify these cookies. They may be for another browser or account."
+                            )
+                        }
                     } catch (e: Exception) {
                         errorMsg = e.message ?: "Failed to validate session"
                         onError(errorMsg ?: "")
