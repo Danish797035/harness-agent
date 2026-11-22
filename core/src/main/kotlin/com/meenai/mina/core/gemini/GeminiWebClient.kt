@@ -190,15 +190,19 @@ object GeminiWebClient {
         // 和聊天共用 cookie jar;只在它是空的时候种一次,免得把聊天刚轮换的新 cookie 覆盖回旧的
         if (cookieSnapshot().isBlank()) seedCookies(current.cookies)
         if (!current.signedIn) return GeminiUsageFetch(null, current)
+        // 聊天客户端读超时是 5 分钟;用量页不能卡这么久,单独给它 30 秒
+        val client = http.newBuilder()
+            .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
 
-        var attempt = requestUsage(http, current)
+        var attempt = requestUsage(client, current)
         if (attempt.usage == null && attempt.unauthorized) {
             val refreshed = runCatching {
-                fetchSessionFromCookies(http, cookieSnapshot().ifBlank { current.cookies })
+                fetchSessionFromCookies(client, cookieSnapshot().ifBlank { current.cookies })
             }.getOrNull()
             if (refreshed != null) {
                 current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
-                attempt = requestUsage(http, current)
+                attempt = requestUsage(client, current)
             }
         }
 
