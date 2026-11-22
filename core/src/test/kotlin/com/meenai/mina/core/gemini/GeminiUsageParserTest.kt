@@ -43,6 +43,15 @@ class GeminiUsageParserTest {
     }
 
     @Test
+    fun readsRelayArrayResponseFromTheWeb() {
+        val relay = "[$body]"
+        val usage = GeminiUsageParser.parse(relay)!!
+        assertEquals(0, usage.daily?.percentUsed)
+        assertEquals(4, usage.weekly?.percentUsed)
+        assertEquals("GOOGLE_AI_PRO", usage.tier)
+    }
+
+    @Test
     fun unknownPoolsAreIgnoredAndMissingInfoIsNull() {
         val onlyUnknown = """
             {"data":{"viewer":{"rpcs":{"getUsageInfo":{"pools":[
@@ -51,6 +60,8 @@ class GeminiUsageParserTest {
         """.trimIndent()
         assertNull(GeminiUsageParser.parse(onlyUnknown))
         assertNull(GeminiUsageParser.parse("""{"data":{}}"""))
+        assertNull(GeminiUsageParser.parse("""[{"data":null,"errors":[{"message":"nope"}]}]"""))
+        assertNull(GeminiUsageParser.parse("""[{"data":{"viewer":null}}]"""))
         assertNull(GeminiUsageParser.parse("not json"))
     }
 

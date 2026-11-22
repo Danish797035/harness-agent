@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,6 +68,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlin.math.roundToInt
 
+/** 服务端用量的三种状态:第一次读、读到、读不到退回本机。 */
+private enum class SyncPhase { Checking, Server, Local }
+
 /**
  * 设置 › 用量上限。
  *
@@ -106,8 +110,14 @@ fun UsageLimitsScreen(
     }
 
     var serverUsage by remember(providerId) { mutableStateOf<GeminiUsage?>(null) }
+    var lastSyncAt by remember(providerId) { mutableStateOf(0L) }
+    // 第一次读之前先显示「正在检查」,别先闪一下本机数字再跳成 Google 的
+    var phase by remember(providerId) {
+        mutableStateOf(if (providerId == null) SyncPhase.Local else SyncPhase.Checking)
+    }
     LaunchedEffect(providerId) {
         if (providerId == null) return@LaunchedEffect
+        var failures = 0
         while (isActive) {
             val fetched = withContext(Dispatchers.IO) {
                 val session = store.geminiWebSession(providerId) ?: return@withContext null
@@ -117,12 +127,23 @@ fun UsageLimitsScreen(
                 if (result.session != session) store.updateGeminiWebSession(providerId, result.session)
                 result.usage
             }
-            if (fetched != null) serverUsage = fetched
-            delay(60_000)
+            if (fetched != null) {
+                serverUsage = fetched
+                lastSyncAt = System.currentTimeMillis()
+                phase = SyncPhase.Server
+                failures = 0
+            } else if (serverUsage == null) {
+                phase = SyncPhase.Local
+                failures++
+            } else {
+                // 之前读到过就继续显示,只把「多久前更新」变旧;失败越多次,重试越慢
+                failures++
+            }
+            delay(if (failures == 0) 60_000L else (60_000L * failures).coerceAtMost(300_000L))
         }
     }
 
-    val server = serverUsage
+    val server = if (phase == SyncPhase.Server) serverUsage else null
     val tier = server?.tier?.uppercase().orEmpty()
     val plan = when {
         "ULTRA" in tier -> stringResource(R.string.usage_limits_ultra)
@@ -132,22 +153,35 @@ fun UsageLimitsScreen(
 
     PageScaffold(stringResource(R.string.usage_limits_title), onBack) {
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (server != null) {
-                plan?.let {
-                    PlanChip(it)
-                    Spacer(Modifier.width(8.dp))
+            when (phase) {
+                SyncPhase.Server -> {
+                    plan?.let {
+                        PlanChip(it)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        updatedLabel(lastSyncAt, now),
+                        style = MinaType.Hint, color = MinaTheme.colors.ink3,
+                    )
                 }
-                Text(stringResource(R.string.usage_limits_updated), style = MinaType.Hint, color = MinaTheme.colors.ink3)
-            } else {
-                LiveChip()
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.usage_limits_updated), style = MinaType.Hint, color = MinaTheme.colors.ink3)
+                SyncPhase.Checking -> Text(
+                    stringResource(R.string.usage_limits_checking),
+                    style = MinaType.Hint, color = MinaTheme.colors.ink3,
+                )
+                SyncPhase.Local -> {
+                    LocalChip()
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.usage_limits_updates_live),
+                        style = MinaType.Hint, color = MinaTheme.colors.ink3,
+                    )
+                }
             }
         }
         Text(
             stringResource(
                 when {
-                    server != null -> R.string.usage_limits_plan_desc
+                    phase != SyncPhase.Local -> R.string.usage_limits_plan_desc
                     providerId != null -> R.string.usage_limits_local_desc
                     else -> R.string.usage_limits_app_desc
                 }
@@ -156,7 +190,9 @@ fun UsageLimitsScreen(
             style = MinaType.Caption, color = MinaTheme.colors.ink2,
         )
 
-        if (server != null) {
+        when {
+            phase == SyncPhase.Checking -> CheckingCard()
+            server != null -> {
             server.daily?.let {
                 ServerLimitCard(
                     icon = MinaIcons.Chart,
@@ -176,13 +212,15 @@ fun UsageLimitsScreen(
                 )
             }
             FooterNote(stringResource(R.string.usage_limits_server_note))
-        } else {
-            val weeklyBudget = budget * 7
+            }
+            else -> {
+            val safeBudget = budget.coerceAtLeast(1)
+            val weeklyBudget = safeBudget * 7
             LimitCard(
                 icon = MinaIcons.Chart,
                 title = stringResource(R.string.usage_limits_today_app),
-                share = usage.dailyCalls.toDouble() / budget,
-                detail = stringResource(R.string.usage_limits_of, usage.dailyCalls.toInt(), budget),
+                share = usage.dailyCalls.toDouble() / safeBudget,
+                detail = stringResource(R.string.usage_limits_of, usage.dailyCalls.toInt(), safeBudget),
                 reset = stringResource(R.string.usage_limits_resets_daily),
                 tokens = usage.dailyTokens,
                 tag = "usage-limits-daily",
@@ -233,6 +271,7 @@ fun UsageLimitsScreen(
                 }
             }
             FooterNote(stringResource(R.string.usage_limits_note))
+            }
         }
     }
 }
@@ -277,14 +316,48 @@ private fun PlanChip(label: String) {
 }
 
 @Composable
-private fun LiveChip() {
+private fun LocalChip() {
     val c = MinaTheme.colors
     Row(
-        Modifier.clip(MinaShapes.Pill).background(c.okSoft).padding(horizontal = 9.dp, vertical = 3.dp),
+        Modifier.clip(MinaShapes.Pill).background(c.fill).padding(horizontal = 9.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(c.ok))
-        Text(stringResource(R.string.usage_limits_live), style = MinaType.Hint.copy(fontWeight = FontWeight.SemiBold), color = c.ok)
+        Box(Modifier.size(6.dp).clip(CircleShape).background(c.ink3))
+        Text(
+            stringResource(R.string.usage_limits_local_chip),
+            style = MinaType.Hint.copy(fontWeight = FontWeight.SemiBold), color = c.ink2,
+        )
+    }
+}
+
+/** 第一次读取账号用量时的占位,避免本机数字一闪而过。 */
+@Composable
+private fun CheckingCard() {
+    MinaCard(Modifier.padding(bottom = 12.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CircularProgressIndicator(
+                Modifier.size(18.dp), strokeWidth = 2.dp, color = MinaTheme.colors.accent,
+            )
+            Text(
+                stringResource(R.string.usage_limits_checking),
+                style = MinaType.BodyStrong, color = MinaTheme.colors.ink2,
+            )
+        }
+    }
+}
+
+/** 「Updated just now / 3 min ago」,靠外层每 5 秒的 tick 自己变。 */
+@Composable
+private fun updatedLabel(lastSyncAt: Long, now: Instant): String {
+    val minutes = ((now.toEpochMilli() - lastSyncAt).coerceAtLeast(0L) / 60_000L).toInt()
+    return when {
+        minutes <= 0 -> stringResource(R.string.usage_limits_updated_now)
+        minutes < 60 -> stringResource(R.string.usage_limits_updated_min, minutes)
+        else -> stringResource(R.string.usage_limits_updated_hour, minutes / 60)
     }
 }
 

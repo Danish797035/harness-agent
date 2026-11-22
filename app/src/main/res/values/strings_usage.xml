@@ -66,4 +66,10 @@
     <string name="usage_limits_resets_on">Resets on %1$s at %2$s</string>
     <string name="usage_limits_server_note">Synced from your Gemini account. Percentages are Google\'s own usage.</string>
     <string name="usage_limits_app_desc">This app\'s requests against your daily budget. Bars fill as you use requests.</string>
+    <string name="usage_limits_checking">Checking your Gemini account…</string>
+    <string name="usage_limits_updated_now">Updated just now</string>
+    <string name="usage_limits_updated_min">Updated %1$d min ago</string>
+    <string name="usage_limits_updated_hour">Updated %1$d hr ago</string>
+    <string name="usage_limits_updates_live">Updates live</string>
+    <string name="usage_limits_local_chip">Local</string>
 </resources>

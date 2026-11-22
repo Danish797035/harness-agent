@@ -1,6 +1,7 @@
 package com.meenai.mina.core.gemini
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -36,8 +37,16 @@ object GeminiUsageParser {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun parse(body: String): GeminiUsage? {
-        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
-        val info = root.path("data", "viewer", "rpcs", "getUsageInfo") ?: return null
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return null
+        // 网页的 GraphQL 回复是 Relay 数组([{data, errors}]);也接受单个对象,方便测试和旧格式
+        val payload = when (root) {
+            is JsonArray -> root.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                .firstOrNull { runCatching { it["data"]?.jsonObject }.getOrNull() != null }
+                ?: return null
+            is JsonObject -> root
+            else -> return null
+        }
+        val info = payload.path("data", "viewer", "rpcs", "getUsageInfo") ?: return null
         val pools = runCatching { info["pools"]?.jsonArray }.getOrNull() ?: return null
         var daily: GeminiUsageWindow? = null
         var weekly: GeminiUsageWindow? = null

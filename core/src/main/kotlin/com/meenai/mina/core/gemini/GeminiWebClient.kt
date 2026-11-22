@@ -16,6 +16,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -30,9 +31,8 @@ object GeminiWebClient {
     const val INIT_URL = "https://gemini.google.com/app"
     const val STREAM_GENERATE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     const val BATCH_EXECUTE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
-    /** Gemini 网页 Usage limits 页的 GraphQL 网关(OmakaseGateway)。 */
-    const val GRAPHQL_PATH = "/\$rpc/gdm.geminiapp.hydrofoil.omakase.OmakaseGateway/ExecuteGraphqlHttp"
-    const val DEFAULT_GRAPHQL_ORIGIN = "https://geminiweb-pa.clients6.google.com"
+    /** Gemini 网页 Usage limits 页的 GraphQL 执行端点(和网页发的是同一个请求)。 */
+    const val GRAPHQL_ENDPOINT = "https://gemini.google.com/_/BardChatUi/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery"
     /** UsagePageQuery 的持久化查询 id(网页打包时固定)。 */
     const val USAGE_QUERY_ID = "2/yL2v1aYbA346hkaeglNZmTMJfO37mMT1xFprjCS/Pj4="
 
@@ -178,49 +178,65 @@ object GeminiWebClient {
     }
 
     /**
-     * 读取 Gemini 账号自己的用量(和网页 Usage limits 页同一个 GraphQL 查询)。
-     * 会话里缺 serverToken / Mendel flags 时先用 Cookie 重新取一次 /app。
-     * 失败时返回 usage = null 和最新的会话,调用方退回本机计数。
+     * 读取 Gemini 账号自己的用量:和网页 Usage limits 页发同一个 GraphQL 请求
+     * (`GEMINI_WEB_GRAPHQL/executeQuery` + UsagePageQuery 的持久化 id)。
+     *
+     * 网页那边用 SNlM0e 当 XSRF token,body 是 `{querySignature, variables}`,
+     * 回复是一个 Relay 数组。这里照做;401/403 时用 Cookie 重新取一次 /app 换新 token 再试一次。
+     * 任何一步失败都返回 usage = null,调用方退回本机计数。
      */
     suspend fun fetchUsage(http: OkHttpClient, session: GeminiWebSession): GeminiUsageFetch {
         var current = session
-        // 和聊天共用同一个 cookie jar:Google 会轮换 cookie,读完要把新的写回会话
-        seedCookies(current.cookies)
-        if (current.serverToken.isBlank() || current.mendelFlags.isBlank()) {
-            val cookies = cookieSnapshot().ifBlank { current.cookies }
-            current = runCatching { fetchSessionFromCookies(http, cookies) }.getOrNull() ?: current
-        }
+        // 和聊天共用 cookie jar;只在它是空的时候种一次,免得把聊天刚轮换的新 cookie 覆盖回旧的
+        if (cookieSnapshot().isBlank()) seedCookies(current.cookies)
         if (!current.signedIn) return GeminiUsageFetch(null, current)
-        val origin = current.oxygenUrl.takeIf { it.startsWith("https://") }?.trimEnd('/')
-            ?: DEFAULT_GRAPHQL_ORIGIN
+
+        var attempt = requestUsage(http, current)
+        if (attempt.usage == null && attempt.unauthorized) {
+            val refreshed = runCatching {
+                fetchSessionFromCookies(http, cookieSnapshot().ifBlank { current.cookies })
+            }.getOrNull()
+            if (refreshed != null) {
+                current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
+                attempt = requestUsage(http, current)
+            }
+        }
+
+        val latest = cookieSnapshot()
+        val next = if (latest.isNotBlank() && latest != current.cookies) {
+            current.copy(cookies = latest, savedAtMs = System.currentTimeMillis())
+        } else {
+            current
+        }
+        return GeminiUsageFetch(attempt.usage, next)
+    }
+
+    /** 发一次 UsagePageQuery;unauthorized 表示 HTTP 401/403,值得换 token 再试。 */
+    private fun requestUsage(http: OkHttpClient, session: GeminiWebSession): UsageAttempt {
         val payload = buildJsonObject {
-            put("persistedQueryId", USAGE_QUERY_ID)
-            put("operationName", "UsagePageQuery")
-            put("variablesJson", "{}")
-            if (current.mendelFlags.isNotBlank()) put("mendelFlags", current.mendelFlags)
+            put("querySignature", USAGE_QUERY_ID)
+            putJsonObject("variables") {
+                putJsonObject("g1Request") {}
+                putJsonObject("workspaceRequest") {}
+            }
         }.toString()
         val builder = Request.Builder()
-            .url(origin + GRAPHQL_PATH)
+            .url(GRAPHQL_ENDPOINT)
             .header("User-Agent", CHROME_USER_AGENT)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .header("Accept-Language", "en")
             .header("Origin", BASE_URL)
             .header("Referer", "$BASE_URL/app")
+            .header("X-Framework-XSRF-Token", session.snlm0e)
             .post(payload.toRequestBody("application/json".toMediaType()))
-        if (current.serverToken.isNotBlank()) builder.header("X-Server-Token", current.serverToken)
-        if (current.authUserIndex.isNotBlank()) builder.header("X-Goog-AuthUser", current.authUserIndex)
+        if (session.authUserIndex.isNotBlank()) builder.header("X-Goog-AuthUser", session.authUserIndex)
         val response = runCatching { http.newCall(builder.build()).execute() }.getOrNull()
-            ?: return GeminiUsageFetch(null, current)
+            ?: return UsageAttempt(null, false)
         return response.use {
-            val latest = cookieSnapshot().ifBlank { current.cookies }
-            val next = if (latest != current.cookies) {
-                current.copy(cookies = latest, savedAtMs = System.currentTimeMillis())
-            } else {
-                current
-            }
-            if (!it.isSuccessful) return@use GeminiUsageFetch(null, next)
-            GeminiUsageFetch(GeminiUsageParser.parse(it.body?.string().orEmpty()), next)
+            val unauthorized = it.code == 401 || it.code == 403
+            if (!it.isSuccessful) return@use UsageAttempt(null, unauthorized)
+            UsageAttempt(GeminiUsageParser.parse(it.body?.string().orEmpty()), false)
         }
     }
 
@@ -334,3 +350,6 @@ object GeminiWebClient {
 
 /** 一次用量读取的结果:[usage] 为空表示这次没读到,[session] 可能是刷新过的新会话。 */
 data class GeminiUsageFetch(val usage: GeminiUsage?, val session: GeminiWebSession)
+
+/** 单次 GraphQL 尝试:没读到时 [unauthorized] 说明该换 XSRF token 重试。 */
+private data class UsageAttempt(val usage: GeminiUsage?, val unauthorized: Boolean)

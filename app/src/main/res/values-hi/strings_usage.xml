@@ -66,4 +66,10 @@
     <string name="usage_limits_resets_on">%1$s को %2$s बजे रीसेट</string>
     <string name="usage_limits_server_note">आपके Gemini अकाउंट से सिंक। प्रतिशत Google का अपना उपयोग है।</string>
     <string name="usage_limits_app_desc">आपके रोज़ के बजट के हिसाब से इस ऐप की रिक्वेस्ट। रिक्वेस्ट बढ़ने पर बार भरते हैं।</string>
+    <string name="usage_limits_checking">आपका Gemini अकाउंट देख रहे हैं…</string>
+    <string name="usage_limits_updated_now">अभी अपडेट हुआ</string>
+    <string name="usage_limits_updated_min">%1$d मिनट पहले अपडेट</string>
+    <string name="usage_limits_updated_hour">%1$d घंटे पहले अपडेट</string>
+    <string name="usage_limits_updates_live">लाइव अपडेट</string>
+    <string name="usage_limits_local_chip">लोकल</string>
 </resources>
