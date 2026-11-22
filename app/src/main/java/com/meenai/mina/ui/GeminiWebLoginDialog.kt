@@ -47,6 +47,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.meenai.mina.R
+import com.meenai.mina.core.gemini.GeminiProbe
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.i18n.tr
@@ -60,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.CookieJar
@@ -336,8 +338,8 @@ private fun createGoogleLoginWebView(
                         }.getOrNull()
                     }
                     htmlFetchRunning = false
-                    if (session != null && session.snlm0e.isNotBlank()) {
-                        finish(session)
+                    if (session != null) {
+                        verify(session)
                     } else if (htmlFallbackAttempts < 3) {
                         onHint("Still finishing sign-in…")
                         captureAttempts = 0
@@ -346,6 +348,134 @@ private fun createGoogleLoginWebView(
                         onHint("Could not read the Gemini session. Tap Reload or use Manual.")
                     }
                 }
+            }
+
+            /**
+             * Ask Google whether the captured cookies are really signed in. The
+             * page probe runs inside the WebView, so it also proves the browser
+             * session itself works; the HTTP probe is only a fallback for pages
+             * where scripted fetch is unavailable.
+             */
+            fun verify(session: GeminiWebSession) {
+                if (loginHandled) return
+                onHint("Checking your Gemini account…")
+                probeInPage(session) { probe ->
+                    when {
+                        probe == null -> verifyOverHttp(session)
+                        probe.signedIn -> finish(
+                            session.copy(
+                                capacity = probe.capacity,
+                                capacityField = probe.capacityField,
+                            )
+                        )
+                        else -> {
+                            onHint(probe.statusMessage() + " Tap Reload to try again.")
+                            captureAttempts = 0
+                            scheduleCapture(3_000)
+                        }
+                    }
+                }
+            }
+
+            fun verifyOverHttp(session: GeminiWebSession) {
+                scope.launch {
+                    val probe = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                                .cookieJar(CookieJar.NO_COOKIES)
+                                .callTimeout(30, TimeUnit.SECONDS)
+                                .build()
+                            GeminiWebClient.probeSession(http, session)
+                        }.getOrNull()
+                    }
+                    if (loginHandled) return@launch
+                    when {
+                        // A blocked check must not block the login: chat will show
+                        // the real error if the session is actually unusable.
+                        probe == null -> finish(session)
+                        probe.signedIn -> finish(
+                            session.copy(
+                                capacity = probe.capacity,
+                                capacityField = probe.capacityField,
+                            )
+                        )
+                        else -> {
+                            onHint(probe.statusMessage() + " Tap Reload to try again.")
+                            captureAttempts = 0
+                            scheduleCapture(3_000)
+                        }
+                    }
+                }
+            }
+
+            fun probeInPage(session: GeminiWebSession, onResult: (GeminiProbe?) -> Unit) {
+                if (loginHandled) return
+                val atLiteral = JsonPrimitive(session.snlm0e).toString()
+                val blLiteral = JsonPrimitive(session.cfb2h).toString()
+                val sidLiteral = JsonPrimitive(session.fdrfje).toString()
+                mainView.evaluateJavascript(
+                    """
+                    (function() {
+                      window.__geminiProbe = "PENDING";
+                      try {
+                        var at = $atLiteral;
+                        var bl = $blLiteral;
+                        var sid = $sidLiteral;
+                        var wiz = window.WIZ_global_data || {};
+                        if (!at) at = wiz.SNlM0e || "";
+                        if (!bl) bl = wiz.cfb2h || "";
+                        if (!sid) sid = wiz.FdrFJe || "";
+                        var uuid = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())).toUpperCase();
+                        var url = "/_/BardChatUi/data/batchexecute?rpcids=otAQ7b&hl=en&_reqid=" +
+                          Math.floor(Math.random() * 90000 + 10000) + "&rt=c&source-path=/app";
+                        if (bl) url += "&bl=" + encodeURIComponent(bl);
+                        if (sid) url += "&f.sid=" + encodeURIComponent(sid);
+                        var body = "at=" + encodeURIComponent(at) + "&f.req=" +
+                          encodeURIComponent(JSON.stringify([[["otAQ7b","[]",null,"generic"]]]));
+                        fetch(url, {
+                          method: "POST",
+                          credentials: "include",
+                          headers: {
+                            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+                            "X-Same-Domain": "1",
+                            "x-goog-ext-525001261-jspb": '[1,null,null,null,null,null,null,null,[4,5,6,8],null,null,null,null,null,null,null,"' + uuid + '"]',
+                            "x-goog-ext-73010989-jspb": "[0]"
+                          },
+                          body: body
+                        }).then(function(r) { return r.text(); })
+                          .then(function(t) { window.__geminiProbe = t; })
+                          .catch(function(e) { window.__geminiProbe = "ERR:" + e; });
+                      } catch (e) {
+                        window.__geminiProbe = "ERR:" + e;
+                      }
+                    })();
+                    """.trimIndent(),
+                    null
+                )
+                var tries = 0
+                fun poll() {
+                    if (loginHandled) return
+                    mainView.evaluateJavascript("window.__geminiProbe || ''") { raw ->
+                        val value = runCatching {
+                            if (raw.startsWith("\"") && raw.endsWith("\"")) {
+                                json.parseToJsonElement(raw).jsonPrimitive.content
+                            } else {
+                                raw
+                            }
+                        }.getOrDefault("")
+                        when {
+                            value.isBlank() || value == "PENDING" -> {
+                                if (tries++ < 24) mainView.postDelayed({ poll() }, 500)
+                                else onResult(null)
+                            }
+                            value.startsWith("ERR:") -> onResult(null)
+                            else -> onResult(
+                                runCatching { GeminiWebClient.parseProbeResponse(value) }.getOrNull()
+                            )
+                        }
+                    }
+                }
+                mainView.postDelayed({ poll() }, 600)
             }
 
             fun scheduleCapture(delayMs: Long = 500) {
@@ -396,11 +526,26 @@ private fun createGoogleLoginWebView(
                         val fdrfje = parsed["fdrfje"]?.jsonPrimitive?.content.orEmpty()
                         val email = parsed["email"]?.jsonPrimitive?.content.orEmpty()
 
+                        val cookiesNow = collectCookies()
                         if (snlm0e.isNotBlank()) {
-                            finish(
+                            verify(
                                 GeminiWebSession(
-                                    cookies = collectCookies(),
+                                    cookies = cookiesNow,
                                     snlm0e = snlm0e,
+                                    cfb2h = cfb2h,
+                                    fdrfje = fdrfje,
+                                    email = email,
+                                    userAgent = userAgent,
+                                    signedIn = true
+                                )
+                            )
+                        } else if (cookiesNow.contains("__Secure-1PSID") && captureAttempts >= 2) {
+                            // Newer builds hide SNlM0e in the app bundle. The cookie is
+                            // the real credential, so verify the account and continue.
+                            verify(
+                                GeminiWebSession(
+                                    cookies = cookiesNow,
+                                    snlm0e = "",
                                     cfb2h = cfb2h,
                                     fdrfje = fdrfje,
                                     email = email,
@@ -411,7 +556,7 @@ private fun createGoogleLoginWebView(
                         } else if (captureAttempts < LOGIN_MAX_POLLS) {
                             scheduleCapture(700)
                         } else {
-                            fetchSessionFromHtml(collectCookies())
+                            fetchSessionFromHtml(cookiesNow)
                         }
                     } catch (_: Exception) {
                         if (captureAttempts < LOGIN_MAX_POLLS) scheduleCapture(700)
@@ -595,17 +740,25 @@ private fun ManualCookieEntry(
                     try {
                         val token = tokenInput.trim().trim('"')
                         // Always try to read the page: it also gives us the build
-                        // label and f.sid the chat endpoint needs.
+                        // label and f.sid the chat endpoint needs. Cookies copied
+                        // from a PC are bound to a desktop UA, so try both.
                         val detected = withContext(Dispatchers.IO) {
-                            runCatching {
-                                // No cookie jar here: it would replace the pasted
-                                // Cookie header with whatever an old session left.
-                                val http = GeminiWebClient.geminiWebHttp.newBuilder()
-                                    .cookieJar(CookieJar.NO_COOKIES)
-                                    .callTimeout(30, TimeUnit.SECONDS)
-                                    .build()
-                                GeminiWebClient.fetchSessionFromCookies(http, fullCookies)
-                            }.getOrNull()
+                            val uas = listOf(
+                                GeminiWebClient.CHROME_USER_AGENT,
+                                GeminiWebClient.DESKTOP_CHROME_USER_AGENT,
+                            )
+                            val found = uas.mapNotNull { ua ->
+                                runCatching {
+                                    // No cookie jar here: it would replace the pasted
+                                    // Cookie header with whatever an old session left.
+                                    val http = GeminiWebClient.geminiWebHttp.newBuilder()
+                                        .cookieJar(CookieJar.NO_COOKIES)
+                                        .callTimeout(30, TimeUnit.SECONDS)
+                                        .build()
+                                    GeminiWebClient.fetchSessionFromCookies(http, fullCookies, ua)
+                                }.getOrNull()
+                            }
+                            found.firstOrNull { it.snlm0e.isNotBlank() } ?: found.firstOrNull()
                         }
                         val session = when {
                             detected != null -> detected.copy(
@@ -621,9 +774,6 @@ private fun ManualCookieEntry(
                             else -> throw IllegalStateException(
                                 "Could not detect a Gemini session. Check the cookies and try again."
                             )
-                        }
-                        if (session.snlm0e.isBlank()) {
-                            throw IllegalStateException("The Gemini token is empty. Sign in again.")
                         }
                         onSuccess(session)
                     } catch (e: Exception) {

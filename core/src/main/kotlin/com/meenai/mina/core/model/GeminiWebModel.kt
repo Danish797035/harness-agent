@@ -32,7 +32,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.09_p0"
+private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.12_p0"
 
 class GeminiWebModel(
     private var session: GeminiWebSession,
@@ -76,7 +76,14 @@ class GeminiWebModel(
         val uuid = UUID.randomUUID().toString().uppercase()
 
         val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)
-        val modelHeader = GeminiWebClient.buildModelHeader(modelHexId, capacity = 2, modelNumber, thinkingFlag, uuid)
+        val modelHeader = GeminiWebClient.buildModelHeader(
+            modelHexId,
+            capacity = session.capacity,
+            modelNumber = modelNumber,
+            thinkingFlag = thinkingFlag,
+            uuid = uuid,
+            capacityField = session.capacityField,
+        )
 
         // Google rotates __Secure-1PSIDTS on most responses. Seed once, then keep
         // whatever the jar collected so a rotated token is not overwritten by the
@@ -84,9 +91,10 @@ class GeminiWebModel(
         GeminiWebClient.seedCookies(session.cookies)
         var currentSession = session
         var refreshed = false
-        // Sessions saved by older builds can miss the build label or the token;
-        // read them once from the logged-in page instead of guessing a stale bl.
-        if (currentSession.cfb2h.isBlank() || currentSession.snlm0e.isBlank()) {
+        // Sessions saved by older builds can miss the build label; read it once
+        // from the logged-in page instead of guessing a stale bl. A missing
+        // SNlM0e is fine: the cookie is the credential and `at` may be empty.
+        if (currentSession.cfb2h.isBlank()) {
             refreshSession(currentSession)?.let { currentSession = it }
         }
 
@@ -281,8 +289,13 @@ class GeminiWebModel(
         } catch (e: Exception) {
             null
         } ?: return null
-        if (refreshed.snlm0e.isBlank()) return null
-        val next = refreshed.copy(email = old.email.ifBlank { refreshed.email })
+        val next = refreshed.copy(
+            email = old.email.ifBlank { refreshed.email },
+            // The page fetch cannot see the account tier; keep what the login
+            // probe found instead of falling back to the free-tier defaults.
+            capacity = old.capacity,
+            capacityField = old.capacityField,
+        )
         session = next
         GeminiWebClient.seedCookies(next.cookies)
         onSessionUpdated?.invoke(next)

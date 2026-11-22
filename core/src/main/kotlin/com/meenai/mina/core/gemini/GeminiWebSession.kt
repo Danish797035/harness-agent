@@ -33,6 +33,10 @@ data class GeminiWebSession(
      * send the same string or the session is rejected immediately.
      */
     val userAgent: String = "",
+    /** Account tier capacity from `GetUserStatus`, used in the model header. */
+    val capacity: Int = 2,
+    /** Where [capacity] sits in the model header (12 for normal, 13 for some tiers). */
+    val capacityField: Int = 12,
     /** Active status flag. False when signed out. */
     val signedIn: Boolean = true,
     /** Timestamp when session was saved or last validated. */
@@ -50,6 +54,8 @@ data class GeminiWebSession(
         authUserIndex = "",
         mendelFlags = "",
         userAgent = "",
+        capacity = 2,
+        capacityField = 12,
     )
 
     fun toJson(): String = JSON.encodeToString(serializer(), this)

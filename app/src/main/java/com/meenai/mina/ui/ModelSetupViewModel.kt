@@ -35,6 +35,7 @@ import com.meenai.mina.core.chatgpt.ChatGptAuth
 import com.meenai.mina.core.chatgpt.SignInException
 import com.meenai.mina.core.chatgpt.SignInFailure
 import com.meenai.mina.core.chatgpt.signInWithChatGpt
+import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.oauth.AccountSignInException
 import com.meenai.mina.core.oauth.AccountSignInFailure
@@ -917,8 +918,9 @@ class ModelSetupViewModel(
     fun onGeminiWebLoginSuccess(session: GeminiWebSession) {
         scope.launch {
             val p = withContext(io) {
-                val existing = store.geminiWebProvider()
-                val provider = store.connectGeminiWeb(session, existing?.models.orEmpty())
+                // Always install the current model list: reusing the list saved by
+                // an older build kept dead model ids that Google no longer serves.
+                val provider = store.connectGeminiWeb(session, GeminiWebClient.DEFAULT_MODELS)
                 val options = ModelOptions.ofProvider(provider, store.list())
                 val argonOption = options.firstOrNull { it.id == "gemini-4-argon" } ?: options.firstOrNull()
                 argonOption?.let { m -> use(ModelRole.Main, provider, m.id, options) }

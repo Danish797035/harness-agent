@@ -12,6 +12,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -86,7 +87,7 @@ class GeminiWebModelTest {
             </html>
         """.trimIndent()
 
-        val parsed = GeminiWebClient.extractSessionFromHtml(html, "cookie_123=val")
+        val parsed = GeminiWebClient.extractSessionFromHtml(html, "__Secure-1PSID=cookie_123; __Secure-1PSIDTS=ts_456")
         assertNotNull(parsed)
         assertEquals("extracted_snlm0e_abc123", parsed?.snlm0e)
         assertEquals("extracted_bl_456", parsed?.cfb2h)
@@ -96,7 +97,67 @@ class GeminiWebModelTest {
         assertEquals("https://geminiweb-pa.clients6.google.com", parsed?.oxygenUrl)
         assertEquals("0", parsed?.authUserIndex)
         assertEquals("mendel_flags_value", parsed?.mendelFlags)
-        assertEquals("cookie_123=val", parsed?.cookies)
+        assertEquals("__Secure-1PSID=cookie_123; __Secure-1PSIDTS=ts_456", parsed?.cookies)
+    }
+
+    @Test
+    fun extractSessionFromHtmlAcceptsAPageWithoutSnlm0e() {
+        val html = """<script>window.WIZ_global_data = {"cfb2h":"bl_only","FdrFJe":"sid_only"};</script>"""
+
+        val parsed = GeminiWebClient.extractSessionFromHtml(html, "__Secure-1PSID=sid_value")
+
+        assertNotNull(parsed)
+        assertEquals("", parsed?.snlm0e)
+        assertEquals("bl_only", parsed?.cfb2h)
+        assertEquals("sid_only", parsed?.fdrfje)
+    }
+
+    @Test
+    fun extractSessionFromHtmlRejectsAGuestPage() {
+        val html = """<script>window.WIZ_global_data = {"cfb2h":"bl","FdrFJe":"sid"};</script>"""
+
+        assertNull(GeminiWebClient.extractSessionFromHtml(html, "NID=guest; COMPASS=guest"))
+    }
+
+    @Test
+    fun parseProbeResponseReadsStatusCapacityAndModels() {
+        val model = buildJsonArray {
+            add(JsonPrimitive("cf41b0e0dd7d53e5"))
+            add(JsonPrimitive("Auto"))
+            add(JsonPrimitive("Adapts to your needs"))
+            repeat(8) { add(JsonPrimitive(null as String?)) }
+            add(JsonPrimitive("Auto"))            // 11: display name
+            add(JsonPrimitive("Adapts to your needs")) // 12: description
+            repeat(4) { add(JsonPrimitive(null as String?)) }
+            add(JsonPrimitive(6))                 // 17: model number
+            add(JsonPrimitive(null as String?))   // 18
+            add(JsonPrimitive("Auto"))            // 19
+        }
+        val inner = buildJsonArray {
+            add(JsonPrimitive(6))
+            add(buildJsonArray { add(JsonPrimitive(false)) })
+            repeat(12) { add(JsonPrimitive(null as String?)) }
+            add(JsonPrimitive(1000))              // 14: status
+            add(buildJsonArray { add(model) })    // 15: models
+            add(buildJsonArray { add(JsonPrimitive(8)); add(JsonPrimitive(38)) }) // 16: tiers
+            add(buildJsonArray { add(JsonPrimitive(2)); add(JsonPrimitive(140)) }) // 17: capabilities
+        }
+        val body = buildJsonArray {
+            add(buildJsonArray {
+                add(JsonPrimitive("wrb.fr"))
+                add(JsonPrimitive("otAQ7b"))
+                add(JsonPrimitive(inner.toString()))
+            })
+        }
+
+        val probe = GeminiWebClient.parseProbeResponse(")]}'\n120\n$body\n")
+
+        assertTrue(probe.signedIn)
+        assertEquals(1, probe.models.size)
+        assertEquals("cf41b0e0dd7d53e5", probe.models[0].id)
+        assertEquals(6, probe.models[0].modelNumber)
+        assertEquals(2, probe.capacity)
+        assertEquals(12, probe.capacityField)
     }
 
     private fun makeStreamData(payloadJson: String): String {
@@ -158,6 +219,61 @@ class GeminiWebModelTest {
         assertEquals(1, reply.parts.size)
         assertEquals(Part.Text("Hello from Gemini 4 Argon!"), reply.parts[0])
         assertEquals(StopReason.EndTurn, reply.stopReason)
+    }
+
+    @Test
+    fun completeWorksWithoutAnSnlm0eToken() = runTest {
+        val payload = buildJsonArray {
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(JsonPrimitive(null as String?))
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("rc_1"))
+                    add(buildJsonArray { add(JsonPrimitive("Cookie session works")) })
+                })
+            })
+        }.toString()
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
+
+        val model = GeminiWebModel(
+            session = session.copy(snlm0e = ""),
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Cookie session works"), reply.parts[0])
+        val request = server.takeRequest()
+        assertEquals("at=", request.body.readUtf8().substringBefore("&f.req="))
+    }
+
+    @Test
+    fun refreshKeepsTheCapacityFoundAtLogin() = runTest {
+        GeminiWebClient.clearCookies()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""<script>{"cfb2h":"bl2","FdrFJe":"sid2"}</script>""")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("ok"))))
+
+        var saved: GeminiWebSession? = null
+        val model = GeminiWebModel(
+            session = session.copy(cfb2h = "", capacity = 4, capacityField = 12),
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+            onSessionUpdated = { saved = it }
+        )
+
+        model.complete("sys", userMsg, emptyList())
+
+        assertNotNull(saved)
+        assertEquals(4, saved!!.capacity)
+        assertEquals(12, saved!!.capacityField)
     }
 
     @Test
@@ -612,7 +728,7 @@ class GeminiWebModelTest {
 
     @Test
     fun signedOutSessionClearsEveryCredential() {
-        val out = session.copy(userAgent = "TestUA/1.0").signedOut()
+        val out = session.copy(userAgent = "TestUA/1.0", capacity = 4, capacityField = 13).signedOut()
         assertFalse(out.signedIn)
         assertEquals("", out.cookies)
         assertEquals("", out.snlm0e)
@@ -620,6 +736,8 @@ class GeminiWebModelTest {
         assertEquals("", out.fdrfje)
         assertEquals("", out.email)
         assertEquals("", out.userAgent)
+        assertEquals(2, out.capacity)
+        assertEquals(12, out.capacityField)
     }
 
     @Test

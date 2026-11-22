@@ -798,7 +798,8 @@ class ProviderStore(
 
         var changed = false
         val newConfigs = _configs.value.map { cfg ->
-            if (cfg.model in webModelIds && (cfg.kind != ProviderConfig.Kind.GeminiWeb || cfg.providerId != webProvider.id)) {
+            val looksLikeWeb = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.model in webModelIds
+            if (looksLikeWeb && (cfg.kind != ProviderConfig.Kind.GeminiWeb || cfg.providerId != webProvider.id)) {
                 changed = true
                 cfg.copy(
                     providerId = webProvider.id,
@@ -889,7 +890,13 @@ class ProviderStore(
                 ResponsesModel(baseUrl, accountTokensFor(cfg.providerId), cfg.model, cfg.capabilities, http, headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort, accountLogin = XAI_ACCOUNT)
             ProviderConfig.Kind.GeminiWeb -> {
-                val sess = geminiWebSession(cfg.providerId) ?: throw ModelError.SignInExpired("Google Gemini")
+                // The selected model can come from an older build and still point
+                // at a provider id that no longer holds the session. Fall back to
+                // the one Gemini Web provider that does.
+                val ownerId = cfg.providerId.takeIf { geminiWebSession(it) != null }
+                    ?: geminiWebProvider()?.id
+                val sess = ownerId?.let { geminiWebSession(it) }
+                    ?: throw ModelError.SignInExpired("Google Gemini")
                 GeminiWebModel(
                     session = sess,
                     model = cfg.model,
@@ -898,7 +905,7 @@ class ProviderStore(
                     headers = setup.headers,
                     reasoningEffort = setup.reasoningEffort,
                     onSessionUpdated = { newSess ->
-                        updateGeminiWebSession(cfg.providerId, newSess)
+                        updateGeminiWebSession(ownerId, newSess)
                     }
                 )
             }

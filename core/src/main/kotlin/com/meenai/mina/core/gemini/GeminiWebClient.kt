@@ -39,9 +39,16 @@ object GeminiWebClient {
     const val CHROME_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36"
 
+    /** Desktop Chrome UA: cookies copied from a PC browser are bound to a desktop UA. */
+    const val DESKTOP_CHROME_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+
     /** The UA a saved session was created with; old sessions fall back to the current one. */
     fun userAgentFor(session: GeminiWebSession): String =
         session.userAgent.ifBlank { CHROME_USER_AGENT }
+
+    /** RPC id of GetUserStatus: a free account check that also lists the account's models. */
+    const val USER_STATUS_RPC = "otAQ7b"
 
     const val MODEL_HEADER_KEY = "x-goog-ext-525001261-jspb"
 
@@ -146,8 +153,14 @@ object GeminiWebClient {
         cookies: String,
         userAgent: String = CHROME_USER_AGENT,
     ): GeminiWebSession? {
-        val snlm0e = ACCESS_TOKEN_REGEX.find(html)?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: return null
+        // A signed-in session is proven by the __Secure-1PSID cookie plus a real
+        // Gemini page. The SNlM0e token is only an optimisation: newer builds can
+        // keep it in the app bundle, and the chat endpoint accepts an empty `at`
+        // for a cookie-authenticated session.
+        if (!cookies.contains("__Secure-1PSID")) return null
+        val snlm0e = ACCESS_TOKEN_REGEX.find(html)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }.orEmpty()
         val cfb2h = BUILD_LABEL_REGEX.find(html)?.groupValues?.get(1).orEmpty()
+        if (cfb2h.isBlank()) return null
         val fdrfje = SESSION_ID_REGEX.find(html)?.groupValues?.get(1).orEmpty()
         val email = EMAIL_REGEX.find(html)?.groupValues?.get(1).orEmpty()
         return GeminiWebSession(
@@ -183,12 +196,146 @@ object GeminiWebClient {
         val response = http.newCall(request).execute()
         response.use {
             if (!it.isSuccessful) {
-                throw ModelError.SignInExpired("Google Gemini (HTTP ${it.code})")
+                throw ModelError.SignInExpired("Google Gemini (HTTP ${it.code} from gemini.google.com)")
             }
             val html = it.body?.string().orEmpty()
             return extractSessionFromHtml(html, header, userAgent)
-                ?: throw ModelError.SignInExpired("Failed to extract SNlM0e token from Gemini page. Please sign in again.")
+                ?: throw ModelError.SignInExpired(
+                    if (html.contains("accounts.google.com/ServiceLogin") || html.contains("\"RID\"")) {
+                        "Google Gemini (cookies are not signed in)"
+                    } else {
+                        "Google Gemini (Gemini page had no session: cookies may be bound to another browser)"
+                    }
+                )
         }
+    }
+
+    /**
+     * Asks Google whether these cookies are really signed in (`GetUserStatus`).
+     * This is the same RPC the Gemini web app runs on load: it needs no chat
+     * quota, and returns the account status plus the model list of the account.
+     */
+    suspend fun probeSession(http: OkHttpClient, session: GeminiWebSession): GeminiProbe {
+        val reqId = Random.nextInt(10000, 99999)
+        val url = buildString {
+            append(BATCH_EXECUTE_ENDPOINT)
+            append("?rpcids=").append(USER_STATUS_RPC)
+            append("&hl=en&_reqid=").append(reqId)
+            append("&rt=c&source-path=/app")
+            if (session.cfb2h.isNotBlank()) append("&bl=").append(session.cfb2h)
+            if (session.fdrfje.isNotBlank()) append("&f.sid=").append(session.fdrfje)
+        }
+        val uuid = UUID.randomUUID().toString().uppercase()
+        val batchHeader =
+            """[1,null,null,null,null,null,null,null,[4,5,6,8],null,null,null,null,null,null,null,"$uuid"]"""
+        val body = FormBody.Builder()
+            .add("at", session.snlm0e)
+            .add("f.req", """[[["$USER_STATUS_RPC","[]",null,"generic"]]]""")
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Origin", BASE_URL)
+            .header("Referer", "$BASE_URL/")
+            .header("X-Same-Domain", "1")
+            .header("User-Agent", userAgentFor(session))
+            .header("Cookie", sanitizeCookieHeader(session.cookies))
+            .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+            .header(MODEL_HEADER_KEY, batchHeader)
+            .header("x-goog-ext-73010989-jspb", "[0]")
+            .post(body)
+            .build()
+
+        val response = try {
+            http.newCall(request).execute()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ModelError.Network(e)
+        }
+        response.use {
+            if (!it.isSuccessful) {
+                throw ModelError.BadResponse("Gemini account check returned HTTP ${it.code}")
+            }
+            return parseProbeResponse(it.body?.string().orEmpty())
+        }
+    }
+
+    /** Parses the anti-XSSI framed `batchexecute` reply of [USER_STATUS_RPC]. */
+    fun parseProbeResponse(body: String): GeminiProbe {
+        val text = body.substringAfter(")]}'", body).trim()
+        // batchexecute frames the JSON with byte-length lines; the payload itself
+        // is one array per line. Try every array-shaped line, then the whole body.
+        val candidates = text.lines().map { it.trim() }.filter { it.startsWith("[") } + text
+        val payloadText = candidates.firstNotNullOfOrNull { candidate ->
+            val outer = runCatching { Json.parseToJsonElement(candidate).jsonArray }.getOrNull()
+                ?: return@firstNotNullOfOrNull null
+            outer.firstNotNullOfOrNull { entry ->
+                val arr = entry as? JsonArray ?: return@firstNotNullOfOrNull null
+                if (arr.getOrNull(0).asText() == "wrb.fr" && arr.getOrNull(1).asText() == USER_STATUS_RPC) {
+                    arr.getOrNull(2).asText()
+                } else {
+                    null
+                }
+            }
+        } ?: throw ModelError.BadResponse("Gemini account check returned no account status")
+
+        val payload = runCatching { Json.parseToJsonElement(payloadText).jsonArray }.getOrNull()
+            ?: throw ModelError.BadResponse("Gemini account check returned no account status")
+        val status = payload.getOrNull(14).asInt() ?: 1016
+        val tierFlags = payload.getOrNull(16) as? JsonArray
+        val capabilityFlags = payload.getOrNull(17) as? JsonArray
+        val (capacity, capacityField) = capacityFor(tierFlags, capabilityFlags)
+        val models = (payload.getOrNull(15) as? JsonArray).orEmpty().mapNotNull { element ->
+            val item = element as? JsonArray ?: return@mapNotNull null
+            val id = item.getOrNull(0).asText() ?: return@mapNotNull null
+            val name = item.getOrNull(1).asText().orEmpty()
+            val displayName = item.getOrNull(11).asText()
+                ?: item.getOrNull(19).asText()
+                ?: name
+            val description = item.getOrNull(12).asText()
+                ?: item.getOrNull(2).asText().orEmpty()
+            val modelNumber = item.getOrNull(17).asInt()
+                ?: item.getOrNull(9).asInt()
+                ?: 1
+            GeminiAccountModel(
+                id = id,
+                name = name,
+                displayName = displayName,
+                description = description,
+                modelNumber = modelNumber,
+                capacity = capacity,
+                capacityField = capacityField,
+            )
+        }
+        return GeminiProbe(
+            status = status,
+            models = models,
+            capacity = capacity,
+            capacityField = capacityField,
+            raw = body,
+        )
+    }
+
+    private fun capacityFor(tierFlags: JsonArray?, capabilityFlags: JsonArray?): Pair<Int, Int> {
+        fun has(flags: JsonArray?, value: Int) = flags.orEmpty().any { it.asInt() == value }
+        return when {
+            has(tierFlags, 21) -> 1 to 13
+            has(tierFlags, 22) -> 2 to 13
+            has(capabilityFlags, 115) -> 4 to 12
+            has(tierFlags, 16) || has(capabilityFlags, 106) -> 3 to 12
+            has(tierFlags, 8) || has(capabilityFlags, 19) -> 2 to 12
+            else -> 1 to 12
+        }
+    }
+
+    private fun JsonElement?.asInt(): Int? {
+        val primitive = this as? JsonPrimitive ?: return null
+        return primitive.intOrNull ?: primitive.contentOrNull?.toIntOrNull()
+    }
+
+    private fun JsonElement?.asText(): String? {
+        val primitive = this as? JsonPrimitive ?: return null
+        return primitive.contentOrNull?.takeIf { it.isNotBlank() }
     }
 
     /**
@@ -310,9 +457,13 @@ object GeminiWebClient {
         capacity: Int = 2,
         modelNumber: Int,
         thinkingFlag: Int,
-        uuid: String
+        uuid: String,
+        capacityField: Int = 12,
     ): String {
-        return """[1,null,null,null,"$modelId",null,null,0,[4,5,6,8],null,null,$capacity,null,null,$modelNumber,$thinkingFlag,"$uuid"]"""
+        // Field 13 stores the tier as a nested `null,<capacity>` pair; field 12
+        // is the plain number every account has used so far.
+        val capacityTail = if (capacityField == 13) "null,$capacity" else "$capacity"
+        return """[1,null,null,null,"$modelId",null,null,0,[4,5,6,8],null,null,$capacityTail,null,null,$modelNumber,$thinkingFlag,"$uuid"]"""
     }
 
     fun buildModelHeader(
@@ -392,3 +543,40 @@ data class GeminiUsageFetch(val usage: GeminiUsage?, val session: GeminiWebSessi
 
 /** 单次 GraphQL 尝试:没读到时 [needsRefresh] 说明该换 XSRF token 重试。 */
 private data class UsageAttempt(val usage: GeminiUsage?, val needsRefresh: Boolean)
+
+/** One model the signed-in Google account may actually use. */
+data class GeminiAccountModel(
+    val id: String,
+    val name: String,
+    val displayName: String,
+    val description: String,
+    val modelNumber: Int,
+    val capacity: Int,
+    val capacityField: Int,
+)
+
+/** Result of the `GetUserStatus` account check. [status] 1000 means signed in. */
+data class GeminiProbe(
+    val status: Int,
+    val models: List<GeminiAccountModel>,
+    val capacity: Int,
+    val capacityField: Int,
+    val raw: String,
+) {
+    val signedIn: Boolean get() = status == 1000
+
+    /** A short, honest explanation the UI can show for every known status code. */
+    fun statusMessage(): String = when (status) {
+        1000 -> "Google confirmed this Gemini session."
+        1014 -> "Gemini access is temporarily unavailable for this account."
+        1016 -> "Google says this session is not signed in. Please sign in again."
+        1021 -> "Google rejected this account for Gemini."
+        1033 -> "This account did not pass Google's trust check for Gemini."
+        1040, 1042 -> "Please accept the latest Gemini Terms of Service in a browser, then sign in again."
+        1054 -> "Gemini access is blocked by a parent or guardian."
+        1057 -> "A parent or guardian must approve Gemini for this account."
+        1060 -> "Gemini is not available in this account's country or region."
+        else -> "Gemini account check returned status $status."
+    }
+}
+
