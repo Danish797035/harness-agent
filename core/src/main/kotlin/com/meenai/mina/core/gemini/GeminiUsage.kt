@@ -37,7 +37,9 @@ object GeminiUsageParser {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun parse(body: String): GeminiUsage? {
-        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return null
+        // Google 的回复前面有防 XSSI 前缀(例如 `)]}'` + 换行),先去干净
+        val text = body.trimStart().let { if (it.startsWith(")]}'")) it.substring(4).trimStart() else it }
+        val root = runCatching { json.parseToJsonElement(text) }.getOrNull() ?: return null
         // 网页的 GraphQL 回复是 Relay 数组([{data, errors}]);也接受单个对象,方便测试和旧格式
         val payload = when (root) {
             is JsonArray -> root.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
