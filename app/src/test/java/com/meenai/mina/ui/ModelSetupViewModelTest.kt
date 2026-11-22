@@ -1055,7 +1055,7 @@ class ModelSetupViewModelTest {
             email = "user@gmail.com",
             signedIn = true
         )
-        vm.onGeminiWebLoginSuccess(session)
+        vm.onGeminiWebLoginSuccess(session, selfTest = false)
         runCurrent()
 
         val p = store.geminiWebProvider()

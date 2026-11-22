@@ -921,7 +921,7 @@ class ModelSetupViewModel(
         _state.update { it.copy(geminiWebLoginOpen = true, geminiWebSignIn = ListState.Running) }
     }
 
-    fun onGeminiWebLoginSuccess(session: GeminiWebSession) {
+    fun onGeminiWebLoginSuccess(session: GeminiWebSession, selfTest: Boolean = true) {
         scope.launch {
             var testError: String? = null
             val p = withContext(io) {
@@ -942,20 +942,22 @@ class ModelSetupViewModel(
                 // End-to-end check: a login that only passes the account probe can
                 // still be unusable from the chat endpoint, and the user deserves
                 // the real error instead of silence.
-                testError = runCatching {
-                    val probeModel = GeminiWebModel(
-                        session = session,
-                        model = "gemini-4-argon",
-                        capabilities = Capabilities(toolCalls = false, vision = false, contextTokens = 1_000_000, reasoning = false),
-                        http = GeminiWebClient.geminiWebHttp,
-                        onSessionUpdated = { store.updateGeminiWebSession(provider.id, it) },
-                    )
-                    probeModel.complete(
-                        "",
-                        listOf(Message(Role.User, listOf(Part.Text("Reply with the single word: OK")), Author.User)),
-                        emptyList()
-                    )
-                }.exceptionOrNull()?.message
+                if (selfTest) {
+                    testError = runCatching {
+                        val probeModel = GeminiWebModel(
+                            session = session,
+                            model = "gemini-4-argon",
+                            capabilities = Capabilities(toolCalls = false, vision = false, contextTokens = 1_000_000, reasoning = false),
+                            http = GeminiWebClient.geminiWebHttp,
+                            onSessionUpdated = { store.updateGeminiWebSession(provider.id, it) },
+                        )
+                        probeModel.complete(
+                            "",
+                            listOf(Message(Role.User, listOf(Part.Text("Reply with the single word: OK")), Author.User)),
+                            emptyList()
+                        )
+                    }.exceptionOrNull()?.message
+                }
                 provider
             }
             _state.update {
