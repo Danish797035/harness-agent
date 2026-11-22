@@ -352,10 +352,11 @@ private fun createGoogleLoginWebView(
 
             /**
              * Ask Google whether the captured cookies are really signed in
-             * (`GetUserStatus`, the same RPC the web app runs on load). Only a
-             * confirmed status of 1000 may close the dialog; anything else keeps
-             * it open with the server's reason. A failed check never "logs in"
-             * a session that is not there.
+             * (`GetUserStatus`, the same RPC the web app runs on load). A status of
+             * 1000 proves it. Without it, the page still being the signed-in Gemini
+             * app is the gate: a guest page never carries the auth cookie, so
+             * `__Secure-1PSID` + a real build label means a real account, and the
+             * post-login chat self-test shows the user the real state if it isn't.
              */
             fun verify(session: GeminiWebSession) {
                 if (loginHandled) return
@@ -366,9 +367,10 @@ private fun createGoogleLoginWebView(
                 }
             }
 
-            fun handleProbe(probe: GeminiProbe, session: GeminiWebSession) {
+            fun handleProbe(probe: GeminiProbe?, session: GeminiWebSession) {
                 if (loginHandled) return
-                if (probe.signedIn) {
+                val signedInPage = session.cookies.contains("__Secure-1PSID") && session.cfb2h.isNotBlank()
+                if (probe?.signedIn == true) {
                     finish(
                         session.copy(
                             capacity = probe.capacity,
@@ -377,8 +379,13 @@ private fun createGoogleLoginWebView(
                             defaultModelNumber = probe.models.firstOrNull()?.modelNumber ?: 0,
                         )
                     )
+                } else if (signedInPage) {
+                    // Google's GetUserStatus can lag or reject a live session and
+                    // must not block a real login: the auth cookie and the Gemini
+                    // page are the proof that the account is signed in.
+                    finish(session)
                 } else {
-                    onHint(probe.statusMessage() + " Tap Reload to try again.")
+                    onHint((probe?.statusMessage() ?: "Could not verify the Gemini session.") + " Tap Reload to try again.")
                     captureAttempts = 0
                     scheduleCapture(3_000)
                 }
@@ -396,12 +403,7 @@ private fun createGoogleLoginWebView(
                         }.getOrNull()
                     }
                     if (loginHandled) return@launch
-                    val probe = outcome
-                    if (probe == null) {
-                        onHint("Could not verify the Gemini account. Sign in again with Reload, or use Manual.")
-                        return@launch
-                    }
-                    handleProbe(probe, session)
+                    handleProbe(outcome, session)
                 }
             }
 
