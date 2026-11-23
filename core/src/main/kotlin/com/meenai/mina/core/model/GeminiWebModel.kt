@@ -180,7 +180,13 @@ class GeminiWebModel(
                 val (fullText, fullThoughts) = try {
                     readStream(response, body.byteStream(), emit)
                 } catch (e: ModelError.BadResponse) {
-                    if (startGuestAttempt("stream rejected: ${e.message?.take(80)}")) continue
+                    // A quota answer is the account's real limit, not a broken
+                    // session: never slip around it with a guest request.
+                    val quota = e.message?.lowercase()?.let {
+                        it.contains("quota") || it.contains("usage limit") ||
+                            it.contains("rate limit") || it.contains("too many")
+                    } == true
+                    if (!quota && startGuestAttempt("stream rejected: ${e.message?.take(80)}")) continue
                     throw e
                 } catch (e: ModelError.SignInExpired) {
                     if (startGuestAttempt("stream sign-in: ${e.message?.take(80)}")) continue

@@ -253,6 +253,24 @@ class GeminiWebModelTest {
         assertEquals("at=", guest.body.readUtf8().substringBefore("&f.req="))
     }
 
+    @Test(expected = ModelError.BadResponse::class)
+    fun aQuotaStreamErrorDoesNotFallBackToGuest() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                ")]}'\n\n[[" + "\"er\",null,null,null,null,1037,null,null,null,3,\"usage limit exceeded\"" + "]]"
+            )
+        )
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        model.complete("sys", userMsg, emptyList())
+    }
+
     @Test(expected = ModelError.RateLimited::class)
     fun rateLimitDoesNotFallBackToGuest() = runTest {
         server.enqueue(MockResponse().setResponseCode(429))
