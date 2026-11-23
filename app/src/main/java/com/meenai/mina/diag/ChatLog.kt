@@ -21,10 +21,18 @@ import java.util.concurrent.Executors
  */
 object ChatLog {
 
-    const val FILE_NAME = "harness-chat.log"
-
     /** Keep the log small: roughly the last few hundred model calls. */
     private const val MAX_CHARS = 200_000
+
+    /**
+     * MediaStore appends `.txt` to a text/plain DISPLAY_NAME, so the lookup has to
+     * match what it actually stored. One stable uri per process keeps every record
+     * in the same file instead of creating `harness-chat.log (1).txt`, `(2)`, …
+     */
+    private const val DISPLAY_NAME = "harness-chat-log.txt"
+
+    @Volatile
+    private var fileUri: Uri? = null
 
     private val io = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "chat-log").apply { isDaemon = true }
@@ -48,7 +56,7 @@ object ChatLog {
             collection(),
             arrayOf(MediaStore.Downloads._ID),
             "${MediaStore.Downloads.DISPLAY_NAME}=?",
-            arrayOf(FILE_NAME),
+            arrayOf(DISPLAY_NAME),
             null,
         )?.use { cursor ->
             if (cursor.moveToFirst()) ContentUris.withAppendedId(collection(), cursor.getLong(0)) else null
@@ -57,16 +65,20 @@ object ChatLog {
 
     private fun append(app: Context, line: String) {
         val entry = stamp.format(Date()) + " " + line.replace('\n', ' ').take(4000)
-        val uri = find(app) ?: app.contentResolver.insert(collection(), ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, FILE_NAME)
+        val uri = fileUri ?: find(app)?.also { fileUri = it } ?: app.contentResolver.insert(collection(), ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, DISPLAY_NAME)
             put(MediaStore.Downloads.MIME_TYPE, "text/plain")
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-        }) ?: return
+        })?.also { fileUri = it } ?: return
         val existing = runCatching {
             app.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
         }.getOrNull().orEmpty()
         val text = existing + entry + "\n"
         val capped = if (text.length > MAX_CHARS) text.takeLast(MAX_CHARS / 2) else text
-        app.contentResolver.openOutputStream(uri, "wt")?.use { it.write(capped.toByteArray()) }
+        val written = runCatching {
+            app.contentResolver.openOutputStream(uri, "wt")?.use { it.write(capped.toByteArray()) }
+            true
+        }.getOrDefault(false)
+        if (!written) fileUri = null
     }
 }

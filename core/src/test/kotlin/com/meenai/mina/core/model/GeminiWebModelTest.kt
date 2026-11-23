@@ -40,6 +40,21 @@ class GeminiWebModelTest {
         email = "pro_user@gmail.com"
     )
 
+    @Test
+    fun staleBuildLabelIsDetectedFromItsDate() {
+        val now = 1_766_000_000_000L // any fixed instant
+        val old = "boq_gemini-web-uiserver_20200101.01_p0"
+        val fresh = "boq_gemini-web-uiserver_" +
+            java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE) + ".01_p0"
+
+        assertTrue(GeminiWebClient.isStaleBuildLabel(old, now))
+        assertFalse(GeminiWebClient.isStaleBuildLabel(fresh, now))
+        // Not a dated label: never force a refresh on a value we do not understand.
+        assertFalse(GeminiWebClient.isStaleBuildLabel("test-bl", now))
+        assertFalse(GeminiWebClient.isStaleBuildLabel("", now))
+    }
+
     private val userMsg = listOf(Message(Role.User, listOf(Part.Text("hello")), Author.User))
 
     @Test
@@ -223,6 +238,57 @@ class GeminiWebModelTest {
     }
 
     @Test
+    fun thoughtsOnlyReplyIsRetriedAsGuest() = runTest {
+        GeminiWebClient.clearCookies()
+        fun payload(text: String, thoughts: String?): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_3"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+                for (i in 2..36) add(JsonPrimitive(null as String?))
+                add(buildJsonArray { add(buildJsonArray { add(JsonPrimitive(thoughts)) }) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload("", "only thinking"))))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload("Real answer", null))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertTrue(reply.parts.any { it == Part.Text("Real answer") })
+        assertTrue(server.requestCount >= 2)
+    }
+
+    @Test
+    fun aSessionMarkedGuestSkipsTheAccountAttempt() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Guest"))))
+
+        val model = GeminiWebModel(
+            session = session.copy(guestMode = true),
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Guest"), reply.parts[0])
+        val request = server.takeRequest()
+        assertFalse(request.getHeader("Cookie").orEmpty().contains("SID"))
+        assertEquals("at=", request.body.readUtf8().substringBefore("&f.req="))
+    }
+
+    @Test
     fun fallsBackToGuestWhenTheAccountRequestIsRejected() = runTest {
         GeminiWebClient.clearCookies()
         // 1: the account request is rejected the way Google rejects a stale session.
@@ -235,16 +301,19 @@ class GeminiWebModelTest {
         // 3: the guest retry.
         server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Guest answer"))))
 
+        var saved: GeminiWebSession? = null
         val model = GeminiWebModel(
             session = session,
             model = "gemini-4-argon",
             capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
             http = redirectingClient(jar = GeminiWebClient.cookieJar),
+            onSessionUpdated = { saved = it },
         )
 
         val reply = model.complete("sys", userMsg, emptyList())
 
         assertEquals(Part.Text("Guest answer"), reply.parts[0])
+        assertEquals(true, saved?.guestMode)
         val account = server.takeRequest()
         assertTrue(account.getHeader("Cookie").orEmpty().contains("__Secure-1PSID"))
         server.takeRequest() // the page re-read

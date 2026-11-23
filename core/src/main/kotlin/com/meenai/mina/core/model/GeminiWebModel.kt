@@ -36,6 +36,13 @@ import kotlin.random.Random
 
 private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.12_p0"
 
+/**
+ * How long the signed-in request may stay silent before the guest retry starts.
+ * Guest traffic answers within a couple of seconds, so a silent account request
+ * would only make the user wait for the router's slower watchdog.
+ */
+private const val ACCOUNT_FIRST_TOKEN_MS = 30_000L
+
 class GeminiWebModel(
     private var session: GeminiWebSession,
     private val model: String,
@@ -111,11 +118,22 @@ class GeminiWebModel(
             ChatTrace.record("gemini guest fallback reason=$reason")
             return true
         }
+        // A session that already failed over once stays on guest traffic: retrying
+        // the account first on every message would add the same silent wait again.
+        if (session.guestMode && session.cookies.isNotBlank()) {
+            guestAttempt = true
+        }
         // The `at` token (SNlM0e) is what marks a request as the signed-in account;
         // sending the account cookies with an empty `at` gets a guest-style
         // rejection. Sessions saved by older builds can miss it (or the build
-        // label), so read both from the logged-in page once instead of guessing.
-        if (currentSession.cfb2h.isBlank() || currentSession.snlm0e.isBlank()) {
+        // label), and the label itself goes stale the day Google rebuilds the
+        // frontend, so read the logged-in page once and use today's values.
+        if (!guestAttempt && (
+                currentSession.cfb2h.isBlank() ||
+                    currentSession.snlm0e.isBlank() ||
+                    GeminiWebClient.isStaleBuildLabel(currentSession.cfb2h)
+                )
+        ) {
             refreshSession(currentSession)?.let { currentSession = it }
         }
 
@@ -130,14 +148,16 @@ class GeminiWebModel(
                     "cookies=${currentSession.cookies.split(';').count { it.isNotBlank() }} " +
                     "prompt=${prompt.length}"
             )
+            val callStartedAt = System.currentTimeMillis()
             val response = try {
                 (if (guestAttempt) guestHttp else http).newCall(request).execute()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                ChatTrace.record("gemini transport error ${ChatTrace.describe(e)}")
+                ChatTrace.record("gemini transport error after ${System.currentTimeMillis() - callStartedAt}ms ${ChatTrace.describe(e)}")
                 throw ModelError.Network(e)
             }
+            ChatTrace.record("gemini response http=${response.code} in=${System.currentTimeMillis() - callStartedAt}ms")
             try {
                 // Only peek when the status says something went wrong: peeking a
                 // healthy stream would wait for the first bytes and delay the reply.
@@ -177,8 +197,9 @@ class GeminiWebModel(
                 }
 
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
+                val streamTimeoutMs = if (guestAttempt) firstTokenTimeoutMs else minOf(firstTokenTimeoutMs, ACCOUNT_FIRST_TOKEN_MS)
                 val (fullText, fullThoughts) = try {
-                    readStream(response, body.byteStream(), emit)
+                    readStream(response, body.byteStream(), emit, streamTimeoutMs)
                 } catch (e: ModelError.BadResponse) {
                     // A quota answer is the account's real limit, not a broken
                     // session: never slip around it with a guest request.
@@ -191,11 +212,31 @@ class GeminiWebModel(
                 } catch (e: ModelError.SignInExpired) {
                     if (startGuestAttempt("stream sign-in: ${e.message?.take(80)}")) continue
                     throw e
+                } catch (e: ModelError.FirstTokenTimeout) {
+                    // The account request accepted the connection but stayed silent.
+                    // Guest traffic answers in seconds on the same network, so try
+                    // that before making the user wait for the router watchdog.
+                    if (startGuestAttempt("first token timeout")) continue
+                    throw e
                 }
                 if (!guestAttempt) persistCookies()
-                ChatTrace.record("gemini ok http=${response.code} text=${fullText.length} thoughts=${fullThoughts.length}")
+                if (guestAttempt && !currentSession.guestMode) {
+                    currentSession = currentSession.copy(guestMode = true, savedAtMs = System.currentTimeMillis())
+                    session = currentSession
+                    ChatTrace.record("gemini guest mode remembered for this session")
+                    onSessionUpdated?.invoke(currentSession)
+                }
+                ChatTrace.record("gemini ok http=${response.code} text=${fullText.length} thoughts=${fullThoughts.length} guest=$guestAttempt")
 
                 val cleanText = cleanupText(fullText)
+                // A reply that carries only thinking has no answer for the user; the
+                // account endpoint sometimes does that. Guest traffic answers with
+                // text, so give it the same one-shot retry.
+                if (cleanText.isBlank() && fullThoughts.isNotBlank() &&
+                    startGuestAttempt("thoughts-only reply")
+                ) {
+                    continue
+                }
                 val toolCalls = parseToolCalls(cleanText)
 
                 val parts = mutableListOf<Part>()
@@ -258,6 +299,7 @@ class GeminiWebModel(
         response: Response,
         stream: InputStream,
         onText: (String) -> Unit,
+        tokenTimeoutMs: Long = firstTokenTimeoutMs,
     ): Pair<String, String> = coroutineScope {
         val reader = BufferedReader(InputStreamReader(stream, Charsets.UTF_8))
         var fullText = ""
@@ -270,10 +312,11 @@ class GeminiWebModel(
         val rawSample = StringBuilder()
         var sawCandidate = false
 
-        val watchdog = if (firstTokenTimeoutMs > 0) launch {
-            delay(firstTokenTimeoutMs)
+        val watchdog = if (tokenTimeoutMs > 0) launch {
+            delay(tokenTimeoutMs)
             if (!firstFrame.get()) {
                 timedOut.set(true)
+                ChatTrace.record("gemini silent for ${tokenTimeoutMs}ms, closing the stream")
                 response.close()
             }
         } else null

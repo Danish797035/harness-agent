@@ -43,6 +43,12 @@ data class GeminiWebSession(
     val defaultModelNumber: Int = 0,
     /** Active status flag. False when signed out. */
     val signedIn: Boolean = true,
+    /**
+     * Google rejected the signed-in request but guest traffic answers, so this
+     * session speaks to Gemini as a guest. Set after a successful guest retry and
+     * cleared by signing out (a fresh sign-in tries the real account again).
+     */
+    val guestMode: Boolean = false,
     /** Timestamp when session was saved or last validated. */
     val savedAtMs: Long = System.currentTimeMillis(),
 ) {
@@ -62,6 +68,7 @@ data class GeminiWebSession(
         capacityField = 12,
         defaultModelId = "",
         defaultModelNumber = 0,
+        guestMode = false,
     )
 
     fun toJson(): String = JSON.encodeToString(serializer(), this)

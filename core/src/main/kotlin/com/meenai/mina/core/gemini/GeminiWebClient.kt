@@ -48,6 +48,24 @@ object GeminiWebClient {
     fun userAgentFor(session: GeminiWebSession): String =
         session.userAgent.ifBlank { CHROME_USER_AGENT }
 
+    /** `boq_gemini-web-uiserver_20261122.09_p0` carries the frontend build's date. */
+    private val BUILD_LABEL_DATE = Regex("""_(\d{8})\.\d+_p0$""")
+
+    /**
+     * True when the saved build label is more than a day old. Google rebuilds the
+     * Gemini frontend daily (`bl` changes every day), and a signed-in request that
+     * carries an old label can be rejected while guest traffic still works. The
+     * saved label is read once at login, so it must be refreshed as it ages.
+     */
+    fun isStaleBuildLabel(label: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val date = BUILD_LABEL_DATE.find(label)?.groupValues?.getOrNull(1) ?: return false
+        val parsed = runCatching {
+            java.time.LocalDate.parse(date, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+        }.getOrNull() ?: return false
+        val builtAtMs = parsed.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        return nowMs - builtAtMs > 24L * 60 * 60 * 1000
+    }
+
     /** RPC id of GetUserStatus: a free account check that also lists the account's models. */
     const val USER_STATUS_RPC = "otAQ7b"
 
