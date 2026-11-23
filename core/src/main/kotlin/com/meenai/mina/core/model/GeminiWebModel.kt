@@ -9,6 +9,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -312,12 +313,25 @@ class GeminiWebModel(
         val rawSample = StringBuilder()
         var sawCandidate = false
 
+        var lastChunkTime = System.currentTimeMillis()
         val watchdog = if (tokenTimeoutMs > 0) launch {
-            delay(tokenTimeoutMs)
-            if (!firstFrame.get()) {
-                timedOut.set(true)
-                ChatTrace.record("gemini silent for ${tokenTimeoutMs}ms, closing the stream")
-                response.close()
+            while (isActive) {
+                delay(1_000)
+                val now = System.currentTimeMillis()
+                if (!firstFrame.get()) {
+                    if (now - lastChunkTime >= tokenTimeoutMs) {
+                        timedOut.set(true)
+                        ChatTrace.record("gemini silent for ${tokenTimeoutMs}ms, closing the stream")
+                        response.close()
+                        break
+                    }
+                } else {
+                    if (now - lastChunkTime >= 15_000L) {
+                        ChatTrace.record("gemini idle for 15s after tokens, closing stream")
+                        response.close()
+                        break
+                    }
+                }
             }
         } else null
 
@@ -334,7 +348,8 @@ class GeminiWebModel(
                 val parsedChunk = parseChunk(trimmed)
                 if (parsedChunk != null) {
                     sawCandidate = true
-                    if (!firstFrame.getAndSet(true)) watchdog?.cancel()
+                    firstFrame.set(true)
+                    lastChunkTime = System.currentTimeMillis()
                     var chunkArrived = false
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
@@ -550,7 +565,10 @@ class GeminiWebModel(
             val nextThoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)
                 ?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
             if (nextThoughts.length >= thoughts.length) thoughts = nextThoughts
-            val indicator = (firstCandidate.getOrNull(8) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull ?: 0
+            val indicator = (8..12).firstNotNullOfOrNull { idx ->
+                (firstCandidate.getOrNull(idx) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull
+            } ?: ((firstCandidate.getOrNull(8) as? JsonPrimitive)?.intOrNull)
+                ?: ((firstCandidate.getOrNull(9) as? JsonPrimitive)?.intOrNull) ?: 0
             if (indicator == 2) completed = true
         }
 

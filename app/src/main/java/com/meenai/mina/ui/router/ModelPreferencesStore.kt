@@ -130,14 +130,26 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPrefer
         prefs.edit().putStringSet(KEY_HIDDEN_MODELS, models).apply()
     }
 
-    override fun getManualRole(role: String): String? =
-        prefs.getString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), null)
+    override fun getManualRole(role: String): String? {
+        val value = prefs.getString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), null)
+        if (value != null && value.contains("carbon", ignoreCase = true)) {
+            val fixed = "gemini-4-argon"
+            prefs.edit().putString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), fixed).apply()
+            return fixed
+        }
+        return value
+    }
 
     fun setManualRole(role: String, modelId: String?) {
-        if (modelId.isNullOrBlank()) {
+        val sanitized = if (modelId != null && modelId.contains("carbon", ignoreCase = true)) {
+            "gemini-4-argon"
+        } else {
+            modelId
+        }
+        if (sanitized.isNullOrBlank()) {
             prefs.edit().remove(KEY_MANUAL_ROLE_PREFIX + role.lowercase()).apply()
         } else {
-            prefs.edit().putString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), modelId).apply()
+            prefs.edit().putString(KEY_MANUAL_ROLE_PREFIX + role.lowercase(), sanitized).apply()
         }
     }
 

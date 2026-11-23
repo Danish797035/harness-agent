@@ -789,7 +789,34 @@ class ProviderStore(
         providerKey(providerId)?.let { GeminiWebSession.fromJson(it) }?.takeIf { it.signedIn }
 
     @Synchronized
+    fun sanitizeCarbonConfigs() {
+        var changed = false
+        val newConfigs = _configs.value.map { cfg ->
+            if (cfg.model.contains("carbon", ignoreCase = true)) {
+                changed = true
+                cfg.copy(model = "gemini-4-argon")
+            } else {
+                cfg
+            }
+        }
+        if (changed) {
+            _configs.value = newConfigs
+            writeConfig()
+        }
+        val currentMainCfgId = _roles.value.main
+        val currentMainCfg = _configs.value.firstOrNull { it.id == currentMainCfgId }
+        if (currentMainCfg != null && currentMainCfg.model.contains("carbon", ignoreCase = true)) {
+            val argonCfg = _configs.value.firstOrNull { it.model == "gemini-4-argon" }
+            if (argonCfg != null) {
+                _roles.value = _roles.value.copy(main = argonCfg.id)
+                writeConfig()
+            }
+        }
+    }
+
+    @Synchronized
     fun repairGeminiWebBindings() {
+        sanitizeCarbonConfigs()
         val webProvider = geminiWebProvider() ?: return
         val session = geminiWebSession(webProvider.id)
         if (session == null || !session.signedIn) return

@@ -362,8 +362,9 @@ class RealRouterStatus(
 
     private fun computeActiveModel(): ActiveModel {
         val status = router.status.value
-        val mainModelId = store?.configFor(ModelRole.Main)?.model
+        val rawMainModelId = store?.configFor(ModelRole.Main)?.model
             ?: router.preferences.getManualRole(ModelRole.Main.name)
+        val mainModelId = if (rawMainModelId?.contains("carbon", ignoreCase = true) == true) "gemini-4-argon" else rawMainModelId
         val configuredActive = if (!mainModelId.isNullOrBlank()) {
             router.candidates.firstOrNull { it.id.equals(mainModelId, ignoreCase = true) }
         } else null
@@ -375,7 +376,8 @@ class RealRouterStatus(
                     cfg.model to (p?.name ?: cfg.name)
                 }
             if (fallback != null) {
-                val (modelId, providerName) = fallback
+                val (rawModelId, providerName) = fallback
+                val modelId = if (rawModelId.contains("carbon", ignoreCase = true)) "gemini-4-argon" else rawModelId
                 val used = RouterUsageTracker.getTodayCalls(modelId)
                 val isGeminiWebFallback = providerName.equals("Google Gemini", ignoreCase = true) ||
                     providerName.equals("gemini_web", ignoreCase = true)
@@ -410,7 +412,8 @@ class RealRouterStatus(
             )
         }
 
-        val id = status.currentModel ?: active.id
+        val rawId = status.currentModel ?: active.id
+        val id = if (rawId.contains("carbon", ignoreCase = true)) "gemini-4-argon" else rawId
         val provider = status.provider ?: active.provider
         val isPinned = router.pinnedModelId != null && (router.pinnedModelId == id)
         val cooldownMs = router.cooldownStore.getRemainingCooldownMs(id)

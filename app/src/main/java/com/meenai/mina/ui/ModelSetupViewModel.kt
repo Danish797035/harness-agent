@@ -923,6 +923,7 @@ class ModelSetupViewModel(
     }
 
     fun onGeminiWebLoginSuccess(session: GeminiWebSession, selfTest: Boolean = true) {
+        _state.update { it.copy(geminiWebLoginOpen = false, formOpen = false) }
         scope.launch {
             var testError: String? = null
             val p = withContext(io) {
@@ -944,7 +945,7 @@ class ModelSetupViewModel(
                 // still be unusable from the chat endpoint, and the user deserves
                 // the real error instead of silence.
                 if (selfTest) {
-                    testError = runCatching {
+                    testError = try {
                         val probeModel = GeminiWebModel(
                             session = session,
                             model = "gemini-4-argon",
@@ -957,7 +958,12 @@ class ModelSetupViewModel(
                             listOf(Message(Role.User, listOf(Part.Text("Reply with the single word: OK")), Author.User)),
                             emptyList()
                         )
-                    }.exceptionOrNull()?.message
+                        null
+                    } catch (e: CancellationException) {
+                        null
+                    } catch (e: Exception) {
+                        e.message
+                    }
                     ChatTrace.record(
                         "gemini self-test error=${testError ?: "none"} " +
                             "at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} " +

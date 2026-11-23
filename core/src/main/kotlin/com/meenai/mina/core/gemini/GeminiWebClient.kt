@@ -477,7 +477,8 @@ object GeminiWebClient {
      * own "Auto" style entries), fall back to the account's default model from
      * the login probe instead of guessing a hardcoded id that Google may reject.
      */
-    fun resolveModel(model: String, session: GeminiWebSession): Pair<String, Int> {
+    fun resolveModel(rawModel: String, session: GeminiWebSession): Pair<String, Int> {
+        val model = if (rawModel.contains("carbon", ignoreCase = true)) "gemini-4-argon" else rawModel
         val known = listOf("argon", "hydrogen", "pro", "lite", "flash").any {
             model.contains(it, ignoreCase = true)
         }

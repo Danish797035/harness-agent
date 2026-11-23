@@ -122,7 +122,8 @@ class FreeKeyRouter(
 
     init {
         val pinned = pinnedModelId
-        val manualMain = preferences.getManualRole(ModelRole.Main.name)
+        val rawManualMain = preferences.getManualRole(ModelRole.Main.name)
+        val manualMain = if (rawManualMain?.contains("carbon", ignoreCase = true) == true) "gemini-4-argon" else rawManualMain
         val initial = when {
             !pinned.isNullOrBlank() -> candidates.find { it.id == pinned }
             !manualMain.isNullOrBlank() -> candidates.find { it.id.equals(manualMain, ignoreCase = true) }
@@ -683,7 +684,8 @@ class FreeKeyRouter(
         // falls back to the configured Main model, but a Vision task must never be
         // handed to a model that cannot see: that only produces a failed request.
         val explicitRoleModel = preferences.getManualRole(targetRole.name)
-        val manualModelId = explicitRoleModel ?: preferences.getManualRole(ModelRole.Main.name)
+        val rawManualModelId = explicitRoleModel ?: preferences.getManualRole(ModelRole.Main.name)
+        val manualModelId = if (rawManualModelId?.contains("carbon", ignoreCase = true) == true) "gemini-4-argon" else rawManualModelId
         if (!manualModelId.isNullOrBlank()) {
             val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
             val canHandleRole = explicitRoleModel != null ||
