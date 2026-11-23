@@ -21,6 +21,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -91,6 +92,25 @@ class GeminiWebModel(
         GeminiWebClient.seedCookies(session.cookies)
         var currentSession = session
         var refreshed = false
+        // Google answers a session it no longer accepts with a guest-style error
+        // even though guest traffic still works (the web client itself supports
+        // guests). When the account request is rejected for a session/model reason
+        // and nothing has been streamed yet, retry once as a guest instead of
+        // failing the user's message. Quota answers (429/5xx) never fall back.
+        var guestAttempt = false
+        var emittedAny = false
+        // Guest calls must not inherit the account cookies from the shared jar.
+        val guestHttp by lazy { http.newBuilder().cookieJar(CookieJar.NO_COOKIES).build() }
+        val emit: (String) -> Unit = { text ->
+            if (text.isNotEmpty()) emittedAny = true
+            onText(text)
+        }
+        fun startGuestAttempt(reason: String): Boolean {
+            if (guestAttempt || session.cookies.isBlank() || emittedAny) return false
+            guestAttempt = true
+            ChatTrace.record("gemini guest fallback reason=$reason")
+            return true
+        }
         // The `at` token (SNlM0e) is what marks a request as the signed-in account;
         // sending the account cookies with an empty `at` gets a guest-style
         // rejection. Sessions saved by older builds can miss it (or the build
@@ -101,16 +121,17 @@ class GeminiWebModel(
 
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
-            val request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
+            val request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl, guest = guestAttempt)
             ChatTrace.record(
                 "gemini request model=$model hex=$modelHexId num=$modelNumber bl=$bl " +
+                    "guest=$guestAttempt " +
                     "at=${if (currentSession.snlm0e.isNotBlank()) "yes" else "no"} " +
                     "au=${currentSession.authUserIndex.ifBlank { "-" }} " +
                     "cookies=${currentSession.cookies.split(';').count { it.isNotBlank() }} " +
                     "prompt=${prompt.length}"
             )
             val response = try {
-                http.newCall(request).execute()
+                (if (guestAttempt) guestHttp else http).newCall(request).execute()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -122,7 +143,7 @@ class GeminiWebModel(
                 // healthy stream would wait for the first bytes and delay the reply.
                 if (response.code in 401..403 || response.code == 400) {
                     val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
-                    if (!refreshed) {
+                    if (!refreshed && !guestAttempt) {
                         // Google's `at` token expires independently of the cookies and
                         // answers with a 400/401 when it is stale. One re-init from the
                         // logged-in page is what the web client itself does; if the
@@ -133,17 +154,21 @@ class GeminiWebModel(
                             currentSession = next
                             continue
                         }
-                        if (isSessionFailure(response.code, peek)) {
-                            throw ModelError.SignInExpired("Google Gemini")
+                        if (isSessionFailure(response.code, peek) && startGuestAttempt("session rejected")) {
+                            continue
                         }
                     }
                 }
-                if (response.code in 401..403) throw ModelError.SignInExpired("Google Gemini")
+                if (response.code in 401..403) {
+                    if (startGuestAttempt("HTTP ${response.code}")) continue
+                    throw ModelError.SignInExpired("Google Gemini")
+                }
                 if (response.code == 429) throw ModelError.RateLimited(null)
                 if (response.code >= 500) throw ModelError.Server(response.code)
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
                     ChatTrace.record("gemini http=${response.code} body=${body.take(400)}")
+                    if (startGuestAttempt("HTTP ${response.code}")) continue
                     // Short, safe facts that let a screenshot explain a rejection.
                     val diag = " [bl=" + bl.take(48) +
                         ", at=" + (if (currentSession.snlm0e.isNotBlank()) "yes" else "no") +
@@ -152,8 +177,16 @@ class GeminiWebModel(
                 }
 
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
-                val (fullText, fullThoughts) = readStream(response, body.byteStream(), onText)
-                persistCookies()
+                val (fullText, fullThoughts) = try {
+                    readStream(response, body.byteStream(), emit)
+                } catch (e: ModelError.BadResponse) {
+                    if (startGuestAttempt("stream rejected: ${e.message?.take(80)}")) continue
+                    throw e
+                } catch (e: ModelError.SignInExpired) {
+                    if (startGuestAttempt("stream sign-in: ${e.message?.take(80)}")) continue
+                    throw e
+                }
+                if (!guestAttempt) persistCookies()
                 ChatTrace.record("gemini ok http=${response.code} text=${fullText.length} thoughts=${fullThoughts.length}")
 
                 val cleanText = cleanupText(fullText)
@@ -205,8 +238,9 @@ class GeminiWebModel(
                 return@withContext LeakedToolMarkup.repair(ModelReply(parts, stopReason, usage))
             } finally {
                 // Keep Google's rotated cookies even when this attempt failed:
-                // otherwise the next message starts from a stale session.
-                runCatching { persistCookies() }
+                // otherwise the next message starts from a stale session. A guest
+                // attempt must not overwrite the account's saved cookies.
+                if (!guestAttempt) runCatching { persistCookies() }
                 response.close()
             }
         }
@@ -359,14 +393,15 @@ class GeminiWebModel(
         innerReqJson: String,
         modelHeader: String,
         uuid: String,
-        bl: String
+        bl: String,
+        guest: Boolean = false,
     ): Request {
         val reqId = Random.nextInt(10000, 99999)
         val fsidPart = currentSession.fdrfje.takeIf { it.isNotBlank() }?.let { "&f.sid=$it" }.orEmpty()
         val url = "${GeminiWebClient.STREAM_GENERATE_ENDPOINT}?bl=$bl$fsidPart&hl=en&_reqid=$reqId&rt=c"
 
         val formBody = FormBody.Builder()
-            .add("at", currentSession.snlm0e)
+            .add("at", if (guest) "" else currentSession.snlm0e)
             .add("f.req", buildJsonArray {
                 add(JsonPrimitive(null as String?))
                 add(JsonPrimitive(innerReqJson))
@@ -380,10 +415,25 @@ class GeminiWebModel(
             .header("Referer", "https://gemini.google.com/")
             .header("X-Same-Domain", "1")
             .header("User-Agent", GeminiWebClient.userAgentFor(currentSession))
-            .header("Cookie", GeminiWebClient.sanitizeCookieHeader(currentSession.cookies))
             .apply {
-                if (currentSession.authUserIndex.isNotBlank()) {
-                    header("X-Goog-AuthUser", currentSession.authUserIndex)
+                // A guest request must not carry the account's cookies or authuser:
+                // that mix is exactly what Google rejects. Guests keep only the
+                // anonymous cookies (NID, COMPASS) and never a *SID credential.
+                if (!guest) {
+                    header("Cookie", GeminiWebClient.sanitizeCookieHeader(currentSession.cookies))
+                    if (currentSession.authUserIndex.isNotBlank()) {
+                        header("X-Goog-AuthUser", currentSession.authUserIndex)
+                    }
+                } else {
+                    val anonymous = GeminiWebClient.sanitizeCookieHeader(currentSession.cookies)
+                        .split(';')
+                        .map { it.trim() }
+                        .filter { part ->
+                            val name = part.substringBefore('=').trim()
+                            name.isNotEmpty() && !name.uppercase().contains("SID")
+                        }
+                        .joinToString("; ")
+                    if (anonymous.isNotBlank()) header("Cookie", anonymous)
                 }
             }
             .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")

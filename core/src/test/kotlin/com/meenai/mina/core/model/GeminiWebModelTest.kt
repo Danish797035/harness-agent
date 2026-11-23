@@ -223,6 +223,51 @@ class GeminiWebModelTest {
     }
 
     @Test
+    fun fallsBackToGuestWhenTheAccountRequestIsRejected() = runTest {
+        GeminiWebClient.clearCookies()
+        // 1: the account request is rejected the way Google rejects a stale session.
+        server.enqueue(
+            MockResponse().setResponseCode(400)
+                .setBody("""[["er",null,null,null,null,400,null,null,null,3],["af.httprm",7,"-1",95]]""")
+        )
+        // 2: the re-read page is a signed-out page, so there is nothing to refresh.
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
+        // 3: the guest retry.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Guest answer"))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Guest answer"), reply.parts[0])
+        val account = server.takeRequest()
+        assertTrue(account.getHeader("Cookie").orEmpty().contains("__Secure-1PSID"))
+        server.takeRequest() // the page re-read
+        val guest = server.takeRequest()
+        assertFalse(guest.getHeader("Cookie").orEmpty().contains("SID"))
+        assertEquals("at=", guest.body.readUtf8().substringBefore("&f.req="))
+    }
+
+    @Test(expected = ModelError.RateLimited::class)
+    fun rateLimitDoesNotFallBackToGuest() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        model.complete("sys", userMsg, emptyList())
+    }
+
+    @Test
     fun completeFetchesAMissingSnlm0eTokenFromTheLoggedInPage() = runTest {
         GeminiWebClient.clearCookies()
         server.enqueue(
@@ -251,10 +296,13 @@ class GeminiWebModelTest {
 
     @Test
     fun unreadableStreamFailsWithTheRawFramesInsteadOfSilence() = runTest {
-        server.enqueue(
-            MockResponse().setResponseCode(200)
-                .setBody(")]}'\n\n[[\"wrb.fr\",null,null,\"not-json\",null,null,null,\"generic\"]]")
-        )
+        // The account attempt, then the one guest retry: both unreadable.
+        repeat(2) {
+            server.enqueue(
+                MockResponse().setResponseCode(200)
+                    .setBody(")]}'\n\n[[\"wrb.fr\",null,null,\"not-json\",null,null,null,\"generic\"]]")
+            )
+        }
 
         val model = GeminiWebModel(
             session = session,
@@ -403,6 +451,8 @@ class GeminiWebModelTest {
         // The client re-reads the logged-in page once before giving up; this reply
         // is a signed-out page, so the session is still a real sign-in expiry.
         server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
+        // The single guest retry is rejected too: there is nothing left to try.
+        server.enqueue(MockResponse().setResponseCode(401))
 
         val mockClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
@@ -738,6 +788,8 @@ class GeminiWebModelTest {
                 """<script>window.WIZ_global_data = {"SNlM0e":"fresh-token","cfb2h":"bl","FdrFJe":"sid"};</script>"""
             )
         )
+        // The refreshed account request fails again, and so does the guest retry.
+        server.enqueue(MockResponse().setResponseCode(400).setBody(error))
         server.enqueue(MockResponse().setResponseCode(400).setBody(error))
 
         val model = GeminiWebModel(
