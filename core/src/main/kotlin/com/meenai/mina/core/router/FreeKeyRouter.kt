@@ -376,13 +376,7 @@ class FreeKeyRouter(
 
         while (true) {
             if (switchCountInTask >= effectiveMaxSwitches) {
-                if (lastError is ModelError.SignInExpired || lastError is ModelError.AccountPlanNotAllowed) {
-                    throw lastError!!
-                }
-                val waitMin = calculateWaitMinutes()
-                val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                updateStatus(reason = msg)
-                throw AllLimitsExhaustedException(msg, waitMin)
+                giveUp(lastError)
             }
 
             // Ensure active candidate
@@ -396,15 +390,7 @@ class FreeKeyRouter(
                         next = pickBestCandidate(role, isNewTask = (switchCountInTask == 0))
                     }
                 }
-                if (next == null) {
-                    if (lastError is ModelError.SignInExpired || lastError is ModelError.AccountPlanNotAllowed) {
-                        throw lastError!!
-                    }
-                    val waitMin = calculateWaitMinutes()
-                    val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                    updateStatus(reason = msg)
-                    throw AllLimitsExhaustedException(msg, waitMin)
-                }
+                if (next == null) giveUp(lastError)
                 val prev = previousCandidate?.id
                 activeCandidate = next
                 if (prev != null && prev != next.id) {
@@ -516,12 +502,7 @@ class FreeKeyRouter(
                                 previousCandidate = currentCandidate
                                 activeCandidate = null
                                 switchCountInTask++
-                                if (switchCountInTask >= effectiveMaxSwitches) {
-                                    val waitMin = calculateWaitMinutes()
-                                    val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                                    updateStatus(reason = msg)
-                                    throw AllLimitsExhaustedException(msg, waitMin)
-                                }
+                                if (switchCountInTask >= effectiveMaxSwitches) giveUp(e)
                                 delayMs(switchBackoffMs)
                                 break
                             }
@@ -532,15 +513,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= effectiveMaxSwitches) {
-                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
-                                    throw e
-                                }
-                                val waitMin = calculateWaitMinutes()
-                                val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                                updateStatus(reason = msg)
-                                throw AllLimitsExhaustedException(msg, waitMin)
-                            }
+                            if (switchCountInTask >= effectiveMaxSwitches) giveUp(e)
                             delayMs(switchBackoffMs)
                             break
                         }
@@ -550,15 +523,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= effectiveMaxSwitches) {
-                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
-                                    throw e
-                                }
-                                val waitMin = calculateWaitMinutes()
-                                val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                                updateStatus(reason = msg)
-                                throw AllLimitsExhaustedException(msg, waitMin)
-                            }
+                            if (switchCountInTask >= effectiveMaxSwitches) giveUp(e)
                             delayMs(switchBackoffMs)
                             break
                         }
@@ -600,15 +565,7 @@ class FreeKeyRouter(
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
-                            if (switchCountInTask >= effectiveMaxSwitches) {
-                                if (e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed) {
-                                    throw e
-                                }
-                                val waitMin = calculateWaitMinutes()
-                                val msg = "Sab free limits khatam, $waitMin minute baad try karo"
-                                updateStatus(reason = msg)
-                                throw AllLimitsExhaustedException(msg, waitMin)
-                            }
+                            if (switchCountInTask >= effectiveMaxSwitches) giveUp(e)
                             if (isTimeout) {
                                 val timeoutReason = "Model slow tha, dusra try kar raha hoon"
                                 updateStatus(
@@ -845,6 +802,23 @@ class FreeKeyRouter(
             .filter { it > 0L }
             .minOrNull() ?: ModelCooldownStore.DEFAULT_COOLDOWN_MS
         return ceil(minWaitMs / 60_000.0).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Routing has run out of candidates. Only a real quota/rate-limit wall may
+     * become "Sab free limits khatam": any other failure (HTTP error, bad reply,
+     * dropped stream, slow model) has to reach the user as itself, otherwise a
+     * broken model looks like an exhausted quota and nobody can fix it.
+     */
+    private fun giveUp(lastError: Throwable?): Nothing {
+        val quotaLike = lastError is ModelError.RateLimited ||
+            lastError is ModelError.QuotaExceeded ||
+            (lastError is ModelError.Server && lastError.status == 429)
+        if (lastError != null && !quotaLike) throw lastError
+        val waitMin = calculateWaitMinutes()
+        val msg = "Sab free limits khatam, $waitMin minute baad try karo"
+        updateStatus(reason = msg)
+        throw AllLimitsExhaustedException(msg, waitMin)
     }
 
     private fun updateStatus(

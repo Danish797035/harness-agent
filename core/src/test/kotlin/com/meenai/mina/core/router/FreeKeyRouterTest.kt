@@ -237,6 +237,27 @@ class FreeKeyRouterTest {
     }
 
     @Test
+    fun surfacesTheRealErrorWhenTheOnlyModelFailsForANonQuotaReason() = runTest {
+        val failing = mockModel("g1") { _, _, _, _ ->
+            throw ModelError.BadResponse("Gemini Web returned HTTP 400: invalid at")
+        }
+
+        val router = FreeKeyRouter(
+            listOf(RouterCandidate("g1", "gemini", failing, curatedRank = 10)),
+            maxSwitchesPerTask = 6,
+            delayMs = {},
+        )
+
+        try {
+            router.completeStreaming("sys", userMsg, emptyList()) {}
+            fail("Expected the model's own BadResponse")
+        } catch (e: ModelError.BadResponse) {
+            assertTrue(e.message!!.contains("HTTP 400"))
+            assertFalse(e.message!!.contains("Sab free limits"))
+        }
+    }
+
+    @Test
     fun chaosTestWith5FailingProvidersCompletes20StepTask() = runTest {
         val random = Random(42)
 
