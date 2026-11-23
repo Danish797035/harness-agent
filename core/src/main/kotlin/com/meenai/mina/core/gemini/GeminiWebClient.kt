@@ -1,5 +1,6 @@
 package com.meenai.mina.core.gemini
 
+import com.meenai.mina.core.diag.ChatTrace
 import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.ModelError
 import com.meenai.mina.core.net.NetProxy
@@ -254,9 +255,17 @@ object GeminiWebClient {
         }
         response.use {
             if (!it.isSuccessful) {
+                ChatTrace.record("gemini probe http=${it.code}")
                 throw ModelError.BadResponse("Gemini account check returned HTTP ${it.code}")
             }
-            return parseProbeResponse(it.body?.string().orEmpty())
+            val body = it.body?.string().orEmpty()
+            val probe = parseProbeResponse(body)
+            ChatTrace.record(
+                "gemini probe status=${probe.status} models=${probe.models.size} " +
+                    "capacity=${probe.capacity}/${probe.capacityField} " +
+                    "at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} raw=${body.take(160)}"
+            )
+            return probe
         }
     }
 

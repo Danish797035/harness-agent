@@ -3,6 +3,7 @@ package com.meenai.mina.ui
 import android.webkit.CookieManager
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
+import com.meenai.mina.core.diag.ChatTrace
 import com.meenai.mina.core.model.Author
 import com.meenai.mina.core.model.GeminiWebModel
 import com.meenai.mina.core.model.Message
@@ -957,6 +958,11 @@ class ModelSetupViewModel(
                             emptyList()
                         )
                     }.exceptionOrNull()?.message
+                    ChatTrace.record(
+                        "gemini self-test error=${testError ?: "none"} " +
+                            "at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} " +
+                            "bl=${session.cfb2h} cookies=${session.cookies.split(';').count { it.isNotBlank() }}"
+                    )
                 }
                 provider
             }

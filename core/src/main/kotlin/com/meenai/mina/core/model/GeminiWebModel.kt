@@ -1,5 +1,6 @@
 package com.meenai.mina.core.model
 
+import com.meenai.mina.core.diag.ChatTrace
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import kotlinx.coroutines.CancellationException
@@ -101,11 +102,19 @@ class GeminiWebModel(
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
             val request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl)
+            ChatTrace.record(
+                "gemini request model=$model hex=$modelHexId num=$modelNumber bl=$bl " +
+                    "at=${if (currentSession.snlm0e.isNotBlank()) "yes" else "no"} " +
+                    "au=${currentSession.authUserIndex.ifBlank { "-" }} " +
+                    "cookies=${currentSession.cookies.split(';').count { it.isNotBlank() }} " +
+                    "prompt=${prompt.length}"
+            )
             val response = try {
                 http.newCall(request).execute()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                ChatTrace.record("gemini transport error ${ChatTrace.describe(e)}")
                 throw ModelError.Network(e)
             }
             try {
@@ -134,6 +143,7 @@ class GeminiWebModel(
                 if (response.code >= 500) throw ModelError.Server(response.code)
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
+                    ChatTrace.record("gemini http=${response.code} body=${body.take(400)}")
                     // Short, safe facts that let a screenshot explain a rejection.
                     val diag = " [bl=" + bl.take(48) +
                         ", at=" + (if (currentSession.snlm0e.isNotBlank()) "yes" else "no") +
@@ -144,6 +154,7 @@ class GeminiWebModel(
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
                 val (fullText, fullThoughts) = readStream(response, body.byteStream(), onText)
                 persistCookies()
+                ChatTrace.record("gemini ok http=${response.code} text=${fullText.length} thoughts=${fullThoughts.length}")
 
                 val cleanText = cleanupText(fullText)
                 val toolCalls = parseToolCalls(cleanText)
@@ -395,6 +406,7 @@ class GeminiWebModel(
      * "author" and turned ordinary errors into "sign in again".
      */
     private fun throwStreamError(raw: String): Nothing {
+        ChatTrace.record("gemini stream error ${raw.replace(Regex("\\s+"), " ").take(400)}")
         val text = raw.lowercase()
         val expired = text.contains("af.httprm") || text.contains("snlm0e") ||
             Regex("""\b(unauthorized|unauthenticated|auth|signin|sign-in|expired|cookie|session)\b""")

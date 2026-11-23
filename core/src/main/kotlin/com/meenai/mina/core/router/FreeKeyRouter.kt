@@ -1,5 +1,6 @@
 package com.meenai.mina.core.router
 
+import com.meenai.mina.core.diag.ChatTrace
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.model.Message
@@ -472,6 +473,10 @@ class FreeKeyRouter(
                 } catch (e: Throwable) {
                     lastError = e
                     lastFailureReason = describeFailure(e)
+                    ChatTrace.record(
+                        "chat fail model=${currentCandidate.id} provider=${currentCandidate.provider} " +
+                            "action=${RouterErrorClassifier.classify(e)} err=${ChatTrace.describe(e)}"
+                    )
                     healthTracker.recordFailure(currentCandidate.id)
                     statsTracker?.recordFailure(
                         modelId = currentCandidate.id,
@@ -828,6 +833,7 @@ class FreeKeyRouter(
         val quotaLike = lastError is ModelError.RateLimited ||
             lastError is ModelError.QuotaExceeded ||
             (lastError is ModelError.Server && lastError.status == 429)
+        ChatTrace.record("chat giveup quotaLike=$quotaLike last=${lastError?.let(ChatTrace::describe) ?: "none"}")
         if (lastError != null && !quotaLike) throw lastError
         val waitMin = calculateWaitMinutes()
         val msg = "Sab free limits khatam, $waitMin minute baad try karo"

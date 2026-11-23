@@ -382,6 +382,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         // 界面以外的文字(通知、服务、悬浮胶囊)按 App 语言取
         AppLanguage.applyDefaultLocale(this)
         UiText.source = ResourceTexts { AppLanguage.resources(this) }
+        // Chat/model diagnostics → Download/harness-chat.log (readable as text).
+        com.meenai.mina.diag.ChatLog.install(this)
         registerActivityLifecycleCallbacks(foreground)
         // 设置 › 网络代理:Mina 自己的连接从第一个请求起就按它走;SOCKS 代理的账号密码经全进程的认证器给
         com.meenai.mina.settings.NetProxyStore.get(this)

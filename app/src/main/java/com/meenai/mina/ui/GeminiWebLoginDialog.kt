@@ -371,6 +371,11 @@ private fun createGoogleLoginWebView(
             fun handleProbe(probe: GeminiProbe?, session: GeminiWebSession) {
                 if (loginHandled) return
                 val signedInPage = session.cookies.contains("__Secure-1PSID") && session.cfb2h.isNotBlank()
+                com.meenai.mina.core.diag.ChatTrace.record(
+                    "gemini login probe=${probe?.status ?: -1} at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} " +
+                        "bl=${session.cfb2h} cookies=${session.cookies.split(';').count { it.isNotBlank() }} " +
+                        "signedInPage=$signedInPage"
+                )
                 if (probe?.signedIn == true) {
                     finish(
                         session.copy(
