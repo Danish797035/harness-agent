@@ -794,18 +794,28 @@ class ProviderStore(
         val session = geminiWebSession(webProvider.id)
         if (session == null || !session.signedIn) return
 
+        if (webProvider.models != GeminiWebClient.DEFAULT_MODELS) {
+            _providers.value = _providers.value.map {
+                if (it.id == webProvider.id) it.copy(models = GeminiWebClient.DEFAULT_MODELS) else it
+            }
+            writeConfig()
+        }
+
         val webModelIds = GeminiWebClient.DEFAULT_MODELS.map { it.id }.toSet()
 
         var changed = false
         val newConfigs = _configs.value.map { cfg ->
-            val looksLikeWeb = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.model in webModelIds
-            if (looksLikeWeb && (cfg.kind != ProviderConfig.Kind.GeminiWeb || cfg.providerId != webProvider.id)) {
+            val isCarbon = cfg.model.contains("carbon", ignoreCase = true)
+            val modelName = if (isCarbon) "gemini-4-argon" else cfg.model
+            val looksLikeWeb = cfg.kind == ProviderConfig.Kind.GeminiWeb || modelName in webModelIds
+            if (looksLikeWeb && (cfg.kind != ProviderConfig.Kind.GeminiWeb || cfg.providerId != webProvider.id || isCarbon)) {
                 changed = true
                 cfg.copy(
                     providerId = webProvider.id,
                     kind = ProviderConfig.Kind.GeminiWeb,
                     name = webProvider.name,
                     baseUrl = webProvider.baseUrl,
+                    model = modelName,
                 )
             } else {
                 cfg
@@ -814,6 +824,16 @@ class ProviderStore(
         if (changed) {
             _configs.value = newConfigs
             writeConfig()
+        }
+
+        val currentMainCfgId = _roles.value.main
+        val currentMainCfg = _configs.value.firstOrNull { it.id == currentMainCfgId }
+        if (currentMainCfg != null && currentMainCfg.model.contains("carbon", ignoreCase = true)) {
+            val argonCfg = _configs.value.firstOrNull { it.providerId == webProvider.id && it.model == "gemini-4-argon" }
+            if (argonCfg != null) {
+                _roles.value = _roles.value.copy(main = argonCfg.id)
+                writeConfig()
+            }
         }
     }
 

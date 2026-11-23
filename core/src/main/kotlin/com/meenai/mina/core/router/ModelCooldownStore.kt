@@ -37,6 +37,12 @@ class ModelCooldownStore(
         notifyChanged()
     }
 
+    fun clearCooldown(modelId: String) {
+        cooldowns.remove(modelId)
+        unsupportedModels.remove(modelId.lowercase())
+        notifyChanged()
+    }
+
     fun markDailyQuotaExhausted(modelId: String, provider: String, nowMs: Long = System.currentTimeMillis()) {
         val isGemini = provider.equals("gemini", ignoreCase = true) || modelId.contains("gemini", ignoreCase = true)
         val resetMs = if (isGemini) nextPacificMidnight(nowMs) else nextUtcMidnight(nowMs)

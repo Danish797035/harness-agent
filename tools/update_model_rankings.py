@@ -137,6 +137,8 @@ def generate_rankings() -> Dict[str, Any]:
     models: List[Dict[str, Any]] = []
     for key, score in sorted(overall.items(), key=lambda kv: -kv[1]):
         display = overall_raw[key][0]
+        if "carbon" in key.lower() or "carbon" in display.lower():
+            continue
         models.append({
             "model": display,
             "overallScore": score,

@@ -78,6 +78,9 @@ class AutoModelPicker(
             if (candidate.provider.equals("kimi", ignoreCase = true) && candidate.id.contains("k2", ignoreCase = true)) {
                 return@filter false
             }
+            if (candidate.id.contains("carbon", ignoreCase = true)) {
+                return@filter false
+            }
             seenIds.add(candidate.id)
         }
     }

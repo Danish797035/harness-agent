@@ -6,14 +6,6 @@
   ],
   "models": [
     {
-      "model": "Gemini 4 Carbon",
-      "overallScore": 100.0,
-      "codingScore": 100.0,
-      "toolUseScore": 76.8,
-      "visionScore": 0.0,
-      "speedScore": 0.0
-    },
-    {
       "model": "Gemini 4 Argon",
       "overallScore": 98.7,
       "codingScore": 97.3,

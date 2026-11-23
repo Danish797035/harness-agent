@@ -160,7 +160,7 @@ class FreeKeyRouter(
     fun resetTask() {
         switchCountInTask = 0
         val current = activeCandidate
-        if (current != null && !checkCachedQuota(current, isNewTask = true)) {
+        if (current != null && pinnedModelId == null && !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = null
         }
         val reason = when {
@@ -254,6 +254,7 @@ class FreeKeyRouter(
 
     fun pinModel(modelId: String) {
         pinnedModelId = modelId
+        cooldownStore.clearCooldown(modelId)
         val found = candidates.find { it.id == modelId }
         if (found != null) {
             activeCandidate = found
@@ -271,6 +272,7 @@ class FreeKeyRouter(
 
     fun switchCandidate(modelId: String, reason: String = "Candidate switched"): Boolean {
         val found = candidates.find { it.id.equals(modelId, ignoreCase = true) } ?: return false
+        cooldownStore.clearCooldown(found.id)
         activeCandidate = found
         updateStatus(
             model = found.id,
@@ -679,6 +681,7 @@ class FreeKeyRouter(
 
         // Specialist Manual role or configured role
         val manualModelId = preferences.getManualRole(targetRole.name)
+            ?: preferences.getManualRole(ModelRole.Main.name)
         if (!manualModelId.isNullOrBlank()) {
             val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
             if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {

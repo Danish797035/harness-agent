@@ -417,9 +417,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
                 if (mainModel != null) {
                     modelPreferences.setManualRole("main", mainModel)
-                    if (freeKeyRouter.pinnedModelId == null) {
-                        val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
-                        if (matching != null && freeKeyRouter.activeCandidate?.id != matching.id) {
+                    val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
+                    if (matching != null) {
+                        freeKeyRouter.cooldownStore.clearCooldown(matching.id)
+                        if (freeKeyRouter.pinnedModelId == null && freeKeyRouter.activeCandidate?.id != matching.id) {
                             freeKeyRouter.switchCandidate(matching.id, "Configured main model")
                         }
                     }

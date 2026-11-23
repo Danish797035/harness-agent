@@ -69,6 +69,26 @@ class GeminiWebModelTest {
     }
 
     @Test
+    fun resolvesAllDefaultModelsCorrectly() {
+        val dummySession = GeminiWebSession(cookies = "k=v", snlm0e = "token")
+        val (argonHex, argonNum) = GeminiWebClient.resolveModel("gemini-4-argon", dummySession)
+        assertEquals("e6fa609c3fa255c0", argonHex)
+        assertEquals(3, argonNum)
+
+        val (hydrogenHex, hydrogenNum) = GeminiWebClient.resolveModel("gemini-4-hydrogen", dummySession)
+        assertEquals("56fdd199312815e2", hydrogenHex)
+        assertEquals(1, hydrogenNum)
+
+        val (proHex, proNum) = GeminiWebClient.resolveModel("gemini-3.1-pro", dummySession)
+        assertEquals("e6fa609c3fa255c0", proHex)
+        assertEquals(3, proNum)
+
+        val (liteHex, liteNum) = GeminiWebClient.resolveModel("gemini-3.5-flash-lite", dummySession)
+        assertEquals("8c46e95b1a07cecc", liteHex)
+        assertEquals(6, liteNum)
+    }
+
+    @Test
     fun thinkingFlagForMapsLevelsCorrectly() {
         assertEquals(2, GeminiWebClient.thinkingFlagFor("high"))
         assertEquals(1, GeminiWebClient.thinkingFlagFor("medium"))
