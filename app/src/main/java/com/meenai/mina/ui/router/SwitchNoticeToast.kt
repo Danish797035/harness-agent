@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +68,11 @@ fun SwitchNoticeToast(
         if (event != null) {
             val colors = MinaTheme.colors
             val target = if (event.toProvider.isNotBlank()) "${event.toModel} (${event.toProvider})" else event.toModel
-            val message = stringResource(R.string.router_switch_toast_format, event.fromModel, target)
+            val message = if (event.failureDetail() != null) {
+                event.formatMessage(isHindi = LocalConfiguration.current.locales[0].language == "hi")
+            } else {
+                stringResource(R.string.router_switch_toast_format, event.fromModel, target)
+            }
 
             Box(
                 modifier = Modifier

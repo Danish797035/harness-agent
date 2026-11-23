@@ -258,6 +258,31 @@ class FreeKeyRouterTest {
     }
 
     @Test
+    fun switchEventCarriesTheRealFailureReason() = runTest {
+        val broken = mockModel("g1") { _, _, _, _ ->
+            throw ModelError.BadResponse("Gemini Web returned HTTP 400: bad at")
+        }
+        val good = mockModel("g2") { _, _, _, onText ->
+            onText("ok")
+            simpleReply
+        }
+
+        val router = FreeKeyRouter(
+            listOf(
+                RouterCandidate("g1", "gemini", broken, curatedRank = 10),
+                RouterCandidate("g2", "p2", good, curatedRank = 5),
+            ),
+            delayMs = {},
+        )
+
+        router.completeStreaming("sys", userMsg, emptyList()) {}
+
+        val event = router.status.value.switchEvents.last()
+        assertEquals("g2", event.newModel)
+        assertTrue("the notice must name the real failure: ${event.reason}", event.reason.contains("HTTP 400"))
+    }
+
+    @Test
     fun chaosTestWith5FailingProvidersCompletes20StepTask() = runTest {
         val random = Random(42)
 

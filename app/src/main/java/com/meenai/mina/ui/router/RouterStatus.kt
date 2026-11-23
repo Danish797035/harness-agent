@@ -195,11 +195,35 @@ data class SwitchEvent(
             return reason
         }
         val target = if (toProvider.isNotBlank()) "$toModel ($toProvider)" else toModel
+        val detail = failureDetail()
+        if (detail != null) {
+            // A real failure (HTTP error, bad reply, dropped stream) is the useful
+            // part: "limit reached" was wrong for every non-quota switch.
+            return if (isHindi) {
+                "$fromModel: $detail — $target par switch"
+            } else {
+                "$fromModel: $detail — switched to $target"
+            }
+        }
         return if (isHindi) {
             "$fromModel limit khatam, $target par switch"
         } else {
             "$fromModel limit reached, switched to $target"
         }
+    }
+
+    /** The failure line behind this switch, or null for a routine switch. */
+    fun failureDetail(): String? {
+        val text = reason.trim()
+        if (text.isEmpty()) return null
+        val routine = listOf(
+            "switching candidate",
+            "optimal free candidate",
+            "step boundary check",
+            "escalated to",
+            "model slow tha",
+        )
+        return text.takeIf { candidate -> routine.none { candidate.contains(it, ignoreCase = true) } }
     }
 }
 

@@ -371,6 +371,7 @@ class FreeKeyRouter(
         onText: (String) -> Unit,
     ): ModelReply {
         var lastError: Throwable? = null
+        var lastFailureReason: String? = null
         val hasImages = messages.any { m -> m.parts.any { it is Part.Image } }
         var previousCandidate: RouterCandidate? = activeCandidate
 
@@ -397,7 +398,7 @@ class FreeKeyRouter(
                     val reason = if (lastError is ModelError.FirstTokenTimeout) {
                         "Model slow tha, dusra try kar raha hoon"
                     } else {
-                        "Switching candidate"
+                        lastFailureReason ?: "Switching candidate"
                     }
                     onModelSwitched?.invoke(prev, next.id, reason)
                     updateStatus(
@@ -470,6 +471,7 @@ class FreeKeyRouter(
                     throw e
                 } catch (e: Throwable) {
                     lastError = e
+                    lastFailureReason = describeFailure(e)
                     healthTracker.recordFailure(currentCandidate.id)
                     statsTracker?.recordFailure(
                         modelId = currentCandidate.id,
@@ -802,6 +804,18 @@ class FreeKeyRouter(
             .filter { it > 0L }
             .minOrNull() ?: ModelCooldownStore.DEFAULT_COOLDOWN_MS
         return ceil(minWaitMs / 60_000.0).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * One short line for the switch notice. The user should see *why* the model
+     * changed; a canned "limit reached" hid every real failure (HTTP 400, bad
+     * reply, dropped stream) behind a quota story that never happened.
+     */
+    private fun describeFailure(e: Throwable): String {
+        val raw = e.message?.trim().orEmpty().ifBlank {
+            e::class.simpleName.orEmpty().ifBlank { "Model call failed" }
+        }
+        return raw.replace(Regex("\\s+"), " ").take(180)
     }
 
     /**

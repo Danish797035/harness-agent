@@ -127,6 +127,30 @@ class RouterUiTest {
     }
 
     @Test
+    fun switchEventNamesTheRealFailureInsteadOfQuota() {
+        val event = SwitchEvent(
+            fromModel = "Gemini 3.1 Pro",
+            toModel = "gemini-flash-lite-latest",
+            reason = "Gemini Web returned HTTP 400: bad at",
+        )
+        assertEquals(
+            "Gemini 3.1 Pro: Gemini Web returned HTTP 400: bad at — switched to gemini-flash-lite-latest",
+            event.formatMessage(isHindi = false),
+        )
+        assertEquals(
+            "Gemini 3.1 Pro: Gemini Web returned HTTP 400: bad at — gemini-flash-lite-latest par switch",
+            event.formatMessage(isHindi = true),
+        )
+    }
+
+    @Test
+    fun routineSwitchStillReadsAsALimit() {
+        val event = SwitchEvent(fromModel = "Gemini", toModel = "Llama", reason = "Switching candidate")
+        assertEquals("Gemini limit reached, switched to Llama", event.formatMessage(isHindi = false))
+        assertNull(event.failureDetail())
+    }
+
+    @Test
     fun throttlingEmitsAtMostTwicePerSecond() = runTest {
         val source = flow {
             emit(1)
