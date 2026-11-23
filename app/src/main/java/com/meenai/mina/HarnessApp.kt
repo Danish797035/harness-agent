@@ -410,6 +410,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch { taskRecovery.recover() }
         scope.launch {
             providers.repairGeminiWebBindings()
+            var appliedMainModel: String? = null
             kotlinx.coroutines.flow.combine(providers.providers, providers.roles, providers.keysRevision) { list, _, _ -> list }.collect {
                 providers.repairGeminiWebBindings()
                 val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
@@ -417,11 +418,18 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
                 if (mainModel != null) {
                     modelPreferences.setManualRole("main", mainModel)
-                    val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
-                    if (matching != null) {
-                        freeKeyRouter.cooldownStore.clearCooldown(matching.id)
-                        if (freeKeyRouter.pinnedModelId == null && freeKeyRouter.activeCandidate?.id != matching.id) {
-                            freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                    // Only when the configured main model actually changes: this
+                    // collector also fires after every saved session (cookie
+                    // rotation), and clearing a cooldown there would keep retrying
+                    // a model that is genuinely rate limited.
+                    if (mainModel != appliedMainModel) {
+                        appliedMainModel = mainModel
+                        val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
+                        if (matching != null) {
+                            freeKeyRouter.cooldownStore.clearCooldown(matching.id)
+                            if (freeKeyRouter.pinnedModelId == null && freeKeyRouter.activeCandidate?.id != matching.id) {
+                                freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                            }
                         }
                     }
                 }

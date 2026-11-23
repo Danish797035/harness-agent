@@ -679,12 +679,19 @@ class FreeKeyRouter(
             return candidates.find { it.id == pinned }
         }
 
-        // Specialist Manual role or configured role
-        val manualModelId = preferences.getManualRole(targetRole.name)
-            ?: preferences.getManualRole(ModelRole.Main.name)
+        // Specialist Manual role or configured role. A role with no model of its own
+        // falls back to the configured Main model, but a Vision task must never be
+        // handed to a model that cannot see: that only produces a failed request.
+        val explicitRoleModel = preferences.getManualRole(targetRole.name)
+        val manualModelId = explicitRoleModel ?: preferences.getManualRole(ModelRole.Main.name)
         if (!manualModelId.isNullOrBlank()) {
             val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
-            if (manualCandidate != null && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
+            val canHandleRole = explicitRoleModel != null ||
+                targetRole != ModelRole.Vision ||
+                manualCandidate?.let {
+                    it.model.capabilities.vision || it.roles.contains(ModelRole.Vision)
+                } == true
+            if (manualCandidate != null && canHandleRole && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
                 return manualCandidate
             }
         }

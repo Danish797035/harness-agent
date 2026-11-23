@@ -29,8 +29,9 @@ class FreeKeyRouterTest {
     private fun mockModel(
         name: String,
         context: Int = 64_000,
+        vision: Boolean = true,
         responder: suspend (system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) -> ModelReply,
-    ) = MockChatModel(name, Capabilities(toolCalls = true, vision = true, contextTokens = context, reasoning = false, promptCaching = PromptCaching.Implicit), responder)
+    ) = MockChatModel(name, Capabilities(toolCalls = true, vision = vision, contextTokens = context, reasoning = false, promptCaching = PromptCaching.Implicit), responder)
 
     private val userMsg = listOf(Message(Role.User, listOf(Part.Text("do task")), Author.User))
     private val simpleReply = ModelReply(listOf(Part.Text("done")), StopReason.EndTurn, null)
@@ -255,6 +256,34 @@ class FreeKeyRouterTest {
             assertTrue(e.message!!.contains("HTTP 400"))
             assertFalse(e.message!!.contains("Sab free limits"))
         }
+    }
+
+    @Test
+    fun visionRoleDoesNotFallBackToATextOnlyMainModel() = runTest {
+        val textOnly = mockModel("text-main", vision = false) { _, _, _, _ -> simpleReply }
+        val seesImages = mockModel("vision-model", vision = true) { _, _, _, _ -> simpleReply }
+
+        val router = FreeKeyRouter(
+            listOf(
+                RouterCandidate("text-main", "p1", textOnly, curatedRank = 10),
+                RouterCandidate("vision-model", "p2", seesImages, curatedRank = 5),
+            ),
+            delayMs = {},
+            preferences = object : RouterPreferences {
+                override fun getManualRole(role: String): String? =
+                    if (role == "Main") "text-main" else null
+            },
+        )
+
+        assertEquals(
+            "vision-model",
+            router.pickBestCandidate(com.meenai.mina.core.router.picker.ModelRole.Vision)?.id,
+        )
+        // The Main role itself still honours the configured model.
+        assertEquals(
+            "text-main",
+            router.pickBestCandidate(com.meenai.mina.core.router.picker.ModelRole.Main)?.id,
+        )
     }
 
     @Test
