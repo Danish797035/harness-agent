@@ -258,6 +258,7 @@ private fun createGoogleLoginWebView(
     var captureScheduled = false
     var htmlFetchRunning = false
     var htmlFallbackAttempts = 0
+    var pageTextTokenTried = false
     val popups = mutableListOf<WebView>()
 
     // Use the device's real WebView version (minus the "; wv" marker). Google
@@ -477,6 +478,34 @@ private fun createGoogleLoginWebView(
                 mainView.postDelayed({ poll() }, 600)
             }
 
+            /**
+             * Reads `SNlM0e` from the page's own HTML. Newer Gemini builds can
+             * leave `window.WIZ_global_data` without the token while the inline
+             * bootstrap script still carries it; sending the account cookies with
+             * an empty `at` makes Google answer as a guest.
+             */
+            fun tokenFromPageText(onResult: (String) -> Unit) {
+                if (loginHandled || pageTextTokenTried) {
+                    onResult("")
+                    return
+                }
+                pageTextTokenTried = true
+                mainView.evaluateJavascript(
+                    "(function(){try{" +
+                        "var m=(document.documentElement.innerHTML||'').match(/\"SNlM0e\"\\s*:\\s*\"([^\"]+)\"/);" +
+                        "return m?m[1]:'';}catch(e){return '';}})();"
+                ) { raw ->
+                    val value = runCatching {
+                        if (raw.startsWith("\"") && raw.endsWith("\"")) {
+                            json.parseToJsonElement(raw).jsonPrimitive.content
+                        } else {
+                            raw
+                        }
+                    }.getOrDefault("")
+                    onResult(value)
+                }
+            }
+
             fun scheduleCapture(delayMs: Long = 500) {
                 if (loginHandled || captureScheduled) return
                 captureScheduled = true
@@ -539,19 +568,28 @@ private fun createGoogleLoginWebView(
                                 )
                             )
                         } else if (cookiesNow.contains("__Secure-1PSID") && captureAttempts >= 2) {
-                            // Newer builds hide SNlM0e in the app bundle. The cookie is
-                            // the real credential, so verify the account and continue.
-                            verify(
-                                GeminiWebSession(
-                                    cookies = cookiesNow,
-                                    snlm0e = "",
-                                    cfb2h = cfb2h,
-                                    fdrfje = fdrfje,
-                                    email = email,
-                                    userAgent = userAgent,
-                                    signedIn = true
-                                )
-                            )
+                            // The page bundle did not expose SNlM0e. Look in the
+                            // page HTML, then read the logged-in page over HTTP:
+                            // the session needs a real `at` token or Google treats
+                            // the account's requests as guest traffic.
+                            tokenFromPageText { token ->
+                                if (loginHandled) return@tokenFromPageText
+                                if (token.isNotBlank()) {
+                                    verify(
+                                        GeminiWebSession(
+                                            cookies = collectCookies(),
+                                            snlm0e = token,
+                                            cfb2h = cfb2h,
+                                            fdrfje = fdrfje,
+                                            email = email,
+                                            userAgent = userAgent,
+                                            signedIn = true
+                                        )
+                                    )
+                                } else {
+                                    fetchSessionFromHtml(collectCookies())
+                                }
+                            }
                         } else if (captureAttempts < LOGIN_MAX_POLLS) {
                             scheduleCapture(700)
                         } else {

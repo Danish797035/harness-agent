@@ -90,10 +90,11 @@ class GeminiWebModel(
         GeminiWebClient.seedCookies(session.cookies)
         var currentSession = session
         var refreshed = false
-        // Sessions saved by older builds can miss the build label; read it once
-        // from the logged-in page instead of guessing a stale bl. A missing
-        // SNlM0e is fine: the cookie is the credential and `at` may be empty.
-        if (currentSession.cfb2h.isBlank()) {
+        // The `at` token (SNlM0e) is what marks a request as the signed-in account;
+        // sending the account cookies with an empty `at` gets a guest-style
+        // rejection. Sessions saved by older builds can miss it (or the build
+        // label), so read both from the logged-in page once instead of guessing.
+        if (currentSession.cfb2h.isBlank() || currentSession.snlm0e.isBlank()) {
             refreshSession(currentSession)?.let { currentSession = it }
         }
 
@@ -112,14 +113,20 @@ class GeminiWebModel(
                 // healthy stream would wait for the first bytes and delay the reply.
                 if (response.code in 401..403 || response.code == 400) {
                     val peek = runCatching { response.peekBody(500).string() }.getOrDefault("")
-                    if (isSessionFailure(response.code, peek) && !refreshed) {
-                        // One refresh only. If the retry still fails, the request
-                        // itself is wrong; do not keep telling the user to sign in.
+                    if (!refreshed) {
+                        // Google's `at` token expires independently of the cookies and
+                        // answers with a 400/401 when it is stale. One re-init from the
+                        // logged-in page is what the web client itself does; if the
+                        // retry fails too, the request itself is wrong.
                         val next = refreshSession(currentSession)
-                            ?: throw ModelError.SignInExpired("Google Gemini")
-                        refreshed = true
-                        currentSession = next
-                        continue
+                        if (next != null) {
+                            refreshed = true
+                            currentSession = next
+                            continue
+                        }
+                        if (isSessionFailure(response.code, peek)) {
+                            throw ModelError.SignInExpired("Google Gemini")
+                        }
                     }
                 }
                 if (response.code in 401..403) throw ModelError.SignInExpired("Google Gemini")
@@ -127,7 +134,11 @@ class GeminiWebModel(
                 if (response.code >= 500) throw ModelError.Server(response.code)
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
-                    throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}")
+                    // Short, safe facts that let a screenshot explain a rejection.
+                    val diag = " [bl=" + bl.take(48) +
+                        ", at=" + (if (currentSession.snlm0e.isNotBlank()) "yes" else "no") +
+                        ", cookies=" + currentSession.cookies.split(';').count { it.isNotBlank() } + "]"
+                    throw ModelError.BadResponse("Gemini Web returned HTTP ${response.code}: ${body.take(200)}$diag")
                 }
 
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
@@ -203,6 +214,10 @@ class GeminiWebModel(
         var lastReportedVisible = ""
         val firstFrame = AtomicBoolean(false)
         val timedOut = AtomicBoolean(false)
+        // Keep the first unreadable frames: when Gemini answers with something we
+        // cannot parse, a silent empty stream hides the real reason from the user.
+        val rawSample = StringBuilder()
+        var sawCandidate = false
 
         val watchdog = if (firstTokenTimeoutMs > 0) launch {
             delay(firstTokenTimeoutMs)
@@ -224,6 +239,7 @@ class GeminiWebModel(
 
                 val parsedChunk = parseChunk(trimmed)
                 if (parsedChunk != null) {
+                    sawCandidate = true
                     if (!firstFrame.getAndSet(true)) watchdog?.cancel()
                     var chunkArrived = false
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
@@ -248,6 +264,8 @@ class GeminiWebModel(
                     if (parsedChunk.isCompleted) {
                         break
                     }
+                } else if (rawSample.length < 500) {
+                    rawSample.append(trimmed.take(500 - rawSample.length)).append('\n')
                 }
                 line = reader.readLine()
             }
@@ -272,6 +290,12 @@ class GeminiWebModel(
         if (timedOut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
             throw ModelError.FirstTokenTimeout()
         }
+        if (!sawCandidate && fullText.isEmpty() && fullThoughts.isEmpty()) {
+            throw ModelError.BadResponse(
+                "Gemini sent no readable reply (HTTP 200). Raw: " +
+                    rawSample.toString().take(400).ifBlank { "empty stream" }
+            )
+        }
         fullText to fullThoughts
     }
 
@@ -294,6 +318,8 @@ class GeminiWebModel(
             // probe found instead of falling back to the free-tier defaults.
             capacity = old.capacity,
             capacityField = old.capacityField,
+            defaultModelId = old.defaultModelId.ifBlank { refreshed.defaultModelId },
+            defaultModelNumber = if (old.defaultModelNumber > 0) old.defaultModelNumber else refreshed.defaultModelNumber,
         )
         session = next
         GeminiWebClient.seedCookies(next.cookies)

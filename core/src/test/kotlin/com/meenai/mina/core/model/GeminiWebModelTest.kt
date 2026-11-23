@@ -14,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -222,33 +223,53 @@ class GeminiWebModelTest {
     }
 
     @Test
-    fun completeWorksWithoutAnSnlm0eToken() = runTest {
-        val payload = buildJsonArray {
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
-            add(buildJsonArray {
-                add(buildJsonArray {
-                    add(JsonPrimitive("rc_1"))
-                    add(buildJsonArray { add(JsonPrimitive("Cookie session works")) })
-                })
-            })
-        }.toString()
-        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(payload)))
+    fun completeFetchesAMissingSnlm0eTokenFromTheLoggedInPage() = runTest {
+        GeminiWebClient.clearCookies()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""<script>{"SNlM0e":"fetched-token","cfb2h":"bl2","FdrFJe":"sid2"}</script>""")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Token refreshed"))))
 
+        var saved: GeminiWebSession? = null
         val model = GeminiWebModel(
             session = session.copy(snlm0e = ""),
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+            onSessionUpdated = { saved = it }
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Token refreshed"), reply.parts[0])
+        assertEquals("fetched-token", saved?.snlm0e)
+        server.takeRequest() // the page fetch that reads SNlM0e
+        val chat = server.takeRequest()
+        assertTrue(decodedBody(chat.body.readUtf8()).contains("at=fetched-token"))
+    }
+
+    @Test
+    fun unreadableStreamFailsWithTheRawFramesInsteadOfSilence() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody(")]}'\n\n[[\"wrb.fr\",null,null,\"not-json\",null,null,null,\"generic\"]]")
+        )
+
+        val model = GeminiWebModel(
+            session = session,
             model = "gemini-4-argon",
             capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
             http = redirectingClient()
         )
 
-        val reply = model.complete("sys", userMsg, emptyList())
-
-        assertEquals(Part.Text("Cookie session works"), reply.parts[0])
-        val request = server.takeRequest()
-        assertEquals("at=", request.body.readUtf8().substringBefore("&f.req="))
+        try {
+            model.complete("sys", userMsg, emptyList())
+            fail("Expected BadResponse")
+        } catch (e: ModelError.BadResponse) {
+            assertTrue(e.message!!.contains("no readable reply"))
+            assertTrue(e.message!!.contains("wrb.fr"))
+        }
     }
 
     @Test
@@ -379,6 +400,9 @@ class GeminiWebModelTest {
     @Test(expected = ModelError.SignInExpired::class)
     fun http401ThrowsSignInExpired() = runTest {
         server.enqueue(MockResponse().setResponseCode(401))
+        // The client re-reads the logged-in page once before giving up; this reply
+        // is a signed-out page, so the session is still a real sign-in expiry.
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
 
         val mockClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
