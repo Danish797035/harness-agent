@@ -16,6 +16,7 @@ import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.MagicubeLedger
+import com.meenai.mina.core.router.ModelCooldownStore
 import com.meenai.mina.core.router.RouterAction
 import com.meenai.mina.core.router.RouterCandidate
 import com.meenai.mina.core.router.RouterErrorClassifier
@@ -688,5 +689,39 @@ class AppFreeKeyRouterTest {
         assertEquals(webProvider.id, mainAfter?.providerId)
         assertEquals(ProviderConfig.Kind.GeminiWeb, mainAfter?.kind)
         assertEquals("Google Gemini", mainAfter?.name)
+    }
+
+    @Test
+    fun successfulGeminiWebLoginClearsThePersistedBadKeyFlag() {
+        val cooldown = ModelCooldownStore()
+        cooldown.markBadKey("gemini_web")
+
+        val candidate = RouterCandidate(
+            id = "gemini-4-argon",
+            provider = "gemini_web",
+            model = object : ChatModel {
+                override val capabilities = Capabilities(
+                    toolCalls = true,
+                    vision = true,
+                    contextTokens = 1_000_000,
+                    reasoning = false,
+                )
+                override suspend fun complete(
+                    system: String,
+                    messages: List<Message>,
+                    tools: List<ToolSpec>,
+                ): ModelReply = ModelReply(emptyList(), StopReason.EndTurn, Usage(1, 1))
+            },
+        )
+        val router = FreeKeyRouter(
+            candidates = listOf(candidate),
+            cooldownStore = cooldown,
+            delayMs = {},
+        )
+
+        assertFalse("An expired login must keep Gemini Web out of routing", router.checkCachedQuota(candidate))
+        AppFreeKeyRouter.clearGeminiWebAuthFailure(cooldown)
+        assertFalse(cooldown.isKeyBad("gemini_web"))
+        assertTrue("After a fresh login the router must be able to use Gemini Web", router.checkCachedQuota(candidate))
     }
 }

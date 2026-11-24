@@ -164,6 +164,17 @@ object AppFreeKeyRouter {
     fun getCooldownStore(): ModelCooldownStore =
         sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
 
+    /**
+     * A successful Gemini Web sign-in proves the session again. The router marks
+     * `gemini_web` as a bad key on [com.meenai.mina.core.model.ModelError.SignInExpired],
+     * and that flag is persisted; without clearing it, re-login still leaves every
+     * Gemini Web model filtered out and the router quietly answers with another
+     * provider (usually flash-lite).
+     */
+    fun clearGeminiWebAuthFailure(store: ModelCooldownStore = getCooldownStore()) {
+        store.clearBadKey("gemini_web")
+    }
+
     fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
         val cacheFile = File(filesDir, "model-rankings.json")
         val repo = ModelRankingsRepository(cacheStore = FileModelRankingsCacheStore(cacheFile), httpClient = http)

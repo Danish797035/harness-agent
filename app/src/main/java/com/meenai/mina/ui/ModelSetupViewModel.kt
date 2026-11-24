@@ -30,6 +30,7 @@ import com.meenai.mina.settings.ProviderStore
 import com.meenai.mina.settings.ModelContextSettings
 import com.meenai.mina.settings.RoleChoice
 import com.meenai.mina.settings.RoleChoices
+import com.meenai.mina.ui.router.AppFreeKeyRouter
 import com.meenai.mina.settings.ChatGptSignIns
 import com.meenai.mina.settings.AccountOutcome
 import com.meenai.mina.settings.DevicePrompt
@@ -935,6 +936,10 @@ class ModelSetupViewModel(
                 // Always install the current model list: reusing the list saved by
                 // an older build kept dead model ids that Google no longer serves.
                 val provider = store.connectGeminiWeb(session, GeminiWebClient.DEFAULT_MODELS)
+                // The router may have marked gemini_web as a bad key when the old
+                // session expired. A fresh sign-in is proof that the key works
+                // again; leaving the flag set would keep routing around it.
+                AppFreeKeyRouter.clearGeminiWebAuthFailure()
                 val options = ModelOptions.ofProvider(provider, store.list())
                 val argonOption = options.firstOrNull { it.id == "gemini-4-argon" } ?: options.firstOrNull()
                 argonOption?.let { m -> use(ModelRole.Main, provider, m.id, options) }
