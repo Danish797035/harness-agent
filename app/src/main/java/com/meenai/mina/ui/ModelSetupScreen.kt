@@ -122,6 +122,13 @@ fun ModelSetupScreen(
             },
             // The post-login test message must survive leaving this screen.
             probeScope = app?.appScope ?: scope,
+            // A task that failed over to another provider must come back to the
+            // model the user just signed in for, not stay on flash-lite.
+            onGeminiWebConnected = { modelId ->
+                (context.applicationContext as? HarnessApp)
+                    ?.freeKeyRouter
+                    ?.switchCandidate(modelId, "Gemini Web signed in")
+            },
         )
     }
     val ui by vm.state.collectAsState()

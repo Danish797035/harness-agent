@@ -340,6 +340,12 @@ class ModelSetupViewModel(
      * "The coroutine scope left the composition" even though the login was fine.
      */
     private val probeScope: CoroutineScope = scope,
+    /**
+     * A fresh Gemini Web login should also move the router's sticky active
+     * candidate back to it. Otherwise a task that had failed over to flash-lite
+     * keeps using it even though the user just signed in again.
+     */
+    private val onGeminiWebConnected: (String) -> Unit = {},
 ) {
     private val _state = MutableStateFlow(snapshot(ModelSetupUi(AddForm.of(ProviderPresets.all.first()))))
     val state: StateFlow<ModelSetupUi> = _state.asStateFlow()
@@ -942,7 +948,10 @@ class ModelSetupViewModel(
                 AppFreeKeyRouter.clearGeminiWebAuthFailure()
                 val options = ModelOptions.ofProvider(provider, store.list())
                 val argonOption = options.firstOrNull { it.id == "gemini-4-argon" } ?: options.firstOrNull()
-                argonOption?.let { m -> use(ModelRole.Main, provider, m.id, options) }
+                argonOption?.let { m ->
+                    use(ModelRole.Main, provider, m.id, options)
+                    onGeminiWebConnected(m.id)
+                }
                 if (store.roles.value.light is RoleChoice.SameAsMain || store.roles.value.light == null) {
                     val lightOption = options.firstOrNull { it.id == "gemini-3.1-pro" }
                         ?: options.firstOrNull { it.id == "gemini-3.5-flash-lite" }
