@@ -4,7 +4,7 @@ package com.meenai.mina.core.cap.web
  * 用户在 Mina 的浏览器里、对着正看的那一页问 Mina 时,这句话怎么写:最前面一段说明是哪一页(固定的英文,模型一看就懂;
  * 对话页、卡片认这一段),空一行后是用户这次说的话(原样)。例如
  * ```
- * [Web page I'm viewing in Mina's browser. It is attached to this task as your current web tab.]
+ * [Web page I'm viewing in Harness Agent's browser. It is attached to this task as your current web tab.]
  * Title: 降噪耳机 - 搜索结果
  * URL: https://shop.example.com/s?k=降噪耳机
  * Selected text:
@@ -18,7 +18,7 @@ package com.meenai.mina.core.cap.web
  * 选中的字每行以「| 」开头,和说明的其余几行分得开;页面标题、选中的字都会截短。
  */
 object AttachedPage {
-    const val HEADER = "[Web page I'm viewing in Mina's browser. It is attached to this task as your current web tab.]"
+    const val HEADER = "[Web page I'm viewing in Harness Agent's browser. It is attached to this task as your current web tab.]"
     const val END = "[End of page]"
     private const val TITLE = "Title: "
     private const val URL = "URL: "

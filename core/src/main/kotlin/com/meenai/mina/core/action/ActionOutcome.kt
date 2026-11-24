@@ -63,8 +63,8 @@ internal object Refusals {
         }
         RefusalStyle.Script -> {
             val message = when (code) {
-                "guard_stopped" -> "Mina's operation guard stopped the task."
-                "guard_warning" -> "Mina's operation guard flagged this action; it was not run."
+                "guard_stopped" -> "Harness Agent's operation guard stopped the task."
+                "guard_warning" -> "Harness Agent's operation guard flagged this action; it was not run."
                 "confirmation_required" -> "this step spends money (${hit?.matched})"
                 "confirmation_mismatch" -> "this payment step (${hit?.matched}) does not match what the user approved ($reason)"
                 "approval_unavailable" -> "this step spends money and this run cannot get the user's approval; the action was not run"

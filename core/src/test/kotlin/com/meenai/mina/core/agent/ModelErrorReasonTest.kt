@@ -53,7 +53,7 @@ class ModelErrorReasonTest {
             StopRules.modelFailed(ModelError.ModelNotAvailable("qwen-max", "not activated")).reason,
         )
         assertEquals(
-            "Model “gemma” does not support tool calls, and Mina needs tools to work. Switch to a model that supports tool calls in Settings › Models.",
+            "Model “gemma” does not support tool calls, and Harness Agent needs tools to work. Switch to a model that supports tool calls in Settings › Models.",
             StopRules.modelFailed(ModelError.ToolsUnsupported("gemma")).reason,
         )
     }

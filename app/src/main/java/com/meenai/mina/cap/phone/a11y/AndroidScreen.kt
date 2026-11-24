@@ -1489,10 +1489,10 @@ class AndroidScreen(
         return when {
             o.closed -> "The user closed the system's question on their screen without picking, so nothing was opened. Decide what to do next; do not simply repeat the action."
             o.byUser && !o.pulledBack -> "$name needed the user; they handled it on their own screen and tapped continue, and it has closed. Observe before acting."
-            o.byUser -> "$name needed the user; they handled it on their own screen and tapped continue. It is now in front on Mina's screen. Observe before acting."
+            o.byUser -> "$name needed the user; they handled it on their own screen and tapped continue. It is now in front on Harness Agent's screen. Observe before acting."
             o.needsUser && o.onUserScreen -> "It was $name: a popup on the user's screen that needs them (a sign-in, verification or confirmation step). " +
                 "It was left there on purpose; do not repeat the action. Call hand_to_user so they can finish it, then observe before acting."
-            o.pulledBack -> "It was $name, now in front on Mina's screen.$copy Observe before acting."
+            o.pulledBack -> "It was $name, now in front on Harness Agent's screen.$copy Observe before acting."
             else -> "It was $name, which the user is using on their own screen, so it was left there. " +
                 "Do not repeat the previous action: call hand_to_user with reason other so the user can do that step there, or wait and try again later."
         }
@@ -1925,7 +1925,7 @@ class AndroidScreen(
             "but new text containing it appeared on the screen after typing (e.g. suggestions), so the app seems to have received it. Observe to check before submitting."
         const val HINT_SHARE_PICKER = "The system is asking which of the app's share screens to use (the screen lists them). " +
             "Tap the one the task needs (for a message, the one that sends to a contact or chat); do not share again."
-        const val HINT_COLD_IGNORED = "coldIgnored: app has a task outside Mina's screen, so it was not restarted (that would wipe the user's state there). It was opened as-is; navigate back to its start screen yourself if needed."
+        const val HINT_COLD_IGNORED = "coldIgnored: app has a task outside Harness Agent's screen, so it was not restarted (that would wipe the user's state there). It was opened as-is; navigate back to its start screen yourself if needed."
         const val MAX_ANCESTORS = 8
 
         // 悬停、触摸探索、手势识别、无障碍焦点这些不是界面内容的变化

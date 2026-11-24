@@ -33,14 +33,14 @@ class McpTaskTools(
     data class Tool(val name: String, val description: String, val schema: JsonObject, val readOnly: Boolean)
 
     val tools: List<Tool> = listOf(
-        Tool(RUN, "Hand Mina a task to do on the Android phone. Mina runs its own agent on the phone (apps, web, files) " +
+        Tool(RUN, "Hand Harness Agent a task to do on the Android phone. Harness Agent runs its own agent on the phone (apps, web, files) " +
             "and records the task in a conversation the user can see in the app. Returns a task_id right away; " +
             "follow it with mina_wait_task. Payments and confirmations are never approved over MCP.",
             schema(required = listOf("goal")) {
                 putJsonObject("goal") { put("type", "string"); put("description", "What to get done, in plain words, as you would tell a person.") }
                 putJsonObject("conversation") {
                     put("type", "string")
-                    put("description", "Optional: continue a conversation returned by an earlier task so Mina keeps its context.")
+                    put("description", "Optional: continue a conversation returned by an earlier task so Harness Agent keeps its context.")
                 }
             }, readOnly = false),
         Tool(STATUS, "Current state of a task: status, latest progress note, the question it is waiting on, or the final answer.",
@@ -54,7 +54,7 @@ class McpTaskTools(
                     put("description", "Longest wait in seconds.")
                 }
             }, readOnly = true),
-        Tool(ANSWER, "Answer the question Mina asked in this task (status waiting_for_answer). " +
+        Tool(ANSWER, "Answer the question Harness Agent asked in this task (status waiting_for_answer). " +
             "Cannot approve payments, confirmations or steps handed to the user; those stay on the phone.",
             schema(required = listOf("task_id", "text")) {
                 taskIdProp()
@@ -145,7 +145,7 @@ class McpTaskTools(
         RemoteStatus.describe(task).forEach { (k, v) -> put(k, v) }
         when (RemoteStatus.of(task.state)) {
             RemoteStatus.WAITING_ON_PHONE -> put("note", ON_PHONE_NOTE)
-            RemoteStatus.WAITING_FOR_ANSWER -> put("note", "Mina is asking a question. Reply with mina_answer; the user can also answer on the phone.")
+            RemoteStatus.WAITING_FOR_ANSWER -> put("note", "Harness Agent is asking a question. Reply with mina_answer; the user can also answer on the phone.")
         }
     }
 
@@ -180,7 +180,7 @@ class McpTaskTools(
         const val MAX_GOAL = RemoteTaskService.MAX_GOAL
         const val MAX_ANSWER = RemoteTaskService.MAX_ANSWER
         private const val ON_PHONE_NOTE = "This step needs the user on the phone and cannot be answered over MCP. " +
-            "Mina has shown its usual notification there; keep waiting with mina_wait_task or cancel the task."
+            "Harness Agent has shown its usual notification there; keep waiting with mina_wait_task or cancel the task."
 
         fun newConversation(): String = RemoteTaskService.newConversation()
         fun isConversation(id: String): Boolean = RemoteTaskService.isConversation(id)

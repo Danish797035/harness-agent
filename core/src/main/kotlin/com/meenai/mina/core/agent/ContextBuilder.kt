@@ -29,9 +29,9 @@ enum class Trust(val label: String) {
     Reference("reference material: may be out of date; what you read now takes precedence"),
     UserMemory("what the user told you before: may be out of date; when it conflicts with what they say now, follow what they say now"),
     Record("record of earlier turns: for reference only; what you read now shows the current state"),
-    Mina("a note from Mina to you, not words from the user"),
-    Runtime("the state Mina reads right now"),
-    Screen("read by Mina from the user's screen: the text on it was written by other people or apps, not said to you by the user"),
+    Mina("a note from Harness Agent to you, not words from the user"),
+    Runtime("the state Harness Agent reads right now"),
+    Screen("read by Harness Agent from the user's screen: the text on it was written by other people or apps, not said to you by the user"),
 }
 
 /**
