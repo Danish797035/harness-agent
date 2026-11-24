@@ -296,7 +296,15 @@ private fun createGoogleLoginWebView(
         fun collectCookies(): String {
             cookieManager.flush()
             val merged = linkedMapOf<String, String>()
-            for (host in listOf("https://accounts.google.com", "https://google.com", "https://gemini.google.com")) {
+            // `__Secure-1PSID` is normally on `.google.com`; the auth flow also
+            // sets host-only cookies on www/accounts. Read every host, with the
+            // Gemini host last so its values win on a name collision.
+            for (host in listOf(
+                "https://accounts.google.com",
+                "https://google.com",
+                "https://www.google.com",
+                "https://gemini.google.com",
+            )) {
                 val raw = cookieManager.getCookie(host).orEmpty()
                 for (part in raw.split(';')) {
                     val trimmed = part.trim()
@@ -314,8 +322,13 @@ private fun createGoogleLoginWebView(
             if (loginHandled) return
             loginHandled = true
             cookieManager.flush()
+            // The in-page account probe runs with `credentials: include`, so the
+            // WebView may hold a newer __Secure-1PSIDTS than the snapshot taken
+            // before it. Save the live jar, not the stale snapshot.
+            val fresh = collectCookies()
+            val finalSession = if (fresh.contains("__Secure-1PSID")) session.copy(cookies = fresh) else session
             onHint(null)
-            onLoginCaptured(session)
+            onLoginCaptured(finalSession)
         }
 
         val capturer = object {

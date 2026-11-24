@@ -123,6 +123,40 @@ object GeminiWebClient {
         else sanitizeCookieHeader("__Secure-1PSID=$single")
     }
 
+    /**
+     * Applies `Set-Cookie` values from a Gemini page response to an existing
+     * cookie header. Google rotates `__Secure-1PSIDTS` on most responses; if the
+     * rotated value is dropped, the next launch starts with a dead session.
+     */
+    internal fun mergeSetCookieHeader(base: String, setCookies: List<String>): String {
+        if (setCookies.isEmpty()) return sanitizeCookieHeader(base)
+        val merged = linkedMapOf<String, String>()
+        fun absorb(header: String) {
+            for (part in header.split(';')) {
+                val trimmed = part.trim()
+                val eq = trimmed.indexOf('=')
+                if (eq <= 0) continue
+                val name = trimmed.substring(0, eq).trim()
+                val value = trimmed.substring(eq + 1).trim()
+                if (name.isNotEmpty()) merged[name] = value
+            }
+        }
+        absorb(base)
+        for (raw in setCookies) {
+            val first = raw.substringBefore(';')
+            val eq = first.indexOf('=')
+            if (eq <= 0) continue
+            val name = first.substring(0, eq).trim()
+            val value = first.substring(eq + 1).trim()
+            if (name.isEmpty()) continue
+            val expired = value.isEmpty() ||
+                raw.contains("max-age=0", ignoreCase = true) ||
+                raw.contains("expires=Thu, 01 Jan 1970", ignoreCase = true)
+            if (expired) merged.remove(name) else merged[name] = value
+        }
+        return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
+    }
+
     val DEFAULT_MODELS: List<ListedModel> = listOf(
         ListedModel(
             id = "gemini-4-argon",
@@ -218,7 +252,11 @@ object GeminiWebClient {
                 throw ModelError.SignInExpired("Google Gemini (HTTP ${it.code} from gemini.google.com)")
             }
             val html = it.body?.string().orEmpty()
-            return extractSessionFromHtml(html, header, userAgent)
+            // Keep the cookies Google rotated in this response. The login
+            // WebView and the chat client both seed from the saved session, so
+            // dropping them here makes the very next launch look signed out.
+            val mergedCookies = mergeSetCookieHeader(header, it.headers("Set-Cookie"))
+            return extractSessionFromHtml(html, mergedCookies, userAgent)
                 ?: throw ModelError.SignInExpired(
                     if (html.contains("accounts.google.com/ServiceLogin") || html.contains("\"RID\"")) {
                         "Google Gemini (cookies are not signed in)"
