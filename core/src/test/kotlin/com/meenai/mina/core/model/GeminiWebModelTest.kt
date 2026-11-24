@@ -5,6 +5,8 @@ import com.meenai.mina.core.gemini.GeminiWebSession
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
@@ -760,6 +762,56 @@ class GeminiWebModelTest {
         val textParts = reply.parts.filterIsInstance<Part.Text>()
         assertTrue("Stray closing brackets must not be returned as raw text", textParts.none { it.text.contains("]\n}") })
         assertTrue("Greetings should receive friendly fallback when model emits bracket junk", textParts.any { it.text.contains("Hello!") })
+    }
+
+    @Test
+    fun jsonObjectAnswerIsNotTreatedAsBracketJunk() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("""{"answer":42}"""))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("""{"answer":42}"""), reply.parts.first())
+    }
+
+    @Test
+    fun malformedCandidateSlotDoesNotKillTheStream() = runTest {
+        val badCandidate = buildJsonArray {
+            add(JsonPrimitive("rc_bad"))
+            // Slot 1 must be an array of text, but Google sent an object.
+            add(buildJsonArray { add(buildJsonObject { put("unexpected", JsonPrimitive(true)) }) })
+            for (i in 2..7) add(JsonPrimitive(null as String?))
+            add(buildJsonArray { add(buildJsonObject { put("indicator", JsonPrimitive(1)) }) })
+            for (i in 9..36) add(JsonPrimitive(null as String?))
+            // Slot 37 must be an array of arrays of text, but the inner value is an object.
+            add(buildJsonArray { add(buildJsonArray { add(buildJsonObject { put("thought", JsonPrimitive("x")) }) }) })
+        }
+        val badPayload = buildJsonArray {
+            repeat(4) { add(JsonPrimitive(null as String?)) }
+            add(buildJsonArray { add(badCandidate) })
+        }.toString()
+
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody(makeStreamData(badPayload) + makeStreamData(textPayload("Safe answer")))
+        )
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient()
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Safe answer"), reply.parts.first())
     }
 
     @Test

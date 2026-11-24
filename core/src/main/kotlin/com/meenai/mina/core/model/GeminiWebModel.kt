@@ -35,7 +35,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.12_p0"
+private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261122.16_p0"
 
 /**
  * How long the signed-in request may stay silent before the guest retry starts.
@@ -261,10 +261,12 @@ class GeminiWebModel(
                     StopReason.ToolUse
                 } else {
                     val trimmedText = cleanText.trim()
+                    // Only exact stream leftovers are junk. A real JSON answer
+                    // ({"answer":42}, [1,2,3]) also starts and ends with a
+                    // bracket, and the old broad check blanked it.
                     val isBracketJunk = trimmedText.isEmpty() ||
                         trimmedText == "]" || trimmedText == "}" || trimmedText == "]\n}" || trimmedText == "}\n]" ||
-                        trimmedText == "{}" || trimmedText == "[]" ||
-                        ((trimmedText.startsWith("{") || trimmedText.startsWith("[")) && (trimmedText.endsWith("}") || trimmedText.endsWith("]")))
+                        trimmedText == "{}" || trimmedText == "[]"
 
                     val sanitizedText = if (isBracketJunk) {
                         val lastUserText = messages.lastOrNull { it.role == Role.User }?.parts
@@ -582,13 +584,17 @@ class GeminiWebModel(
             val firstCandidate = candidates.getOrNull(0) as? JsonArray ?: continue
             sawCandidate = true
 
-            val nextText = (firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            // Google occasionally changes a slot from a string to an object or
+            // an array. `jsonPrimitive` throws on those, and one malformed frame
+            // must not kill an otherwise healthy stream.
+            val nextText = ((firstCandidate.getOrNull(1) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)
+                ?.contentOrNull.orEmpty()
             if (nextText.length >= text.length) text = nextText
-            val nextThoughts = ((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)
-                ?.getOrNull(0)?.jsonPrimitive?.contentOrNull.orEmpty()
+            val nextThoughts = (((firstCandidate.getOrNull(37) as? JsonArray)?.getOrNull(0) as? JsonArray)
+                ?.getOrNull(0) as? JsonPrimitive)?.contentOrNull.orEmpty()
             if (nextThoughts.length >= thoughts.length) thoughts = nextThoughts
             val indicator = (8..12).firstNotNullOfOrNull { idx ->
-                (firstCandidate.getOrNull(idx) as? JsonArray)?.getOrNull(0)?.jsonPrimitive?.intOrNull
+                ((firstCandidate.getOrNull(idx) as? JsonArray)?.getOrNull(0) as? JsonPrimitive)?.intOrNull
             } ?: ((firstCandidate.getOrNull(8) as? JsonPrimitive)?.intOrNull)
                 ?: ((firstCandidate.getOrNull(9) as? JsonPrimitive)?.intOrNull) ?: 0
             if (indicator == 2) completed = true
@@ -606,26 +612,44 @@ class GeminiWebModel(
             .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
             .replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
         val trimmed = s.trim()
-        if (trimmed.startsWith("{") || trimmed.startsWith("```") || trimmed.startsWith("[") ||
-            trimmed.startsWith("]") || trimmed.startsWith("}")) {
+        // A real answer can be JSON too. Only hide a leading block when it is
+        // actually a tool call (or a partially streamed one), not every brace.
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return if (looksLikeToolCallJson(trimmed)) "" else cleanupText(s)
+        }
+        if (trimmed.startsWith("```")) {
             return ""
         }
         val firstBrace = s.indexOf('{')
+        val firstBracket = s.indexOf('[')
         val firstFence = s.indexOf("```")
-        val cutIndex = when {
-            firstBrace >= 0 && firstFence >= 0 -> minOf(firstBrace, firstFence)
-            firstBrace >= 0 -> firstBrace
-            firstFence >= 0 -> firstFence
-            else -> -1
-        }
+        val cutIndex = listOf(firstBrace, firstBracket, firstFence).filter { it >= 0 }.minOrNull() ?: -1
         if (cutIndex >= 0) {
-            val prefix = s.substring(0, cutIndex).trim()
             val suffix = s.substring(cutIndex).trim()
-            if (suffix.startsWith("{") || suffix.startsWith("```") || suffix.startsWith("[")) {
-                return cleanupText(prefix)
+            if (looksLikeToolCallJson(suffix)) {
+                return cleanupText(s.substring(0, cutIndex).trim())
             }
         }
         return cleanupText(s)
+    }
+
+    /**
+     * True only for the shapes the model uses to call a tool. This keeps a
+     * legitimate JSON answer visible while still hiding leaked tool JSON.
+     */
+    private fun looksLikeToolCallJson(text: String): Boolean {
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+        if (trimmed.startsWith("{")) {
+            if (lower.contains("\"tool_calls\"")) return true
+            if (lower.contains("\"name\"") &&
+                (lower.contains("\"arguments\"") || lower.contains("\"parameters\""))) return true
+            // A tool call that is still streaming: {"tool... / {"name...
+            if (Regex("""^\{\s*"(?:tool|tool_calls|name|arguments|parameters)""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(trimmed)) return true
+        }
+        if (trimmed.startsWith("[") && lower.contains("\"tool_calls\"")) return true
+        return false
     }
 
     private fun cleanupText(raw: String): String {
