@@ -333,6 +333,12 @@ class ModelSetupViewModel(
     private val systemSpeech: () -> SystemCapability = { SystemCapability(available = false, onDevice = false) },
     /** 选语音模型时试转用的转写器,和按住说话用的是同一种建法(带客户端标识头)。 */
     private val transcriber: (Provider) -> Transcriber = { p -> Transcriber(ProviderStore.modelHttp, store.clientHeaders(p)) },
+    /**
+     * Scope for the post-login test message. It has to outlive this screen:
+     * leaving Model Setup used to cancel the probe mid-request and report
+     * "The coroutine scope left the composition" even though the login was fine.
+     */
+    private val probeScope: CoroutineScope = scope,
 ) {
     private val _state = MutableStateFlow(snapshot(ModelSetupUi(AddForm.of(ProviderPresets.all.first()))))
     val state: StateFlow<ModelSetupUi> = _state.asStateFlow()
@@ -925,7 +931,6 @@ class ModelSetupViewModel(
     fun onGeminiWebLoginSuccess(session: GeminiWebSession, selfTest: Boolean = true) {
         _state.update { it.copy(geminiWebLoginOpen = false, formOpen = false) }
         scope.launch {
-            var testError: String? = null
             val p = withContext(io) {
                 // Always install the current model list: reusing the list saved by
                 // an older build kept dead model ids that Google no longer serves.
@@ -941,17 +946,32 @@ class ModelSetupViewModel(
                 if (store.roles.value.vision is RoleChoice.Off || store.roles.value.vision == null) {
                     argonOption?.let { m -> use(ModelRole.Vision, provider, m.id, options) }
                 }
-                // End-to-end check: a login that only passes the account probe can
-                // still be unusable from the chat endpoint, and the user deserves
-                // the real error instead of silence.
-                if (selfTest) {
-                    testError = try {
+                provider
+            }
+            // The login itself is done: say so now instead of keeping the user on
+            // "Signing in" while a test message streams.
+            _state.update {
+                snapshot(it.copy(
+                    signedInProvider = p.id,
+                    geminiWebSignIn = ListState.Idle,
+                    geminiWebLoginOpen = false,
+                    formOpen = false
+                ))
+            }
+            if (!selfTest) return@launch
+            // End-to-end check: a login that only passes the account probe can
+            // still be unusable from the chat endpoint, and the user deserves the
+            // real error instead of silence. It runs off this screen's lifecycle:
+            // leaving Model Setup to try the chat must not cancel the request.
+            probeScope.launch {
+                val testError = withContext(io) {
+                    try {
                         val probeModel = GeminiWebModel(
                             session = session,
                             model = "gemini-4-argon",
                             capabilities = Capabilities(toolCalls = false, vision = false, contextTokens = 1_000_000, reasoning = false),
                             http = GeminiWebClient.geminiWebHttp,
-                            onSessionUpdated = { store.updateGeminiWebSession(provider.id, it) },
+                            onSessionUpdated = { store.updateGeminiWebSession(p.id, it) },
                         )
                         probeModel.complete(
                             "",
@@ -960,25 +980,23 @@ class ModelSetupViewModel(
                         )
                         null
                     } catch (e: CancellationException) {
-                        null
+                        throw e
                     } catch (e: Exception) {
                         e.message
                     }
-                    ChatTrace.record(
-                        "gemini self-test error=${testError ?: "none"} " +
-                            "at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} " +
-                            "bl=${session.cfb2h} cookies=${session.cookies.split(';').count { it.isNotBlank() }}"
-                    )
                 }
-                provider
-            }
-            _state.update {
-                snapshot(it.copy(
-                    signedInProvider = p.id,
-                    geminiWebSignIn = testError?.let { ListState.Failed("Connected, but the test message failed: $it") } ?: ListState.Idle,
-                    geminiWebLoginOpen = false,
-                    formOpen = false
-                ))
+                ChatTrace.record(
+                    "gemini self-test error=${testError ?: "none"} " +
+                        "at=${if (session.snlm0e.isNotBlank()) "yes" else "no"} " +
+                        "bl=${session.cfb2h} cookies=${session.cookies.split(';').count { it.isNotBlank() }}"
+                )
+                if (testError != null) {
+                    _state.update {
+                        snapshot(it.copy(
+                            geminiWebSignIn = ListState.Failed("Connected, but the test message failed: $testError")
+                        ))
+                    }
+                }
             }
         }
     }

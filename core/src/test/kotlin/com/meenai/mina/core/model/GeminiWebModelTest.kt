@@ -6,8 +6,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.source
+import okio.buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -306,6 +309,68 @@ class GeminiWebModelTest {
         val request = server.takeRequest()
         assertFalse(request.getHeader("Cookie").orEmpty().contains("SID"))
         assertEquals("at=", request.body.readUtf8().substringBefore("&f.req="))
+    }
+
+    @Test
+    fun aSilentAccountStreamFallsBackToGuest() = runTest {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val good = makeStreamData(textPayload("Guest answer")).toByteArray()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val n = calls.incrementAndGet()
+            val body = if (n == 1) StreamBody(StallStream(ByteArray(0))) else good.toResponseBody(null)
+            okhttp3.Response.Builder()
+                .request(chain.request())
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(body)
+                .build()
+        }.build()
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = client,
+            firstTokenTimeoutMs = 300,
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Guest answer"), reply.parts[0])
+        assertEquals(2, calls.get())
+    }
+
+    @Test
+    fun aStreamThatStallsAfterOneFrameFallsBackToGuest() = runTest {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val emptyFrame = makeStreamData(textPayload("")).toByteArray()
+        val good = makeStreamData(textPayload("Guest answer")).toByteArray()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val n = calls.incrementAndGet()
+            val body = if (n == 1) StreamBody(StallStream(emptyFrame)) else good.toResponseBody(null)
+            okhttp3.Response.Builder()
+                .request(chain.request())
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(body)
+                .build()
+        }.build()
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = client,
+            firstTokenTimeoutMs = 5_000,
+            idleTimeoutMs = 300,
+        )
+
+        val reply = model.complete("sys", userMsg, emptyList())
+
+        assertEquals(Part.Text("Guest answer"), reply.parts[0])
+        assertEquals(2, calls.get())
     }
 
     @Test
@@ -934,5 +999,31 @@ class GeminiWebModelTest {
             "__Secure-1PSID=a; __Secure-1PSIDTS=b",
             GeminiWebClient.normalizeCookieHeader("__Secure-1PSID=a;\n__Secure-1PSIDTS=b")
         )
+    }
+
+    /** A response body that sends [prefix] and then holds the connection open. */
+    private class StreamBody(private val input: java.io.InputStream) : okhttp3.ResponseBody() {
+        override fun contentType() = null
+        override fun contentLength() = -1L
+        override fun source(): okio.BufferedSource = input.source().buffer()
+    }
+
+    private class StallStream(private val prefix: ByteArray) : java.io.InputStream() {
+        private var pos = 0
+        private val lock = Object()
+        private var closed = false
+
+        override fun read(): Int = synchronized(lock) {
+            if (pos < prefix.size) return prefix[pos++].toInt() and 0xFF
+            while (!closed) lock.wait()
+            throw java.io.IOException("closed")
+        }
+
+        override fun close() {
+            synchronized(lock) {
+                closed = true
+                lock.notifyAll()
+            }
+        }
     }
 }

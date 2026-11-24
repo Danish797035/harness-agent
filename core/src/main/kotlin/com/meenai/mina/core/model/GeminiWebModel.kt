@@ -40,9 +40,14 @@ private const val DEFAULT_BUILD_LABEL = "boq_gemini-web-uiserver_20261121.12_p0"
 /**
  * How long the signed-in request may stay silent before the guest retry starts.
  * Guest traffic answers within a couple of seconds, so a silent account request
- * would only make the user wait for the router's slower watchdog.
+ * would only make the user wait for the router's slower watchdog. The web client
+ * streams its first frame (text or thinking) in about a second; 15 s of complete
+ * silence is a broken request, not a slow model.
  */
-private const val ACCOUNT_FIRST_TOKEN_MS = 30_000L
+private const val ACCOUNT_FIRST_TOKEN_MS = 15_000L
+
+/** After a frame arrives, how long the stream may stall before it is cut. */
+private const val IDLE_AFTER_TOKENS_MS = 15_000L
 
 class GeminiWebModel(
     private var session: GeminiWebSession,
@@ -54,6 +59,8 @@ class GeminiWebModel(
     private val onSessionUpdated: ((GeminiWebSession) -> Unit)? = null,
     /** How long to wait for the first frame before closing the socket (0 = no limit). */
     private val firstTokenTimeoutMs: Long = 90_000L,
+    /** How long a stream may stall after its first frame before it is cut (test hook). */
+    private val idleTimeoutMs: Long = IDLE_AFTER_TOKENS_MS,
 ) : StreamingChatModel {
 
     override val name: String get() = model
@@ -200,7 +207,7 @@ class GeminiWebModel(
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
                 val streamTimeoutMs = if (guestAttempt) firstTokenTimeoutMs else minOf(firstTokenTimeoutMs, ACCOUNT_FIRST_TOKEN_MS)
                 val (fullText, fullThoughts) = try {
-                    readStream(response, body.byteStream(), emit, streamTimeoutMs)
+                    readStream(response, body.byteStream(), emit, streamTimeoutMs, idleTimeoutMs)
                 } catch (e: ModelError.BadResponse) {
                     // A quota answer is the account's real limit, not a broken
                     // session: never slip around it with a guest request.
@@ -301,6 +308,7 @@ class GeminiWebModel(
         stream: InputStream,
         onText: (String) -> Unit,
         tokenTimeoutMs: Long = firstTokenTimeoutMs,
+        idleAfterTokensMs: Long = IDLE_AFTER_TOKENS_MS,
     ): Pair<String, String> = coroutineScope {
         val reader = BufferedReader(InputStreamReader(stream, Charsets.UTF_8))
         var fullText = ""
@@ -308,6 +316,11 @@ class GeminiWebModel(
         var lastReportedVisible = ""
         val firstFrame = AtomicBoolean(false)
         val timedOut = AtomicBoolean(false)
+        // A stream that delivered one frame and then held the connection open
+        // forever. The account endpoint did exactly that on the device: HTTP 200,
+        // one unreadable frame, no reply for a minute. Closing the socket turns
+        // that into a failure the caller can retry as a guest instead of a hang.
+        val idleCut = AtomicBoolean(false)
         // Keep the first unreadable frames: when Gemini answers with something we
         // cannot parse, a silent empty stream hides the real reason from the user.
         val rawSample = StringBuilder()
@@ -325,12 +338,11 @@ class GeminiWebModel(
                         response.close()
                         break
                     }
-                } else {
-                    if (now - lastChunkTime >= 15_000L) {
-                        ChatTrace.record("gemini idle for 15s after tokens, closing stream")
-                        response.close()
-                        break
-                    }
+                } else if (now - lastChunkTime >= idleAfterTokensMs) {
+                    idleCut.set(true)
+                    ChatTrace.record("gemini idle for ${idleAfterTokensMs}ms after a frame, closing the stream")
+                    response.close()
+                    break
                 }
             }
         } else null
@@ -390,13 +402,23 @@ class GeminiWebModel(
             if (timedOut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
                 throw ModelError.FirstTokenTimeout()
             }
-            throw ModelError.Network(e)
+            // A stall after a frame keeps whatever real text arrived. With no
+            // text it is the same silent account request as a first-token
+            // timeout, so the caller's guest fallback applies.
+            if (!idleCut.get()) throw ModelError.Network(e)
         } finally {
             watchdog?.cancel()
             runCatching { reader.close() }
         }
 
         if (timedOut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
+            throw ModelError.FirstTokenTimeout()
+        }
+        if (idleCut.get() && fullText.isEmpty() && fullThoughts.isEmpty()) {
+            ChatTrace.record(
+                "gemini stream stalled with no readable text; raw=" +
+                    rawSample.toString().replace(Regex("\\s+"), " ").take(300).ifBlank { "empty stream" }
+            )
             throw ModelError.FirstTokenTimeout()
         }
         if (!sawCandidate && fullText.isEmpty() && fullThoughts.isEmpty()) {

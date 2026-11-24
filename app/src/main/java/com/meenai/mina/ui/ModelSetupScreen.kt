@@ -111,14 +111,17 @@ fun ModelSetupScreen(
     val activeModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
     val vm = remember {
-        val signIns = (context.applicationContext as? HarnessApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
+        val app = context.applicationContext as? HarnessApp
+        val signIns = app?.chatGptSignIn ?: ChatGptSignIns(scope)
         ModelSetupViewModel(
             store, scope, browser = AndroidSignInBrowser(context.applicationContext), signIns = signIns,
-            speech = (context.applicationContext as? HarnessApp)?.speech,
+            speech = app?.speech,
             systemSpeech = {
-                val silent = (context.applicationContext as? HarnessApp)?.speech?.systemSilent?.value ?: false
+                val silent = app?.speech?.systemSilent?.value ?: false
                 SystemSpeech.capability(context.applicationContext, silent)
             },
+            // The post-login test message must survive leaving this screen.
+            probeScope = app?.appScope ?: scope,
         )
     }
     val ui by vm.state.collectAsState()

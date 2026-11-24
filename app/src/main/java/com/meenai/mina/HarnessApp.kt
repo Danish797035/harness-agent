@@ -73,6 +73,12 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     com.meenai.mina.vault.PasswordVaultStore.Owner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * Work that must outlive a screen: the post-login Gemini test message runs
+     * here so leaving Model Setup does not cancel it.
+     */
+    val appScope: CoroutineScope get() = scope
+
     /** 本地密码保险库:独立于 API keys,使用 harness-password-vault Keystore 别名 */
     override val vault: com.meenai.mina.vault.PasswordVaultStore by lazy { com.meenai.mina.vault.PasswordVaultStore.create(this) }
 
