@@ -645,8 +645,13 @@ class GeminiWebModel(
             if (lower.contains("\"name\"") &&
                 (lower.contains("\"arguments\"") || lower.contains("\"parameters\""))) return true
             // A tool call that is still streaming: {"tool... / {"name...
-            if (Regex("""^\{\s*"(?:tool|tool_calls|name|arguments|parameters)""", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(trimmed)) return true
+            // The boundary stops a legitimate {"toolbar":...} answer from being
+            // mistaken for a partial tool call.
+            if (Regex(
+                    """^\{\s*"(?:tool|tool_calls|name|arguments|parameters)(?:_|"|:|,|\s|$)""",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(trimmed)
+            ) return true
         }
         if (trimmed.startsWith("[") && lower.contains("\"tool_calls\"")) return true
         return false
