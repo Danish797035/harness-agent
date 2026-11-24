@@ -438,6 +438,38 @@ class FreeKeyRouterTest {
     }
 
     @Test
+    fun pinnedModelDoesNotSwitchOnSignInExpired() = runTest {
+        val m1Expired = mockModel("m1_pinned") { _, _, _, _ ->
+            throw ModelError.SignInExpired("Google Gemini")
+        }
+        val m2Fast = mockModel("m2_candidate") { _, _, _, onText ->
+            onText("reply from m2")
+            simpleReply
+        }
+
+        val candidate1 = RouterCandidate("m1_pinned", "p1", m1Expired, curatedRank = 10)
+        val candidate2 = RouterCandidate("m2_candidate", "p2", m2Fast, curatedRank = 5)
+
+        val router = FreeKeyRouter(
+            candidates = listOf(candidate1, candidate2),
+            delayMs = {},
+        )
+        router.pinModel("m1_pinned")
+
+        try {
+            router.completeStreaming("sys", userMsg, emptyList()) {}
+            fail("Expected SignInExpired")
+        } catch (e: ModelError.SignInExpired) {
+            // Expected: the user has to sign in again.
+        }
+
+        assertEquals("m1_pinned", router.activeCandidate?.id)
+        assertEquals(0, m2Fast.calls)
+        assertFalse("An auth failure on a pinned model must not poison the provider", router.cooldownStore.isKeyBad("p1"))
+        assertTrue(router.status.value.reason?.contains("Sign-in has expired") == true)
+    }
+
+    @Test
     fun recordsFirstTokenLatencySeparatelyFromTotalLatency() = runTest {
         var simulatedNow = 1000L
         val testClock = object : com.meenai.mina.core.router.picker.Clock {

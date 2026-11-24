@@ -517,7 +517,20 @@ class FreeKeyRouter(
                                 break
                             }
                         }
-                        RouterAction.KEY_BAD -> { 
+                        RouterAction.KEY_BAD -> {
+                            // A pinned model is an explicit user choice. Silently
+                            // switching away from it on an expired login hides the
+                            // real problem (the user must sign in again) and looks
+                            // like the router picked flash-lite on its own.
+                            val isPinned = pinnedModelId != null && pinnedModelId == currentCandidate.id
+                            if (isPinned) {
+                                updateStatus(
+                                    model = currentCandidate.id,
+                                    provider = currentCandidate.provider,
+                                    reason = e.message ?: "Sign in again",
+                                )
+                                throw e
+                            }
                             cooldownStore.markBadKey(currentCandidate.provider)
                             onText("") // discard partial output
                             previousCandidate = currentCandidate
