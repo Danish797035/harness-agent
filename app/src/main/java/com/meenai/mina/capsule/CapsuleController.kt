@@ -1497,8 +1497,9 @@ class CapsuleController(
                     val message = UserScreenMessage.compose(saved.id, promptText)
                     val target = CapsuleCards.of(model.cardRuns(), follow, idle)
                     val kind = target?.let(CapsuleCards::input)?.kind
-                    val sameConv = target?.let { CapsuleCards.conversationOf(it) } == convId
-                    if (sameConv && kind != null && (kind == CardInputKind.Steer || kind == CardInputKind.Answer)) {
+                    if (target != null && CapsuleCards.conversationOf(target) == convId &&
+                        kind != null && (kind == CardInputKind.Steer || kind == CardInputKind.Answer)
+                    ) {
                         submit(target, kind, message, convId)
                     } else {
                         startIn(convId, message)

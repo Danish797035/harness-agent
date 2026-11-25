@@ -132,12 +132,12 @@ class GeminiWebModel(
             onText(text)
         }
         val emitThinking: (String) -> Unit = { thoughts ->
-            if (thoughts.isNotEmpty()) emittedAny = true
             onThinking(thoughts)
         }
         fun startGuestAttempt(reason: String): Boolean {
             if (guestAttempt || session.cookies.isBlank() || emittedAny) return false
             guestAttempt = true
+            onThinking("")
             ChatTrace.record("gemini guest fallback reason=$reason")
             return true
         }

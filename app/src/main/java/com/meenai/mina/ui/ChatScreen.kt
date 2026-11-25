@@ -927,7 +927,7 @@ private fun WorkBlock(
                     .padding(top = 6.dp, start = 26.dp)
                     .clip(thinkingShape)
                     .background(c.fill.copy(alpha = 0.65f))
-                    .border(0.5.dp, c.line, thinkingShape)
+                    .border(0.5.dp, c.hair, thinkingShape)
                     .clickable(role = Role.Button) { thinkingExpanded = !thinkingExpanded }
                     .padding(horizontal = 10.dp, vertical = 7.dp),
             ) {
