@@ -1485,7 +1485,7 @@ class CapsuleController(
             val convId = withContext(Dispatchers.Main) {
                 if (view?.kind == CapsuleKind.Idle && idle == null) idle = loadIdle()
                 val target = CapsuleCards.of(model.cardRuns(), follow, idle)
-                CapsuleCards.conversationOf(target) ?: ConversationStore.shared(context).newConversation()
+                target?.let(CapsuleCards::conversationOf) ?: ConversationStore.shared(context).newConversation()
             }
 
             val saved = runCatching { app.userScreens.save(convId, cropShot) }
