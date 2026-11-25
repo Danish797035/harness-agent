@@ -39,6 +39,10 @@ sealed interface TaskState {
         val preview: String? = null,
         /** The model usage up to this moment (number of calls, token, and context remaining) is displayed in real time on the interface. */
         val usage: com.meenai.mina.core.usage.RunUsage? = null,
+        /** Live reasoning/thinking text streamed from the model in real time. */
+        val thinking: String? = null,
+        /** Non-secret target summary for the active tool call (e.g. package name, url, search query). */
+        val actionTarget: String? = null,
     ) : TaskState
     /** The preconditions for a capability are not met at this moment, so stop here and wait (see [GateReason]); Running resumes after the conditions are met or the user clicks Continue. */
     data class Held(val reason: GateReason) : TaskState

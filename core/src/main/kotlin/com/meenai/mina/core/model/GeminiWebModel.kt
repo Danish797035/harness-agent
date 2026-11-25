@@ -72,10 +72,7 @@ class GeminiWebModel(
         messages: List<Message>,
         tools: List<ToolSpec>
     ): ModelReply {
-        var collectedText = ""
-        return completeStreaming(system, messages, tools) { visible ->
-            collectedText = visible
-        }
+        return completeStreamingWithThinking(system, messages, tools, onText = {}, onThinking = {})
     }
 
     override suspend fun completeStreaming(
@@ -83,6 +80,14 @@ class GeminiWebModel(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit
+    ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText, onThinking = {})
+
+    override suspend fun completeStreamingWithThinking(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onThinking: (String) -> Unit,
     ): ModelReply = withContext(Dispatchers.IO) {
         val isChat = isConversational(messages)
         val effectiveTools = if (isChat) emptyList() else tools
@@ -91,7 +96,12 @@ class GeminiWebModel(
         val (modelHexId, modelNumber) = GeminiWebClient.resolveModel(model, session)
         val uuid = UUID.randomUUID().toString().uppercase()
 
-        val innerReqJson = GeminiWebClient.buildInnerRequestJson(prompt, modelNumber, thinkingFlag, uuid)
+        val imageAttachments = messages.lastOrNull { it.role == Role.User }
+            ?.parts
+            ?.filterIsInstance<Part.Image>()
+            .orEmpty()
+            .ifEmpty { messages.flatMap { it.parts }.filterIsInstance<Part.Image>().takeLast(1) }
+
         val modelHeader = GeminiWebClient.buildModelHeader(
             modelHexId,
             capacity = session.capacity,
@@ -114,11 +124,16 @@ class GeminiWebModel(
         // failing the user's message. Quota answers (429/5xx) never fall back.
         var guestAttempt = false
         var emittedAny = false
+        var uploadedImages: List<Pair<String, String>>? = null
         // Guest calls must not inherit the account cookies from the shared jar.
         val guestHttp by lazy { http.newBuilder().cookieJar(CookieJar.NO_COOKIES).build() }
         val emit: (String) -> Unit = { text ->
             if (text.isNotEmpty()) emittedAny = true
             onText(text)
+        }
+        val emitThinking: (String) -> Unit = { thoughts ->
+            if (thoughts.isNotEmpty()) emittedAny = true
+            onThinking(thoughts)
         }
         fun startGuestAttempt(reason: String): Boolean {
             if (guestAttempt || session.cookies.isBlank() || emittedAny) return false
@@ -147,6 +162,19 @@ class GeminiWebModel(
 
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
+            val activeUploads = if (!guestAttempt && imageAttachments.isNotEmpty()) {
+                uploadedImages ?: imageAttachments.mapIndexedNotNull { idx, img ->
+                    val rawBytes = runCatching { java.util.Base64.getDecoder().decode(img.pngBase64) }.getOrNull()
+                        ?: return@mapIndexedNotNull null
+                    val ext = if (img.mime.contains("png", ignoreCase = true)) "png" else "jpg"
+                    val filename = "screen_${idx + 1}.$ext"
+                    GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
+                        ?.let { path -> path to filename }
+                }.also { uploadedImages = it }
+            } else emptyList()
+            val innerReqJson = GeminiWebClient.buildInnerRequestJson(
+                prompt, modelNumber, thinkingFlag, uuid, activeUploads
+            )
             val request = createPostRequest(currentSession, innerReqJson, modelHeader, uuid, bl, guest = guestAttempt)
             ChatTrace.record(
                 "gemini request model=$model hex=$modelHexId num=$modelNumber bl=$bl " +
@@ -207,7 +235,7 @@ class GeminiWebModel(
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
                 val streamTimeoutMs = if (guestAttempt) firstTokenTimeoutMs else minOf(firstTokenTimeoutMs, ACCOUNT_FIRST_TOKEN_MS)
                 val (fullText, fullThoughts) = try {
-                    readStream(response, body.byteStream(), emit, streamTimeoutMs, idleTimeoutMs)
+                    readStream(response, body.byteStream(), emit, emitThinking, streamTimeoutMs, idleTimeoutMs)
                 } catch (e: ModelError.BadResponse) {
                     // A quota answer is the account's real limit, not a broken
                     // session: never slip around it with a guest request.
@@ -309,6 +337,7 @@ class GeminiWebModel(
         response: Response,
         stream: InputStream,
         onText: (String) -> Unit,
+        onThinking: (String) -> Unit = {},
         tokenTimeoutMs: Long = firstTokenTimeoutMs,
         idleAfterTokensMs: Long = IDLE_AFTER_TOKENS_MS,
     ): Pair<String, String> = coroutineScope {
@@ -368,6 +397,7 @@ class GeminiWebModel(
                     if (parsedChunk.thoughts.isNotEmpty() && parsedChunk.thoughts.length > fullThoughts.length) {
                         fullThoughts = parsedChunk.thoughts
                         chunkArrived = true
+                        onThinking(fullThoughts)
                     }
                     if (parsedChunk.text.isNotEmpty() && parsedChunk.text.length >= fullText.length) {
                         fullText = parsedChunk.text
@@ -802,7 +832,7 @@ class GeminiWebModel(
     }
 
     private fun isConversational(messages: List<Message>): Boolean {
-        if (messages.any { it.role == Role.Tool || it.parts.any { p -> p is Part.ToolCall || p is Part.ToolResult } }) {
+        if (messages.any { it.role == Role.Tool || it.parts.any { p -> p is Part.ToolCall || p is Part.ToolResult || p is Part.Image } }) {
             return false
         }
         val lastUserMsg = messages.lastOrNull { it.role == Role.User } ?: return false

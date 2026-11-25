@@ -74,4 +74,9 @@ private class MeteredStreamingModel(private val inner: StreamingChatModel, sourc
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
     ): ModelReply = counted { inner.completeStreaming(system, messages, tools, onText) }
+
+    override suspend fun completeStreamingWithThinking(
+        system: String, messages: List<Message>, tools: List<ToolSpec>,
+        onText: (String) -> Unit, onThinking: (String) -> Unit,
+    ): ModelReply = counted { inner.completeStreamingWithThinking(system, messages, tools, onText, onThinking) }
 }

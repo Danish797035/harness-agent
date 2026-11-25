@@ -57,11 +57,17 @@ class GeminiModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText) {}
+
+    override suspend fun completeStreamingWithThinking(
+        system: String, messages: List<Message>, tools: List<ToolSpec>,
+        onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
-        val stream = GeminiStream(onText, ::parse, ::parseUsage)
+        val stream = GeminiStream(onText, onThinking, ::parse, ::parseUsage)
         val (status, retryAfter, text) = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -252,6 +258,7 @@ class GeminiModel(
 
 private class GeminiStream(
     private val onText: (String) -> Unit,
+    private val onThinking: (String) -> Unit,
     private val parseChunk: (String) -> ModelReply,
     private val usageOf: (JsonElement?) -> Usage?,
 ) {
@@ -273,7 +280,7 @@ private class GeminiStream(
         reply.parts.forEach { part ->
             when (part) {
                 is Part.Text -> { visible.append(part.text); onText(visible.toString()) }
-                is Part.Thinking -> thinking.append(part.text)
+                is Part.Thinking -> { thinking.append(part.text); onThinking(thinking.toString()) }
                 is Part.ToolCall -> {
                     calls += if (part.id == "gemini-$chunkCalls-${part.name}") part.copy(id = "gemini-${calls.size}-${part.name}") else part
                     chunkCalls++

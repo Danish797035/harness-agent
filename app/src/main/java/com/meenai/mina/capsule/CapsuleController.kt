@@ -1316,32 +1316,54 @@ class CapsuleController(
 
     private var circleOverlayWindow: OverlayWindow? = null
 
+    private fun hasCircleVisionModel(app: HarnessApp): Boolean =
+        app.providers.configFor(ModelRole.Vision) != null ||
+            app.providers.configFor(ModelRole.Main) != null ||
+            app.freeKeyRouter.candidates.any {
+                it.model.capabilities.vision ||
+                    it.roles.contains(com.meenai.mina.core.router.picker.ModelRole.Vision)
+            }
+
     private fun requestCircleToAsk() {
         val service = windowOn ?: return
         val w = window ?: return
-        val c = cardWindow ?: return
         val app = context.applicationContext as HarnessApp
         val store = app.appAccess
 
-        // 1. Blocked apps / sensitive apps check
-        val sources = MainScreenCapture.sourcePackages(service)
-        val isLockedBefore = CapsuleSecurityPolicy.isDeviceLocked(context)
-        if (sources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(sources, isLockedBefore, store.current())) {
-            showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
-            return
-        }
-
-        // 2. Vision model check
-        val visionModel = app.providers.modelFor(com.meenai.mina.core.model.ModelRole.Vision)
-        if (visionModel == null) {
+        // 1. Model availability check
+        if (!hasCircleVisionModel(app)) {
             showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
             return
         }
 
-        // 3. Capture screenshot without capsule windows
+        // 2. Security check & screenshot capture without capsule windows
         scope.launch {
             suspend fun <T> OverlayWindow.hidden(block: suspend () -> T): T = if (height > 0) hiddenWhile(block) else block()
-            val shot = w.hidden { c.hidden { service.takeMainScreenshot() } }
+            var sources = MainScreenCapture.sourcePackages(service)
+            if (sources.isNullOrEmpty()) {
+                delay(120L)
+                sources = MainScreenCapture.sourcePackages(service)
+            }
+            val currentAccess = store.current()
+            val isLockedBefore = CapsuleSecurityPolicy.isDeviceLocked(context)
+            if (isLockedBefore || !currentAccess.available || sources.isNullOrEmpty() ||
+                sources.any { CapsuleSecurityPolicy.isSensitiveApp(it, currentAccess) }
+            ) {
+                showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                return@launch
+            }
+            for (pkg in sources) {
+                if (!store.current().canShare(pkg) &&
+                    !com.meenai.mina.cap.phone.a11y.requestScreenShare(service, store, pkg, appLabel(pkg))
+                ) {
+                    return@launch
+                }
+            }
+
+            val shot = w.hidden {
+                val cw = cardWindow
+                if (cw != null) cw.hidden { service.takeMainScreenshot() } else service.takeMainScreenshot()
+            }
             if (shot !is ScreenAccessibility.MainShot.Ok) {
                 showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return@launch
@@ -1350,17 +1372,23 @@ class CapsuleController(
 
             val currentSources = MainScreenCapture.sourcePackages(service)
             val isLockedAfter = CapsuleSecurityPolicy.isDeviceLocked(context)
-            if (currentSources.isNullOrEmpty() || !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, isLockedAfter, store.current())) {
+            if (currentSources.isNullOrEmpty() ||
+                !CapsuleSecurityPolicy.canPerformScreenAction(currentSources, isLockedAfter, store.current())
+            ) {
                 screenshot.recycle()
                 showNote(tr(R.string.capsule_sensitive_blocked), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
                 return@launch
             }
 
-            openCircleOverlay(service, screenshot)
+            openCircleOverlay(service, screenshot, currentSources)
         }
     }
 
-    private fun openCircleOverlay(service: ScreenAccessibility, screenshot: android.graphics.Bitmap) {
+    private fun openCircleOverlay(
+        service: ScreenAccessibility,
+        screenshot: android.graphics.Bitmap,
+        sources: Set<String>,
+    ) {
         circleOverlayWindow?.close()
         circleOverlayWindow = service.overlays().open(
             OverlayPlacement(Gravity.FILL),
@@ -1369,17 +1397,20 @@ class CapsuleController(
             MinaTheme(reduceMotion = animationsOff(context)) {
                 com.meenai.mina.capsule.circle.CircleToAskOverlay(
                     screenshot = screenshot,
+                    imeTopPx = imeTop,
+                    onRequestKeyboard = { circleOverlayWindow?.setFocusable(true, showIme = true) },
                     onCancel = {
                         closeCircleOverlay(screenshot)
                     },
                     onAsk = { cropRect, question ->
                         closeCircleOverlay()
-                        processCircleCrop(cropRect, screenshot, question)
+                        processCircleCrop(cropRect, screenshot, question, sources)
                     }
                 )
             }
         }
         circleOverlayWindow?.setFullScreen(true)
+        circleOverlayWindow?.setFocusable(true, showIme = false)
         circleOverlayWindow?.onBack { closeCircleOverlay(screenshot) }
     }
 
@@ -1392,12 +1423,12 @@ class CapsuleController(
     private fun processCircleCrop(
         cropRect: com.meenai.mina.capsule.circle.CropRect,
         fullBitmap: android.graphics.Bitmap,
-        question: String
+        question: String,
+        sources: Set<String>,
     ) {
         scope.launch(Dispatchers.Default) {
             val app = context.applicationContext as HarnessApp
-            val visionModel = app.providers.modelFor(com.meenai.mina.core.model.ModelRole.Vision)
-            if (visionModel == null) {
+            if (!hasCircleVisionModel(app)) {
                 fullBitmap.recycle()
                 withContext(Dispatchers.Main) {
                     showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
@@ -1420,40 +1451,92 @@ class CapsuleController(
                 s
             } else cropped
 
+            // Extract text inside the circled crop so both multimodal and fallback models see crisp OCR text.
+            val ocrRaw = withTimeoutOrNull(2_500L) {
+                runCatching {
+                    val copyForOcr = scaled.copy(Bitmap.Config.ARGB_8888, false)
+                    com.meenai.mina.cap.phone.a11y.PhoneOcr.read(copyForOcr)
+                }.getOrNull()
+            }.orEmpty()
+            val ocrLines = ocrRaw.map { line ->
+                val cx = if (line.bounds.size >= 4) (line.bounds[0] + line.bounds[2]) / 2 else 500
+                val cy = if (line.bounds.size >= 4) (line.bounds[1] + line.bounds[3]) / 2 else 500
+                com.meenai.mina.core.userscreen.ScreenLine(line.text, cx, cy)
+            }
+
             val stream = java.io.ByteArrayOutputStream()
-            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
             scaled.recycle()
 
             val jpegBytes = stream.toByteArray()
+            val promptText = if (question.isNotBlank()) question else tr(R.string.circle_to_ask_prompt_default)
+            val topPkg = sources.firstOrNull { it != context.packageName } ?: sources.firstOrNull()
+            val topLabel = topPkg?.let { ConfirmationNotifier.appLabel(context, it) }
+            val userScreen = com.meenai.mina.core.userscreen.UserScreen(
+                id = "",
+                takenAt = System.currentTimeMillis(),
+                packageName = topPkg,
+                appLabel = topLabel,
+                lines = ocrLines,
+                fromOcr = ocrLines.isNotEmpty(),
+            )
+            val cropShot = CapturedScreen(jpegBytes, userScreen, sources)
 
-            withContext(Dispatchers.Main) {
-                showNote(tr(R.string.capsule_thinking), CapsuleKind.Running, opensMina = false, 20000L)
+            val convId = withContext(Dispatchers.Main) {
+                if (view?.kind == CapsuleKind.Idle && idle == null) idle = loadIdle()
+                val target = CapsuleCards.of(model.cardRuns(), follow, idle)
+                CapsuleCards.conversationOf(target) ?: ConversationStore.shared(context).newConversation()
             }
 
-            val promptText = if (question.isNotBlank()) question else tr(R.string.circle_to_ask_prompt_default)
-            val reply = runCatching {
-                com.meenai.mina.capsule.circle.CircleToAskSender.askAboutCrop(visionModel, jpegBytes, targetW, targetH, promptText)
-            }.getOrNull()
-
-            val replyText = reply?.let { com.meenai.mina.capsule.circle.CircleToAskSender.textOf(it) }
+            val saved = runCatching { app.userScreens.save(convId, cropShot) }
+                .onFailure { Log.w(TAG, "could not save circle crop", it) }
+                .getOrNull()
 
             withContext(Dispatchers.Main) {
-                if (!replyText.isNullOrBlank()) {
-                    val convId = follow ?: app.conversations.newConversation()
-                    app.conversations.append(
-                        convId,
-                        com.meenai.mina.core.agent.Turn(
-                            userText = promptText,
-                            outcome = replyText,
-                            status = "succeeded"
-                        )
-                    )
-                    follow = convId
+                if (saved != null) {
+                    val message = UserScreenMessage.compose(saved.id, promptText)
+                    val target = CapsuleCards.of(model.cardRuns(), follow, idle)
+                    val kind = target?.let(CapsuleCards::input)?.kind
+                    val sameConv = target?.let { CapsuleCards.conversationOf(it) } == convId
+                    if (sameConv && kind != null && (kind == CardInputKind.Steer || kind == CardInputKind.Answer)) {
+                        submit(target, kind, message, convId)
+                    } else {
+                        startIn(convId, message)
+                    }
                     clearNote()
                     open()
                     refresh()
                 } else {
-                    showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                    // Pure fallback via direct vision query if workspace storage failed
+                    val visionModel = app.providers.modelFor(ModelRole.Vision) ?: app.providers.modelFor(ModelRole.Main)
+                    val ocrNote = ocrLines.joinToString("\n") { it.text }.takeIf { it.isNotBlank() }
+                    val enrichedPrompt = if (ocrNote != null) "$promptText\n\n[Text in selected region]:\n$ocrNote" else promptText
+                    val reply = visionModel?.let { vm ->
+                        withContext(Dispatchers.Default) {
+                            runCatching {
+                                com.meenai.mina.capsule.circle.CircleToAskSender.askAboutCrop(vm, jpegBytes, targetW, targetH, enrichedPrompt)
+                            }.getOrNull()
+                        }
+                    }
+                    val replyText = reply?.let { com.meenai.mina.capsule.circle.CircleToAskSender.textOf(it) }
+                    if (!replyText.isNullOrBlank()) {
+                        app.conversations.append(
+                            convId,
+                            com.meenai.mina.core.agent.Turn(
+                                userText = promptText,
+                                outcome = replyText,
+                                status = "succeeded",
+                            )
+                        )
+                        follow = convId
+                        idle = CardView.Chat(convId, title = ScreenCopy.plain(promptText))
+                        loadPast(convId)
+                        clearNote()
+                        open()
+                        refresh()
+                    } else {
+                        showNote(tr(R.string.capsule_failed), CapsuleKind.Failed, opensMina = false, NOTE_SHORT_MS)
+                    }
                 }
             }
         }

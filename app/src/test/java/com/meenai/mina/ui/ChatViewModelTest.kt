@@ -2074,4 +2074,22 @@ class ChatViewModelTest {
         emit(TaskState.Succeeded("Done"))
         assertNull(vm.ui.value.exchanges.single().activeModel)
     }
+
+    @Test fun liveThinkingAndMultiStepLiveActionUpdateCleanly() = runTest {
+        val vm = vm()
+        vm.send("search yo yo honey singh on youtube", ok)
+        emit(TaskState.Running(1, "", thinking = "Let me open YouTube first."))
+        var ex = vm.ui.value.exchanges.single()
+        assertEquals("Let me open YouTube first.", ex.thinking)
+        assertTrue(ex.waitingForModel)
+
+        emit(TaskState.Running(1, "phone_launch_app", tool = "phone_launch_app", actionTarget = "com.google.android.youtube"))
+        ex = vm.ui.value.exchanges.single()
+        assertEquals("Opening YouTube…", liveLine(ex))
+
+        did(1, "act", "phone_launch_app", "com.google.android.youtube", "place_changed")
+        emit(TaskState.Running(2, "phone_type_text", tool = "phone_type_text"))
+        ex = vm.ui.value.exchanges.single()
+        assertEquals("Typing…", liveLine(ex))
+    }
 }

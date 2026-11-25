@@ -145,6 +145,80 @@ object CircleCropGeometry {
     }
 
     /**
+     * Expands [current] bounding box to include point ([x], [y]), clamped within screen bounds.
+     * Ensures freehand circles/lassos never collapse back to zero when the stroke loops toward start.
+     */
+    fun expandBounds(
+        current: CropRect,
+        x: Float,
+        y: Float,
+        screenWidth: Float,
+        screenHeight: Float,
+    ): CropRect {
+        val raw = CropRect(
+            left = minOf(current.left, x),
+            top = minOf(current.top, y),
+            right = maxOf(current.right, x),
+            bottom = maxOf(current.bottom, y),
+        )
+        return clamp(raw, screenWidth, screenHeight)
+    }
+
+    /**
+     * Returns the nearest corner [ResizeHandle] within [hitRadiusPx] of ([x], [y]), or null.
+     */
+    fun hitTestHandle(
+        rect: CropRect,
+        x: Float,
+        y: Float,
+        hitRadiusPx: Float,
+    ): ResizeHandle? {
+        val corners = listOf(
+            ResizeHandle.TopLeft to Pair(rect.left, rect.top),
+            ResizeHandle.TopRight to Pair(rect.right, rect.top),
+            ResizeHandle.BottomLeft to Pair(rect.left, rect.bottom),
+            ResizeHandle.BottomRight to Pair(rect.right, rect.bottom),
+        )
+        var best: ResizeHandle? = null
+        var bestDistSq = hitRadiusPx * hitRadiusPx
+        for ((handle, pt) in corners) {
+            val dx = x - pt.first
+            val dy = y - pt.second
+            val d2 = dx * dx + dy * dy
+            if (d2 <= bestDistSq) {
+                bestDistSq = d2
+                best = handle
+            }
+        }
+        return best
+    }
+
+    /**
+     * Scales a [CropRect] from overlay view coordinates to target bitmap pixel coordinates.
+     */
+    fun mapRectToBitmap(
+        rect: CropRect,
+        viewWidth: Float,
+        viewHeight: Float,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+    ): CropRect {
+        if (viewWidth <= 0f || viewHeight <= 0f || bitmapWidth <= 0 || bitmapHeight <= 0) return rect
+        val sx = bitmapWidth.toFloat() / viewWidth
+        val sy = bitmapHeight.toFloat() / viewHeight
+        return clamp(
+            CropRect(
+                left = rect.left * sx,
+                top = rect.top * sy,
+                right = rect.right * sx,
+                bottom = rect.bottom * sy,
+            ),
+            bitmapWidth.toFloat(),
+            bitmapHeight.toFloat(),
+        )
+    }
+
+    /**
      * Calculates scaled dimensions maintaining aspect ratio, capped at maxLongestSide (1080px).
      */
     fun calculateScaledDimensions(

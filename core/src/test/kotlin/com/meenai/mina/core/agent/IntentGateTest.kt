@@ -41,6 +41,8 @@ class IntentGateTest {
         assertEquals(IntentGate.Intent.Act, gate.assess("search Motu Patlu", emptyList()))
         assertEquals(IntentGate.Intent.Act, gate.assess("can you open YouTube", emptyList()))
         assertEquals(IntentGate.Intent.Act, gate.assess("youtube kholo", emptyList()))
+        assertEquals(IntentGate.Intent.Act, gate.assess("youtube par yo yo honey singh search karo", emptyList()))
+        assertEquals(IntentGate.Intent.Act, gate.assess("gana bajao please", emptyList()))
         assertTrue("a clear command must not cost a judge call", judge.requests.isEmpty())
     }
 
@@ -49,5 +51,7 @@ class IntentGateTest {
             .assess("what can you do", emptyList()))
         assertEquals(IntentGate.Intent.Discuss, IntentGate(FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS")))
             .assess("how do I open YouTube", emptyList()))
+        assertEquals(IntentGate.Intent.Discuss, IntentGate(FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS")))
+            .assess("kya aap youtube open kar sakte ho?", emptyList()))
     }
 }

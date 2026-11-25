@@ -69,19 +69,24 @@ class OpenAiCompatModel(
         // networks). Read it according to the stream and then spell it. Don't regard `data:` as bad
         // JSON.
         if (!looksLikeEvents(text)) return parse(text)
-        val stream = OpenAiStream({}, ::parseUsage, ::thinking)
+        val stream = OpenAiStream({}, {}, ::parseUsage, ::thinking)
         response.replay(eventsOf(text), stream::accept)
         return stream.finish()
     }
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText) {}
+
+    override suspend fun completeStreamingWithThinking(
+        system: String, messages: List<Message>, tools: List<ToolSpec>,
+        onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
-        var stream = OpenAiStream(onText, ::parseUsage, ::thinking)
+        var stream = OpenAiStream(onText, onThinking, ::parseUsage, ::thinking)
         var response = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
         if (response.status == 400 && response.body.contains("stream_options")) {
             // Some compatible endpoints can be streamed but have no usage options.
-            stream = OpenAiStream(onText, ::parseUsage, ::thinking)
+            stream = OpenAiStream(onText, onThinking, ::parseUsage, ::thinking)
             response = HttpSupport.stream(http, request(system, messages, tools, stream = true, includeUsage = false), stream::accept)
         }
         val (status, retryAfter, text) = response
@@ -89,11 +94,13 @@ class OpenAiCompatModel(
             // Compatible endpoints that do not support streaming can still complete the task according
             // to the original interface.
             if (status == 400 && text.contains("stream", ignoreCase = true)) return complete(system, messages, tools).also {
+                it.parts.filterIsInstance<Part.Thinking>().joinToString("") { part -> part.text }.takeIf(String::isNotEmpty)?.let(onThinking)
                 it.parts.filterIsInstance<Part.Text>().joinToString("") { part -> part.text }.takeIf(String::isNotEmpty)?.let(onText)
             }
             throw mapError(status, retryAfter, text)
         }
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { part -> part.text }.takeIf(String::isNotEmpty)?.let(onThinking)
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -344,6 +351,7 @@ class OpenAiCompatModel(
 /** Chat Completions' delta can split the name and parameters of the same tool into multiple frames. */
 private class OpenAiStream(
     private val onText: (String) -> Unit,
+    private val onThinking: (String) -> Unit = {},
     private val usageOf: (JsonElement?) -> Usage?,
     private val thinkingOf: (String, ReasoningVia) -> Part.Thinking,
 ) {
@@ -397,7 +405,10 @@ private class OpenAiStream(
     private fun appendThinking(t: String, via: ReasoningVia) {
         if (t.isEmpty()) return
         if (thinkingVia == null) thinkingVia = via
-        if (via == thinkingVia) thinking.append(t)
+        if (via == thinkingVia) {
+            thinking.append(t)
+            onThinking(thinking.toString())
+        }
     }
 
     private fun appendVisible(t: String) {

@@ -185,5 +185,9 @@ class ChatCopyTest {
         assertEquals("Finding on screen…", ChatCopy.liveActionLabel("phone_find", null, isHindi = false))
         assertEquals("Screen dekh raha hai…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = true))
         assertEquals("Reading screen…", ChatCopy.liveActionLabel("phone_observe", null, isHindi = false))
+        assertEquals("Opening YouTube…", ChatCopy.liveActionLabel("phone_launch_app", "phone_launch_app", isHindi = false, target = "com.google.android.youtube"))
+        assertEquals("YouTube khol raha hai…", ChatCopy.liveActionLabel("phone_launch_app", null, isHindi = true, target = "YouTube"))
+        assertEquals("Finding \"Search\"…", ChatCopy.liveActionLabel("phone_find", null, isHindi = false, target = "Search"))
+        assertEquals("\"Search\" dhoondh raha hai…", ChatCopy.liveActionLabel("phone_find", null, isHindi = true, target = "Search"))
     }
 }

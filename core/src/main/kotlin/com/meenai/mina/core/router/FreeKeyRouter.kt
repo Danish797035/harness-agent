@@ -373,6 +373,14 @@ class FreeKeyRouter(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+    ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText) {}
+
+    override suspend fun completeStreamingWithThinking(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onThinking: (String) -> Unit,
     ): ModelReply {
         var lastError: Throwable? = null
         var lastFailureReason: String? = null
@@ -448,6 +456,7 @@ class FreeKeyRouter(
                         messages = cleanMessages,
                         tools = preparedTools,
                         onText = onText,
+                        onThinking = onThinking,
                         onFirstToken = { ts -> if (firstTokenTime == null) firstTokenTime = ts },
                     )
                     val latency = now() - beganTime
@@ -509,6 +518,8 @@ class FreeKeyRouter(
                                 // Already retried with sanitized schema, switch candidate
                                 cooldownStore.markCooldown(currentCandidate.id, ModelCooldownStore.DEFAULT_COOLDOWN_MS, now())
                                 onText("") // discard partial output
+                            onThinking("")
+                                onThinking("")
                                 previousCandidate = currentCandidate
                                 activeCandidate = null
                                 switchCountInTask++
@@ -533,6 +544,7 @@ class FreeKeyRouter(
                             }
                             cooldownStore.markBadKey(currentCandidate.provider)
                             onText("") // discard partial output
+                            onThinking("")
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
@@ -543,6 +555,7 @@ class FreeKeyRouter(
                         RouterAction.CONTEXT -> {
                             cooldownStore.markCooldown(currentCandidate.id, 10_000L, now())
                             onText("") // discard partial output
+                            onThinking("")
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
@@ -585,6 +598,7 @@ class FreeKeyRouter(
                                 cooldownStore.markCooldown(currentCandidate.id, retryAfter, now())
                             }
                             onText("") // discard partial output
+                            onThinking("")
                             previousCandidate = currentCandidate
                             activeCandidate = null
                             switchCountInTask++
@@ -612,6 +626,7 @@ class FreeKeyRouter(
         messages: List<Message>,
         tools: List<ToolSpec>,
         onText: (String) -> Unit,
+        onThinking: (String) -> Unit = {},
         onFirstToken: ((Long) -> Unit)? = null,
     ): ModelReply {
         val effectiveTimeout = if (model.capabilities.reasoning ||
@@ -625,18 +640,33 @@ class FreeKeyRouter(
         if (effectiveTimeout <= 0L) {
             return if (model is StreamingChatModel) {
                 var firstRecorded = false
-                model.completeStreaming(system, messages, tools) { chunk ->
-                    if (!firstRecorded) {
-                        firstRecorded = true
-                        onFirstToken?.invoke(now())
-                    }
-                    if (chunk.isNotEmpty()) {
-                        onText(chunk)
-                    }
-                }
+                model.completeStreamingWithThinking(
+                    system,
+                    messages,
+                    tools,
+                    onText = { chunk ->
+                        if (!firstRecorded) {
+                            firstRecorded = true
+                            onFirstToken?.invoke(now())
+                        }
+                        if (chunk.isNotEmpty()) {
+                            onText(chunk)
+                        }
+                    },
+                    onThinking = { thinkChunk ->
+                        if (!firstRecorded) {
+                            firstRecorded = true
+                            onFirstToken?.invoke(now())
+                        }
+                        if (thinkChunk.isNotEmpty()) {
+                            onThinking(thinkChunk)
+                        }
+                    },
+                )
             } else {
                 model.complete(system, messages, tools).also { reply ->
                     onFirstToken?.invoke(now())
+                    reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                 }
             }
@@ -653,15 +683,29 @@ class FreeKeyRouter(
 
             try {
                 if (model is StreamingChatModel) {
-                    val reply = model.completeStreaming(system, messages, tools) { chunk ->
-                        if (!firstTokenArrived.getAndSet(true)) {
-                            watchdog.cancel()
-                            onFirstToken?.invoke(now())
-                        }
-                        if (chunk.isNotEmpty()) {
-                            onText(chunk)
-                        }
-                    }
+                    val reply = model.completeStreamingWithThinking(
+                        system,
+                        messages,
+                        tools,
+                        onText = { chunk ->
+                            if (!firstTokenArrived.getAndSet(true)) {
+                                watchdog.cancel()
+                                onFirstToken?.invoke(now())
+                            }
+                            if (chunk.isNotEmpty()) {
+                                onText(chunk)
+                            }
+                        },
+                        onThinking = { thinkChunk ->
+                            if (!firstTokenArrived.getAndSet(true)) {
+                                watchdog.cancel()
+                                onFirstToken?.invoke(now())
+                            }
+                            if (thinkChunk.isNotEmpty()) {
+                                onThinking(thinkChunk)
+                            }
+                        },
+                    )
                     firstTokenArrived.set(true)
                     watchdog.cancel()
                     reply
@@ -670,6 +714,7 @@ class FreeKeyRouter(
                     firstTokenArrived.set(true)
                     watchdog.cancel()
                     onFirstToken?.invoke(now())
+                    reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
                     reply
                 }

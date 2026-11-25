@@ -207,6 +207,10 @@ data class Exchange(
     val id: String = runId ?: java.util.UUID.randomUUID().toString(),
     /** Model name/ID currently answering this live exchange. */
     val activeModel: String? = null,
+    /** Live reasoning/thinking text streamed from the model in real time (Claude AI style). */
+    val thinking: String? = null,
+    /** Active step number for clearing liveAction as soon as an activity for that step lands. */
+    val activeStep: Int = 0,
 )
 
 /** A line of progress at runtime: What to wait for when waiting for you; the model request only gives a neutral state when it is in transit; otherwise, if it is this step, nothing is the most recent thing. */
@@ -219,7 +223,7 @@ fun liveLine(ex: Exchange): String? {
         else -> Unit
     }
     if (ex.waitingForModel) return tr(R.string.chat_working)
-    return ex.line.ifEmpty { null } ?: ex.steps.lastOrNull()?.text ?: ex.liveAction
+    return ex.line.ifEmpty { null } ?: ex.liveAction ?: ex.steps.lastOrNull()?.text
 }
 
 /** The small line below the interjection; don’t write it when you haven’t gone yet. */
@@ -545,7 +549,12 @@ class ChatViewModel(
         _ui.update { ui ->
             val exchanges = ui.exchanges.toMutableList()
             if (liveIndex in exchanges.indices) {
-                val ex = exchanges[liveIndex].copy(activities = list)
+                val prev = exchanges[liveIndex]
+                val completedStep = prev.activeStep > 0 && list.any { it.step == prev.activeStep }
+                val ex = prev.copy(
+                    activities = list,
+                    liveAction = if (completedStep) null else prev.liveAction,
+                )
                 exchanges[liveIndex] = ex.copy(
                     steps = rows(ex, toolLabels::label, appLabel),
                     stepActions = actionsOf(list, appLabel, toolLabels::label),
@@ -1364,14 +1373,22 @@ class ChatViewModel(
                 val said = (s.narration ?: s.reason)?.takeIf(String::isNotBlank)
                 val waiting = progress == null && s.tool == null && said == null
                 val label = if (waiting) "" else progress ?: said.orEmpty()
-                val liveAction = if (label.isEmpty() && s.tool != null) {
+                val resolvedTarget = s.actionTarget?.let { raw ->
+                    if (raw.contains('.')) appLabel(raw).takeIf { it.isNotBlank() && it != raw } ?: raw else raw
+                }
+                val actionRecorded = s.step > 0 && ex.activities.any { it.step == s.step }
+                val liveAction = if (label.isEmpty() && s.tool != null && !actionRecorded) {
                     ChatCopy.liveActionLabel(
-                        s.tool, s.note, isHindi = ChatCopy.isHindiLocale(uiLocale().toLanguageTag()),
+                        s.tool, s.note,
+                        isHindi = ChatCopy.isHindiLocale(uiLocale().toLanguageTag()),
+                        target = resolvedTarget,
                     )
                 } else null
                 ex.copy(
                     status = ExchangeStatus.Working, waitingForModel = waiting, draft = s.preview,
                     usage = s.usage,
+                    thinking = s.thinking?.trim()?.takeIf(String::isNotEmpty),
+                    activeStep = s.step,
                     line = label,
                     liveAction = liveAction,
                     notes = if (s.step > 0 && said != null) ex.notes + (s.step to said) else ex.notes,
@@ -1385,14 +1402,16 @@ class ChatViewModel(
                     s.reason.queued -> ExchangeStatus.Queued(s.reason.why)
                     else -> ExchangeStatus.Paused(s.reason.why, s.reason.resumable)
                 },
-                waitingForModel = false, draft = null,
+                waitingForModel = false, draft = null, thinking = null, liveAction = null,
             )
             is TaskState.WaitingTakeover ->
-                ex.copy(status = ExchangeStatus.NeedsTakeover(s.reason, s.message, s.item, s.amount, s.address), waitingForModel = false, draft = null)
-            is TaskState.WaitingInput -> ex.copy(status = ExchangeStatus.NeedsInput(s.prompt, s.options), waitingForModel = false, draft = null)
+                ex.copy(status = ExchangeStatus.NeedsTakeover(s.reason, s.message, s.item, s.amount, s.address), waitingForModel = false, draft = null, thinking = null, liveAction = null)
+            is TaskState.WaitingInput -> ex.copy(status = ExchangeStatus.NeedsInput(s.prompt, s.options), waitingForModel = false, draft = null, thinking = null, liveAction = null)
             is TaskState.WaitingConfirmation -> ex.copy(
                 waitingForModel = false,
                 draft = null,
+                thinking = null,
+                liveAction = null,
                 status = ExchangeStatus.NeedsConfirmation(
                     ConfirmationCopy.title(s.request), ConfirmationCopy.detail(s.request, appLabel(s.request.app)),
                     ConfirmationNotifier.requestKey(s),
@@ -1401,9 +1420,9 @@ class ChatViewModel(
             // The answer is displayed as it is (there is no longer a basis section written by the
             // model); the source is given by the code written down in the running record.
             is TaskState.Succeeded -> ex.copy(status = ExchangeStatus.Done(s.answer.trim(), null, s.verified, s.note, s.unconfirmed, s.reviewed),
-                waitingForModel = false, draft = null, line = "")
-            is TaskState.Failed -> ex.copy(status = ExchangeStatus.Failed(s.reason), waitingForModel = false, draft = null, line = "")
-            TaskState.Cancelled -> ex.copy(status = ExchangeStatus.Cancelled(), waitingForModel = false, draft = null, line = "")
+                waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
+            is TaskState.Failed -> ex.copy(status = ExchangeStatus.Failed(s.reason), waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
+            TaskState.Cancelled -> ex.copy(status = ExchangeStatus.Cancelled(), waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
         }
 
         /**

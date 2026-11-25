@@ -135,20 +135,29 @@ object ChatCopy {
     }
 
     /** Real-time live action description (Claude AI style) showing what the agent is actively executing */
-    fun liveActionLabel(tool: String?, note: String? = null, isHindi: Boolean = true): String? {
+    fun liveActionLabel(
+        tool: String?,
+        note: String? = null,
+        isHindi: Boolean = true,
+        target: String? = null,
+    ): String? {
         if (tool.isNullOrBlank()) return null
-        val noteLower = note?.lowercase().orEmpty()
+        val combinedLower = listOfNotNull(target, note).joinToString(" ").lowercase()
         val toolLower = tool.lowercase()
+        val cleanTarget = target?.trim()?.takeIf(String::isNotBlank)
 
         return when {
-            toolLower.contains("launch") || toolLower == "phone_run" -> {
+            toolLower.contains("launch") || toolLower == "phone_run" || toolLower == "phone_open_link" -> {
                 when {
-                    noteLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
-                    noteLower.contains("instagram") -> if (isHindi) "Instagram khol raha hai…" else "Opening Instagram…"
-                    noteLower.contains("whatsapp") -> if (isHindi) "WhatsApp khol raha hai…" else "Opening WhatsApp…"
-                    noteLower.contains("chrome") || noteLower.contains("browser") -> if (isHindi) "Browser khol raha hai…" else "Opening Browser…"
-                    noteLower.contains("settings") -> if (isHindi) "Settings khol raha hai…" else "Opening Settings…"
-                    noteLower.contains("spotify") -> if (isHindi) "Spotify khol raha hai…" else "Opening Spotify…"
+                    combinedLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
+                    combinedLower.contains("instagram") -> if (isHindi) "Instagram khol raha hai…" else "Opening Instagram…"
+                    combinedLower.contains("whatsapp") -> if (isHindi) "WhatsApp khol raha hai…" else "Opening WhatsApp…"
+                    combinedLower.contains("chrome") || combinedLower.contains("browser") -> if (isHindi) "Browser khol raha hai…" else "Opening Browser…"
+                    combinedLower.contains("settings") -> if (isHindi) "Settings khol raha hai…" else "Opening Settings…"
+                    combinedLower.contains("spotify") -> if (isHindi) "Spotify khol raha hai…" else "Opening Spotify…"
+                    combinedLower.contains("maps") -> if (isHindi) "Maps khol raha hai…" else "Opening Maps…"
+                    combinedLower.contains("telegram") -> if (isHindi) "Telegram khol raha hai…" else "Opening Telegram…"
+                    cleanTarget != null && !cleanTarget.contains('.') -> if (isHindi) "$cleanTarget khol raha hai…" else "Opening $cleanTarget…"
                     else -> if (isHindi) "App khol raha hai…" else "Opening app…"
                 }
             }
@@ -156,32 +165,43 @@ object ChatCopy {
                 if (isHindi) "Type kar raha hai…" else "Typing…"
             }
             toolLower.contains("find") || toolLower.contains("locate") -> {
-                if (isHindi) "Screen par dhoondh raha hai…" else "Finding on screen…"
+                if (cleanTarget != null) {
+                    val clipped = cleanTarget.take(28)
+                    if (isHindi) "\"$clipped\" dhoondh raha hai…" else "Finding \"$clipped\"…"
+                } else {
+                    if (isHindi) "Screen par dhoondh raha hai…" else "Finding on screen…"
+                }
             }
-            toolLower.contains("observe") || toolLower.contains("screenshot") || toolLower.contains("view_user_screen") -> {
+            toolLower.contains("observe") || toolLower.contains("screenshot") || toolLower.contains("view_user_screen") || toolLower.contains("view_past_screens") -> {
                 if (isHindi) "Screen dekh raha hai…" else "Reading screen…"
             }
             toolLower.contains("tap") -> {
                 if (isHindi) "Tap kar raha hai…" else "Tapping…"
             }
-            toolLower.contains("scroll") || toolLower.contains("swipe") -> {
+            toolLower.contains("scroll") || toolLower.contains("swipe") || toolLower.contains("gesture") -> {
                 if (isHindi) "Scroll kar raha hai…" else "Scrolling…"
             }
             toolLower.contains("back") -> {
                 if (isHindi) "Wapas ja raha hai…" else "Going back…"
             }
-            toolLower.contains("web_navigate") -> {
+            toolLower.contains("web_navigate") || toolLower.contains("web_read") -> {
                 when {
-                    noteLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
-                    noteLower.contains("google") -> if (isHindi) "Google search kar raha hai…" else "Searching Google…"
+                    combinedLower.contains("youtube") -> if (isHindi) "YouTube khol raha hai…" else "Opening YouTube…"
+                    combinedLower.contains("google") -> if (isHindi) "Google search kar raha hai…" else "Searching Google…"
                     else -> if (isHindi) "Web page khol raha hai…" else "Opening web page…"
                 }
+            }
+            toolLower.contains("web_interact") || toolLower.contains("web_observe") -> {
+                if (isHindi) "Web page check kar raha hai…" else "Checking web page…"
             }
             toolLower.contains("generate_image") -> {
                 if (isHindi) "Image generate kar raha hai…" else "Generating image…"
             }
             toolLower.contains("edit_image") -> {
                 if (isHindi) "Image edit kar raha hai…" else "Editing image…"
+            }
+            toolLower.contains("knowledge") || toolLower.contains("memory") || toolLower.contains("search_files") || toolLower.contains("history") -> {
+                if (isHindi) "Jankari dhoondh raha hai…" else "Searching info…"
             }
             toolLower.contains("command") -> {
                 if (isHindi) "Command chala raha hai…" else "Running command…"

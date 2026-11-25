@@ -306,15 +306,18 @@ class OverlayWindow internal constructor(
      * input method will pop up facing it), closed immediately when closed, and the focus returned to the
      * app below.
      */
-    fun setFocusable(focusable: Boolean) {
+    fun setFocusable(focusable: Boolean, showIme: Boolean = focusable) {
         if (!isOpen) return
         val flags = if (focusable) params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
             else params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        if (flags == params.flags) return
+        val softInput = when {
+            !focusable -> WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
+            showIme -> WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            else -> WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        }
+        if (flags == params.flags && params.softInputMode == softInput) return
         params.flags = flags
-        params.softInputMode = if (focusable) {
-            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-        } else WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
+        params.softInputMode = softInput
         update()
     }
 

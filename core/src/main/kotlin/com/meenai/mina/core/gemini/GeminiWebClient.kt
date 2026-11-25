@@ -20,6 +20,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -32,6 +33,8 @@ object GeminiWebClient {
     const val INIT_URL = "https://gemini.google.com/app"
     const val STREAM_GENERATE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     const val BATCH_EXECUTE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
+    const val UPLOAD_ENDPOINT = "https://content-push.googleapis.com/upload"
+    const val UPLOAD_PUSH_ID = "feeds/mcudyrk2a4khkz"
     /** The GraphQL execution endpoint of the Gemini web page Usage limits page (sends the same request as the web page). */
     const val GRAPHQL_ENDPOINT = "https://gemini.google.com/_/BardChatUi/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery"
     /** The persistent query id of UsagePageQuery (fixed when the web page is packaged). */
@@ -561,11 +564,53 @@ object GeminiWebClient {
         uuid: String
     ): String = buildModelHeader(modelId, capacity, modelNumber, if (extendedThinking) 2 else 1, uuid)
 
+    /**
+     * Uploads an image to Gemini Web's content-push endpoint and returns the remote path
+     * (e.g. `/contrib_service/ttl_1d/...`) for inclusion in `StreamGenerate`, or null on failure.
+     */
+    fun uploadImage(
+        http: OkHttpClient,
+        session: GeminiWebSession,
+        bytes: ByteArray,
+        mime: String = "image/jpeg",
+        filename: String = "image.jpg",
+    ): String? = runCatching {
+        val uploadClient = http.newBuilder()
+            .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", filename, bytes.toRequestBody(mime.toMediaType()))
+            .build()
+        val reqBuilder = Request.Builder()
+            .url(UPLOAD_ENDPOINT)
+            .header("Push-ID", UPLOAD_PUSH_ID)
+            .header("Origin", BASE_URL)
+            .header("Referer", "$BASE_URL/")
+            .header("User-Agent", userAgentFor(session))
+            .post(body)
+        if (session.cookies.isNotBlank()) {
+            reqBuilder.header("Cookie", sanitizeCookieHeader(session.cookies))
+        }
+        uploadClient.newCall(reqBuilder.build()).execute().use { resp ->
+            val text = resp.body?.string()?.trim().orEmpty()
+            if (resp.isSuccessful && text.startsWith("/")) {
+                text
+            } else {
+                ChatTrace.record("gemini upload failed http=${resp.code} body=${text.take(120)}")
+                null
+            }
+        }
+    }.onFailure {
+        ChatTrace.record("gemini upload error: ${ChatTrace.describe(it)}")
+    }.getOrNull()
+
     fun buildInnerRequestJson(
         prompt: String,
         modelNumber: Int,
         thinkingFlag: Int,
-        uuid: String
+        uuid: String,
+        uploadedImages: List<Pair<String, String>> = emptyList(),
     ): String {
         val elements = MutableList<JsonElement?>(81) { null }
         // 0: message content
@@ -573,7 +618,20 @@ object GeminiWebClient {
             add(JsonPrimitive(prompt))
             add(JsonPrimitive(0))
             add(JsonPrimitive(null as String?))
-            add(JsonPrimitive(null as String?))
+            if (uploadedImages.isEmpty()) {
+                add(JsonPrimitive(null as String?))
+            } else {
+                add(buildJsonArray {
+                    for ((path, name) in uploadedImages) {
+                        add(buildJsonArray {
+                            add(buildJsonArray {
+                                add(JsonPrimitive(path))
+                            })
+                            add(JsonPrimitive(name))
+                        })
+                    }
+                })
+            }
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(null as String?))
             add(JsonPrimitive(0))

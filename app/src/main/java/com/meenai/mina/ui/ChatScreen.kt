@@ -897,17 +897,12 @@ private fun WorkBlock(
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
     val progressText = if (isWaitingForModel) {
-        val waitLabel = ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
-        val thoughtPreview = ex.draft?.trim()?.takeIf { it.isNotEmpty() }
-        if (thoughtPreview != null) {
-            val cleanSnippet = thoughtPreview.takeLast(70).replace('\n', ' ')
-            "$waitLabel · $cleanSnippet"
-        } else {
-            waitLabel
-        }
+        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
     } else {
-        ex.line.takeIf { it.isNotBlank() } ?: ChatCopy.progressLine(ex)
+        ex.line.takeIf { it.isNotBlank() } ?: ex.liveAction ?: ChatCopy.progressLine(ex)
     }
+    var thinkingExpanded by remember(ex.id) { mutableStateOf(false) }
+    val liveThinking = ex.thinking?.trim()?.takeIf { it.isNotEmpty() }
     Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 28.dp),
@@ -923,6 +918,48 @@ private fun WorkBlock(
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
+        }
+        if (liveThinking != null) {
+            val thinkingShape = RoundedCornerShape(10.dp)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, start = 26.dp)
+                    .clip(thinkingShape)
+                    .background(c.fill.copy(alpha = 0.65f))
+                    .border(0.5.dp, c.line, thinkingShape)
+                    .clickable(role = Role.Button) { thinkingExpanded = !thinkingExpanded }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(MinaIcons.Spark, null, Modifier.size(12.dp), tint = c.accent)
+                    Text(
+                        if (isHindi) "Soch raha hai" else "Thinking process",
+                        style = NoteText.copy(fontWeight = FontWeight.Medium),
+                        color = c.ink2,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (thinkingExpanded) "▴" else "▾",
+                        style = NoteText,
+                        color = c.ink3,
+                    )
+                }
+                val snippet = if (thinkingExpanded) liveThinking
+                else liveThinking.lines().takeLast(4).joinToString("\n").takeLast(220)
+                Text(
+                    snippet,
+                    Modifier.padding(top = 3.dp),
+                    style = NoteText,
+                    color = c.ink3,
+                    maxLines = if (thinkingExpanded) Int.MAX_VALUE else 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         ex.usage?.takeIf { it.calls > 0 }?.let { UsageLine(it) }
         if (ex.steps.isNotEmpty()) StepLine(ex.steps, ex.stepActions, live = true, paused = paused)

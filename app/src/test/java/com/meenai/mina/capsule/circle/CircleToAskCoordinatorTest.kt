@@ -166,4 +166,36 @@ class CircleToAskCoordinatorTest {
         assertEquals(1, warnings.size)
         assertTrue(warnings[0].contains("Screen dekhne wala model set nahi hai"))
     }
+
+    @Test
+    fun freehandCircleStrokePreservesFullBoundingBoxAndCornerHitsWork() {
+        val screenW = 1080f
+        val screenH = 2400f
+        // Simulate tracing a closed circle starting & ending near (500, 300)
+        var bounds = CropRect(500f, 300f, 500f, 300f)
+        val circlePoints = listOf(
+            700f to 500f,
+            500f to 700f,
+            300f to 500f,
+            502f to 302f, // closes back near start
+        )
+        for ((x, y) in circlePoints) {
+            bounds = CircleCropGeometry.expandBounds(bounds, x, y, screenW, screenH)
+        }
+        assertEquals(300f, bounds.left, 0.01f)
+        assertEquals(300f, bounds.top, 0.01f)
+        assertEquals(700f, bounds.right, 0.01f)
+        assertEquals(700f, bounds.bottom, 0.01f)
+        assertTrue(CircleCropGeometry.isValidSelection(bounds, density = 3f))
+
+        assertEquals(ResizeHandle.TopLeft, CircleCropGeometry.hitTestHandle(bounds, 305f, 305f, 60f))
+        assertEquals(ResizeHandle.BottomRight, CircleCropGeometry.hitTestHandle(bounds, 695f, 690f, 60f))
+        assertEquals(null, CircleCropGeometry.hitTestHandle(bounds, 500f, 500f, 60f))
+
+        val mapped = CircleCropGeometry.mapRectToBitmap(bounds, viewWidth = 1080f, viewHeight = 2400f, bitmapWidth = 540, bitmapHeight = 1200)
+        assertEquals(150f, mapped.left, 0.01f)
+        assertEquals(150f, mapped.top, 0.01f)
+        assertEquals(350f, mapped.right, 0.01f)
+        assertEquals(350f, mapped.bottom, 0.01f)
+    }
 }

@@ -109,16 +109,17 @@ internal class ModelCaller(
     suspend fun routed(
         history: List<Message>, specs: List<ToolSpec>, track: StepTrack, step: Int, restarted: (Long) -> Unit,
         onText: ((String) -> Unit)? = null,
+        onThinking: ((String) -> Unit)? = null,
     ): Pair<ModelReply, ChatModel> {
-        val r = router?.takeIf { routing } ?: return ask(history, specs, step, onText = onText) to model
+        val r = router?.takeIf { routing } ?: return ask(history, specs, step, onText = onText, onThinking = onThinking) to model
         val picked = r.pick(track.context(step, history.any { m -> m.parts.any { it is Part.Image } }))
-        if (!r.isLight(picked)) return ask(history, specs, step, onText = onText) to model
+        if (!r.isLight(picked)) return ask(history, specs, step, onText = onText, onThinking = onThinking) to model
         // The context of a lightweight model may be smaller: it is reported to be too long, and how much
         // it is folded at that time does not affect the main model (the compression status is recorded
         // separately by model)
         val asked = now()
         val light = try {
-            complete(viewFor(history, picked), specs, picked, RetryPolicy.NONE, step, onText)
+            complete(viewFor(history, picked), specs, picked, RetryPolicy.NONE, step, onText, onThinking)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -141,8 +142,9 @@ internal class ModelCaller(
         ))
         emit(RunEvent.State(now(), "light_to_main", first?.name ?: if (light == null) "light_error" else "no_tool"))
         onText?.invoke("")
+        onThinking?.invoke("")
         restarted(now())
-        return ask(history, specs, step, onText = onText) to model
+        return ask(history, specs, step, onText = onText, onThinking = onThinking) to model
     }
 
     private fun needsMain(call: Part.ToolCall): Boolean =
@@ -150,8 +152,12 @@ internal class ModelCaller(
             (!autonomous && ConfirmDecision.mayBeIrreversible(tools, call.name, parseArgs(call.argsJson)))
 
     /** Question [using] (default master model): What is sent is a compressed copy of the history ([viewFor]) shown to it. */
-    suspend fun ask(history: List<Message>, specs: List<ToolSpec>, step: Int, using: ChatModel = model, onText: ((String) -> Unit)? = null): ModelReply =
-        complete(viewFor(history, using), specs, using, retry, step, onText)
+    suspend fun ask(
+        history: List<Message>, specs: List<ToolSpec>, step: Int, using: ChatModel = model,
+        onText: ((String) -> Unit)? = null,
+        onThinking: ((String) -> Unit)? = null,
+    ): ModelReply =
+        complete(viewFor(history, using), specs, using, retry, step, onText, onThinking)
 
     /**
      * History sent to [to]: Replies given by other models remove the thinking content and private data
@@ -175,7 +181,8 @@ internal class ModelCaller(
     }
 
     private suspend fun complete(history: List<Message>, specs: List<ToolSpec>, using: ChatModel, policy: RetryPolicy, step: Int,
-        onText: ((String) -> Unit)? = null): ModelReply {
+        onText: ((String) -> Unit)? = null,
+        onThinking: ((String) -> Unit)? = null): ModelReply {
         var retries = 0
         lastRetryWaitMs = 0
         val began = now()
@@ -207,11 +214,17 @@ internal class ModelCaller(
                 // waiting.
                 lastRetryWaitMs = now() - began
                 onActiveModel(using.name)
-                suspend fun send(): ModelReply = if (onText == null) using.complete(systemPrompt, sent.messages, specs)
-                    else if (using is StreamingChatModel) using.completeStreaming(systemPrompt, sent.messages, specs, onText)
+                suspend fun send(): ModelReply = if (onText == null && onThinking == null) using.complete(systemPrompt, sent.messages, specs)
+                    else if (using is StreamingChatModel) using.completeStreamingWithThinking(
+                        systemPrompt, sent.messages, specs, onText ?: {}, onThinking ?: {},
+                    )
                     else using.complete(systemPrompt, sent.messages, specs).also { result ->
-                        result.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }
-                            .takeIf(String::isNotEmpty)?.let(onText)
+                        onThinking?.let { cb ->
+                            result.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
+                        }
+                        onText?.let { cb ->
+                            result.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
+                        }
                     }
                 val reply = if (trace == null) send() else {
                     val change = when {
@@ -228,6 +241,7 @@ internal class ModelCaller(
                 }
             } catch (e: ModelError.ContextTooLong) {
                 onText?.invoke("")
+                onThinking?.invoke("")
                 val (after, again) = CompactionPolicy.overflow(compaction, overflowRetried) {
                     compressor.overflow(history, contextTokens, overhead)
                 }
@@ -238,6 +252,7 @@ internal class ModelCaller(
                 if (!again) throw e
             } catch (e: ModelError) {
                 onText?.invoke("")
+                onThinking?.invoke("")
                 val wait = policy.delayFor(e, retries, taskRetryWaitMs) ?: throw e
                 retries += 1
                 taskRetryWaitMs += wait

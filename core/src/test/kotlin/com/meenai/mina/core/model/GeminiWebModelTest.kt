@@ -1053,6 +1053,78 @@ class GeminiWebModelTest {
         )
     }
 
+    @Test
+    fun completeStreamingWithThinkingStreamsLiveThoughtsBeforeVisibleAnswer() = runTest {
+        fun chunkPayload(text: String, thoughts: String): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_think"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+                for (i in 2..36) add(JsonPrimitive(null as String?))
+                add(buildJsonArray { add(buildJsonArray { add(JsonPrimitive(thoughts)) }) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        val combinedBody = makeStreamData(chunkPayload("", "Checking YouTube app...")) +
+            makeStreamData(chunkPayload("Opening YouTube now!", "Checking YouTube app..."))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(combinedBody))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+
+        val seenThoughts = mutableListOf<String>()
+        val seenText = mutableListOf<String>()
+        val reply = model.completeStreamingWithThinking(
+            system = "sys",
+            messages = userMsg,
+            tools = emptyList(),
+            onText = { if (it.isNotEmpty()) seenText += it },
+            onThinking = { if (it.isNotEmpty()) seenThoughts += it },
+        )
+
+        assertTrue(seenThoughts.contains("Checking YouTube app..."))
+        assertEquals(listOf("Opening YouTube now!"), seenText)
+        assertTrue(reply.parts.any { it is Part.Thinking && it.text == "Checking YouTube app..." })
+        assertTrue(reply.parts.any { it is Part.Text && it.text == "Opening YouTube now!" })
+    }
+
+    @Test
+    fun signedInImageMessageUploadsToContentPushAndAttachesPath() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("/contrib_service/ttl_1d/test_crop.jpg"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("That is Yo Yo Honey Singh."))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val b64 = java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4))
+        val imgMsg = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image(b64, "image/jpeg", 200, 200), Part.Text("Who is this?")),
+                Author.User,
+            )
+        )
+
+        val reply = model.complete("sys", imgMsg, emptyList())
+        assertEquals(Part.Text("That is Yo Yo Honey Singh."), reply.parts.first { it is Part.Text })
+
+        val uploadReq = server.takeRequest()
+        assertEquals("feeds/mcudyrk2a4khkz", uploadReq.getHeader("Push-ID"))
+        val genReq = server.takeRequest()
+        val bodyDecoded = java.net.URLDecoder.decode(genReq.body.readUtf8(), "UTF-8")
+        assertTrue("StreamGenerate payload must contain uploaded image path", bodyDecoded.contains("/contrib_service/ttl_1d/test_crop.jpg"))
+    }
+
     /** A response body that sends [prefix] and then holds the connection open. */
     private class StreamBody(private val input: java.io.InputStream) : okhttp3.ResponseBody() {
         override fun contentType() = null

@@ -16,4 +16,13 @@ interface StreamingChatModel : ChatModel {
     suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
     ): ModelReply
+
+    /** Same as [completeStreaming], also delivering live reasoning/thinking chunks via [onThinking]. */
+    suspend fun completeStreamingWithThinking(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onText: (String) -> Unit,
+        onThinking: (String) -> Unit,
+    ): ModelReply = completeStreaming(system, messages, tools, onText)
 }

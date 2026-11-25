@@ -87,8 +87,13 @@ class AnthropicModel(
 
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+    ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText) {}
+
+    override suspend fun completeStreamingWithThinking(
+        system: String, messages: List<Message>, tools: List<ToolSpec>,
+        onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
-        val stream = AnthropicStream(endpoint, onText, ::parseUsage)
+        val stream = AnthropicStream(endpoint, onText, onThinking, ::parseUsage)
         // There was no event when it was rejected (HttpSupport.stream does not adjust accept when it is
         // not 2xx), resend and use this stream
         val (status, retryAfter, text) = dropStaleThinking(messages) {
@@ -96,6 +101,7 @@ class AnthropicModel(
         }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
+            reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
             reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
         }
         return stream.finish()
@@ -300,6 +306,7 @@ class AnthropicModel(
 private class AnthropicStream(
     private val endpoint: String,
     private val onText: (String) -> Unit,
+    private val onThinking: (String) -> Unit,
     private val usageOf: (JsonElement?) -> Usage?,
 ) {
     private data class Block(
@@ -311,6 +318,7 @@ private class AnthropicStream(
     private val json = Json { ignoreUnknownKeys = true }
     private val blocks = sortedMapOf<Int, Block>()
     private val visible = StringBuilder()
+    private val thinking = StringBuilder()
     private var usage: Usage? = null
     private var reason: String? = null
     private var stopped = false
@@ -344,7 +352,11 @@ private class AnthropicStream(
                     "text_delta" -> (delta["text"] as? JsonPrimitive)?.contentOrNull?.let {
                         block.text.append(it); visible.append(it); onText(visible.toString())
                     }
-                    "thinking_delta" -> (delta["thinking"] as? JsonPrimitive)?.contentOrNull?.let { block.text.append(it) }
+                    "thinking_delta" -> (delta["thinking"] as? JsonPrimitive)?.contentOrNull?.let {
+                        block.text.append(it)
+                        thinking.append(it)
+                        onThinking(thinking.toString())
+                    }
                     "signature_delta" -> (delta["signature"] as? JsonPrimitive)?.contentOrNull?.let { block.signature.append(it) }
                     "input_json_delta" -> (delta["partial_json"] as? JsonPrimitive)?.contentOrNull?.let { block.input.append(it) }
                 }

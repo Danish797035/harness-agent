@@ -536,7 +536,7 @@ class AgentLoop(
             }
             var asked = now()
             val routed = try {
-                routedOrRedirect(inbox, history, specs, track, step, { asked = it }, previewFor(step))
+                routedOrRedirect(inbox, history, specs, track, step, { asked = it }, previewFor(step), thinkingFor(step))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -557,7 +557,7 @@ class AgentLoop(
                     // executed; ask again, only giving a chance for a direct answer.
                     val discussion = history + ctx.notice("conversation_intent",
                         "The user is discussing or reviewing this time. Answer this question directly, without reading or operating apps, websites or other outside content.")
-                    reply = try { caller.ask(discussion, emptyList(), step, using = model, onText = previewFor(step)) }
+                    reply = try { caller.ask(discussion, emptyList(), step, using = model, onText = previewFor(step), onThinking = thinkingFor(step)) }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { return StopRules.modelFailed(e) }
                     reply = com.meenai.mina.core.model.LeakedToolMarkup.repair(reply)
@@ -569,7 +569,10 @@ class AgentLoop(
             val calls = reply.parts.filterIsInstance<Part.ToolCall>()
             note = text.ifEmpty { calls.firstOrNull()?.name ?: note }
             val tool = calls.firstOrNull()?.name
-            val reason = calls.firstOrNull()?.let { tools.callReason(it.name, parseArgs(it.argsJson)) }
+            val firstParsedArgs = calls.firstOrNull()?.let { parseArgs(it.argsJson) }
+            val reason = calls.firstOrNull()?.let { firstParsedArgs?.let { parsed -> tools.callReason(it.name, parsed) } }
+            val actionTarget = firstParsedArgs?.let(::safeActionTarget)
+            val replyThinking = reply.parts.filterIsInstance<Part.Thinking>().joinToString("\n") { it.text }.trim().takeIf(String::isNotEmpty)
             val retryWaitMs = caller.lastRetryWaitMs
             val repliedAtMs = now()
             val latencyMs = repliedAtMs - asked - retryWaitMs
@@ -577,7 +580,8 @@ class AgentLoop(
             // interface uses it first.
             val narration = text.takeIf { calls.isNotEmpty() && it.isNotEmpty() }
             _state.value = TaskState.Running(step, note, tool, reason = reason, narration = narration,
-                preview = text.takeIf { streamReplies && calls.isEmpty() && it.isNotEmpty() })
+                preview = text.takeIf { streamReplies && calls.isEmpty() && it.isNotEmpty() },
+                thinking = replyThinking, actionTarget = actionTarget)
             // The reply with the call will be recorded after the execution is completed: it depends on
             // whether the port reports a password box.
             fun recordReply(argsJson: String?) = emit(RunEvent.ModelReply(
@@ -951,10 +955,11 @@ class AgentLoop(
     private suspend fun routedOrRedirect(
         inbox: RunInbox?, history: List<Message>, specs: List<ToolSpec>, track: StepTrack, step: Int, restarted: (Long) -> Unit,
         onText: ((String) -> Unit)?,
+        onThinking: ((String) -> Unit)? = null,
     ): Pair<ModelReply, ChatModel>? {
-        if (inbox == null) return caller.routed(history, specs, track, step, restarted, onText)
+        if (inbox == null) return caller.routed(history, specs, track, step, restarted, onText, onThinking)
         return coroutineScope {
-            val pending = async { caller.routed(history, specs, track, step, restarted, onText) }
+            val pending = async { caller.routed(history, specs, track, step, restarted, onText, onThinking) }
             select<Pair<ModelReply, ChatModel>?> {
                 pending.onAwait { it }
                 inbox.redirects.onReceive {
@@ -991,6 +996,21 @@ class AgentLoop(
         // After removing it, the network thread may send a paragraph: Don't display it again, so as not
         // to have more on the screen than in the history.
         if (current?.step == step && interruptedStep != step) _state.value = current.copy(preview = preview.takeIf(String::isNotEmpty))
+    }
+
+    private fun thinkingFor(step: Int): ((String) -> Unit)? = if (!streamReplies) null else { thought ->
+        val current = _state.value as? TaskState.Running
+        if (current?.step == step && interruptedStep != step) {
+            _state.value = current.copy(thinking = thought.takeIf(String::isNotEmpty))
+        }
+    }
+
+    private fun safeActionTarget(args: JsonObject): String? {
+        val raw = listOf("packageName", "package", "app", "url", "query", "path")
+            .firstNotNullOfOrNull { key ->
+                (args[key] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+            } ?: return null
+        return Redactor.text(raw).take(60).takeIf(String::isNotEmpty)
     }
 
     /**
