@@ -70,9 +70,14 @@ object ImageStorageManager {
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
 
         try {
-            resolver.openOutputStream(uri)?.use { out ->
+            val out = resolver.openOutputStream(uri)
+            if (out == null) {
+                resolver.delete(uri, null, null)
+                return null
+            }
+            out.use { stream ->
                 imageFile.inputStream().use { input ->
-                    input.copyTo(out)
+                    input.copyTo(stream)
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -90,7 +95,7 @@ object ImageStorageManager {
     /**
      * Creates a share Intent for the image file.
      */
-    fun createShareIntent(context: Context, imageFile: File): Intent {
+    fun createShareIntent(context: Context, imageFile: File): Intent? {
         val uri: Uri = try {
             FileProvider.getUriForFile(
                 context,
@@ -98,7 +103,7 @@ object ImageStorageManager {
                 imageFile
             )
         } catch (_: Exception) {
-            Uri.fromFile(imageFile)
+            return null
         }
 
         return Intent(Intent.ACTION_SEND).apply {

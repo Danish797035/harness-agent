@@ -468,11 +468,11 @@ def main(argv=None):
             if args.url:
                 base_url(args.url)
             try:
-                from mina_desk import serve
+                from harness_desk import serve
             except ModuleNotFoundError:
                 # A copied Skill folder run as `python3 -I .../mina_cli.py` leaves this folder off sys.path.
                 sys.path.append(str(Path(__file__).resolve().parent))
-                from mina_desk import serve
+                from harness_desk import serve
             return serve(args)
         args.progress = args.command in {"devices", "connect", "doctor"}
         result = execute(args, secrets)

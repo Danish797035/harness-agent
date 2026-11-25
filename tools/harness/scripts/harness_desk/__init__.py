@@ -11,7 +11,7 @@ import sys
 import threading
 import webbrowser
 
-from mina_cli import Adb, CliError, connection, device_state_error, execute, recent_tasks, redact
+from harness_cli import Adb, CliError, connection, device_state_error, execute, recent_tasks, redact
 
 
 ASSETS = {
@@ -19,7 +19,8 @@ ASSETS = {
     "/desk.css": ("desk.css", "text/css"),
     "/desk.js": ("desk.js", "text/javascript"),
     # 3× header rendition of Android's drawable-nodpi/mina_launcher_art.png.
-    "/mina-logo.png": ("mina-logo.png", "image/png"),
+    "/mina-logo.png": ("harness-logo.png", "image/png"),
+    "/harness-logo.png": ("harness-logo.png", "image/png"),
 }
 WATCH_SECONDS = 4
 FIELDS = {"overview": set(), "watch": {"task_id"}, "select": {"device"}, "run": {"goal"}, "status": {"task_id"}, "cancel": {"task_id"},

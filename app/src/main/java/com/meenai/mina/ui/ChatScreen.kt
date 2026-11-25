@@ -642,7 +642,9 @@ private fun LazyListScope.exchange(
                     },
                     onShare = { file ->
                         val intent = ImageStorageManager.createShareIntent(context, file)
-                        context.startActivity(android.content.Intent.createChooser(intent, null))
+                        if (intent != null) {
+                            context.startActivity(android.content.Intent.createChooser(intent, null))
+                        }
                     },
                     onRegenerate = { prompt ->
                         val targetPrompt = ex.goal.takeIf { it.isNotBlank() } ?: prompt

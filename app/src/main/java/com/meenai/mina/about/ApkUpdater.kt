@@ -89,7 +89,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(target))
         val id = manager.enqueue(request)
-        if (!prefs.edit().putLong("id", id).putString("url", url).putString("file", target.name).commit()) {
+        if (!prefs.edit().putBoolean("viaApp", false).remove("handled_id").putLong("id", id).putString("url", url).putString("file", target.name).commit()) {
             manager.remove(id)
             error("could not save download")
         }

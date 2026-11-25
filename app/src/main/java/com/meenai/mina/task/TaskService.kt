@@ -19,6 +19,7 @@ import android.os.Looper
 import android.os.RemoteException
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.meenai.mina.core.action.ConfirmChoice
 import com.meenai.mina.R
 import com.meenai.mina.chat.ConversationStore
@@ -403,14 +404,17 @@ class TaskService : Service() {
             runCatching {
                 RunLearning.launchAfter(MemoryRuntime.of(this@TaskService).scope, {
                     delivered = notifyResult(run, end, deliveryId) == DeliveryState.Delivered
-                    // The result of the scheduled task is recorded as the ending on the spot (the same
-                    // as before). If it is judged as not completed, it will be re-recorded; it will
-                    // always be recorded without relying on the service.
-                    if (delivered) run.triggerWindowKey?.let { key ->
-                        runCatching {
-                            if (end is TaskState.Succeeded) TriggerRuntime.delivered(app, key)
-                            else TriggerRuntime.actionFailed(app, key, describe(end).second)
-                        }.onFailure { Log.w(TAG, "could not record trigger result", it) }
+                    if (delivered) {
+                        center.markDelivered(run)
+                        // The result of the scheduled task is recorded as the ending on the spot (the same
+                        // as before). If it is judged as not completed, it will be re-recorded; it will
+                        // always be recorded without relying on the service.
+                        run.triggerWindowKey?.let { key ->
+                            runCatching {
+                                if (end is TaskState.Succeeded) TriggerRuntime.delivered(app, key)
+                                else TriggerRuntime.actionFailed(app, key, describe(end).second)
+                            }.onFailure { Log.w(TAG, "could not record trigger result", it) }
+                        }
                     }
                 }) {
                     // After handing over: the answer will be determined according to the user's
@@ -429,7 +433,6 @@ class TaskService : Service() {
                         .onFailure { Log.w(TAG, "learning after run failed", it) }
                 }
             }.onFailure { Log.w(TAG, "result notification failed", it) }
-            if (delivered) center.markDelivered(run)
             run.mcpExternalId?.let { (application as com.meenai.mina.HarnessApp).remoteTasks.ended(it, end, run.steers.value) }
             onRunEnded(run, store)
         }
@@ -1000,7 +1003,8 @@ class TaskService : Service() {
         /** Answer the Agent's question (ask_user). */
         fun answer(context: Context, text: String, runKey: String? = null) {
             if (!stateFor(context, runKey).isActive()) return
-            context.startService(
+            startForegroundCommand(
+                context,
                 Intent(context, TaskService::class.java).setAction(ACTION_ANSWER).putExtra(EXTRA_ANSWER, text)
                     .apply { if (runKey != null) putExtra(EXTRA_RUN, runKey) },
             )
@@ -1014,7 +1018,8 @@ class TaskService : Service() {
 
         private fun confirm(context: Context, action: String, key: Int, runKey: String?) {
             if (!stateFor(context, runKey).isActive()) return
-            context.startService(
+            startForegroundCommand(
+                context,
                 Intent(context, TaskService::class.java).setAction(action).putExtra(ConfirmationNotifier.EXTRA_REQUEST, key)
                     .apply { if (runKey != null) putExtra(EXTRA_RUN, runKey) },
             )
@@ -1029,12 +1034,22 @@ class TaskService : Service() {
         /** When [runKey] is empty, it acts on the task being displayed, otherwise it only acts on the task. */
         private fun send(context: Context, action: String, waitKey: Int? = null, runKey: String? = null) {
             if (!stateFor(context, runKey).isActive()) return
-            context.startService(
+            startForegroundCommand(
+                context,
                 Intent(context, TaskService::class.java).setAction(action).apply {
                     if (waitKey != null) putExtra(EXTRA_WAIT_KEY, waitKey)
                     if (runKey != null) putExtra(EXTRA_RUN, runKey)
                 },
             )
+        }
+
+        private fun startForegroundCommand(context: Context, intent: Intent) {
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (e: IllegalStateException) {
+                // Covers ForegroundServiceStartNotAllowedException on Android 12+ and background start restrictions on Android 8+.
+                Log.w(TAG, "cannot start foreground service for ${intent.action}", e)
+            }
         }
 
         internal fun TaskState.isActive() = when (this) {

@@ -24,25 +24,28 @@ jobs:
     steps:
       - name: Determine Release Info
         id: release_info
+        env:
+          INPUT_TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name }}"
+          TAG="$INPUT_TAG"
           if [ -z "$TAG" ]; then
             TAG="v0.1.48-test"
           fi
           # Strip leading 'v' and extract base version
           VERSION=$(echo "$TAG" | sed -E 's/^v//; s/-.*//')
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Validate Payload Schema (Dry-Run Check)
         env:
           TAG: ${{ steps.release_info.outputs.tag }}
           VERSION: ${{ steps.release_info.outputs.version }}
         run: |
-          python3 -c "
+          python3 - <<'PY'
           import json
-          tag = '$TAG'
-          version = '$VERSION'
+          import os
+          tag = os.environ["TAG"]
+          version = os.environ["VERSION"]
           payload = {
               'validate_only': True,
               'message': {
@@ -60,7 +63,7 @@ jobs:
           assert payload['message']['data']['tag'] == tag, 'Tag mismatch'
           print('FCM payload schema dry-run check: PASSED')
           print(json.dumps(payload, indent=2))
-          "
+          PY
 
       - name: Check Service Account Secret
         id: check_secret

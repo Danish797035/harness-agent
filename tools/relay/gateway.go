@@ -87,17 +87,19 @@ func (g *gateway) limited(r *http.Request, category string, count int) bool {
 	defer g.mu.Unlock()
 	now := g.now()
 	key := category + ":" + g.client(r)
-	for k, v := range g.limits {
-		if !now.Before(v.Until) {
-			delete(g.limits, k)
+	v, exists := g.limits[key]
+	if !exists && len(g.limits) >= 1024 {
+		for k, entry := range g.limits {
+			if !now.Before(entry.Until) {
+				delete(g.limits, k)
+			}
+		}
+		if len(g.limits) >= 1024 {
+			return true
 		}
 	}
-	if len(g.limits) >= 1024 {
-		return true
-	}
-	v := g.limits[key]
-	if v.Until.IsZero() {
-		v.Until = now.Add(time.Minute)
+	if !exists || !now.Before(v.Until) {
+		v = limitEntry{Until: now.Add(time.Minute)}
 	}
 	v.Count++
 	g.limits[key] = v

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -463,4 +464,65 @@ func TestForwardedRequestCarriesCallerForPhoneCooldown(t *testing.T) {
 	}
 	sendFrame(t, c, frame{Type: "response", ID: in.ID, Status: 200})
 	<-done
+}
+
+func TestRateLimitExistingKeyAndExpiredSweep(t *testing.T) {
+	f := newFixture(t)
+	now := time.Unix(1_700_000_000, 0)
+	f.g.now = func() time.Time { return now }
+	req := func(ip string) *http.Request {
+		r := httptest.NewRequest("POST", "/pair", nil)
+		r.RemoteAddr = ip + ":1234"
+		return r
+	}
+
+	// Register one active client below the threshold, then fill the rest to 1024 active entries.
+	if f.g.limited(req("203.0.113.1"), "pair", 5) {
+		t.Fatal("first request unexpectedly limited")
+	}
+	for i := 0; i < 1023; i++ {
+		f.g.limits["pair:seed-"+strconv.Itoa(i)] = limitEntry{
+			Until: now.Add(30 * time.Second),
+			Count: 1,
+		}
+	}
+	if len(f.g.limits) != 1024 {
+		t.Fatalf("expected 1024 entries, got %d", len(f.g.limits))
+	}
+
+	// Existing key still respects its own quota even when the table is at capacity.
+	for i := 2; i <= 5; i++ {
+		if f.g.limited(req("203.0.113.1"), "pair", 5) {
+			t.Fatalf("existing key limited too early on call %d", i)
+		}
+	}
+	if !f.g.limited(req("203.0.113.1"), "pair", 5) {
+		t.Fatal("existing key not limited after exceeding count")
+	}
+
+	// Brand-new keys are rejected while all 1024 slots are active.
+	if !f.g.limited(req("203.0.113.2"), "pair", 5) {
+		t.Fatal("new key was not rejected at capacity")
+	}
+	if len(f.g.limits) != 1024 {
+		t.Fatalf("capacity exceeded: %d", len(f.g.limits))
+	}
+
+	// If even one slot is expired, a new key sweeps expired entries and is admitted.
+	f.g.limits["pair:seed-0"] = limitEntry{Until: now.Add(-time.Second), Count: 1}
+	if f.g.limited(req("203.0.113.2"), "pair", 5) {
+		t.Fatal("new key rejected before expired entry was swept")
+	}
+	if !f.g.limited(req("203.0.113.3"), "pair", 5) {
+		t.Fatal("new key not rejected after capacity filled again")
+	}
+
+	// Once the full window expires, sweeping clears old keys and admits new traffic.
+	now = now.Add(61 * time.Second)
+	if f.g.limited(req("203.0.113.3"), "pair", 5) {
+		t.Fatal("new key rejected after all entries expired")
+	}
+	if len(f.g.limits) != 1 {
+		t.Fatalf("expected expired entries purged, got %d", len(f.g.limits))
+	}
 }
