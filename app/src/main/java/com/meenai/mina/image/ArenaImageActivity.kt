@@ -3,9 +3,11 @@ package com.meenai.mina.image
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Message
 import android.util.Base64
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -80,6 +82,332 @@ class ArenaImageActivity : ComponentActivity() {
         var activeSession: Session? = null
         private var instance: ArenaImageActivity? = null
 
+        private val EXACT_ALLOWED_HOSTS = setOf(
+            "arena.ai",
+            "lmarena.ai",
+            "challenges.cloudflare.com",
+            "accounts.google.com",
+            "hcaptcha.com",
+            "discord.com",
+            "github.com",
+        )
+
+        private val WILDCARD_ALLOWED_SUFFIXES = listOf(
+            ".arena.ai",
+            ".lmarena.ai",
+            ".cloudflare.com",
+            ".google.com",
+            ".gstatic.com",
+            ".googleusercontent.com",
+            ".hcaptcha.com",
+        )
+
+        internal fun isArenaAutomationTarget(scheme: String?, host: String?): Boolean {
+            if (!scheme.equals("https", ignoreCase = true)) return false
+            val h = host?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && '@' !in it } ?: return false
+            return h == "arena.ai" || h.endsWith(".arena.ai") || h == "lmarena.ai" || h.endsWith(".lmarena.ai")
+        }
+
+        internal fun isAllowedNavigation(scheme: String?, host: String?, rawUrl: String): Boolean {
+            if (rawUrl.trim().equals("about:blank", ignoreCase = true)) return true
+            if (!scheme.equals("https", ignoreCase = true)) return false
+            val h = host?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && '@' !in it } ?: return false
+            return h in EXACT_ALLOWED_HOSTS || WILDCARD_ALLOWED_SUFFIXES.any { h.endsWith(it) }
+        }
+
+        internal fun isAllowedNavigationUrl(url: String): Boolean {
+            if (url.trim().equals("about:blank", ignoreCase = true)) return true
+            val androidUri = runCatching { Uri.parse(url) }.getOrNull()
+            if (androidUri != null && (!androidUri.scheme.isNullOrBlank() || !androidUri.host.isNullOrBlank())) {
+                return isAllowedNavigation(androidUri.scheme, androidUri.host, url)
+            }
+            val javaUri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+            return isAllowedNavigation(javaUri.scheme, javaUri.host, url)
+        }
+
+        internal fun isArenaUrl(url: String): Boolean {
+            val androidUri = runCatching { Uri.parse(url) }.getOrNull()
+            if (androidUri != null && (!androidUri.scheme.isNullOrBlank() || !androidUri.host.isNullOrBlank())) {
+                return isArenaAutomationTarget(androidUri.scheme, androidUri.host)
+            }
+            val javaUri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+            return isArenaAutomationTarget(javaUri.scheme, javaUri.host)
+        }
+
+        private fun isAuthOrLoginUri(scheme: String?, host: String?, path: String?): Boolean {
+            if (!scheme.equals("https", ignoreCase = true)) return false
+            val h = host?.lowercase().orEmpty()
+            val p = path?.lowercase().orEmpty()
+            return h == "accounts.google.com" || h == "discord.com" || h == "github.com" ||
+                p.contains("/login") || p.contains("/auth")
+        }
+
+        internal fun modelParamFor(targetModel: String): String = when {
+            targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.7"
+            targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
+            targetModel.contains("muse", ignoreCase = true) -> "muse-image"
+            targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
+            targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
+            targetModel.contains("ideogram", ignoreCase = true) -> "ideogram-4.5"
+            targetModel.contains("qwen", ignoreCase = true) -> "qwen-image-2.0"
+            targetModel.contains("flux", ignoreCase = true) -> "flux-3-image-klein"
+            else -> "mai-image-2.7"
+        }
+
+        internal fun buildTargetUrl(model: String): String {
+            val targetModel = model.ifBlank { "mai-image-2.7" }
+            val modelParam = modelParamFor(targetModel)
+            return "$ARENA_URL?model_a=$modelParam&model=$modelParam"
+        }
+
+        internal fun buildAutomationJs(targetModel: String, prompt: String): String {
+            val modelEscaped = JsonPrimitive(targetModel).toString()
+            val promptEscaped = JsonPrimitive(prompt).toString()
+            return """
+                (function() {
+                    function log(msg) {
+                        if (window.AndroidBridge && window.AndroidBridge.log) {
+                            window.AndroidBridge.log(msg);
+                        } else {
+                            console.log(msg);
+                        }
+                    }
+
+                    const targetModel = $modelEscaped;
+                    const promptText = $promptEscaped;
+                    log("Visible Arena automation started for: " + targetModel);
+
+                    function dismissTermsOnly() {
+                        try {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            const agreeBtn = buttons.find(b => {
+                                const t = (b.textContent || '').trim().toLowerCase();
+                                return t === 'agree' || t === 'i agree' || t === 'accept terms';
+                            });
+                            if (agreeBtn) {
+                                log("Accepting Terms modal");
+                                agreeBtn.click();
+                            }
+                        } catch (e) {
+                            log("dismissTermsOnly err: " + e.message);
+                        }
+                    }
+
+                    let modelAttempts = 0;
+                    function ensureModel(onReady) {
+                        dismissTermsOnly();
+                        const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                        const buttons = Array.from(document.querySelectorAll('button'));
+
+                        const activeModelBtn = buttons.find(b => {
+                            const t = (b.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                            return t.includes(clean) ||
+                                   (clean.includes('mai') && t.includes('mai')) ||
+                                   (clean.includes('grok') && t.includes('grok')) ||
+                                   (clean.includes('muse') && t.includes('muse')) ||
+                                   (clean.includes('seedream') && t.includes('seedream'));
+                        });
+
+                        if (activeModelBtn) {
+                            log("Model is active: " + (activeModelBtn.textContent || '').trim());
+                            onReady();
+                            return;
+                        }
+
+                        const modelBtn = document.querySelector('[data-testid="model-select"]') ||
+                            buttons.find(b => {
+                                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                                const t = (b.textContent || '').toLowerCase();
+                                return aria.includes('model') || t.includes('select model') || b.getAttribute('aria-haspopup') === 'dialog';
+                            });
+
+                        if (modelBtn) {
+                            log("Clicking model selector button...");
+                            modelBtn.click();
+                            setTimeout(() => {
+                                const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button, [role="button"], span'));
+                                const match = options.find(el => {
+                                    const t = (el.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                                    return t.includes(clean) ||
+                                           (clean.includes('mai') && t.includes('mai')) ||
+                                           (clean.includes('grok') && t.includes('grok')) ||
+                                           (clean.includes('muse') && t.includes('muse')) ||
+                                           (clean.includes('seedream') && t.includes('seedream')) ||
+                                           (clean.includes('flux') && t.includes('flux')) ||
+                                           (clean.includes('ideogram') && t.includes('ideogram'));
+                                });
+                                if (match) {
+                                    log("Selected model from list: " + match.textContent.trim());
+                                    match.click();
+                                    setTimeout(onReady, 600);
+                                } else {
+                                    log("Model not found in list, proceeding with current selection");
+                                    onReady();
+                                }
+                            }, 800);
+                        } else if (modelAttempts < 3) {
+                            modelAttempts++;
+                            log("Model button not found yet, retrying (" + modelAttempts + "/3)...");
+                            setTimeout(() => ensureModel(onReady), 800);
+                        } else {
+                            log("Proceeding with current model selection");
+                            onReady();
+                        }
+                    }
+
+                    function enterPrompt() {
+                        dismissTermsOnly();
+                        log("Looking for textarea...");
+                        const textarea = document.querySelector('textarea[name="message"], textarea[placeholder*="Describe the image" i], textarea[placeholder*="prompt" i], textarea[placeholder*="message" i], textarea');
+                        if (!textarea) {
+                            log("Textarea not found yet, retrying...");
+                            setTimeout(enterPrompt, 800);
+                            return;
+                        }
+
+                        log("Entering prompt into textarea...");
+                        textarea.focus();
+                        if (textarea._valueTracker) {
+                            textarea._valueTracker.setValue('');
+                        }
+                        const valSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+                        if (valSetter) {
+                            valSetter.call(textarea, promptText);
+                        } else {
+                            textarea.value = promptText;
+                        }
+                        textarea.setAttribute('data-has-text', 'true');
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                        try {
+                            textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: promptText }));
+                        } catch (_) {}
+
+                        setTimeout(() => {
+                            dismissTermsOnly();
+                            log("Submitting prompt...");
+                            const sendBtn = document.querySelector('button[aria-label="Send message"], button[data-perf-target="send"], button[type="submit"]') ||
+                                Array.from(document.querySelectorAll('button')).find(b => {
+                                    const t = (b.textContent || '').trim().toLowerCase();
+                                    return t === 'send' || t === 'generate';
+                                });
+
+                            if (sendBtn) {
+                                sendBtn.removeAttribute('disabled');
+                                sendBtn.disabled = false;
+                                sendBtn.classList.remove('pointer-events-none', 'opacity-50');
+                                sendBtn.click();
+                            }
+
+                            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+
+                            const form = textarea.closest('form');
+                            if (form) {
+                                try {
+                                    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                                } catch (_) {}
+                            }
+
+                            pollForOutput();
+                        }, 600);
+                    }
+
+                    function pollForOutput() {
+                        log("Polling for generated image...");
+                        let checks = 0;
+                        const maxChecks = 130;
+
+                        const timer = setInterval(() => {
+                            checks++;
+                            dismissTermsOnly();
+
+                            const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                                const src = img.src || '';
+                                return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
+                                       !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
+                                       (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
+                            });
+
+                            if (imgs.length > 0) {
+                                const targetImg = imgs[imgs.length - 1];
+                                if (targetImg.complete && (targetImg.naturalWidth > 150 || targetImg.width > 150)) {
+                                    clearInterval(timer);
+                                    log("Generated image detected (" + targetImg.naturalWidth + "x" + targetImg.naturalHeight + "), extracting...");
+                                    extractImage(targetImg);
+                                    return;
+                                }
+                            }
+
+                            if (checks >= maxChecks) {
+                                clearInterval(timer);
+                                log("Timed out waiting for generated image.");
+                                if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Timed out waiting for generated image (65s)");
+                            }
+                        }, 500);
+                    }
+
+                    function extractImage(img) {
+                        try {
+                            const canvas = document.createElement("canvas");
+                            canvas.width = img.naturalWidth || img.width;
+                            canvas.height = img.naturalHeight || img.height;
+                            const ctx = canvas.getContext("2d");
+                            ctx.drawImage(img, 0, 0);
+                            const dataUrl = canvas.toDataURL("image/png");
+                            const b64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+                            if (b64 && b64.length > 100) {
+                                log("Successfully extracted image Base64 via canvas (length=" + b64.length + ")");
+                                if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
+                                return;
+                            }
+                        } catch (e) {
+                            log("Canvas export failed: " + e.message + ", attempting fetch blob...");
+                        }
+
+                        fetch(img.src)
+                            .then(r => r.blob())
+                            .then(blob => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    const res = reader.result || '';
+                                    const b64 = res.replace(/^data:.+;base64,/, "");
+                                    log("Successfully extracted image Base64 via fetch (length=" + b64.length + ")");
+                                    if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
+                                };
+                                reader.readAsDataURL(blob);
+                            })
+                            .catch(err => {
+                                log("Image fetch failed: " + err.message);
+                                if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Image extract failed: " + err.message);
+                            });
+                    }
+
+                    window.extractCurrentArenaImage = function() {
+                        log("Manual capture triggered by user");
+                        const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                            const src = img.src || '';
+                            return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
+                                   !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
+                                   (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
+                        });
+                        if (imgs.length > 0) {
+                            extractImage(imgs[imgs.length - 1]);
+                            return true;
+                        } else {
+                            log("No generated image found on page yet");
+                            return false;
+                        }
+                    };
+
+                    setTimeout(() => {
+                        ensureModel(() => {
+                            enterPrompt();
+                        });
+                    }, 1500);
+                })();
+            """.trimIndent()
+        }
+
         fun start(
             context: Context,
             model: String,
@@ -98,7 +426,7 @@ class ArenaImageActivity : ComponentActivity() {
         fun cancel() {
             activeSession?.resultDeferred?.completeExceptionally(CancellationException("LM Arena cancelled"))
             activeSession = null
-            instance?.finish()
+            instance?.let { act -> act.runOnUiThread { act.finish() } }
         }
     }
 
@@ -106,6 +434,76 @@ class ArenaImageActivity : ComponentActivity() {
     private var statusMessage by mutableStateOf("Loading LM Arena...")
     private var webProgress by mutableFloatStateOf(0.1f)
     private var isPageLoaded by mutableStateOf(false)
+    private var displayedModel by mutableStateOf("mai-image-2.7")
+    private var automationInjected = false
+    private var pendingInjectRunnable: Runnable? = null
+    private var currentSession: Session? = null
+    private var currentAutomationJs: String = ""
+
+    private fun cancelPendingInjections() {
+        pendingInjectRunnable?.let { webView?.removeCallbacks(it) }
+        pendingInjectRunnable = null
+    }
+
+    private fun scheduleTryInject(view: WebView, delayMs: Long) {
+        cancelPendingInjections()
+        val runnable = Runnable {
+            pendingInjectRunnable = null
+            if (!isDestroyed && !isFinishing) {
+                tryInject(view)
+            }
+        }
+        pendingInjectRunnable = runnable
+        view.postDelayed(runnable, delayMs)
+    }
+
+    private fun tryInject(view: WebView?) {
+        if (automationInjected || view == null || isDestroyed || isFinishing) return
+        val currentUrl = view.url.orEmpty()
+        val parsed = runCatching { Uri.parse(currentUrl) }.getOrNull()
+        if (!isArenaAutomationTarget(parsed?.scheme, parsed?.host)) return
+
+        view.evaluateJavascript("""
+            (function() {
+                const href = (window.location.href || '').toLowerCase();
+                if (href.includes('accounts.google.com') || href.includes('/login') || href.includes('/auth')) {
+                    return "login";
+                }
+                const title = (document.title || '').toLowerCase();
+                const isJustAMoment = title.includes('just a moment');
+                const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
+                if (isJustAMoment || isChallengeStage) {
+                    return "challenge";
+                }
+                if (document.body && (document.querySelector('textarea') || document.querySelector('button'))) {
+                    return "ready";
+                }
+                return "loading";
+            })();
+        """.trimIndent()) { state ->
+            if (isDestroyed || isFinishing) return@evaluateJavascript
+            val latestUrl = view.url.orEmpty()
+            val latestParsed = runCatching { Uri.parse(latestUrl) }.getOrNull()
+            if (!isArenaAutomationTarget(latestParsed?.scheme, latestParsed?.host)) return@evaluateJavascript
+
+            val cleanState = state?.replace("\"", "")?.trim()
+            if (cleanState == "login") {
+                statusMessage = "Please sign in to your account..."
+                scheduleTryInject(view, 1500)
+            } else if (cleanState == "challenge") {
+                statusMessage = "Cloudflare verification needed — please tap checkbox below"
+                // Do not abort! Allow user to tap the Turnstile checkbox on screen
+                scheduleTryInject(view, 1000)
+            } else if (cleanState == "ready" && !automationInjected) {
+                automationInjected = true
+                isPageLoaded = true
+                statusMessage = "LM Arena ready. Automating prompt..."
+                view.evaluateJavascript(currentAutomationJs, null)
+            } else if (!automationInjected) {
+                scheduleTryInject(view, 600)
+            }
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,301 +517,74 @@ class ArenaImageActivity : ComponentActivity() {
         }
 
         val targetModel = session.model.ifBlank { "mai-image-2.7" }
-        val promptEscaped = JsonPrimitive(session.prompt).toString()
-
-        val modelParam = when {
-            targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.7"
-            targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
-            targetModel.contains("muse", ignoreCase = true) -> "muse-image"
-            targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
-            targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
-            targetModel.contains("ideogram", ignoreCase = true) -> "ideogram-4.5"
-            targetModel.contains("qwen", ignoreCase = true) -> "qwen-image-2.0"
-            targetModel.contains("flux", ignoreCase = true) -> "flux-3-image-klein"
-            else -> "mai-image-2.7"
-        }
-        val targetUrl = "$ARENA_URL?model_a=$modelParam&model=$modelParam"
-
-        val automationJs = """
-            (function() {
-                function log(msg) {
-                    if (window.AndroidBridge && window.AndroidBridge.log) {
-                        window.AndroidBridge.log(msg);
-                    } else {
-                        console.log(msg);
-                    }
-                }
-
-                const targetModel = "$targetModel";
-                const promptText = $promptEscaped;
-                log("Visible Arena automation started for: " + targetModel);
-
-                function dismissTermsOnly() {
-                    try {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        const agreeBtn = buttons.find(b => {
-                            const t = (b.textContent || '').trim().toLowerCase();
-                            return t === 'agree' || t === 'i agree' || t === 'accept terms';
-                        });
-                        if (agreeBtn) {
-                            log("Accepting Terms modal");
-                            agreeBtn.click();
-                        }
-                    } catch (e) {
-                        log("dismissTermsOnly err: " + e.message);
-                    }
-                }
-
-                let modelAttempts = 0;
-                function ensureModel(onReady) {
-                    dismissTermsOnly();
-                    const clean = targetModel.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                    const buttons = Array.from(document.querySelectorAll('button'));
-
-                    const activeModelBtn = buttons.find(b => {
-                        const t = (b.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                        return t.includes(clean) ||
-                               (clean.includes('mai') && t.includes('mai')) ||
-                               (clean.includes('grok') && t.includes('grok')) ||
-                               (clean.includes('muse') && t.includes('muse')) ||
-                               (clean.includes('seedream') && t.includes('seedream'));
-                    });
-
-                    if (activeModelBtn) {
-                        log("Model is active: " + (activeModelBtn.textContent || '').trim());
-                        onReady();
-                        return;
-                    }
-
-                    const modelBtn = document.querySelector('[data-testid="model-select"]') ||
-                        buttons.find(b => {
-                            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                            const t = (b.textContent || '').toLowerCase();
-                            return aria.includes('model') || t.includes('select model') || b.getAttribute('aria-haspopup') === 'dialog';
-                        });
-
-                    if (modelBtn) {
-                        log("Clicking model selector button...");
-                        modelBtn.click();
-                        setTimeout(() => {
-                            const options = Array.from(document.querySelectorAll('div[role="option"], [role="menuitem"], li, button, [role="button"], span'));
-                            const match = options.find(el => {
-                                const t = (el.textContent || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                                return t.includes(clean) ||
-                                       (clean.includes('mai') && t.includes('mai')) ||
-                                       (clean.includes('grok') && t.includes('grok')) ||
-                                       (clean.includes('muse') && t.includes('muse')) ||
-                                       (clean.includes('seedream') && t.includes('seedream')) ||
-                                       (clean.includes('flux') && t.includes('flux')) ||
-                                       (clean.includes('ideogram') && t.includes('ideogram'));
-                            });
-                            if (match) {
-                                log("Selected model from list: " + match.textContent.trim());
-                                match.click();
-                                setTimeout(onReady, 600);
-                            } else {
-                                log("Model not found in list, proceeding with current selection");
-                                onReady();
-                            }
-                        }, 800);
-                    } else if (modelAttempts < 3) {
-                        modelAttempts++;
-                        log("Model button not found yet, retrying (" + modelAttempts + "/3)...");
-                        setTimeout(() => ensureModel(onReady), 800);
-                    } else {
-                        log("Proceeding with current model selection");
-                        onReady();
-                    }
-                }
-
-                function enterPrompt() {
-                    dismissTermsOnly();
-                    log("Looking for textarea...");
-                    const textarea = document.querySelector('textarea[name="message"], textarea[placeholder*="Describe the image" i], textarea[placeholder*="prompt" i], textarea[placeholder*="message" i], textarea');
-                    if (!textarea) {
-                        log("Textarea not found yet, retrying...");
-                        setTimeout(enterPrompt, 800);
-                        return;
-                    }
-
-                    log("Entering prompt into textarea...");
-                    textarea.focus();
-                    if (textarea._valueTracker) {
-                        textarea._valueTracker.setValue('');
-                    }
-                    const valSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-                    if (valSetter) {
-                        valSetter.call(textarea, promptText);
-                    } else {
-                        textarea.value = promptText;
-                    }
-                    textarea.setAttribute('data-has-text', 'true');
-                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                    textarea.dispatchEvent(new Event('change', { bubbles: true }));
-                    try {
-                        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: promptText }));
-                    } catch (_) {}
-
-                    setTimeout(() => {
-                        dismissTermsOnly();
-                        log("Submitting prompt...");
-                        const sendBtn = document.querySelector('button[aria-label="Send message"], button[data-perf-target="send"], button[type="submit"]') ||
-                            Array.from(document.querySelectorAll('button')).find(b => {
-                                const t = (b.textContent || '').trim().toLowerCase();
-                                return t === 'send' || t === 'generate';
-                            });
-
-                        if (sendBtn) {
-                            sendBtn.removeAttribute('disabled');
-                            sendBtn.disabled = false;
-                            sendBtn.classList.remove('pointer-events-none', 'opacity-50');
-                            sendBtn.click();
-                        }
-
-                        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-
-                        const form = textarea.closest('form');
-                        if (form) {
-                            try {
-                                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-                            } catch (_) {}
-                        }
-
-                        pollForOutput();
-                    }, 600);
-                }
-
-                function pollForOutput() {
-                    log("Polling for generated image...");
-                    let checks = 0;
-                    const maxChecks = 130;
-
-                    const timer = setInterval(() => {
-                        checks++;
-                        dismissTermsOnly();
-
-                        const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
-                            const src = img.src || '';
-                            return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
-                                   !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
-                                   (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
-                        });
-
-                        if (imgs.length > 0) {
-                            const targetImg = imgs[imgs.length - 1];
-                            if (targetImg.complete && (targetImg.naturalWidth > 150 || targetImg.width > 150)) {
-                                clearInterval(timer);
-                                log("Generated image detected (" + targetImg.naturalWidth + "x" + targetImg.naturalHeight + "), extracting...");
-                                extractImage(targetImg);
-                                return;
-                            }
-                        }
-
-                        if (checks >= maxChecks) {
-                            clearInterval(timer);
-                            log("Timed out waiting for generated image.");
-                            if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Timed out waiting for generated image (65s)");
-                        }
-                    }, 500);
-                }
-
-                function extractImage(img) {
-                    try {
-                        const canvas = document.createElement("canvas");
-                        canvas.width = img.naturalWidth || img.width;
-                        canvas.height = img.naturalHeight || img.height;
-                        const ctx = canvas.getContext("2d");
-                        ctx.drawImage(img, 0, 0);
-                        const dataUrl = canvas.toDataURL("image/png");
-                        const b64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
-                        if (b64 && b64.length > 100) {
-                            log("Successfully extracted image Base64 via canvas (length=" + b64.length + ")");
-                            if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
-                            return;
-                        }
-                    } catch (e) {
-                        log("Canvas export failed: " + e.message + ", attempting fetch blob...");
-                    }
-
-                    fetch(img.src)
-                        .then(r => r.blob())
-                        .then(blob => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                const res = reader.result || '';
-                                const b64 = res.replace(/^data:.+;base64,/, "");
-                                log("Successfully extracted image Base64 via fetch (length=" + b64.length + ")");
-                                if (window.AndroidBridge) window.AndroidBridge.onImageReady(b64);
-                            };
-                            reader.readAsDataURL(blob);
-                        })
-                        .catch(err => {
-                            log("Image fetch failed: " + err.message);
-                            if (window.AndroidBridge) window.AndroidBridge.onGenerationError("Image extract failed: " + err.message);
-                        });
-                }
-
-                window.extractCurrentArenaImage = function() {
-                    log("Manual capture triggered by user");
-                    const imgs = Array.from(document.querySelectorAll('img')).filter(img => {
-                        const src = img.src || '';
-                        return src && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon') &&
-                               !src.includes('favicon') && !src.includes('svg+xml') && !src.includes('banner') &&
-                               (src.startsWith('blob:') || src.startsWith('data:image') || src.startsWith('http'));
-                    });
-                    if (imgs.length > 0) {
-                        extractImage(imgs[imgs.length - 1]);
-                        return true;
-                    } else {
-                        log("No generated image found on page yet");
-                        return false;
-                    }
-                };
-
-                setTimeout(() => {
-                    ensureModel(() => {
-                        enterPrompt();
-                    });
-                }, 1500);
-            })();
-        """.trimIndent()
+        displayedModel = targetModel
+        currentSession = session
+        currentAutomationJs = buildAutomationJs(targetModel, session.prompt)
+        val targetUrl = buildTargetUrl(targetModel)
 
         class ArenaBridge {
             @JavascriptInterface
             fun onImageReady(base64Data: String) {
-                session.logger?.invoke("ArenaImageActivity: onImageReady called, payload length=${base64Data.length}")
+                val active = currentSession ?: activeSession
+                active?.logger?.invoke("ArenaImageActivity: onImageReady called, payload length=${base64Data.length}")
                 try {
                     val cleanB64 = base64Data.substringAfter("base64,").trim()
                     val bytes = Base64.decode(cleanB64, Base64.DEFAULT)
                     if (bytes.isNotEmpty()) {
-                        statusMessage = "Image ready! Returning to chat..."
-                        session.resultDeferred.complete(bytes)
-                        activeSession = null
-                        finish()
+                        runOnUiThread {
+                            statusMessage = "Image ready! Returning to chat..."
+                            active?.resultDeferred?.complete(bytes)
+                            if (active == null || activeSession === active) {
+                                activeSession = null
+                            }
+                            finish()
+                        }
                     } else {
-                        session.resultDeferred.completeExceptionally(ImageClientException("Decoded image bytes are empty"))
-                        activeSession = null
-                        finish()
+                        runOnUiThread {
+                            statusMessage = "Error: Decoded image bytes are empty"
+                            active?.resultDeferred?.completeExceptionally(
+                                ImageClientException("Decoded image bytes are empty")
+                            )
+                            if (active == null || activeSession === active) {
+                                activeSession = null
+                            }
+                            finish()
+                        }
                     }
                 } catch (e: Exception) {
-                    session.resultDeferred.completeExceptionally(ImageClientException("Failed to decode image: ${e.message}", e))
-                    activeSession = null
-                    finish()
+                    runOnUiThread {
+                        statusMessage = "Error: Failed to decode image"
+                        active?.resultDeferred?.completeExceptionally(
+                            ImageClientException("Failed to decode image: ${e.message}", e)
+                        )
+                        if (active == null || activeSession === active) {
+                            activeSession = null
+                        }
+                        finish()
+                    }
                 }
             }
 
             @JavascriptInterface
             fun onGenerationError(errorMsg: String) {
-                session.logger?.invoke("ArenaImageActivity: generation error: $errorMsg")
-                statusMessage = "Error: $errorMsg"
-                session.resultDeferred.completeExceptionally(ImageClientException("LM Arena error: $errorMsg"))
-                activeSession = null
-                finish()
+                val active = currentSession ?: activeSession
+                active?.logger?.invoke("ArenaImageActivity: generation error: $errorMsg")
+                runOnUiThread {
+                    statusMessage = "Error: $errorMsg"
+                    active?.resultDeferred?.completeExceptionally(
+                        ImageClientException("LM Arena error: $errorMsg")
+                    )
+                    if (active == null || activeSession === active) {
+                        activeSession = null
+                    }
+                    finish()
+                }
             }
 
             @JavascriptInterface
             fun log(msg: String) {
-                session.logger?.invoke("ArenaWeb[JS]: $msg")
+                val active = currentSession ?: activeSession
+                active?.logger?.invoke("ArenaWeb[JS]: $msg")
                 runOnUiThread {
                     when {
                         msg.contains("active:", ignoreCase = true) -> statusMessage = "Model ready. Preparing prompt..."
@@ -433,7 +604,7 @@ class ArenaImageActivity : ComponentActivity() {
                 domStorageEnabled = true
                 databaseEnabled = true
                 cacheMode = WebSettings.LOAD_DEFAULT
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 useWideViewPort = true
                 loadWithOverviewMode = true
                 setSupportMultipleWindows(true)
@@ -448,52 +619,23 @@ class ArenaImageActivity : ComponentActivity() {
             }
             addJavascriptInterface(ArenaBridge(), "AndroidBridge")
 
-            var automationInjected = false
-            fun tryInject(view: WebView?) {
-                if (automationInjected || view == null) return
-                view.evaluateJavascript("""
-                    (function() {
-                        const href = (window.location.href || '').toLowerCase();
-                        if (href.includes('accounts.google.com') || href.includes('/login') || href.includes('/auth')) {
-                            return "login";
-                        }
-                        const title = (document.title || '').toLowerCase();
-                        const isJustAMoment = title.includes('just a moment');
-                        const isChallengeStage = !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile-wrapper');
-                        if (isJustAMoment || isChallengeStage) {
-                            return "challenge";
-                        }
-                        if (document.body && (document.querySelector('textarea') || document.querySelector('button'))) {
-                            return "ready";
-                        }
-                        return "loading";
-                    })();
-                """.trimIndent()) { state ->
-                    val cleanState = state?.replace("\"", "")?.trim()
-                    if (cleanState == "login") {
-                        statusMessage = "Please sign in to your account..."
-                        view.postDelayed({ tryInject(view) }, 1500)
-                    } else if (cleanState == "challenge") {
-                        statusMessage = "Cloudflare verification needed — please tap checkbox below"
-                        // Do not abort! Allow user to tap the Turnstile checkbox on screen
-                        view.postDelayed({ tryInject(view) }, 1000)
-                    } else if (cleanState == "ready" && !automationInjected) {
-                        automationInjected = true
-                        isPageLoaded = true
-                        statusMessage = "LM Arena ready. Automating prompt..."
-                        view.evaluateJavascript(automationJs, null)
-                    } else if (!automationInjected) {
-                        view.postDelayed({ tryInject(view) }, 600)
-                    }
-                }
-            }
-
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url?.toString().orEmpty()
-                    session.logger?.invoke("ArenaImageActivity: shouldOverrideUrlLoading: $url")
-                    if (url.contains("accounts.google.com") || url.contains("login") || url.contains("auth")) {
-                        statusMessage = "Please sign in to your account..."
+                    val parsed = runCatching { Uri.parse(url) }.getOrNull()
+                    val active = currentSession ?: activeSession
+                    if (!isAllowedNavigation(parsed?.scheme, parsed?.host, url)) {
+                        active?.logger?.invoke("ArenaImageActivity: blocked navigation to disallowed URL: $url")
+                        runOnUiThread {
+                            statusMessage = "Blocked navigation to untrusted URL"
+                        }
+                        return true
+                    }
+                    active?.logger?.invoke("ArenaImageActivity: shouldOverrideUrlLoading: $url")
+                    if (isAuthOrLoginUri(parsed?.scheme, parsed?.host, parsed?.path)) {
+                        runOnUiThread {
+                            statusMessage = "Please sign in to your account..."
+                        }
                     }
                     return false
                 }
@@ -502,11 +644,12 @@ class ArenaImageActivity : ComponentActivity() {
                     super.onPageFinished(view, url)
                     CookieManager.getInstance().flush()
                     val mainUrl = view?.url ?: url ?: ""
-                    if (mainUrl.contains("accounts.google.com") || mainUrl.contains("login") || mainUrl.contains("auth")) {
+                    val parsed = runCatching { Uri.parse(mainUrl) }.getOrNull()
+                    if (isAuthOrLoginUri(parsed?.scheme, parsed?.host, parsed?.path)) {
                         statusMessage = "Please sign in to your account..."
                         return
                     }
-                    if (!automationInjected && (mainUrl.contains("arena.ai") || mainUrl.contains("lmarena.ai"))) {
+                    if (!automationInjected && isArenaAutomationTarget(parsed?.scheme, parsed?.host)) {
                         tryInject(view)
                     }
                 }
@@ -515,7 +658,7 @@ class ArenaImageActivity : ComponentActivity() {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true) {
                         val desc = error?.description?.toString() ?: "network error"
-                        session.logger?.invoke("ArenaImageActivity: main frame error: $desc")
+                        (currentSession ?: activeSession)?.logger?.invoke("ArenaImageActivity: main frame error: $desc")
                     }
                 }
             }
@@ -525,7 +668,10 @@ class ArenaImageActivity : ComponentActivity() {
                     super.onProgressChanged(view, newProgress)
                     webProgress = newProgress / 100f
                     if (newProgress >= 100 && !automationInjected) {
-                        tryInject(view)
+                        val parsed = runCatching { Uri.parse(view?.url.orEmpty()) }.getOrNull()
+                        if (isArenaAutomationTarget(parsed?.scheme, parsed?.host)) {
+                            tryInject(view)
+                        }
                     }
                 }
 
@@ -621,7 +767,7 @@ class ArenaImageActivity : ComponentActivity() {
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text(
-                                            text = "• $targetModel",
+                                            text = "• $displayedModel",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.primary,
                                             maxLines = 1,
@@ -640,7 +786,14 @@ class ArenaImageActivity : ComponentActivity() {
 
                                 TextButton(
                                     onClick = {
-                                        webView?.evaluateJavascript("if (window.extractCurrentArenaImage) window.extractCurrentArenaImage();", null)
+                                        val view = webView ?: return@TextButton
+                                        val parsed = runCatching { Uri.parse(view.url.orEmpty()) }.getOrNull()
+                                        if (isArenaAutomationTarget(parsed?.scheme, parsed?.host)) {
+                                            view.evaluateJavascript(
+                                                "if (window.extractCurrentArenaImage) window.extractCurrentArenaImage();",
+                                                null
+                                            )
+                                        }
                                     }
                                 ) {
                                     Text(
@@ -674,46 +827,57 @@ class ArenaImageActivity : ComponentActivity() {
     }
 
     private fun handleUserClose() {
-        activeSession?.resultDeferred?.completeExceptionally(CancellationException("LM Arena cancelled by user"))
-        activeSession = null
+        cancelPendingInjections()
+        val s = currentSession ?: activeSession
+        if (s != null && !s.resultDeferred.isCompleted) {
+            s.resultDeferred.completeExceptionally(CancellationException("LM Arena cancelled by user"))
+        }
+        if (s == null || activeSession === s) {
+            activeSession = null
+        }
         finish()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        cancelPendingInjections()
         val session = activeSession ?: return
         val targetModel = session.model.ifBlank { "mai-image-2.7" }
-        val modelParam = when {
-            targetModel.contains("mai", ignoreCase = true) -> "mai-image-2.7"
-            targetModel.contains("grok", ignoreCase = true) -> "grok-imagine-image"
-            targetModel.contains("muse", ignoreCase = true) -> "muse-image"
-            targetModel.contains("seedream", ignoreCase = true) && targetModel.contains("pro", ignoreCase = true) -> "seedream-5.0-pro"
-            targetModel.contains("seedream", ignoreCase = true) -> "seedream-5.0-lite"
-            targetModel.contains("ideogram", ignoreCase = true) -> "ideogram-4.5"
-            targetModel.contains("qwen", ignoreCase = true) -> "qwen-image-2.0"
-            targetModel.contains("flux", ignoreCase = true) -> "flux-3-image-klein"
-            else -> "mai-image-2.7"
-        }
-        val targetUrl = "$ARENA_URL?model_a=$modelParam&model=$modelParam"
+        automationInjected = false
+        isPageLoaded = false
+        displayedModel = targetModel
+        currentSession = session
+        currentAutomationJs = buildAutomationJs(targetModel, session.prompt)
+        statusMessage = "Loading LM Arena..."
+        webProgress = 0.1f
+        val targetUrl = buildTargetUrl(targetModel)
+        session.logger?.invoke("ArenaImageActivity: onNewIntent loading $targetUrl")
         webView?.loadUrl(targetUrl)
     }
 
     override fun onDestroy() {
-        val s = activeSession
+        cancelPendingInjections()
+        val s = currentSession ?: activeSession
         if (s != null && !s.resultDeferred.isCompleted) {
             s.resultDeferred.completeExceptionally(CancellationException("LM Arena activity closed"))
+        }
+        if (s == null || activeSession === s) {
             activeSession = null
         }
+        currentSession = null
         try {
-            webView?.apply {
-                stopLoading()
-                removeJavascriptInterface("AndroidBridge")
-                destroy()
+            webView?.let { view ->
+                view.stopLoading()
+                view.removeJavascriptInterface("AndroidBridge")
+                (view.parent as? ViewGroup)?.removeView(view)
+                view.destroy()
             }
             webView = null
         } catch (ignored: Throwable) {}
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
         super.onDestroy()
     }
 }

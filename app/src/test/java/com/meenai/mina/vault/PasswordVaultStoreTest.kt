@@ -6,10 +6,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.crypto.KeyGenerator
 
 class PasswordVaultStoreTest {
@@ -184,5 +188,129 @@ class PasswordVaultStoreTest {
         val reloadedStore = createStore()
         val pass = reloadedStore.getPassword(saved.id)
         assertNull(pass)
+    }
+
+    @Test
+    fun corruptedMetadataSetsLoadFailedAndRefusesOverwrite() {
+        val store = createStore()
+        val saved = store.saveEntry(VaultEntry(title = "Gmail", username = "alice@example.com"), "secret_pw")
+        val metadataFile = File(tmp.root, "vault.json")
+        val secretsFile = File(tmp.root, "vault-secrets.json")
+        val originalSecrets = secretsFile.readText()
+
+        metadataFile.writeText("{corrupted-json")
+
+        val reloaded = createStore()
+        assertTrue(reloaded.loadFailed)
+        assertNotNull(reloaded.loadError.value)
+        assertTrue(reloaded.list().isEmpty())
+
+        try {
+            reloaded.saveEntry(VaultEntry(title = "New", username = "bob"), "pw2")
+            fail("Expected saveEntry to throw when loadFailed is true")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        try {
+            reloaded.deleteEntry(saved.id)
+            fail("Expected deleteEntry to throw when loadFailed is true")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        // Neither metadata nor secrets file should have been overwritten with empty state
+        assertEquals("{corrupted-json", metadataFile.readText())
+        assertEquals(originalSecrets, secretsFile.readText())
+    }
+
+    @Test
+    fun tamperedSecretsSetsLoadFailedAndRefusesOverwrite() {
+        val store = createStore()
+        val saved = store.saveEntry(VaultEntry(title = "Bank", username = "user"), "bank_pass")
+        val metadataFile = File(tmp.root, "vault.json")
+        val secretsFile = File(tmp.root, "vault-secrets.json")
+        val originalMetadata = metadataFile.readText()
+        val tamperedSecrets = """{"${saved.id}":"invalid_not_encrypted_data"}"""
+        secretsFile.writeText(tamperedSecrets)
+
+        val reloaded = createStore()
+        assertTrue(reloaded.loadFailed)
+        assertNotNull(reloaded.loadError.value)
+        assertNull(reloaded.getPassword(saved.id))
+        assertNull(reloaded.reveal(saved.id))
+
+        try {
+            reloaded.saveEntry(VaultEntry(title = "Another", username = "user2"), "pass2")
+            fail("Expected saveEntry to throw when loadFailed is true")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        try {
+            reloaded.deleteEntry(saved.id)
+            fail("Expected deleteEntry to throw when loadFailed is true")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        assertEquals(originalMetadata, metadataFile.readText())
+        assertEquals(tamperedSecrets, secretsFile.readText())
+    }
+
+    @Test
+    fun revealReturnsSecretAndAtomicWriteLeavesNoTempFiles() {
+        val store = createStore()
+        assertFalse(store.loadFailed)
+        assertNull(store.loadError.value)
+
+        val saved = store.saveEntry(VaultEntry(title = "GitHub", username = "dev"), "gh_token_123")
+        assertEquals("gh_token_123", store.reveal(saved.id))
+        assertEquals("gh_token_123", store.getPassword(saved.id))
+
+        store.saveEntry(saved.copy(title = "GitHub Updated"), "gh_token_456")
+        assertEquals("gh_token_456", store.reveal(saved.id))
+
+        val files = tmp.root.listFiles()?.map { it.name }?.toSet()
+        assertEquals(setOf("vault.json", "vault-secrets.json"), files)
+    }
+
+    @Test
+    fun concurrentReadsAndWritesRemainConsistent() {
+        val store = createStore()
+        val threadCount = 4
+        val perThread = 5
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val latch = CountDownLatch(threadCount)
+        val errors = mutableListOf<Throwable>()
+
+        try {
+            for (t in 0 until threadCount) {
+                executor.submit {
+                    try {
+                        for (i in 0 until perThread) {
+                            val entry = store.saveEntry(
+                                VaultEntry(title = "Site-$t-$i", username = "user-$t-$i"),
+                                "pw-$t-$i"
+                            )
+                            assertEquals("pw-$t-$i", store.reveal(entry.id))
+                            store.list()
+                        }
+                    } catch (e: Throwable) {
+                        synchronized(errors) { errors.add(e) }
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+            }
+            assertTrue(latch.await(15, TimeUnit.SECONDS))
+        } finally {
+            executor.shutdownNow()
+        }
+
+        assertTrue("Unexpected concurrency errors: $errors", errors.isEmpty())
+        val reloaded = createStore()
+        assertFalse(reloaded.loadFailed)
+        assertEquals(threadCount * perThread, reloaded.list().size)
     }
 }
