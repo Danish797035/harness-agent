@@ -22,9 +22,11 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 
 /**
- * 把「Mina 被杀后要不要拉起来」([RestoreWish])交给内置助手:胶囊模式、有没有任务在跑、「替我打开无障碍」、
- * 系统列表里有没有 Mina 的无障碍服务,任一变了、或换了助手,就经 [IHarnessShell.setRestoreWish] 再交一次。
- * 助手读不到 Mina 的设置,Mina 死后只按最后交到的这一份行事。
+ * Submit "Do you want to pull Mina up after being killed?" ([RestoreWish]) to the built-in assistant:
+ * capsule mode, whether there are tasks running, "turn on accessibility for me", whether there is Mina's
+ * accessibility service in the system list, if any changes, or if the assistant is changed, submit it
+ * again through [IHarnessShell.setRestoreWish]. The assistant cannot read Mina's settings. After Mina
+ * dies, he will only act on the last one handed to him.
  */
 class RestoreWishSync(
     private val hub: HelperHub,
@@ -43,8 +45,10 @@ class RestoreWishSync(
     @OptIn(ExperimentalCoroutinesApi::class)
     fun start() {
         var lastOn: Boolean? = null
-        // 列表里没了 Mina 的服务要过一会儿才交出去:进程被强行停止时系统会先拿掉它,不能让这一下把心愿改掉;
-        // 一直没有(用户在系统设置里关掉了)才不替他写回
+        // It will take a while for Mina's service that is not in the list to be handed over: when the
+        // process is forcibly stopped, the system will remove it first, and cannot change the wish at
+        // this time; it has not been (the user has turned it off in the system settings) so it will not
+        // be written back for him.
         val accessibilityOn = accessibility.map { it.enabled }.distinctUntilChanged().mapLatest { on ->
             if (!on && lastOn == true) delay(OFF_SETTLE_MS)
             lastOn = on

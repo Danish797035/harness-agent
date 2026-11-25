@@ -50,7 +50,7 @@ class ContextCompressorTest {
     }
 
     @Test fun overflowUsesTheTargetForTheSameModelOverride() {
-        // 32K 窗口，自动目标 12K；手填 16K 触发时目标为 10K。
+        // 32K window, automatic target 12K; manual 16K target 10K when triggered.
         val user = Message(Role.User, listOf(Part.Text("x".repeat(26_000))), Author.User)
         val history = listOf(user) + (1..20).flatMap {
             round("phone_tap", """{"target":"ok","note":"${"x".repeat(1_600)}"}""", "{}")
@@ -71,12 +71,12 @@ class ContextCompressorTest {
     @Test fun underBudgetUntouched() {
         val h = head + taps(20)
         val c = ContextCompressor(TOOLS).compress(h, contextTokens = 128_000)
-        // 没越过触发点:原样发,一条不裁
+        // The trigger point has not been crossed: Send as is, without cutting one line.
         assertEquals(h, c.messages)
         assertEquals(0, c.foldedSteps)
     }
 
-    /** 触发点刚好低于整份请求的窗口:压一次就能回到目标以下,用最轻的一级(留最近 12 次往返)。 */
+    /** The trigger point is just below the entire request window: one press will bring you back below the target, using the lightest level (retaining the last 12 round trips). */
     private fun justOver(h: List<Message>) = windowFor(uncalibrated(h)) - 1
 
     @Test fun foldsOldestKeepsRecent12() {
@@ -84,7 +84,8 @@ class ContextCompressorTest {
         val c = ContextCompressor(TOOLS).compress(h, contextTokens = justOver(h))
         assertEquals(28, c.foldedSteps)
         assertEquals(12, toolRounds(c.messages))
-        // 任务原话与成功标准原样在最前,其后是摘要,再后是最近 12 次往返原样
+        // The original words of the mission and the success criteria appear first, followed by the
+        // summary, and then the original text of the last 12 round trips.
         assertEquals(head, c.messages.take(2))
         assertTrue(summary(c.messages) == c.messages[2].plainText())
         assertEquals(ContextKind.Notice, ContextBuilder.kindOf(c.messages[2]))
@@ -101,11 +102,12 @@ class ContextCompressorTest {
         val outs = (1..120).map { c.compress(h(it), contextTokens = ctx) }
         val rewrites = outs.zipWithNext().withIndex().filter { (_, p) -> p.first.messages != p.second.messages.take(p.first.messages.size) }.map { it.index + 2 }
         val folds = outs.zipWithNext().withIndex().filter { (_, p) -> p.first.foldedSteps != p.second.foldedSteps }.map { it.index + 2 }
-        // 每次改写都是一次压缩(折叠数变了),两次压缩之间只追加;压缩次数远少于步数
+        // Each rewrite is a compression (the number of folds changes), and only appends are made between
+        // two compressions; the number of compressions is much less than the number of steps.
         assertEquals(folds, rewrites)
         assertTrue("$rewrites", rewrites.isNotEmpty() && rewrites.size <= 10)
         rewrites.zipWithNext().forEach { (a, b) -> assertTrue("$rewrites", b - a > 1) }
-        // 发出的整份请求始终在可用窗口(扣掉输出预留)以内
+        // The entire request issued is always within the available window (minus the output reservation)
         outs.forEach { assertTrue(uncalibrated(it.messages) <= ContextLimits.of(ctx).usable) }
     }
 
@@ -128,7 +130,9 @@ class ContextCompressorTest {
         val ctx = 4000
         val overhead = 1800
         val c = ContextCompressor(TOOLS)
-        // 固定开销几乎占满触发点:每次压缩后有回差,不会每步都压;发出的整份请求始终放得下
+        // The fixed overhead almost occupies the trigger point: there is a hysteresis after each
+        // compression, and it will not be compressed at every step; the entire request sent can always
+        // be accommodated
         var rewrites = 0
         for (n in 1..40) {
             val out = c.compress(all.take(head.size + 2 * n), contextTokens = ctx, fixedOverhead = overhead)
@@ -150,7 +154,7 @@ class ContextCompressorTest {
         val knowledge = Message(Role.User, listOf(Part.Text(ContextBuilder.envelope(ContextKind.AppKnowledge, "天气 App", "…"))), Author.Mina)
         val inputRound = round("ask_user", """{"prompt":"哪个城市?"}""", """{"ok":true}""") +
             Message(Role.User, listOf(Part.Text("北京")), Author.Mina)
-        // 追问的回答也可能直接作为工具结果
+        // The answers to the follow-up questions may also be directly used as tool results.
         val inputAsResult = round("ask_user", """{"prompt":"哪天?"}""", """{"ok":true,"answer":"明天"}""")
         val confirmRound = round("request_confirmation", """{"action":"send"}""", """{"ok":true,"approved":true}""")
         val takeoverRound = round("hand_to_user", """{"reason":"login","message":"请登录"}""", """{"outcome":"complete","ok":true}""")
@@ -160,7 +164,7 @@ class ContextCompressorTest {
         assertTrue(c.foldedSteps > 0)
         val summaries = c.messages.mapNotNull { m -> m.plainText().takeIf { it.startsWith(ContextCompressor.HEADER) } }
         assertTrue(summaries.flatMap { it.lines() }.none { "request_" in it || "hand_to_user" in it })
-        // 保留下来的顺序不变
+        // The order of preservation remains unchanged
         val kept = c.messages.filter { it in h }
         assertEquals(h.filter { it in kept }, kept)
     }
@@ -204,9 +208,10 @@ class ContextCompressorTest {
 
     @Test fun aggressiveKeeps6() {
         val h = head + taps(20)
-        // 模型已说超长:不论估算多少都压
+        // The model has been said to be too long: no matter how much the estimate is, it will be
+        // suppressed
         val c = ContextCompressor(TOOLS).compress(h, contextTokens = 1_000_000, aggressive = true)
-        // 折 14 次,留最近 6 次
+        // Discount 14 times, keep the most recent 6 times
         assertEquals(14, c.foldedSteps)
         assertEquals(6, toolRounds(c.messages))
         assertEquals(h.takeLast(12), c.messages.takeLast(12))
@@ -241,10 +246,11 @@ class ContextCompressorTest {
     @Test fun oneSummaryPerContiguousRun() {
         val takeover = round("hand_to_user", """{"reason":"login"}""", """{"outcome":"complete","ok":true}""")
         val h = head + taps(3) + takeover + taps(2) + taps(12)
-        // 模型报过超长:留最近 6 次往返
+        // Model report is too long: keep the last 6 round trips
         val out = ContextCompressor(TOOLS).compress(h, contextTokens = 1_000_000, aggressive = true).messages
         val texts = out.map { it.plainText() }
-        // 开头 2 条,第一段摘要,保留的接管往返,第二段摘要,最近 6 次往返
+        // First 2 items, first paragraph summary, retained takeover round-trips, second paragraph
+        // summary, last 6 round-trips
         assertTrue(texts[2]!!.startsWith(ContextCompressor.HEADER) && "Step 3" in texts[2]!! && "Step 5" !in texts[2]!!)
         assertEquals(takeover, out.subList(3, 5))
         assertTrue(texts[5]!!.startsWith(ContextCompressor.HEADER))
@@ -284,9 +290,9 @@ class ContextCompressorTest {
         val out = ContextCompressor(TOOLS,diffScreens = true).compress(h, contextTokens = 1000).messages
         val kept = out.flatMap { it.parts }.filterIsInstance<Part.ToolResult>().map { it.content }
         assertTrue(kept.any { "\"s1\"" in it })
-        // 之前的普通往返照常折叠
+        // The previous ordinary round trip will be folded as usual.
         assertTrue(summary(out)!!.contains("tap(按钮1)"))
-        // 狠压缩时不保留
+        // Not retained when compressed hard
         val hard = ContextCompressor(TOOLS,diffScreens = true).compress(h, contextTokens = 1000, aggressive = true).messages
         assertTrue(hard.flatMap { it.parts }.filterIsInstance<Part.ToolResult>().none { "\"s1\"" in it.content })
     }

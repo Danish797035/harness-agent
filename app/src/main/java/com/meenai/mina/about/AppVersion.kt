@@ -1,9 +1,12 @@
 package com.meenai.mina.about
 
 /**
- * 版本号比较,按「主.次.修订[-预发布][+构建]」的习惯:开头的 v 去掉,数字段逐个比(缺的当 0),
- * 数字一样时正式版比带预发布后缀的新,两个都带后缀时按点分的各段比(数字按大小,文字按字典序,数字段排在文字段前)。
- * 构建后缀(+ 之后)不参与比较。
+ * To compare version numbers, follow the convention of "Major.Minor.Revision[-Pre-release][+Build]":
+ * remove the v at the beginning, and compare the numerical fields one by one (missing ones are treated
+ * as 0). When the numbers are the same, the official version is newer than the one with the pre-release
+ * suffix. When both have suffixes, the ratio is based on the dotted paragraphs (numbers are in size,
+ * text is in dictionary order, and the number field is ranked before the text field). The construction
+ * suffix (after the +) does not participate in the comparison.
  */
 object AppVersion {
     fun normalize(v: String): String = v.trim().removePrefix("v").removePrefix("V").trim()
@@ -73,7 +76,7 @@ object AppVersion {
         }
     }
 
-    /** [candidate] 比 [current] 新。 */
+    /** [candidate] is newer than [current]. */
     fun isNewer(candidate: String, current: String): Boolean = compare(candidate, current) > 0
 
     private fun split(v: String): Pair<List<Int>, String?> {

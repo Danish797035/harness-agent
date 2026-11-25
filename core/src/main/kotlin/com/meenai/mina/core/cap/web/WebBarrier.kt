@@ -10,27 +10,30 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.net.URI
 
 /**
- * 网页上采集到的事实:[base] 同手机(可见文字、密码框、黑帧…),另加主文档 HTTP 状态、
- * 页面里框架的地址(只算跨源的)、当前页面主机名。
+ * Facts collected on the web page: [base] is the same as the mobile phone (visible text, password box,
+ * black frame...), plus the HTTP status of the main document, the address of the frame in the page (only
+ * cross-origin), and the host name of the current page.
  */
 data class WebFacts(val base: ScreenFacts, val httpStatus: Int?, val frameUrls: List<String>, val host: String?)
 
-/** 网页障碍判定:先看网页独有的迹象,再落到和手机同一套 [ScreenDiagnosis.classify]。 */
+/** Web page obstacle determination: first look at the unique signs of the web page, and then fall into the same set of [ScreenDiagnosis.classify] as the mobile phone. */
 object WebBarrier {
     private val RISK_STATUS = setOf(403, 429, 503)
     private val RISK_WORDS = listOf("访问受限", "频繁", "异常", "blocked", "too many requests")
 
-    /** 人机验证服务的框架主机(按域名后缀认)。 */
+    /** The framework host of the human-machine authentication service (identified by domain name suffix). */
     private val CAPTCHA_HOSTS = listOf(
         "recaptcha.net", "hcaptcha.com", "challenges.cloudflare.com", "geetest.com", "arkoselabs.com", "funcaptcha.com",
     )
-    /** 主机名本身不专门做验证、靠路径区分的(主机, 路径前缀)。 */
+    /** The host name itself is not specifically verified and is distinguished by the path (host, path prefix). */
     private val CAPTCHA_PATHS = listOf("google.com" to "/recaptcha", "gstatic.com" to "/recaptcha")
     private val CAPTCHA_HOST_WORDS = listOf("captcha")
 
     /**
-     * 风控拦截页(网站觉得这次访问不像人、环境不对)上的说法,单独出现就算(比对时去掉空白、不分大小写)。
-     * 只在页面字不多时认:正文很长的页面(讲这类问题的文章)不算。
+     * The statement on the risk control interception page (the website feels that this visit does not
+     * look like a human being and the environment is wrong), even if it appears alone (remove the blank
+     * space when comparing, and do not distinguish between upper and lower case). Only identify pages
+     * with few words: pages with long text (articles about this type of issue) are not counted.
      */
     private val INTERSTITIAL_WORDS = listOf(
         "访问异常", "异常访问", "访问行为异常", "访问存在异常", "环境异常", "环境存在异常", "存在安全风险", "当前访问存在风险",
@@ -38,28 +41,29 @@ object WebBarrier {
         "unusualtraffic", "unusualactivity", "suspiciousactivity", "automatedqueries", "automatedrequests", "checkingyourbrowser",
         "accesstemporarilyrestricted", "requestwasblocked", "requesthasbeenblocked",
     )
-    /** 只是标题(「安全提示」「安全检查」)的,还要同页有异常、验证、频繁一类的字。 */
+    /** It's just the title ("Safety Tips" and "Security Check"), and there are also words such as exception, verification, and frequent on the same page. */
     private val INTERSTITIAL_TITLES = listOf("安全提示", "安全检查", "安全警告", "securitycheck", "securitynotice", "securityverification")
     private val INTERSTITIAL_CUES = listOf("异常", "验证", "频繁", "风险", "unusual", "verify", "suspicious", "robot", "automated")
-    /** 算「页面字不多」的上限:可见文字合计字数(去掉空白)、条数。 */
+    /** Calculate the upper limit of "the page does not have many words": the total number of visible words (excluding blank spaces) and the number of lines. */
     private const val INTERSTITIAL_MAX_CHARS = 800
     private const val INTERSTITIAL_MAX_TEXTS = 40
 
-    /** 接口响应里表示被风控拦下的说法:和 [INTERSTITIAL_WORDS] 同一类,另加接口常用的写法。 */
+    /** The statement in the interface response indicating that it was blocked by risk control: the same type as [INTERSTITIAL_WORDS], plus the common writing method of the interface. */
     private val API_RISK_WORDS = INTERSTITIAL_WORDS + listOf(
         "环境存在风险", "账号存在风险", "请求异常", "访问受限", "abnormal", "riskcontrol", "toomanyrequests", "ratelimit",
     )
-    /** 只看响应顶层报信息的这几个字段(小写比)。 */
+    /** Only look at these fields (lowercase ratio) in response to the top-level report information. */
     private val API_MESSAGE_KEYS = setOf("message", "msg", "errmsg", "errormsg", "error_msg", "errormessage", "error", "tip", "tips", "toast", "reason")
     private const val API_MESSAGE_MAX = 200
 
-    /** 比对时去掉空白:「请下载 App 继续」和「请下载App继续」一样认。 */
+    /** Remove the blank space when comparing: "Please download the App to continue" is the same as "Please download the App to continue". */
     private val UNSUPPORTED_WORDS = listOf(
         "请在浏览器中打开", "当前浏览器不支持", "不支持此浏览器", "请下载app继续", "browserisnotsupported", "browsernotsupported",
     )
 
     fun classify(f: WebFacts): ScreenCheck {
-        // 手机同一套规则已经判出要人处理(密码框、验证码字样、付款),以它为准
+        // The same set of rules for mobile phones has been determined to be handled by someone (password
+        // box, verification code words, payment), which shall prevail.
         val base = ScreenDiagnosis.classify(f.base)
         if (base.state == ScreenState.NEEDS_HUMAN) return base
         val text = f.base.texts.joinToString("\n").lowercase()
@@ -83,7 +87,7 @@ object WebBarrier {
         return base
     }
 
-    /** 字不多的页面上风控拦截页的说法;不是为 null。 */
+    /** Argument for the risk control interception page on a page with few words; not null. */
     private fun interstitial(texts: List<String>, compact: String): String? {
         if (texts.size > INTERSTITIAL_MAX_TEXTS || compact.length > INTERSTITIAL_MAX_CHARS) return null
         INTERSTITIAL_WORDS.firstOrNull { it in compact }?.let { return it }
@@ -92,8 +96,10 @@ object WebBarrier {
     }
 
     /**
-     * 页面自己收到的接口响应 [body] 是不是在说被风控拦下了:JSON 对象顶层报信息的字段(message、msg、error…)里有那类说法。
-     * 返回那段说法(截短);不是 JSON、没有这类字段或没说到为 null。
+     * Does the interface response [body] received by the page itself mean that it was blocked by risk
+     * control: there is such a statement in the fields (message, msg, error...) of the top-level
+     * information reported in the JSON object. Returns the statement (truncated); is not JSON, has no
+     * such field, or is null if not mentioned.
      */
     fun apiRisk(body: String?): String? {
         val text = body?.trim()?.takeIf { it.startsWith("{") } ?: return null
@@ -108,7 +114,7 @@ object WebBarrier {
         return null
     }
 
-    /** 跨源(主机名和页面不同)且指向人机验证服务的框架。 */
+    /** A framework that is cross-origin (different host names and pages) and points to the human-machine authentication service. */
     private fun captchaFrame(url: String, pageHost: String?): Boolean {
         val h = WebUrlPolicy.host(url) ?: return false
         if (pageHost != null && h == pageHost.lowercase().removePrefix("www.")) return false
@@ -118,3 +124,4 @@ object WebBarrier {
             CAPTCHA_HOST_WORDS.any { it in h }
     }
 }
+

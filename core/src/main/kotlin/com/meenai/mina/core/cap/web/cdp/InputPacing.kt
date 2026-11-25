@@ -10,15 +10,20 @@ import com.meenai.mina.core.uistate.Pace
 import kotlin.random.Random
 
 /**
- * DevTools 鼠标键盘的节奏:鼠标沿一小段弧线移过去再按、按住一会儿再抬、键与键之间有长短不一的间隔、滚轮一格一格地转。
- * 所有时长与幅度都有上下限([Limits]),一次动作的总时长因此有界。[Instant] 不加任何停顿和中间点
- * (事件序列与不加节奏时一样,测试和不需要节奏的调用方用它)。
+ * The rhythm of DevTools mouse and keyboard: move the mouse along a short arc and then press it, hold it
+ * down for a while and then lift it up, there are intervals of varying lengths between keys, and the
+ * scroll wheel rotates one frame after another. All durations and amplitudes have upper and lower limits
+ * ([Limits]), so the total duration of an action is bounded. [Instant] does not add any pauses and
+ * intermediate points (the event sequence is the same as without rhythm, used for testing and callers
+ * that do not need rhythm).
  */
 class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
     /**
-     * 上下限。时长单位毫秒,距离单位 CSS 像素。
-     * [approachPx]:不知道指针在哪时,从目标多远处移过来;[bowFraction] / [maxBowPx]:轨迹偏离直线的最大幅度(相对距离 / 绝对);
-     * [maxKeyedChars]:超过这么长的文字整段交给输入框(像粘贴),不再逐键敲。
+     * Upper and lower limits. Duration unit is milliseconds, distance unit is CSS pixels.
+     * [approachPx]: how far from the target to move when pointer position is unknown;
+     * [bowFraction] / [maxBowPx]: maximum curve deviation from a straight line (relative / absolute);
+     * [maxKeyedChars]: text longer than this is passed to the input box as a whole (like paste)
+     * instead of typing key by key.
      */
     data class Limits(
         val moveSteps: IntRange = 4..9,
@@ -37,7 +42,7 @@ class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
         val maxKeyedChars: Int = 30,
     )
 
-    /** 有节奏(不是 [Instant])。 */
+    /** Rhythmic (not [Instant]). */
     val paced: Boolean get() = random != null
 
     fun dwell(): Long = pick(limits.dwellMs)
@@ -50,7 +55,7 @@ class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
 
     private fun pick(r: LongRange): Long = random?.let { Pace.pick(it, r) } ?: 0L
 
-    /** 不知道指针在哪时的起点:目标周围 [Limits.approachPx] 远的某处(坐标不小于 0)。[Instant] 时就是目标本身。 */
+    /** The starting point when the pointer is unknown: somewhere [Limits.approachPx] far around the target (coordinates are not less than 0). [Instant] is the target itself. */
     fun origin(x: Double, y: Double): Pair<Double, Double> {
         val r = random ?: return x to y
         val dist = Pace.pick(r, limits.approachPx).toDouble()
@@ -59,8 +64,9 @@ class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
     }
 
     /**
-     * 从 [from] 到 [to] 的中间点(不含起点,最后一个正好是终点):二次贝塞尔弧线,两头慢中间快。
-     * [Instant] 或距离不到 3 像素时只有终点。
+     * The middle point from [from] to [to] (excluding the starting point, the last one is exactly the
+     * end point): quadratic Bezier arc, slow at both ends and fast in the middle. [Instant] or only end
+     * point when less than 3 pixels away.
      */
     fun path(from: Pair<Double, Double>, to: Pair<Double, Double>): List<Pair<Double, Double>> {
         val r = random ?: return listOf(to)
@@ -74,9 +80,11 @@ class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
     }
 
     /**
-     * 把滚动距离 [distance](正为向下)分成一格一格的滚轮增量,合起来正好是 [distance]:每格 [Limits.wheelNotchPx],
-     * 最后一格是余下的零头;格数超过 [Limits.maxNotches] 时改为 [Limits.maxNotches] 格均分(每格大一些,总时长因此有界)。
-     * [Instant] 时一次滚完。0 为空表。
+     * Divide the scrolling distance [distance] (positive means downward) into wheel increments one by
+     * one. The total is exactly [distance]: each grid is [Limits.wheelNotchPx], and the last grid is the
+     * remaining fraction; when the number of grids exceeds [Limits.maxNotches], it is changed to
+     * [Limits.maxNotches] equally (each grid is larger, so the total time is bounded). [Instant] is
+     * rolled in one go. 0 is an empty table.
      */
     fun notches(distance: Double): List<Double> {
         if (distance == 0.0) return emptyList()
@@ -89,10 +97,10 @@ class InputPacing(private val random: Random?, val limits: Limits = Limits()) {
     }
 
     companion object {
-        /** 不加停顿、不加中间点。 */
+        /** No pauses, no midpoints. */
         val Instant = InputPacing(null)
 
-        /** 像人手的节奏;[random] 可换成固定种子(测试)。 */
+        /** Like the rhythm of a human hand; [random] can be replaced with a fixed seed (test). */
         fun human(random: Random = Random.Default, limits: Limits = Limits()) = InputPacing(random, limits)
     }
 }

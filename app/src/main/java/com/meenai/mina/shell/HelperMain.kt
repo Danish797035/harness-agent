@@ -2,7 +2,7 @@ package com.meenai.mina.shell
 
 import com.meenai.mina.cap.phone.shell.HelperProcess
 
-/** 内置助手进程的入口:启动命令里写的是这个全名(见 HelperHandoff.HELPER_CLASS);实现在手机能力里。 */
+/** The entrance to the built-in assistant process: the full name is written in the startup command (see HelperHandoff.HELPER_CLASS); it is implemented in the mobile phone capabilities. */
 object HelperMain {
     @JvmStatic
     fun main(args: Array<String>) = HelperProcess.main(args)

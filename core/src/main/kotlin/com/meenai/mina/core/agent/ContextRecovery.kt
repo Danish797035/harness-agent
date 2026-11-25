@@ -6,8 +6,10 @@ import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
 
 /**
- * 压缩后的确定性兜底:用户原话(含插话)与固定知识/技能规则一条也不能消失。
- * 比对时不看运行时状态(折叠会把它去掉,同一条消息仍算在);真的不见了的放回它在完整历史里的位置,不接到末尾。
+ * The certainty after compression is: the user’s original words (including interjections) and the fixed
+ * knowledge/skill rules cannot disappear. The runtime status is not looked at when comparing (folding
+ * will remove it, the same message is still counted); if it is really missing, it will be put back to
+ * its position in the complete history, not connected to the end.
  */
 internal object ContextRecovery {
     fun ensure(full: List<Message>, compressed: List<Message>): List<Message> {
@@ -27,7 +29,8 @@ internal object ContextRecovery {
         val out = compressed.toMutableList()
         val at = origins.toMutableList<Int?>()
         for (i in missing) {
-            // 放在第一条出自它之后的消息前面;不夹进调用与结果之间
+            // Placed before the first message that comes after it; not sandwiched between the call and
+            // the result
             var pos = at.indexOfFirst { it != null && it > i }.let { if (it < 0) out.size else it }
             while (pos < out.size && out[pos].role == Role.Tool) pos++
             out.add(pos, ContextBuilder.withoutRuntimeState(full[i]))
@@ -36,7 +39,7 @@ internal object ContextRecovery {
         return out
     }
 
-    /** 压缩后的每条消息出自完整历史的哪一条(按调用编号或原样认;摘要等新写的为 null)。 */
+    /** Which piece of the complete history does each compressed message come from (identify by call number or as is; newly written ones such as summary are null). */
     private fun origins(full: List<Message>, compressed: List<Message>): List<Int?> {
         val byId = HashMap<String, Int>()
         val byKey = HashMap<Message, ArrayDeque<Int>>()

@@ -54,7 +54,7 @@ class BridgeProtocolTest {
         val big = req("progress", buildJsonObject { put("text", "x".repeat(70_000)) })
         val r = handle(big)
         assertEquals("too_large", r.s("error")); assertTrue(r.close)
-        // 读的时候就截住:超过 64 KB 不再往下读
+        // Stop when reading: no longer read if it exceeds 64 KB
         val line = BridgeProtocol.readLine(ByteArrayInputStream(ByteArray(70_000) { 'a'.code.toByte() } + "\n".toByteArray()))
         assertEquals(BridgeProtocol.Line.TooLarge, line)
         val ok = BridgeProtocol.readLine(ByteArrayInputStream("ab\ncd\n".toByteArray()))
@@ -121,7 +121,8 @@ class BridgeProtocolTest {
         assertEquals(listOf("/workspace/out/a.png" to "图.png"), shared)
         shareResult = { throw SandboxError("share_unavailable", "not yet") }
         assertEquals("share_unavailable", handle(req("share", buildJsonObject { put("path", "/workspace/a") })).s("error"))
-        // 意外的失败只回错误码,不把内部信息交给沙箱
+        // Unexpected failure only returns an error code and does not give internal information to the
+        // sandbox
         shareResult = { throw IllegalStateException("/data/user/0/secret path") }
         val failed = handle(req("share", buildJsonObject { put("path", "/workspace/a") }))
         assertEquals("share_failed", failed.s("error"))

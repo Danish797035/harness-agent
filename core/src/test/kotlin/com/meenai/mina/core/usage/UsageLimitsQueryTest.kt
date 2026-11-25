@@ -24,8 +24,8 @@ class UsageLimitsQueryTest {
         val s = snap(
             row(Instant.parse("2026-10-27T04:00:00Z"), input = 10, output = 5),
             row(Instant.parse("2026-10-26T04:00:00Z"), input = 20, output = 1),
-            row(Instant.parse("2026-10-21T04:00:00Z"), input = 100), // 7 天窗口的第一天
-            row(Instant.parse("2026-10-20T04:00:00Z"), input = 1000), // 窗口外
+            row(Instant.parse("2026-10-21T04:00:00Z"), input = 100), // First day of 7-day window
+            row(Instant.parse("2026-10-20T04:00:00Z"), input = 1000), // outside the window
         )
         val u = UsageLimitsQuery.report(s, null, now, utc)
         assertEquals(1, u.dailyCalls)
@@ -48,7 +48,7 @@ class UsageLimitsQueryTest {
 
     @Test
     fun dayBoundaryFollowsTheZone() {
-        // UTC 10-26 20:00 是 IST 10-27 01:30
+        // UTC 10-26 20:00 is IST 10-27 01:30
         val now = Instant.parse("2026-10-27T03:00:00Z")
         val s = snap(row(Instant.parse("2026-10-26T20:00:00Z"), input = 7))
         val istUsage = UsageLimitsQuery.report(s, null, now, ist)

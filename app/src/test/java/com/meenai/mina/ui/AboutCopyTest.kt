@@ -22,11 +22,12 @@ class AboutCopyTest {
     fun checkRowStates() {
         assertEquals(AboutCopy.CheckValue(null), AboutCopy.checkValue(UpdateState()))
         assertTrue(AboutCopy.checkValue(UpdateState(status = CheckStatus.Checking)).spinner)
-        // 连不上但早先查到过新版:照样提示有新版
+        // Unable to connect but I have checked the new version earlier: it still prompts that there is a
+        // new version
         assertTrue(AboutCopy.checkValue(UpdateState(latest = r020, update = r020, status = CheckStatus.Failed)).dot)
     }
 
-    /** 联系作者面板:英文界面 X 群聊在前。 */
+    /** Contact author panel: English interface X Group chat first. */
     @Test
     fun xGroupFirstOnlyInEnglish() {
         assertTrue(AboutCopy.X_GROUP_FIRST)

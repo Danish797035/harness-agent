@@ -3,23 +3,30 @@ package com.meenai.mina.core.tool
 import com.meenai.mina.core.model.ToolSpec
 
 /**
- * 工具分两层发给模型:一直都在的(核心的通用工具、不收的能力),和按能力分的几组(收着时只有入口工具,用短说明;
- * 第一次用到时展开成整组、换回全文,本任务里一直留着)。只在有屏幕的那几组展开时才提供的通用工具(接管、报障碍、回看画面、一次多步)
- * 算作 [SCREENS] 一组,任何一块屏展开它就展开。
+ * Tools are sent to the model in two layers: those that are always there (core common tools and
+ * abilities that are not collected), and groups divided by abilities (when collected, there are only
+ * entrance tools with short descriptions; when used for the first time, they are expanded into a full
+ * group and replaced with full text, which is always kept in this task). The general tools (takeover,
+ * reporting obstacles, reviewing the screen, and multiple steps at a time) that are only provided when
+ * the groups with screens are expanded are counted as a group of [SCREENS], and any screen will be
+ * expanded when it is expanded.
  *
- * 顺序固定:一直都在的 → [SCREENS] → 各能力的组(按登记的顺序)。展开一组只改从它那一组起的部分,
- * 前面的字节不变;请求前缀因展开最多失效一次。
+ * The order is fixed: always → [SCREENS] → groups of each ability (in the order of registration).
+ * Expanding a group only changes the part starting from that group, and the previous bytes remain
+ * unchanged; the request prefix will be invalidated at most once due to expansion.
  */
 internal object ToolGroups {
-    /** 有屏幕的几组共用的那一组。 */
+    /** The group with the screen shared by several groups. */
     const val SCREENS = "screens"
 
-    /** 冻结下来的一个工具:全文定义、收着时的入口定义(不是入口为 null)、所属的组(一直都在为 null)。 */
+    /** A frozen tool: full text definition, entry definition when closed (not the entry is null), and the group it belongs to (it is always null). */
     class Slot(val full: ToolSpec, val entry: ToolSpec?, val group: String?)
 
     /**
-     * 此刻发给模型的工具:[expanded] 是已展开的组(含 [SCREENS]);[extra] 是循环自己另给、属于某一组的定义
-     * (一次多步属于 [SCREENS]),排在那一组的末尾,只在那一组展开时给。
+     * The tools sent to the model at this time: [expanded] is an expanded group (including [SCREENS]);
+     * [extra] is a definition given by the loop itself and belongs to a certain group (multiple steps at
+     * a time belong to [SCREENS]), ranked at the end of that group, and only given when that group is
+     * expanded.
      */
     fun layout(slots: List<Slot>, expanded: Set<String>, extra: Map<String, List<ToolSpec>> = emptyMap()): List<ToolSpec> =
         order(slots).flatMap { g ->
@@ -28,6 +35,6 @@ internal object ToolGroups {
             else members.mapNotNull { it.entry }
         }
 
-    /** 各组的先后:一直都在的、[SCREENS]、再按能力第一次出现的顺序。 */
+    /** The order of each group: always there, [SCREENS], and then in the order of the ability appearing for the first time. */
     fun order(slots: List<Slot>): List<String?> = listOf(null, SCREENS) + slots.mapNotNull { it.group }.filter { it != SCREENS }.distinct()
 }

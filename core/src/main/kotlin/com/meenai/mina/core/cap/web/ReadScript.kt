@@ -11,32 +11,51 @@ import java.net.URI
 
 const val READ_SCRIPT_DEFAULT_TIMEOUT_MS = 10_000
 const val READ_SCRIPT_MAX_TIMEOUT_MS = 30_000
-/** 一次 sleep 最多等多久。 */
+/** The maximum length of time to wait for a sleep. */
 const val READ_SLEEP_MAX_MS = 5_000
 
 /**
- * 读脚本(web_evaluate_js、站点命令)的做法:在当前标签主框架的一个隔离世界里跑,看得到真实的 DOM,但碰不到原件。
- * - 模型代码按 web_script 的办法编译:这个世界全局对象上的名字都当参数遮住,只留纯 ECMAScript 内置和下面给的几个名字
- *   (document、window、location、fetch、state、args、sleep、getComputedStyle、URL、URLSearchParams)。
- * - 给的页面对象都是包装:读属性照读(读到的对象再包一层),写、删、定义属性、改原型一律报 read_only;
- *   函数只有登记过的只读方法(查找、读属性、量位置、迭代)能调,别的(点、聚焦、提交、改 DOM、开窗、跳转)都报 read_only。
- *   原生函数只拿到原件,模型拿到的永远是包装;模型能碰到的内置对象先冻住、全局名设成只读,改不了它们来截原件或换掉检查要用的函数。
- * - 密码、隐藏字段、验证码、银行卡一类输入框的值读出来是 `***`,输入框自己接口上只有 [SECRET_FIELD_PROPS] 能照读;
- *   同源 iframe、shadow root、template 里的也一样(认节点用原生 getter,不用 instanceof)。innerHTML 一类在不属于任何窗口的副本上打码,不跑页面代码;
- *   外层元素里有带字的秘密 textarea 时,textContent 一类也在副本上取。秘密 textarea 的子文本节点、秘密输入框的 value 属性节点读出来是 `***`,
- *   拿到以后脱离了页面也是。
- *   按 value 属性选元素不行(能逐位猜出值),选择器先照 CSS 的规矩还原再判断([SelectorPolicy])。
- *   选择器、属性名参数先变成字符串、只变一次:检查的就是交给浏览器的那一个。
- * - 读脚本不碰网络:fetch 调用就报 blocked_network([NETWORK_MESSAGE]);XMLHttpRequest、sendBeacon、WebSocket、EventSource、
- *   new Image() 一类经包装调用、构造也报 blocked_network;建元素、改 src/href 本来就是改页面(read_only)。只能读页面已经有的东西。
- * - state 是这个标签的读取世界里一直留着的对象:同一页面上前后几次读脚本共用;页面换了文档就没了。
- * 兜底(在 DevTools 事件上):脚本发出了任何网络请求、跑着时主框架要跳转,都让这次读脚本以错误结束。
+ * How to read scripts (web_evaluate_js, site commands): Run in an isolated world in the main frame of
+ * the current tag. You can see the real DOM, but you cannot touch the original.
+ * - - The model code is compiled according to the web_script method: the names on the global object of
+ * this world are all covered as parameters, leaving only the pure ECMAScript built-in and a few names
+ * given below.
+ * (document, window, location, fetch, state, args, sleep, getComputedStyle, URL, URLSearchParams).
+ * - - The given page objects are all wrapped: reading attributes is read as usual (the read object is
+ * wrapped in another layer), writing, deleting, defining attributes, and changing prototypes all report
+ * read_only;
+ * Only the registered read-only methods (search, read attributes, volume position, iteration) of the
+ * function can be called, and other functions (point, focus, submit, change DOM, window opening, jump)
+ * all report read_only. The native function only gets the original, and the model always gets the
+ * package; the built-in objects that the model can encounter are frozen first, and the global names are
+ * set to read-only. They cannot be changed to intercept the original or replace the functions used for
+ * checking.
+ * - - The value of input boxes such as passwords, hidden fields, verification codes, and bank cards is
+ * read as `***`. Only [SECRET_FIELD_PROPS] on the interface of the input box itself can be read;
+ * The same applies to same-origin iframe, shadow root, and template (use native getters to identify
+ * nodes, not instanceof). The innerHTML class is coded on a copy that does not belong to any window,
+ * without running the page code; when there is a secret textarea with words in the outer element, the
+ * textContent class is also fetched from the copy. The sub-text node of the secret textarea and the
+ * value attribute node of the secret input box are read as `***`, even when they are removed from the
+ * page. It is not possible to select elements by the value attribute (the value can be guessed bit by
+ * bit). The selector first restores according to CSS rules and then makes a judgment ([SelectorPolicy]).
+ * The selector and attribute name parameters are first changed to strings and only changed once: the one
+ * that is checked is the one handed to the browser.
+ * - - Read the script without touching the network: blocked_network([NETWORK_MESSAGE]) is reported when
+ * fetch is called; XMLHttpRequest, sendBeacon, WebSocket, EventSource,
+ * The new Image() class also reports blocked_network when called and constructed through packaging; when
+ * creating elements and changing src/href, the original page is changed (read_only). You can only read
+ * what is already on the page.
+ * - - state is an object that remains in the reading world of this tag: it is shared by several reading
+ * scripts on the same page; it disappears when the page changes the document.
+ * Bottom line (on the DevTools event): If the script makes any network request or the main frame jumps
+ * when running, reading the script will end with an error.
  */
 object ReadScriptProtocol {
-    /** 读脚本想用网络时的说明。 */
+    /** Read the script for instructions when you want to use the Internet. */
     const val NETWORK_MESSAGE = "network access is not allowed in read scripts; use web_capture to read what the page loaded"
 
-    /** 能发请求的页面函数和构造器的名字:经包装调用、构造时报 blocked_network(而不只是 read_only),说清楚为什么。 */
+    /** The name of the page function and constructor that can send requests: when called through packaging, the constructor reports blocked_network (not just read_only), and clearly explains why. */
     val NETWORK_NAMES = listOf(
         "fetch", "sendBeacon", "XMLHttpRequest", "WebSocket", "EventSource", "Image", "Audio", "Request",
         "Worker", "SharedWorker", "RTCPeerConnection", "importScripts",
@@ -47,12 +66,13 @@ object ReadScriptProtocol {
     const val PRELUDE_URL = "mina-read-prelude.js"
     const val MASK = PageScriptProtocol.SECRET_MASK
 
-    /** 模型代码里除了纯 ECMAScript 内置之外能用的名字,也是传参的顺序。 */
+    /** The names that can be used in the model code other than the pure ECMAScript built-in are also the order in which parameters are passed. */
     val PROVIDED = listOf("document", "window", "location", "fetch", "state", "args", "sleep", "getComputedStyle", "URL", "URLSearchParams")
 
     /**
-     * 能经包装调用的只读方法,按接口。原型上找不到的跳过(不同系统版本的 WebView 不一样)。
-     * 带 Symbol.iterator 的接口另外放行它的迭代器。
+     * A read-only method that can be called via the wrapper, per interface. Skip that cannot be found on
+     * the prototype (WebView differs in different system versions). An interface with Symbol.iterator
+     * additionally releases its iterator.
      */
     val READ_METHODS: Map<String, List<String>> = linkedMapOf(
         "Node" to listOf("contains", "hasChildNodes", "getRootNode", "compareDocumentPosition", "isEqualNode", "isSameNode", "lookupPrefix", "lookupNamespaceURI", "isDefaultNamespace"),
@@ -82,16 +102,20 @@ object ReadScriptProtocol {
         "MediaQueryList" to listOf(),
     )
 
-    /** 全局对象自己身上的只读方法。 */
+    /** Read-only methods on the global object itself. */
     val GLOBAL_READ_METHODS = listOf("getComputedStyle", "matchMedia")
 
-    /** 读不得的属性:Cookie、本地存储一类(登录凭据常在里面)。 */
+    /** Unreadable attributes: Cookies, local storage (login credentials are often in them). */
     val DENIED_PROPS = listOf("cookie", "localStorage", "sessionStorage", "indexedDB", "caches", "cookieStore", "credentials", "serviceWorker", "clipboard", "openDatabase")
 
     /**
-     * 秘密输入框(密码框、隐藏字段、验证码一类)自己接口(HTMLInputElement、HTMLTextAreaElement)上能照读的属性:页面定好的设定,不随填的内容变。
-     * 接口上别的属性读出来都是 `***`:valueAsNumber、valueAsDate、selectionStart / selectionEnd、textLength、validity、validationMessage,
-     * 以及浏览器以后新加的;方法照旧经包装,能不能调由 [READ_METHODS] 管。value、textContent 一类另按有没有值给 `***` 或空。
+     * The attributes that can be read on the own interface (HTMLInputElement, HTMLTextAreaElement) of
+     * the secret input box (password box, hidden field, verification code, etc.): the page settings are
+     * set and do not change with the filled content. The other properties on the interface read out as
+     * `***`: valueAsNumber, valueAsDate, selectionStart/selectionEnd, textLength, validity,
+     * validationMessage, and those newly added by browsers later; the methods are still packaged, and
+     * whether they can be called is left to [READ_METHODS]. Value and textContent are different types.
+     * There is no value for `***` or it is empty.
      */
     val SECRET_FIELD_PROPS = listOf(
         "type", "name", "form", "labels", "list", "placeholder", "autocomplete", "disabled", "readOnly", "required", "willValidate",
@@ -99,17 +123,17 @@ object ReadScriptProtocol {
         "formAction", "formEnctype", "formMethod", "formNoValidate", "formTarget",
     )
 
-    /** 先冻住再交给模型的内置对象(连同原型),全局名也设成只读:模型改不了它们,也就截不到包装里传的原件、换不掉检查要用的函数。 */
+    /** The built-in objects (together with prototypes) that are frozen and then handed over to the model, and the global names are also set to read-only: the model cannot change them, so it cannot intercept the originals passed in the package and cannot replace the functions used for checking. */
     private val FROZEN = PageScriptProtocol.ALLOWED_GLOBALS.filter { it !in setOf("undefined", "NaN", "Infinity") } + listOf("URL", "URLSearchParams")
 
-    /** 模型代码第 1 行前面,编译后的源码还有几行(`(async function anonymous(…`、`) {`、`'use strict';`、`return (` 或空行)。 */
+    /** Before the first line of the model code, there are several lines of compiled source code (`(async function anonymous(…`, `) {`, `'use strict';`, `return (` or blank lines). */
     private const val LINE_OFFSET = 4
 
     private fun js(v: Collection<String>): String = v.joinToString(",", "[", "]") { JsonPrimitive(it).toString() }
 
     private fun jsMap(m: Map<String, List<String>>): String = m.entries.joinToString(",", "{", "}") { (k, v) -> JsonPrimitive(k).toString() + ":" + js(v) }
 
-    /** 装进读取世界的前置脚本:冻住内置对象、登记能调的方法、定义包装、`__minaReadRun` 与 `__minaReadStop`。装过再装不做事。 */
+    /** Install the pre-script to read the world: freeze built-in objects, register callable methods, define packaging, `__minaReadRun` and `__minaReadStop`. Pretend and pretend not to do anything. */
     val PRELUDE: String = """
 (() => {
   'use strict';
@@ -129,7 +153,8 @@ object ReadScriptProtocol {
   const NETWORK = new Set(${js(NETWORK_NAMES)});
   const offline = () => { throw fail('blocked_network', ${JsonPrimitive(NETWORK_MESSAGE)}); };
 
-  // 把字符串当代码跑的路(会在全局作用域里跑)、调用栈 API 封掉
+  // Use strings as a path for code execution (it will run in the global scope) and block the call stack
+  // API.
   const unavailable = function () { throw fail('read_only', 'running code from strings is not available'); };
   const fnKinds = [function () {}, async function () {}, function* () {}, async function* () {}];
   for (const f of fnKinds) fixed(getProto(f), 'constructor', unavailable);
@@ -137,15 +162,16 @@ object ReadScriptProtocol {
   fixed(G, 'Function', unavailable);
   fixed(G.Error, 'prepareStackTrace', undefined);
 
-  // 冻住模型碰得到的内置对象
+  // Freezes built-in objects that are touched by the model
   const ice = (x) => { if (x && (typeof x === 'object' || typeof x === 'function')) { try { freeze(x); } catch (e) {} } };
-  // 全局名也设成只读:不然模型代码改写 String 就能让下面的检查失效,之后在这个世界里跑的读脚本也一样
+  // The global name is also set to read-only: otherwise the model code rewriting String will invalidate
+  // the following check, and the same will be true for subsequent read scripts running in this world.
   for (const n of ${js(FROZEN)}) { const v = G[n]; ice(v); if (v && typeof v === 'function') ice(v.prototype); if (v !== undefined) fixed(G, n, v); }
   for (const f of fnKinds) ice(getProto(f));
   const arrayIter = getProto([][Symbol.iterator]());
   for (const p of [arrayIter, getProto(arrayIter), getProto(new Map().entries()), getProto(new Set().values()), getProto(''[Symbol.iterator]())]) ice(p);
 
-  // 能经包装调用的原生函数
+  // Native functions that can be called via wrappers
   const SAFE = new WeakSet();
   const READ = ${jsMap(READ_METHODS)};
   for (const iface of keysOf(READ)) {
@@ -160,7 +186,7 @@ object ReadScriptProtocol {
   for (const k of ['toString', 'valueOf']) { const d = getDesc(loc, k); if (d && typeof d.value === 'function') SAFE.add(d.value); }
   for (const f of [Array.prototype.values, Array.prototype.keys, Array.prototype.entries, Array.prototype.forEach, arrayIter.next,
     O.prototype.toString, O.prototype.toLocaleString, O.prototype.valueOf, O.prototype.hasOwnProperty, O.prototype.propertyIsEnumerable]) SAFE.add(f);
-  // 第一个参数是选择器的;第几个参数是属性名的
+  // The first parameter is the selector; the first few parameters are the attribute names.
   const SELECTORS = new WeakSet();
   for (const iface of ['Element', 'Document', 'DocumentFragment']) {
     const p = G[iface] && G[iface].prototype;
@@ -170,15 +196,20 @@ object ReadScriptProtocol {
   for (const [k, i] of [['getAttribute', 0], ['getAttributeNS', 1]]) { const d = Elem && getDesc(Elem.prototype, k); if (d && typeof d.value === 'function') ATTRS.set(d.value, i); }
 ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
 
-  // 不读值的输入框:密码框、隐藏字段,autocomplete 标着密码、银行卡、一次性验证码的
+  // Input boxes that do not read values: password boxes, hidden fields, autocomplete marked with
+  // passwords, bank cards, and one-time verification codes
   const SECRET_AC = new Set(${js(PageScriptProtocol.SECRET_AUTOCOMPLETE)});
   const SECRET_TYPES = new Set(${js(PageScriptProtocol.SECRET_INPUT_TYPES)});
-  // 节点是哪种用原生 getter 读,不用 instanceof:同源 iframe 里的节点属于那个框架自己的一套接口,instanceof 认不出,原生 getter 照样认
+  // Which kind of node is it? Use the native getter to read it, without using instanceof: The nodes in
+  // the same-origin iframe belong to that framework’s own set of interfaces. Instanceof cannot recognize
+  // it, but the native getter still recognizes it.
   const getterOf = (C, k) => { const d = C && getDesc(C.prototype, k); return d && d.get; };
   const nodeTypeOf = getterOf(G.Node, 'nodeType'), localNameOf = getterOf(Elem, 'localName'), shadowHostOf = getterOf(G.ShadowRoot, 'host');
   const native = (g, x) => { if (!g || x === null || typeof x !== 'object') return undefined; try { return apply(g, x, []); } catch (e) { return undefined; } };
-  // 节点类型按对象记下来(同一个对象的类型不会变):读属性前多半要先认一次类型,不是节点的对象(集合、矩形、样式一类)上
-  // nodeType 的原生 getter 每次都抛错,同一个对象只认一次
+  // The node type is recorded by object (the type of the same object will not change): before reading
+  // the attributes, the type must be recognized first. The native getter of nodeType on objects that are
+  // not nodes (collections, rectangles, styles, etc.) throws an error every time, and the same object is
+  // only recognized once.
   const kinds = new WeakMap();
   const typeOf = (x) => {
     if (x === null || typeof x !== 'object') return undefined;
@@ -195,7 +226,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     const ac = el.getAttribute('autocomplete');
     return !!ac && ac.toLowerCase().split(/\s+/).some((t) => SECRET_AC.has(t));
   };
-  // 曾经是秘密输入框的(如「显示密码」把 type 改成 text)也一直按秘密算:从读取世界建起时起盯着
+  // What used to be a secret input box (such as changing the type to text in "Show Password") has always
+  // been regarded as a secret: starting from the time when the world was read and built.
   const wasSecret = new WeakSet();
   const markIn = (root) => { try { if (secretNow(root)) wasSecret.add(root); for (const x of root.querySelectorAll('input, textarea')) if (secretNow(x)) wasSecret.add(x); } catch (e) {} };
   try {
@@ -208,12 +240,16 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
   markIn(doc);
   const secret = (el) => secretNow(el) || (!!el && typeof el === 'object' && wasSecret.has(el));
   const SECRET_TEXT = new Set(['value', 'defaultValue', 'textContent', 'innerText', 'outerText', 'innerHTML', 'nodeValue']);
-  // 秘密输入框自己接口上的属性:只有页面定好、不随内容变的照读,别的(含浏览器以后新加的读值接口)都是 ***
+  // The properties of the secret input box's own interface: only the page is set and will not change
+  // with the content, and the rest (including the new value reading interface added by the browser in
+  // the future) are ***
   const FIELD_SAFE = new Set(${js(SECRET_FIELD_PROPS)});
   const fieldApi = (el, k) => { const tag = tagOf(el); return !!((tag === 'input' && Input && getDesc(Input.prototype, k)) || (tag === 'textarea' && Area && getDesc(Area.prototype, k))); };
-  // innerHTML / outerHTML 会写出的输入框:template 的内容也会写出来,但 querySelectorAll 找不进去,另外进去找。
-  // 原件和副本按同一个次序列出来。不递归(template 能套很多层);只有 HTML 的 template 有内容(SVG 里同名的元素没有);
-  // 查找用原生方法(表单里有叫 querySelectorAll 的控件也照样找)
+  // InnerHTML / outerHTML will write the content of the input box:template, but querySelectorAll cannot
+  // find it, so go in and find it separately. Originals and copies are listed in the same order. No
+  // recursion (template can have many layers); only the HTML template has content (element with the same
+  // name in SVG does not); Use native methods to search (if there is a control called querySelectorAll
+  // in the form, it will still be found)
   const contentOf = getterOf(G.HTMLTemplateElement, 'content');
   const QSA = { 1: Elem && Elem.prototype.querySelectorAll, 9: G.Document && G.Document.prototype.querySelectorAll, 11: G.DocumentFragment && G.DocumentFragment.prototype.querySelectorAll };
   const fields = (node, out) => {
@@ -226,11 +262,17 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     }
     return out;
   };
-  // HTML 里带着秘密输入框的 value 时,改在副本上打码再取。哪个框打码看原件(副本没有「曾经是秘密输入框」的记录),副本里同一位置的框打码。
-  // 副本放在一份不属于任何窗口的空文档里(建一次,以后接着用):自定义元素不构造,页面代码不跑,资源不加载。ShadowRoot 不能复制,把它的子节点放进一个 div。
-  // 这样写出来的格式和页面自己的有两处不同,不影响打码:noscript 里的内容会转义;XHTML 页面写成 HTML 的格式
+  // When the value of the secret input box is included in the HTML, code it on the copy and then
+  // retrieve it. Which box to code looks at the original (the copy has no record of "used to be a secret
+  // input box"), and the box at the same position in the copy is coded. The copy is placed in an empty
+  // document that does not belong to any window (create it once and use it later): custom elements are
+  // not constructed, page code does not run, and resources are not loaded. ShadowRoot cannot be copied,
+  // put its child nodes into a div. The format written in this way is different from the page itself in
+  // two ways, which does not affect coding: the content in noscript will be escaped; XHTML pages are
+  // written in HTML format
   let inert = null;
-  // 打好码的副本;v 里没有秘密输入框时为 null,副本和原件对不上时为 MASK
+  // A coded copy; it is null when there is no secret input box in v, and it is MASK when the copy does
+  // not match the original.
   const masked = (v) => {
     const root = typeOf(v) !== 1;
     const orig = fields(v, root ? [] : [v]);
@@ -251,14 +293,18 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     return c;
   };
   const html = (v, k) => { const c = masked(v); return c === null ? rget(v, k, v) : c === MASK ? MASK : rget(c, k, c); };
-  // 秘密 textarea 里的字就是它的初始值(页面把打进去的字写回初始值时也在这里)。外层元素、shadow root 的 textContent 带得出来;
-  // 没渲染出来的外层元素的 innerText 也是(这时 innerText 就是 textContent);textarea 在 option 里时,渲染出来的 innerText 也带
-  // (option 按它的 text 写出来);a、option 的 text,option 的 label、value,output 的 value、defaultValue 也按子孙的文字算。
-  // 这几样改在副本上打码再取。渲染出来的别的元素的 innerText 不含 textarea 里的字,照原样给
+  // The words in the secret textarea are their initial values (this is where the page writes the typed
+  // words back to their initial values). The textContent of the outer element and shadow root is
+  // brought; the innerText of the unrendered outer element is also brought (in this case, innerText is
+  // textContent); when the textarea is in the option, the rendered innerText is also brought (the option
+  // is written according to its text); a. The text of the option, the label and value of the option, and
+  // the value and defaultValue of the output are also calculated according to the text of the
+  // descendants. These changes should be coded on the copy before being retrieved. The innerText of
+  // other rendered elements does not contain the words in the textarea and is given as it is.
   const textOf = getterOf(G.Node, 'textContent'), parentOf = getterOf(G.Node, 'parentNode'), closest = Elem && Elem.prototype.closest;
-  // 用 Map:属性名可以是 constructor、__proto__ 一类
+  // Use Map: the attribute name can be constructor or __proto__
   const DESC = new Map([['text', new Set(['a', 'option'])], ['label', new Set(['option'])], ['value', new Set(['option', 'output'])], ['defaultValue', new Set(['output'])]]);
-  // v 里带字的秘密 textarea:没有为 0,有为 1,有在 option 里的为 2
+  // The secret textarea with words in v: 0 if not, 1 if there is, and 2 if it is in option
   const areasIn = (v) => {
     const find = QSA[typeOf(v)];
     let hit = 0;
@@ -273,10 +319,15 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     const c = masked(v);
     return c === null ? x : c === MASK ? MASK : DESC.has(k) ? rget(c, k, c) : native(textOf, c);
   };
-  // 拿到过的秘密文字节点记下来,之后一直按秘密算:秘密 textarea 的子文本节点(XML 页面里也可能是 CDATA 段,它也是文本节点,也算在值里)、
-  // 秘密输入框的 value 属性节点。页面换掉 textarea 的字(把打进去的字写回初始值)、删掉 value 属性时,旧节点脱离文档,字还在上面。
-  // 节点在哪个框里也记下:交给模型时框还不是秘密的,后来变成秘密、字写进同一个节点、节点已不在那个框里(脱离了文档或被挪到
-  // 别的元素里)时,按那个框算
+  // Write down the secret text nodes you have obtained, and then keep counting them as secrets: the
+  // child text nodes of the secret textarea (it may also be a CDATA segment in the XML page, which is
+  // also a text node and is also counted in the value), and the value attribute node of the secret input
+  // box. When the page replaces the words in the textarea (writes the typed words back to the initial
+  // value) and deletes the value attribute, the old node is separated from the document, but the words
+  // are still on it. Also note which box the node is in: when the box is handed over to the model, it is
+  // not secret, but later becomes secret, words are written into the same node, and when the node is no
+  // longer in that box (it is separated from the document or moved to other elements), the box is
+  // calculated according to that box.
   const held = new WeakSet(), ownerOf = new WeakMap();
   const HELD_TEXT = new Set(['data', 'nodeValue', 'textContent', 'wholeText', 'length', 'value']);
   const substringData = G.CharacterData && G.CharacterData.prototype.substringData;
@@ -303,7 +354,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
       const tags = DESC.get(k);
       if (tags !== undefined) {
         const tag = tagOf(v);
-        // select 的 value 是页面上选中的那个 option 的 value(副本里选中的不一定是它)
+        // The value of select is the value of the option selected on the page (it may not be the one
+        // selected in the copy)
         if (tag === 'select' && k === 'value' && areasIn(v)) { const i = rget(v, 'selectedIndex', v); return i < 0 ? '' : readProp(rget(v, 'options', v)[i], k); }
         if (tags.has(tag)) return text(v, k);
       }
@@ -311,7 +363,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     return rget(v, k, v);
   };
 
-  // 包装:模型手里只有包装,原件只交给原生函数
+  // Packaging: The model only has the packaging in hand, and the original is only handed over to the
+  // native function.
   const toProxy = new WeakMap(), toReal = new WeakMap();
   const wrap = (v, depth) => {
     if (v === null || (typeof v !== 'object' && typeof v !== 'function')) return v;
@@ -333,9 +386,9 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
   const toNative = (a) => {
     if (a === null || (typeof a !== 'object' && typeof a !== 'function')) return a;
     const r = toReal.get(a);
-    // 包装过的函数原样交出去:谁调它都还要过检查
+    // The wrapped function is handed over as it is: anyone who adjusts it must go through inspection.
     if (r !== undefined) return typeof r === 'function' ? a : r;
-    // 模型自己的回调:原生函数传给它的东西先包装
+    // The model's own callback: the things passed to it by the native function are first packaged
     if (typeof a === 'function') return function () { const xs = []; for (let i = 0; i < arguments.length; i++) xs.push(wrap(arguments[i])); return toNative(apply(a, undefined, xs)); };
     return a;
   };
@@ -346,7 +399,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     if (f === substringData && holds(t)) return MASK;
     const args = [];
     for (const x of xs) args.push(toNative(x));
-    // 选择器、属性名先变成字符串、只变一次:对象的 toString 每次可以给不一样的,检查的必须就是交给浏览器的那一个
+    // Selectors and attribute names are first changed to strings, and only changed once: the toString of
+    // the object can be different each time, and the one checked must be the one handed to the browser.
     if (SELECTORS.has(f) && args.length) {
       args[0] = String(args[0]);
       if (selectsByValue(args[0])) throw fail('invalid_selector', 'selecting by the value attribute is not allowed; read the value property instead');
@@ -357,7 +411,9 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     return wrap(apply(f, t, args));
   };
   const changing = () => deny('changing the page');
-  // 函数的包装用一个绑定过的普通函数当底子:能被 new(才走得到 construct,报清楚为什么不行),又没有自己的 prototype(不碍代理的约束)
+  // The packaging of the function uses a bound ordinary function as the basis: it can be used by new
+  // (you can only get construct, please tell me why it doesn't work), and it does not have its own
+  // prototype (it does not hinder the constraints of the proxy)
   const makeProxy = (v) => new Proxy(typeof v === 'function' ? apply(fnBind, function () {}, [undefined]) : {}, {
     get: (_, k) => wrap(readProp(v, k)),
     set: changing, defineProperty: changing, deleteProperty: changing, setPrototypeOf: changing, preventExtensions: changing,
@@ -373,7 +429,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     construct: () => { if (typeof v === 'function' && NETWORK.has(nameOf(v))) offline(); deny('creating page objects'); },
   });
 
-  // 模型代码能用的名字:纯 ECMAScript 内置 + PROVIDED,其余全局名都遮住
+  // Names that can be used for model code: pure ECMAScript built-in + PROVIDED, other global names are
+  // covered
   const PROVIDED = ${js(PROVIDED)};
   const ALLOWED = new Set(${js(PageScriptProtocol.ALLOWED_GLOBALS)}.concat(PROVIDED));
   const RESERVED = new Set(${js(PageScriptProtocol.RESERVED)});
@@ -400,7 +457,8 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
   fixed(G, '__minaReadRun', (code, args, lim) => {
     const gen = ++generation;
     const live = () => { if (gen !== generation) throw fail('script_ended', 'the script was stopped'); };
-    // 不碰网络:要页面背后的数据,读页面自己收到的响应(web_capture)
+    // Do not touch the Internet: you want the data behind the page and read the response received by the
+    // page (web_capture)
     const pageFetch = () => { live(); offline(); };
     const sleep = (ms) => { live(); return new Promise((done) => timer(done, Math.max(0, Math.min(Number(ms) || 0, lim.sleepMs)))); };
     let fn;
@@ -433,18 +491,18 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
 //# sourceURL=$PRELUDE_URL
 """.trimStart()
 
-    /** 跑一次读脚本的表达式(在读取世界里求值,等 Promise,按值返回)。[args] 是站点命令的参数。 */
+    /** Run the expression of the reading script once (evaluate in the reading world, wait for Promise, and return by value). [args] is the parameter of the site command. */
     fun run(code: String, args: JsonObject?, resultChars: Int): String =
         "globalThis.__minaReadRun(${JsonPrimitive(code)}, ${args ?: "null"}, " +
             "{resultChars: $resultChars, sleepMs: $READ_SLEEP_MAX_MS})"
 
-    /** 到时限后让还在跑的脚本之后的 sleep 都失败。 */
+    /** After the time limit is reached, sleep after the script that is still running will fail. */
     const val STOP = "globalThis.__minaReadStop && globalThis.__minaReadStop()"
 
-    /** 读取世界装好了时返回页面的源(location.origin),没装为 null。 */
+    /** Returns the source of the page (location.origin) when the world is loaded. If not, it is null. */
     const val PROBE = "typeof globalThis.__minaReadRun === 'function' ? String(location.origin) : null"
 
-    /** 发起调用栈(含异步的 parent 链)里有读脚本或它的前置脚本。 */
+    /** There is a reading script or its pre-script in the initiating call stack (including the asynchronous parent chain). */
     fun fromScript(params: JsonObject): Boolean {
         var stack = (params["initiator"] as? JsonObject)?.get("stack") as? JsonObject
         var depth = 0
@@ -459,8 +517,9 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     private val SCRIPT_URLS = setOf(SOURCE_URL, PRELUDE_URL)
 
     /**
-     * 兜底:`Network.requestWillBeSent` 是读脚本(或它的前置脚本)发出的请求时返回说明:读脚本不碰网络,哪种请求都不行。
-     * 不是读脚本发的为 null。
+     * Bottom line: `Network.requestWillBeSent` is a request sent by the reading script (or its
+     * pre-script) and returns a description: Reading the script does not touch the network, and any
+     * request will not work. If the script is not read, null is sent.
      */
     fun requestViolation(params: JsonObject): String? {
         if (!fromScript(params)) return null
@@ -470,7 +529,7 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
         return "the script sent a $method request (${url.take(200)}); $NETWORK_MESSAGE"
     }
 
-    /** `scheme://host[:port]`,默认端口不写;读不懂为 null。 */
+    /** `scheme://host[:port]`, the default port is not written; if it cannot be read, it is null. */
     fun originOf(url: String): String? {
         val u = runCatching { URI(url) }.getOrNull() ?: return null
         val scheme = u.scheme?.lowercase() ?: return null
@@ -480,8 +539,10 @@ ${SelectorPolicy.JS}  const DENIED = new Set(${js(DENIED_PROPS)});
     }
 
     /**
-     * `__minaReadRun` 按值返回的对象 → 结果。结果先按网页数据的规则脱敏(凭据名字的字段、JWT、又长又杂的串、Key),再截到 [EVAL_RESULT_MAX_CHARS]。
-     * [fresh]:这次新建了读取世界(之前 state 里存的都没了)。
+     * `__minaReadRun` Object returned by value → result. As a result, it is first desensitized according
+     * to the rules of web data (name fields, JWT, long and complex strings, Key), and then cut off to
+     * [EVAL_RESULT_MAX_CHARS]. [fresh]: This time, a new reading world was created (the previous ones
+     * stored in the state are gone).
      */
     fun result(value: JsonObject?, fresh: Boolean): EvalJs {
         value ?: return EvalJs.Failed("script_error", "the script produced no readable result")

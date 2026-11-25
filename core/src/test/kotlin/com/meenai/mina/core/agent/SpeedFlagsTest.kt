@@ -27,7 +27,8 @@ class SpeedFlagsTest {
     }
 
     @Test fun retiredKeyIgnored() {
-        // 阶梯式裁剪已转正,存着的旧设置照样读得出其余开关
+        // Stepped cropping has been corrected, and the remaining old settings can still read other
+        // switches.
         assertEquals(SpeedFlags(replay = true), SpeedFlags.parse("cacheFriendlyPrune,replay"))
     }
 }

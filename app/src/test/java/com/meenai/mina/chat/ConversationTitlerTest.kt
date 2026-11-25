@@ -21,7 +21,7 @@ import org.junit.rules.TemporaryFolder
 class ConversationTitlerTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    /** 回复固定文字的模型;[fail] 时抛错,[hang] 时一直不回。 */
+    /** Model for replying fixed text; an error is thrown when [fail] is used, and never returns when [hang] is used. */
     private class Titler(private val reply: String = "", private val fail: Boolean = false, private val hang: Boolean = false) : ChatModel {
         override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 8_000, reasoning = false)
         val requests = mutableListOf<List<Message>>()
@@ -42,7 +42,8 @@ class ConversationTitlerTest {
         val m = Titler("附近的川菜")
         ConversationTitler.ensure(s, id, "帮我看看附近评分最高的川菜") { listOf(m) }
         assertEquals("附近的川菜", s.title(id))
-        // 再来一次(模型换了说法)也不改、不再请求
+        // If I try it again (the model has changed its expression), I won’t change it, and I won’t ask
+        // for it again.
         val again = Titler("别的名字")
         ConversationTitler.ensure(s, id, "第二句话") { listOf(again) }
         assertEquals("附近的川菜", s.title(id))
@@ -55,7 +56,7 @@ class ConversationTitlerTest {
         assertEquals("<message>\n订明天的高铁票\n</message>", text(m))
     }
 
-    /** 在浏览器页上问的第一句:页面说明不交给起标题的模型,只给用户说的话。 */
+    /** The first sentence asked on the browser page: The page description is not given to the model that creates the title, only what the user says. */
     @Test fun pageContextIsNotPartOfTheTitleInput() = runBlocking {
         val m = Titler("挑耳机")
         val first = com.meenai.mina.core.cap.web.AttachedPage.compose(
@@ -73,7 +74,7 @@ class ConversationTitlerTest {
         ConversationTitler.ensure(s, id, "查天气") { listOf(m) }
         assertNull(s.title(id))
         assertTrue(m.requests.isEmpty())
-        // 老对话没有标题,列表里仍是第一句话
+        // The old conversation has no title and is still the first sentence in the list
         assertEquals("查天气", s.list().single().title)
     }
 
@@ -97,7 +98,7 @@ class ConversationTitlerTest {
         val line = com.meenai.mina.core.userscreen.UserScreenMessage.line("abc")
         assertNull(ConversationTitler.generate(listOf(m), line))
         assertTrue(m.requests.isEmpty())
-        // 带附言时只把附言给模型
+        // When adding a postscript, only give the postscript to the model.
         ConversationTitler.generate(listOf(m), line + "\n这是什么")
         assertEquals("<message>\n这是什么\n</message>", text(m))
     }
@@ -122,7 +123,7 @@ class ConversationTitlerTest {
         val b = ConversationStore(dir)
         assertEquals("附近的川菜", b.title(id))
         assertEquals("附近的川菜", b.list().single().title)
-        // 标题不进对话文件,轮次照旧读得出来
+        // The title is not entered into the conversation file, but the turns can still be read.
         assertEquals(listOf("帮我看看附近评分最高的川菜"), b.turns(id).map { it.userText })
         assertNull(b.title("不存在"))
     }

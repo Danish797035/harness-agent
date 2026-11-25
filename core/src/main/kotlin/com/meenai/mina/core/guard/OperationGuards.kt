@@ -15,7 +15,8 @@ import kotlin.math.floor
 enum class Severity(val wire: String) { Warn("warn"), Stop("stop") }
 
 /**
- * 守卫的一条结论。提醒([Severity.Warn])带 [nudge]:说清卡在哪、给几条出路的一段话(发给模型);叫停的没有。
+ * One conclusion from the guard. Reminder ([Severity.Warn]) with [nudge]: a paragraph explaining where
+ * the jam is and providing several ways out (sent to the model); there is no stoppage.
  */
 data class GuardVerdict(val code: String, val severity: Severity, val evidence: JsonObject, val nudge: String? = null) {
     fun toJson(): JsonObject = buildJsonObject {
@@ -24,7 +25,7 @@ data class GuardVerdict(val code: String, val severity: Severity, val evidence: 
     }
 }
 
-/** 键排序后的稳定序列化,使参数顺序不影响签名。 */
+/** Stable serialization after key sorting so that parameter order does not affect the signature. */
 private fun stable(e: JsonElement): String = when (e) {
     is JsonObject -> e.keys.sorted().joinToString(",", "{", "}") { "${JsonPrimitive(it)}:${stable(e[it]!!)}" }
     is JsonArray -> e.joinToString(",", "[", "]") { stable(it) }
@@ -35,7 +36,7 @@ private fun num(e: JsonElement?): Double? = (e as? JsonPrimitive)?.takeIf { !it.
 
 private val SWIPE_KEYS = listOf("startX", "startY", "endX", "endY")
 
-/** 动作签名:忽略 reason,坐标按 50 取整,滑动只记方向。 */
+/** Action signature: Ignore reason, coordinates are rounded to 50, and only the direction of sliding is recorded. */
 fun actionSignature(tool: String, args: JsonObject): String {
     val n = args.toMutableMap()
     n.remove("reason")
@@ -55,36 +56,38 @@ fun actionSignature(tool: String, args: JsonObject): String {
 }
 
 /**
- * 每次任务一份的操作守卫。只有动作确实没有效果、重复读取没有新内容或工具连续失败时才提醒并最终叫停。
- * 相同的点击/滚动和已见过的界面指纹本身不代表停滞；新的页面或读取内容会清掉无进展计数。
+ * One operational guard per mission. Only when the action really has no effect, repeated reading without
+ * new content, or the tool fails continuously will it be reminded and finally stopped. Identical
+ * clicks/scrolls and already-seen interface fingerprints do not in themselves indicate stagnation; new
+ * pages or reads clear the no-progress count.
  */
 class OperationGuards(private val stepBudget: Int? = null) {
 
     private var frameId: String? = null
     private var frameHash: Long? = null
     private var acted = false
-    /** 上一个动作已按它报的实际效果记过「有没有效果」:接着的界面不再按指纹重复记。 */
+    /** The previous action has been demerited according to the actual effect it reported. "Does it have any effect?": the next interface will not be repeated according to the fingerprint. */
     private var effectNoted = false
 
-    /** 连续没有效果的动作数。 */
+    /** The number of consecutive actions that have no effect. */
     private var unchanged = 0
     private var unchangedWarnedAt = 0
 
-    /** 到过的每个界面状态(元素表指纹)。 */
+    /** Each interface state visited (element table fingerprint). */
     private val seenStates = HashSet<Long>()
-    /** 自上次到过新状态起,回到各状态的次数与已提醒到的门槛。 */
+    /** The number of times you have returned to each state since the last time you visited the new state and the threshold that has been reminded. */
     private val visits = HashMap<Long, Int>()
     private val visitsWarnedAt = HashMap<Long, Int>()
-    /** 先后看到的各状态(相邻的不同),最近几个。 */
+    /** Each status seen one after another (adjacent ones are different), the most recent ones. */
     private val trail = ArrayDeque<Long>()
     private var cycleWarnedAt = 0
-    /** 自上次到过新状态起做了几个动作。 */
+    /** Several actions have been taken since the last time the new state was reached. */
     private var sinceNewState = 0
     private var sinceNewWarnedAt = 0
 
-    /** 任务的计数;画面每变一次 [epoch] 加一,各段读的计数据此作废。 */
+    /** The count of tasks; [epoch] increases by one every time the screen changes, and the count data read in each segment is invalid. */
     private val reads = GuardScope(canStop = true)
-    /** 跨页面记住读过的内容；返回同一页时不把旧内容当作任务新进展。 */
+    /** Remember what you read across pages; don’t treat old content as new progress on a task when you return to the same page. */
     private val taskReads = HashSet<Long>()
     private var epoch = 0
 
@@ -98,7 +101,7 @@ class OperationGuards(private val stepBudget: Int? = null) {
     var progressVersion: Long = 0
         private set
 
-    /** 提醒附上卡在哪(guard.<code> 那条,填 [count])和出路;叫停的不附。 */
+    /** The reminder is attached where the card is (guard.<code>, fill in [count]) and the way out; the stop is not attached. */
     private fun verdict(code: String, severity: Severity, evidence: JsonObject, count: Int, waysOut: Boolean = true, period: Int? = null): List<GuardVerdict> {
         val nudge = if (severity == Severity.Warn) listOfNotNull(
             if (period != null) Feedback.format(LEADS.getValue(code), "count" to count, "states" to period) else Feedback.format(LEADS.getValue(code), "count" to count),
@@ -111,13 +114,14 @@ class OperationGuards(private val stepBudget: Int? = null) {
 
     private fun <T> ArrayDeque<T>.pushCapped(v: T, cap: Int = 10) { addLast(v); if (size > cap) removeFirst() }
 
-    /** 保留调用入口；动作签名不参与停滞判定。 */
+    /** The call entry is retained; the action signature does not participate in the stagnation determination. */
     fun beforeAction(tool: String, args: JsonObject, diagnostic: Boolean = false, scope: GuardScope = reads): List<GuardVerdict> {
-        // 相同动作可以逐页读取新内容；仅凭动作签名不能判断任务停滞。
+        // The same action can read new content page by page; the action signature alone cannot determine
+        // that the task is stalled.
         return emptyList()
     }
 
-    /** 一个会改变界面的动作要做了。 */
+    /** An action that will change the interface is done. */
     fun noteAction() {
         acted = true
         effectNoted = false
@@ -125,8 +129,9 @@ class OperationGuards(private val stepBudget: Int? = null) {
     }
 
     /**
-     * 动作报回的实际效果(effect 的 kind,见 core.uistate.EffectKind):no_effect 记一次「没有效果」,
-     * 明显变了、换了 App 或换了页就从头计;小的局部变化两样都不算。
+     * The actual effect reported by the action (kind of effect, see core.uistate.EffectKind): no_effect
+     * is recorded once as "no effect". If it has obviously changed, changed the app or changed the page,
+     * it will be calculated from scratch; small local changes will not be counted.
      */
     fun effect(kind: String): List<GuardVerdict> {
         effectNoted = true
@@ -144,8 +149,11 @@ class OperationGuards(private val stepBudget: Int? = null) {
     }
 
     /**
-     * 模型拿到了一份界面(读界面,或动作结果里带的),[hash] 是它的指纹。只有「动过之后界面仍一样」才算没有效果
-     * (动作已报过效果的不再重复记);单纯反复看不算。动作之后到了哪个状态还用来看回到同一状态、兜圈、一直没到新状态。
+     * The model gets a copy of the interface (read interface, or included in the action result), and
+     * [hash] is its fingerprint. Only if "the interface is still the same after the action" is
+     * considered to have no effect (actions that have reported effects will not be repeated); simply
+     * watching it repeatedly does not count. Which state is reached after the action is also used to
+     * check back to the same state, go around in circles, and never reach a new state.
      */
     fun frame(id: String, hash: Long): List<GuardVerdict> {
         if (frameId == id) return emptyList()
@@ -164,12 +172,13 @@ class OperationGuards(private val stepBudget: Int? = null) {
         if (didAct && !noted) {
             if (same) { unchanged += 1; out += noProgress() } else { unchanged = 0; unchangedWarnedAt = 0 }
         }
-        // 旧界面本身不能证明失败，只提醒模型评估是否有新内容或换路线。
+        // The old interface itself does not prove failure, it only reminds the model to evaluate whether
+        // there is new content or a change of route.
         if (didAct) out += noNewState()
         return out
     }
 
-    /** 动作之后回到一个已到过的状态。正在兜圈时由 [cycle] 说,这里不重复。 */
+    /** After the action, return to a state that has been reached. It was said by [cycle] while going around in circles, so I won’t repeat it here. */
     private fun arrived(hash: Long): List<GuardVerdict> {
         val n = (visits[hash] ?: 1) + 1
         visits[hash] = n
@@ -194,10 +203,14 @@ class OperationGuards(private val stepBudget: Int? = null) {
     }
 
     /**
-     * 一次读屏/读网页/网页脚本:画面没变、也没做有效操作时反复读,读不出新东西(要找的东西不在这一页上)。
-     * [fresh] 为 true 表示这次读到了之前没读到过的内容(如读整页换了起点),不算重读。
-     * 换着工具、换着脚本读也算:页面没变,答案就是页面上现有的这些。
-     * [window] 给了就在它里面单独计数(页面脚本一次调用里的读),不动任务的计数。
+     * Reading the screen/reading the webpage/webpage script at one time: reading repeatedly when the
+     * screen does not change and no effective operations are performed, and no new things can be read
+     * (the thing you are looking for is not on this page). [fresh] is true, which means that you have
+     * read content that you have not read before (such as reading the whole page and changing the
+     * starting point), and it does not count as re-reading. It doesn't matter if you change tools or
+     * scripts to read: the page has not changed, and the answer is what is existing on the page.
+     * [window] gives a separate count in it (reading in one call of the page script), and does not move
+     * the count of the task.
      */
     fun read(tool: String, fresh: Boolean, window: GuardScope = reads, fingerprint: Long? = null): List<GuardVerdict> {
         if (fresh) {
@@ -214,13 +227,13 @@ class OperationGuards(private val stepBudget: Int? = null) {
         }, n)
     }
 
-    /** 这份读到的结果是不是画面上次变化以来头一回读到。 */
+    /** This reading is the first time it has been read since the last time the screen changed. */
     fun firstSeen(fingerprint: Long, window: GuardScope = reads): Boolean {
         window.sync(epoch)
         return window.seen.add(fingerprint)
     }
 
-    /** 画面变了(或做了有效的操作):之前读到的不再作数(所有读的计数一起作废)。 */
+    /** The screen has changed (or a valid operation has been performed): previously read counts are no longer counted (all read counts are invalidated together). */
     fun pageChanged() {
         epoch += 1
     }
@@ -259,10 +272,10 @@ class OperationGuards(private val stepBudget: Int? = null) {
 
     private companion object {
         const val NO_EFFECT = "no_effect"
-        /** 记最近多少个状态(够看出最长的兜圈安全网)。 */
+        /** Remember the recent status (enough to see the longest circle safety net). */
         const val TRAIL_KEEP = 64
 
-        /** 各条提醒开头说卡在哪的那句(prompts/feedback/tools.md)。 */
+        /** The sentence at the beginning of each reminder says where the card is (prompts/feedback/tools.md). */
         val LEADS = mapOf(
             "repeating_action" to "guard.repeating_action", "no_progress" to "guard.no_progress", "same_state" to "guard.same_state",
             "state_cycle" to "guard.state_cycle", "no_new_state" to "guard.no_new_state", "read_loop" to "guard.read_loop",
@@ -272,8 +285,10 @@ class OperationGuards(private val stepBudget: Int? = null) {
 }
 
 /**
- * 一段计数:最近的动作签名(重复操作),读到过的结果指纹、又读了一遍没变的页面的次数。
- * [canStop] 为 false 时最多提醒,不叫停任务。读的计数在画面变了([OperationGuards.pageChanged])时作废重计。
+ * A section count: the latest action signature (repeated operation), the fingerprint of the result that
+ * has been read, and the number of times that the unchanged page has been read again. When [canStop] is
+ * false, the maximum number of reminders is that the task will not be stopped. The read count will be
+ * invalidated and recalculated when the screen changes ([OperationGuards.pageChanged]).
  */
 class GuardScope(val canStop: Boolean) {
     internal val loop = ArrayDeque<String>()

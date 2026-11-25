@@ -30,7 +30,7 @@ internal class Back(f: ScreenFamily) : ScreenTool(f, "back") {
     override suspend fun execute(a: Args, ctx: ToolContext) = ctx.action(ctx.screen.back())
 }
 
-/** 按键(回车、确认键可能是提交,要按目标判不可逆)。 */
+/** Key presses (Enter and Confirm keys may be submitted, but they must be pressed to determine whether they are irreversible). */
 internal class PressKey(f: ScreenFamily) : ScreenTool(f, "press_key") {
     override val verb = Verb.PressKey
     override val batchable = true

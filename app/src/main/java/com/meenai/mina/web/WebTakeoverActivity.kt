@@ -2,5 +2,5 @@ package com.meenai.mina.web
 
 import com.meenai.mina.cap.web.WebTakeoverPage
 
-/** 网页接管界面的入口:清单里登记的是这个全名;实现在网页能力里。 */
+/** Entrance to the webpage takeover interface: The full name is registered in the list; it is implemented in the webpage capability. */
 class WebTakeoverActivity : WebTakeoverPage()

@@ -6,34 +6,38 @@ import com.meenai.mina.core.observation.PlaceKind
 import com.meenai.mina.core.prompt.Feedback
 import com.meenai.mina.core.tool.Verb
 
-/** 一个工具结果之后要按它找的参考资料。 */
+/** After a tool results, click on the reference materials it looks for. */
 internal sealed interface KnowledgeLookup {
-    /** 前台 App 的资料。 */
+    /** Data of the front-end App. */
     data class App(val pkg: String) : KnowledgeLookup
-    /** 网站的资料;[host] 已小写、去掉 www.,每个站点只在第一次进入时找。 */
+    /** Website information; [host] has been lowercase and www. has been removed. Each site is only found when entering for the first time. */
     data class Site(val host: String) : KnowledgeLookup
 }
 
 /**
- * 一个工具结果之后跟什么:附图配哪句说明、到了哪里要找哪份参考资料。纯函数。
+ * What follows the result of a tool: which description to accompany the attached picture, and which
+ * reference material to look for wherever you go. Pure function.
  */
 internal object NoticePolicy {
-    /** 在网页上看界面、读页、打开网页:到了那个站点。 */
+    /** Look at the interface on the web page, read the page, open the web page: you have arrived at the site. */
     private val SITE_RESULT_VERBS = setOf(Verb.Observe, Verb.ListElements, Verb.Navigate, Verb.ReadPage)
 
-    /** 结果附的图配的说明;[offScreen] 为 true 表示是不动屏幕的工具读到的图片文件,不是屏幕画面。 */
+    /** The description of the picture attached to the result: [offScreen] is true, which means that it is an image file read by a tool that does not move the screen, not a screen image. */
     fun imageNote(verb: Verb?, offScreen: Boolean): String = when {
-        // 回看补发的图放在这里,对裁剪来说就是新图
+        // Looking back at the reissued picture, I put it here. It is a new picture for cropping.
         verb == Verb.ViewPastScreens -> Feedback["recalled_note"]
         offScreen -> Feedback["file_image_note"]
         verb in DIAGNOSTIC_VERBS -> Feedback["screenshot_note"]
-        // 动作成功后自动附的画面;只有它是最新的,更早的画面会被换成可回看的占位
+        // The screen automatically attached after the action is successful; only it is the latest,
+        // earlier screens will be replaced with placeholders that can be viewed back.
         else -> Feedback["action_frame_note"]
     }
 
     /**
-     * 到了 [place] 之后要找的参考资料:看了一个 App 的界面就找这个 App 的;在网页上看界面、读页、打开网页就按域名找这个站点的。
-     * 同一个站点是否已找过由调用方记。[ok] 是这次调用成没成。
+     * Reference materials to look for after arriving at [place]: Look for the interface of an App and
+     * look for this App; look at the interface, read pages and open the web page and look for this site
+     * by domain name. Whether the same site has already been found is logged by the caller. [ok]
+     * indicates whether the call was successful or not.
      */
     fun knowledgeAfter(verb: Verb?, place: Place?, ok: Boolean): List<KnowledgeLookup> = when {
         place == null -> emptyList()

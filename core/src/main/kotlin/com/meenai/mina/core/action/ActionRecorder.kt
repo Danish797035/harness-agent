@@ -10,8 +10,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import com.meenai.mina.core.tool.Verb
 
 /**
- * 动作的运行记录:工具结果、确认关卡、画面。截图编号在这里统一发(循环自己存的画面也从这里取号)。
- * 记录失败不影响任务。[saveScreen] 为 null 时子步画面不存(编号也不发)。
+ * Action running records: tool results, confirmation levels, and screens. The screenshot numbers are
+ * posted here (the screenshots you save while looping are also numbered here). Failure to record does
+ * not affect the task. When [saveScreen] is null, the sub-step screen will not be saved (the number will
+ * not be sent).
  */
 class ActionRecorder(
     private val sink: RunSink,
@@ -32,7 +34,7 @@ class ActionRecorder(
         } catch (x: CancellationException) {
             throw x
         } catch (x: Throwable) {
-            // 记录失败不影响任务
+            // Recording failure does not affect the task
         }
     }
 
@@ -40,15 +42,18 @@ class ActionRecorder(
         event(RunEvent.Confirmation(clock(), hit.action.name, RunEvent.clip(Redactor.text(hit.matched)), null, null, decision))
 
     /**
-     * 最近一次改了状态的动作(界面上改东西、对外、不可逆,或沙箱里的写操作;报了失败、也没说界面变了的不算)执行之前证据账本的位置;
-     * 之后没有重新读过,回答交出前要另请核查(见 AnswerReview)。还没有这样的动作为 null。
+     * The location of the evidence ledger before the last action that changed the status (changing
+     * things on the interface, external, irreversible, or writing operations in the sandbox; reporting
+     * failure and not saying the interface has changed will not be counted); it has not been re-read
+     * since, please check again before submitting the answer (see AnswerReview). There is no such action
+     * yet for null.
      */
     var lastChangeMark: Int? = null
         private set
 
     fun noteChange(ledgerMark: Int) { lastChangeMark = ledgerMark }
 
-    /** 本任务里放行了几个对外或不可逆的动作(发送、提交、下单、删除……);回答交出前据此决定要不要请核查模型。 */
+    /** This task allows several external or irreversible actions (sending, submitting, placing an order, deleting...); you can decide whether to check the model based on this before submitting the answer. */
     var outwardActs = 0
         private set
 
@@ -58,19 +63,20 @@ class ActionRecorder(
             risk.level.name, risk.payment, decision))
     }
 
-    /** 一次调用的结果;[content] 是交给模型(或调用方)的那份,[extra] 是只进运行记录的字段。 */
+    /** The result of a call; [content] is the one handed to the model (or the caller), [extra] is the field that only enters the running record. */
     fun result(
         step: Int, tool: String, verb: Verb?, content: JsonObject, extra: JsonObject, changed: Boolean?, shotId: Int?, durationMs: Long,
         source: String, callId: String, waitMs: Long = 0,
     ) {
-        // 用户的回答可能是验证码一类,不进运行记录
+        // The user's answer may be a verification code, which will not be entered into the running
+        // record.
         val shown = if (verb == Verb.AskUser && content.containsKey("answer")) JsonObject(content + ("answer" to JsonPrimitive(HIDDEN_ANSWER))) else content
         val recorded = Redactor.result(verb, shown).let { if (extra.isEmpty()) it else JsonObject(it + extra) }
         event(RunEvent.ToolResult(clock(), step, tool, RunEvent.clipResult(Redactor.text(recorded.toString())), changed, shotId, durationMs,
             waitMs = waitMs, source = source, callId = callId))
     }
 
-    /** 当场存一张子步画面,返回截图编号;不存画面时为 null。 */
+    /** Save a sub-step picture on the spot and return the screenshot number; it is null when no picture is saved. */
     fun saveFrame(png: ByteArray): Int? {
         val save = saveScreen ?: return null
         val id = nextShot()
@@ -79,7 +85,7 @@ class ActionRecorder(
         } catch (x: CancellationException) {
             throw x
         } catch (x: Throwable) {
-            // 同上
+            // Same as above
         }
         return id
     }

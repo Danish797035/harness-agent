@@ -19,28 +19,28 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** 引擎要的平台能力。阻塞调用都在 IO 调度器上执行。 */
+/** The platform capabilities required by the engine. Blocking calls are executed on the IO scheduler. */
 interface BuiltinShellPlatform {
     fun paired(): Boolean
     fun setPaired(paired: Boolean)
-    /** 无线调试开关;读不到为 null(不拦着往下走)。 */
+    /** Wireless debugging switch; if it cannot be read, it will be null (do not block the downward movement). */
     fun wirelessDebugging(): Boolean?
     fun wifiConnected(): Boolean
     suspend fun findPairingPort(timeoutMs: Long): Int?
-    /** 用配对码配对;失败抛 [AdbPairingException]。 */
+    /** Pair with the pairing code; if failed, throw [AdbPairingException]. */
     fun pair(port: Int, code: String)
-    /** 连本机 adbd 并起助手(不等交接);失败抛 [AdbConnectionException],存着的钥匙读不出抛 [AdbKeyUnreadableException]。 */
+    /** Connect the local adbd and start the assistant (not waiting for handover); if it fails, [AdbConnectionException] will be thrown, and if the saved key cannot be read, [AdbKeyUnreadableException] will be thrown. */
     suspend fun launchHelper()
-    /** 让正在跑的助手撤掉改动并退出;没有就什么都不做。 */
+    /** Ask the running assistant to undo the changes and exit; otherwise, do nothing. */
     fun stopHelper()
-    /** 删掉配对钥匙和交接口令。 */
+    /** Delete the pairing key and handover command. */
     fun forget()
-    /** 没配对时收下过助手(是电脑经 USB 起的):它停了要告诉用户怎么再起,而不是当作从没设置过。持久化。 */
+    /** If you accept the assistant when it is not paired (it is started from the computer via USB): when it stops, it will tell the user how to start it again, instead of treating it as if it has never been set up. Persistence. */
     fun usbStarted(): Boolean
     fun setUsbStarted(on: Boolean)
 }
 
-/** 看门狗重起助手的间隔:第 n 次失败后等 base·2^(n-1),封顶 [maxMs];连续失败 [maxAttempts] 次后停下等人或等开关变化。 */
+/** The interval for the watchdog to restart the assistant: after the nth failure, wait for base·2^(n-1), capped at [maxMs]; after [maxAttempts] consecutive failures, wait for someone or a switch change. */
 data class Backoff(val baseMs: Long = 2_000, val maxMs: Long = 60_000, val maxAttempts: Int = 5) {
     fun delayAfter(failures: Int): Long? {
         if (failures >= maxAttempts) return null
@@ -51,7 +51,8 @@ data class Backoff(val baseMs: Long = 2_000, val maxMs: Long = 60_000, val maxAt
 object BuiltinShellFailures {
     fun ofPairing(reason: AdbPairingException.Reason) = when (reason) {
         AdbPairingException.Reason.WRONG_CODE -> BuiltinShellFailure.WrongCode
-        // 配对端口连不上:配对窗口已经关了(端口随窗口一起消失)
+        // The pairing port cannot be connected: the pairing window has been closed (the port disappears
+        // along with the window)
         AdbPairingException.Reason.CONNECT_FAILED -> BuiltinShellFailure.PairingWindowClosed
         AdbPairingException.Reason.TLS_FAILED, AdbPairingException.Reason.PROTOCOL -> BuiltinShellFailure.Unknown
     }
@@ -63,15 +64,17 @@ object BuiltinShellFailures {
         AdbConnectionException.Reason.PROTOCOL -> BuiltinShellFailure.ConnectFailed
     }
 
-    /** 看门狗自己再试有没有用:钥匙被撤销、没 Wi-Fi 要等用户或开关变化。 */
+    /** Is it useful for the watchdog to try again on its own: the key is revoked, there is no Wi-Fi, and it needs to wait for the user or the switch to change. */
     fun retryable(f: BuiltinShellFailure) = f == BuiltinShellFailure.ConnectFailed ||
         f == BuiltinShellFailure.HelperStartFailed || f == BuiltinShellFailure.Unknown
 }
 
 /**
- * 内置助手的状态与看门狗。[helper] 有值就是助手的 Binder 在手(Running);
- * 没有时:配过对就先等 [graceMs](还活着的助手会在 Mina 进程起来后自己交接),再经 adbd 起一个,失败按 [backoff] 重试。
- * 要起助手时无线调试关着,有 [autoOn] 就先替用户打开(条件和停下的规矩见 [WirelessDebuggingAutoOn])。
+ * Built-in helper status and watchdog. If [helper] has value, the assistant's Binder is in hand
+ * (Running); if not: first wait for [graceMs] (the living assistant will hand over after the Mina
+ * process comes up), and then start one through adbd. If it fails, press [backoff] to try again. When
+ * you want to start the assistant, wireless debugging is turned off. If you have [autoOn], turn it on
+ * for the user first (see [WirelessDebuggingAutoOn] for conditions and stopping rules).
  */
 class BuiltinShellEngine(
     private val platform: BuiltinShellPlatform,
@@ -90,7 +93,7 @@ class BuiltinShellEngine(
     private val _discovery = MutableStateFlow<PairingDiscovery>(PairingDiscovery.Idle)
     override val pairingDiscovery: StateFlow<PairingDiscovery> = _discovery.asStateFlow()
 
-    /** 最近一次配对或连接失败的异常类别和说明(诊断信息用,原文未脱敏);连上后清空。 */
+    /** The exception category and description of the latest pairing or connection failure (for diagnostic information, the original text is not desensitized); cleared after connection. */
     @Volatile var lastError: String? = null
         private set
 
@@ -110,16 +113,16 @@ class BuiltinShellEngine(
 
     private fun initialStatus(): BuiltinShellStatus = when {
         helper.value != null -> BuiltinShellStatus.Running
-        // 电脑起过的助手可能还活着,等它来交接
+        // The assistant created by the computer may still be alive, waiting for it to take over
         !platform.paired() -> if (platform.usbStarted()) BuiltinShellStatus.Connecting else BuiltinShellStatus.NotPaired
         else -> BuiltinShellStatus.Connecting
     }
 
-    /** 没配对、手里也没有助手时的状态:电脑起过的助手停了就照实说,否则就是还没设置。 */
+    /** The state when there is no pairing and no assistant in hand: if the assistant that has been used on the computer has stopped, tell the truth, otherwise it means it has not been set up yet. */
     private fun unpairedStatus(): BuiltinShellStatus =
         if (platform.usbStarted()) BuiltinShellStatus.Failed(BuiltinShellFailure.UsbHelperStopped) else BuiltinShellStatus.NotPaired
 
-    /** 开始看着助手:掉线就重起。只在功能打开时调。 */
+    /** I started to look at the assistant: if it goes offline, it will restart. Only called when the function is turned on. */
     @Synchronized
     fun start() {
         if (started) return
@@ -130,12 +133,15 @@ class BuiltinShellEngine(
                 if (h != null) {
                     synchronized(this@BuiltinShellEngine) { failures = 0; retryJob?.cancel() }
                     autoOn?.reset()
-                    // 没配对就来了:是电脑经 USB 起的。记下来,它停了才知道该怎么提示
+                    // It came without pairing: it was connected to the computer via USB. Write it down,
+                    // you won’t know how to prompt until it stops
                     if (!platform.paired()) platform.setUsbStarted(true)
                     _status.value = BuiltinShellStatus.Running
                 } else if (!platform.paired()) {
-                    // App 刚起来时还活着的助手会自己来交接;用着用着断了也可能是正在换一个新的来交接:
-                    // 都先等一会儿再说它停了,免得界面一闪「已停止」
+                    // The assistant that is still alive when the app is first started will hand it over
+                    // by itself; if it breaks after using it, it may be replaced by a new one: wait for
+                    // a while before saying that it has stopped, so as to avoid the interface flashing
+                    // "stopped"
                     if (platform.usbStarted()) {
                         _status.value = BuiltinShellStatus.Connecting
                         schedule(graceMs)
@@ -151,7 +157,7 @@ class BuiltinShellEngine(
         }
     }
 
-    /** 有人要用助手却没有:没在起、也没排着重试就马上起一次。 */
+    /** Some people want to use the assistant but don't have it: they start it immediately without starting it or queuing to try again. */
     fun need() {
         if (helper.value != null || !platform.paired()) return
         synchronized(this) { if (retryJob?.isActive == true) return }
@@ -160,8 +166,11 @@ class BuiltinShellEngine(
     }
 
     /**
-     * 无线调试开关变了:刚打开就从头再试。关掉时只改状态,不马上替用户打开(用户可能是亲手关的),等要用助手时再说。
-     * Mina 自己正在写这个开关时不跟着动:系统可能马上拨回去,由写的那一边判断。
+     * The wireless debugging switch has changed: Just turn it on and try again from the beginning. When
+     * it is turned off, it only changes the status, and does not turn it on for the user immediately
+     * (the user may turn it off by himself), but wait until he wants to use the assistant. Mina does not
+     * move when she is writing this switch: the system may turn it back immediately, depending on the
+     * writing side.
      */
     fun wirelessDebuggingChanged() {
         if (helper.value != null || !platform.paired()) return
@@ -176,8 +185,10 @@ class BuiltinShellEngine(
     }
 
     /**
-     * 连上了 Wi-Fi:之前卡在「没有 Wi-Fi」就马上再试(不用能上网);能替用户打开无线调试时,
-     * 卡在无线调试关着(包括上一个网络不允许)也马上再试。换了网络,上一个网络上的拒绝不再算数。
+     * Connected to Wi-Fi: If it was stuck on "No Wi-Fi" before, try again immediately (you don't need to
+     * be able to access the Internet); when wireless debugging can be turned on for the user, if it is
+     * stuck on "no Wi-Fi" (including the previous network is not allowed), try again immediately. If you
+     * change networks, rejections on the previous network no longer count.
      */
     fun wifiAvailable() {
         autoOn?.reset()
@@ -188,12 +199,12 @@ class BuiltinShellEngine(
         schedule(0)
     }
 
-    /** 无线调试关着时显示的状态:这个 Wi-Fi 上刚被系统拨回过就照实说,否则就是关着。 */
+    /** The status displayed when wireless debugging is turned off: If this Wi-Fi has just been dialed back by the system, tell the truth, otherwise it is turned off. */
     private fun offStatus(): BuiltinShellStatus =
         if (autoOn?.blocked?.value == AutoOnBlock.NotAllowedHere) BuiltinShellStatus.Failed(BuiltinShellFailure.WifiNotAllowed)
         else BuiltinShellStatus.WirelessDebuggingOff
 
-    /** 无线调试关着:能替用户打开就打开,开着没被拨回返回 true 接着连;否则写好状态返回 false。 */
+    /** Wireless debugging is turned off: if it can be turned on for the user, it will be turned on. If it is turned back on, it will return true and then connect; otherwise, it will return false after writing the status. */
     private suspend fun turnOnWirelessDebugging(): Boolean {
         val auto = autoOn ?: return false.also { _status.value = offStatus() }
         when (val g = auto.gate(platform.wifiConnected())) {
@@ -201,7 +212,7 @@ class BuiltinShellEngine(
                 _status.value = BuiltinShellStatus.Connecting
                 if (withContext(io) { auto.turnOn() }) return true
             }
-            // 离上一次写太近:到时候再来一次
+            // It’s too close to the last time I wrote: I’ll do it again then
             is AutoOnGate.Wait -> synchronized(this) {
                 retryJob = scope.launch {
                     delay(g.ms)
@@ -273,7 +284,8 @@ class BuiltinShellEngine(
 
     override fun startDiscovery() {
         synchronized(this) {
-            // 还在找也重新开始:用户又回到配对这件事上了,找的时限从现在算
+            // If you are still looking, start again: The user is back to the matter of matching, and the
+            // time limit for searching is calculated from now on.
             discoveryJob?.cancel()
             _discovery.value = PairingDiscovery.Searching
             discoveryJob = scope.launch {
@@ -326,7 +338,8 @@ class BuiltinShellEngine(
             failures = 0
             retryJob?.cancel()
         }
-        // 用户点了重试:之前替用户打开无线调试时的拒绝不再算数(不允许的网络上系统会再问一次)
+        // The user clicks Retry: The previous rejection when turning on wireless debugging for the user
+        // no longer counts (the system will ask again on a network that is not allowed)
         autoOn?.reset()
         if (helper.value != null) {
             _status.value = BuiltinShellStatus.Running
@@ -339,7 +352,8 @@ class BuiltinShellEngine(
         synchronized(this) { retryJob?.cancel() }
         launchLock.withLock {
             withContext(io) {
-                // 先忘掉「电脑起过」:助手停下时状态就是没设置,不提示再跑命令
+                // Forget about "starting the computer" first: when the assistant is stopped, the status
+                // is that there is no setting, and there is no prompt to run the command again.
                 platform.setUsbStarted(false)
                 runCatching { platform.stopHelper() }
                 platform.forget()

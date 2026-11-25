@@ -7,7 +7,7 @@ import com.meenai.mina.core.run.ChannelPeer
 import com.meenai.mina.core.run.Delivery
 import com.meenai.mina.core.run.SendOutcome
 
-/** 手机上的任务卡片和通知：任务服务仍绘制现有界面，此适配器承接送达账本。 */
+/** Task cards and notifications on mobile phones: The task service still draws the existing interface, and this adapter takes over the delivery ledger. */
 class LocalChannel(private val deliverLocal: suspend (ChannelPeer, Delivery) -> SendOutcome) : Channel {
     override val id = ID
     override val confirms = true

@@ -41,17 +41,19 @@ class AgentLoopWebKnowledgeTest {
     @Test fun domainKnowledgeInjectedOnFirstVisit() = runTest {
         val m = run("看看", KnowledgeStore(listOf(shop)), go("https://shop.example.com/a"), observe, finish)
         assertTrue(m.requests[0].refs().isEmpty())
-        // 打开网页的结果就带站点,紧接着注入;之后 observe 同一站点不再重复
+        // The result of opening the web page will show the site, and then inject it; after that, observe
+        // the same site will not be repeated.
         assertEquals(1, m.requests[1].refs().size)
         assertEquals(1, m.requests[2].refs().size)
         assertTrue(m.requests[2].refs()[0].contains("正文shop"))
     }
 
     @Test fun injectedFromNavigateAndReadPageResults() = runTest {
-        // 打开网页的结果里就有站点:不用等 observe
+        // There is a site in the results of opening the web page: no need to wait observe
         val nav = run("看看", KnowledgeStore(listOf(shop)), go("https://shop.example.com/a"), finish)
         assertEquals(1, nav.requests[1].refs().size)
-        // 读页的结果带 url:切了标签之后读页也能认出新站点
+        // The results of reading the page have URL: after cutting the tag, you can also recognize the
+        // new site when reading the page.
         val web = FakeWebPort().apply { page = page.copy(url = "https://news.example.org/today") }
         val read = run("看看", KnowledgeStore(listOf(shop, news)), go("https://shop.example.com/a"), reply(call("web_read_page")), finish, web = web)
         assertTrue(read.requests[2].refs().any { "正文news" in it })
@@ -65,7 +67,8 @@ class AgentLoopWebKnowledgeTest {
     }
 
     @Test fun sharesQuotaWithPackages() = runTest {
-        // 任务文字命中两份(手机),网页上再来两个站点:每任务至多 3 份
+        // The task text hits two copies (mobile phone), and there are two more sites on the web page: up
+        // to 3 copies per task
         val a = entry("a", "甲App", packages = listOf("com.a")); val b = entry("b", "乙App", packages = listOf("com.b"))
         val m = run("用甲App和乙App", KnowledgeStore(listOf(a, b, shop, news)),
             go("https://shop.example.com/"), observe, go("https://news.example.org/"), observe, finish)
@@ -81,7 +84,8 @@ class AgentLoopWebKnowledgeTest {
         val texts = m.requests[0].userTexts()
         val line = texts.single { it.startsWith("Available channels: ") }
         assertEquals("Available channels: 小红书 — app: installed (com.xingin.xhs); web: xiaohongshu.com", line)
-        // 渠道行在第一次调用模型时就在,且排在参考资料前面
+        // The channel row is there when the model is called for the first time and is ranked in front of
+        // the reference materials.
         val kinds = m.requests[0].map { ContextBuilder.kindOf(it) }
         assertTrue(kinds.indexOf(ContextKind.Channel) in 0 until kinds.indexOf(ContextKind.AppKnowledge))
         val none = run("搜小红书上的露营攻略", KnowledgeStore(listOf(xhs)), finish)
@@ -92,11 +96,12 @@ class AgentLoopWebKnowledgeTest {
         val groups = { offered: Set<String> -> com.meenai.mina.core.capability.PromptEnv(offered, false).gate(SystemPrompt.read("groups")) }
         val phone = SystemPrompt.read("phone").lines().filterNot { "<!-- needs: phone_open_link -->" in it || "<!-- needs: phone_find_visually -->" in it }.joinToString("\n")
         val web = SystemPrompt.read("web").lines().filterNot { "<!-- needs: share_file -->" in it || "<!-- needs: web_run_site_command -->" in it }.joinToString("\n")
-        // 两组都收着:只有入口一段和选渠道一段
+        // Both groups are collected: only the entrance section and the selection channel section
         val collapsed = run("t", KnowledgeStore(emptyList()), finish)
         val entries = groups(setOf("phone_launch_app", "phone_set_alarm", "web_read_page", "web_navigate"))
         assertEquals("BASE\n\n$entries\n\n" + SystemPrompt.read("channels"), collapsed.system)
-        // 打开网页、再打开 App:两组都展开,段落按固定的先后
+        // Open the web page, and then open the app: both groups are expanded, and the paragraphs are in
+        // a fixed order.
         val withWeb = run("t", KnowledgeStore(emptyList()), go("https://shop.example.com/a"), reply(call("phone_launch_app", """{"package":"com.x"}""")), finish)
         assertEquals("BASE\n\n$entries\n\n" + SystemPrompt.read("channels") + "\n\n" + SystemPrompt.read("handover") + "\n\n" + phone + "\n\n" + web, withWeb.system)
         val phoneOnly = run("t", KnowledgeStore(emptyList()), reply(call("phone_launch_app", """{"package":"com.x"}""")), finish, web = null)

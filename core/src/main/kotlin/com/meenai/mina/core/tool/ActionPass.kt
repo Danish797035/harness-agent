@@ -1,7 +1,9 @@
 package com.meenai.mina.core.tool
 
 /**
- * 执行一个会改变外部世界的工具的凭证:[ToolDispatcher.execute] 要它。构造函数是 internal,App 模块造不出来;
- * core 里只有执行入口(core.action.ActionExecutor)造它,由 SingleEntryTest 守着。只读调用走 [ToolDispatcher.executeRead]。
+ * Credentials for executing a tool that will change the outside world: [ToolDispatcher.execute] wants
+ * it. The constructor is internal and cannot be created by the App module; only the execution entry
+ * (core.action.ActionExecutor) in the core creates it, guarded by SingleEntryTest. The read-only call
+ * goes to [ToolDispatcher.executeRead].
  */
 class ActionPass internal constructor()

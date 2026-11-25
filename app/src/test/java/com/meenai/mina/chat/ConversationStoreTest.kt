@@ -25,7 +25,7 @@ class ConversationStoreTest {
         assertNotEquals(id, b.newConversation())
     }
 
-    /** 留在后台运行的那一页(站点)和它后来关掉的原因跟着那一轮存下;没留页的轮次不写这两个字段。 */
+    /** The page (site) left running in the background and the reason for its subsequent shutdown are saved with that round; these two fields are not written in the round where no page is left. */
     @Test fun persistsKeptPage() {
         val dir = tmp.newFolder("c")
         val a = ConversationStore(dir)
@@ -38,7 +38,7 @@ class ConversationStoreTest {
         assertFalse("keptPage" in java.io.File(dir, "$id.json").readText().substringAfter("谢谢"))
     }
 
-    /** 这一轮用过的能力组跟着存下(下一轮开局据此预先展开);没用过的不写这个字段。 */
+    /** The ability groups used in this round will be saved accordingly (the next round will be pre-expanded accordingly); if they have not been used, this field will not be written. */
     @Test fun persistsUsedGroups() {
         val dir = tmp.newFolder("c")
         val a = ConversationStore(dir)
@@ -49,7 +49,7 @@ class ConversationStoreTest {
         assertFalse("groups" in java.io.File(dir, "$id.json").readText().substringAfter("谢谢"))
     }
 
-    /** 插话打断的那段回复和插话一一对应存下;没打断过的轮次不写这个字段,旧文件读出来是空的。 */
+    /** The reply interrupted by the interruption is stored in one-to-one correspondence with the interruption; this field is not written in the rounds that have not been interrupted, and the old file is empty when read. */
     @Test fun persistsInterruptedReplies() {
         val dir = tmp.newFolder("c")
         val a = ConversationStore(dir)
@@ -62,7 +62,7 @@ class ConversationStoreTest {
         assertFalse("interruptedReplies" in java.io.File(dir, "$id.json").readText().substringAfter("谢谢"))
     }
 
-    /** 插话之前已经说完的回复同样一一对应存下;没有时不写这个字段。 */
+    /** Replies that have been finished before interrupting are also stored in one-to-one correspondence; if there are none, this field will not be written. */
     @Test fun persistsFinishedReplies() {
         val dir = tmp.newFolder("c")
         val a = ConversationStore(dir)
@@ -73,7 +73,7 @@ class ConversationStoreTest {
         assertFalse("finishedReplies" in java.io.File(dir, "$id.json").readText().substringAfter("谢谢"))
     }
 
-    /** 删对话:对话文件、标题、挪到一边的损坏文件、临时文件都删掉,列表里没有了,别的对话不动;删完发一次改动。 */
+    /** Delete a conversation: The conversation file, title, damaged files that were moved aside, and temporary files are all deleted. They are no longer in the list, and other conversations remain unchanged. After deletion, post the changes. */
     @Test fun deleteRemovesTheConversationAndItsSidecars() = kotlinx.coroutines.runBlocking {
         val dir = tmp.newFolder("c")
         val store = ConversationStore(dir)
@@ -102,7 +102,7 @@ class ConversationStoreTest {
         assertEquals(null, store.pinnedAt(id))
     }
 
-    /** 用户改的名字说了算:后台起标题晚到也不盖掉;起好了的标题用户照样能改;空的不改。 */
+    /** The name changed by the user has the final say: the title will not be overwritten even if it is late in the background; the user can still change the title that has been created; the title that is empty will not be changed. */
     @Test fun renameByUserWinsOverAutoTitle() {
         val dir = tmp.newFolder("c")
         val store = ConversationStore(dir)
@@ -124,7 +124,7 @@ class ConversationStoreTest {
         assertFalse(store.rename(other, "再改"))
     }
 
-    /** 置顶记在 `.pin` 里(置顶的时间),重开还在;列表带上置顶时间,不改对话的先后;取消置顶就没了。 */
+    /** The pin is recorded in `.pin` (the time it was pinned), and it will still be there if you restart it; the pin time will be included in the list, and the order of the conversation will not be changed; if you cancel the pin, it will be gone. */
     @Test fun pinPersistsAndShowsInTheList() {
         val dir = tmp.newFolder("c")
         val store = ConversationStore(dir)
@@ -138,12 +138,12 @@ class ConversationStoreTest {
         assertTrue(again.setPinned("a", false))
         assertEquals(null, again.pinnedAt("a"))
         assertFalse(java.io.File(dir, "a.pin").exists())
-        // 删掉的对话不再置顶回来
+        // Deleted conversations will no longer be pinned back to the top
         again.delete("b")
         assertFalse(again.setPinned("b", true))
     }
 
-    /** 删之后才到的补写(后台起好的标题、收尾后补的结局)不把对话写回来;再存进一轮就是重新用这个编号。 */
+    /** The rewriting that comes after deletion (the title created in the background, the ending added after the ending) does not write back the dialogue; saving it for another round means using the same number again. */
     @Test fun lateWritesDoNotReviveADeletedConversation() {
         val dir = tmp.newFolder("c")
         val store = ConversationStore(dir)
@@ -240,7 +240,8 @@ class ConversationStoreTest {
         assertEquals(2, b.turns(id).size)
     }
 
-    // 任务结束后补记忆提示、删记忆时,这一轮的文件卡片不能丢
+    // When adding memory reminders or deleting memories after the mission, the file cards for this round
+    // cannot be lost.
     @Test fun filesSurviveNoteUpdatesAndStrip() {
         val dir = tmp.newFolder("d")
         val store = ConversationStore(dir)
@@ -254,7 +255,8 @@ class ConversationStoreTest {
         assertTrue(r.first.memoryNotes.isEmpty())
     }
 
-    // 写过哪个对话就发出它的编号:存进一轮、改一轮、去掉记忆提示
+    // Each dialogue that has been written is assigned its number: save one round, change one round,
+    // remove memory prompts
     @Test fun announcesChangedConversations() = kotlinx.coroutines.test.runTest {
         val s = ConversationStore(tmp.newFolder("c"))
         val seen = mutableListOf<String>()
@@ -267,11 +269,11 @@ class ConversationStoreTest {
         s.updateTurn("a", "missing") { it }
         s.stripMemory(setOf("m1"))
         assertEquals(listOf("a", "b", "a", "a"), seen)
-        // 只有删对话才发 deletions
+        // Send deletions only if you delete the conversation
         assertEquals(emptyList<String>(), deleted)
     }
 
-    /** 从哪一页开始的对话:记在旁边的 .page 文件里,列表里带着;旧对话没有它照常读;删对话一起删掉。 */
+    /** Which page the conversation starts from: record it in the.page file next to it and keep it in the list; old conversations can be read as usual without it; delete the conversation and delete it together. */
     @Test fun pageOriginPersistsAndIsOptional() {
         val dir = tmp.newFolder("c")
         val a = ConversationStore(dir)
@@ -286,9 +288,9 @@ class ConversationStoreTest {
         val listed = b.list().associateBy { it.id }
         assertEquals("shop.example.com", listed.getValue(paged).page?.host)
         assertEquals(null, listed.getValue(plain).page)
-        // 对话文件的格式不变:没有多出来的字段
+        // The format of the conversation file remains unchanged: no extra fields
         assertFalse(java.io.File(dir, "$paged.json").readText().contains("shop.example.com"))
-        // 坏了的 .page 当作没有
+        // A broken.page is treated as if it does not exist
         java.io.File(dir, "$plain.page").writeText("{not json")
         assertEquals(null, b.pageOrigin(plain))
         b.delete(paged)
@@ -297,8 +299,11 @@ class ConversationStoreTest {
     }
 
     /**
-     * 「用户此刻在哪个对话」也记下来:进程重启后胶囊据此接着那个对话,而不是靠文件时间猜最近的;
-     * 新开还没说话的对话记成 [CurrentChat.Fresh];删掉它时一起清掉;这个文件不进对话列表。
+     * "Which conversation the user is in at the moment" is also recorded: after the process is
+     * restarted, the capsule will continue that conversation based on this, rather than guessing the
+     * latest one based on the file time; newly opened conversations that have not yet been spoken will
+     * be recorded as [CurrentChat.Fresh]; when deleting it, it will be cleared together; this file will
+     * not be included in the conversation list.
      */
     @Test fun remembersTheConversationOnScreen() {
         val dir = tmp.newFolder("c")
@@ -309,18 +314,21 @@ class ConversationStoreTest {
 
         a.setCurrent(CurrentChat.Fresh)
         assertEquals(CurrentChat.Fresh, a.currentChat())
-        // 新开的对话还没有对话文件,重启后照样读得回来
+        // The newly opened conversation does not have a conversation file yet. You can still read it
+        // after restarting.
         assertEquals(CurrentChat.Fresh, ConversationStore(dir).currentChat())
         assertEquals(listOf(id), ConversationStore(dir).list().map { it.id })
 
         a.setCurrent(CurrentChat.Open(id))
         assertEquals(CurrentChat.Open(id), ConversationStore(dir).currentChat())
         assertEquals(CurrentChat.Open(id), ConversationStore(dir).current.value)
-        // 记在旁边的 current 文件里,不动对话文件、不进列表
+        // Note it in the current file next to it, and do not move the conversation file or enter the
+        // list.
         assertEquals(setOf("$id.json", "current"), dir.list()!!.toSet())
         assertEquals(listOf(id), a.list().map { it.id })
 
-        // 删掉这个对话:指向它的记录一起清掉,胶囊回落到最近那个
+        // Delete this conversation: the records pointing to it will be cleared together, and the capsule
+        // will fall back to the most recent one.
         a.delete(id)
         assertEquals(null, ConversationStore(dir).currentChat())
     }

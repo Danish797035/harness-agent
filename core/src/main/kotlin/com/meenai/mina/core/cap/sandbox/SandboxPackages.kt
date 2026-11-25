@@ -1,9 +1,11 @@
 package com.meenai.mina.core.cap.sandbox
 
 /**
- * 运行环境里装的包:Python 与 Node,外加技能脚本清单里 `apk:` 需要的
- * (py3-pypdf:PDF 取字;py3-pillow 现在没有内置技能用到,包本身先留着),以及跟随手机时区所需的 tzdata。
- * 都在 Alpine 3.22 的 main/community 里,构建时装进自带的运行环境
- * (tools/sandbox/build-runtime.py 的 WANT 与此一致,BundledRuntimeTest 核对)。
+ * Packages installed in the running environment: Python and Node, plus those required by `apk:` in the
+ * skill script list (py3-pypdf: PDF extraction; py3-pillow currently has no built-in skills to use, so
+ * the package itself is reserved for now), and the tzdata required to follow the mobile phone time zone.
+ * They are all in the main/community of Alpine 3.22, and the built-in running environment is loaded when
+ * building (the WANT of tools/sandbox/build-runtime.py is consistent with this, check with
+ * BundledRuntimeTest).
  */
 val SANDBOX_PACKAGES: List<String> = listOf("python3", "nodejs", "py3-pillow", "py3-pypdf", "tzdata")

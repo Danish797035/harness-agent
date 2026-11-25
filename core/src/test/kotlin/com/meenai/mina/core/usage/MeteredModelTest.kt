@@ -106,7 +106,9 @@ class MeteredModelTest {
         assertSame(r, m.complete("s", user, emptyList()))
     }
 
-    // 在运行的上下文里调用的,另记到这次运行名下(成功、没报用量、失败都算一次);不在上下文里的不算
+    // If it is called in the running context, it will be recorded under the name of this run (success,
+    // no usage reported, and failure will all be counted once); those that are not in the context will
+    // not be counted.
     @Test fun callsInsideARunAreTalliedForThatRun() = runTest {
         val tally = RunUsageTally()
         val ok = Plain { reply(Usage(100, 20, 60)) }.metered(source, sink)
@@ -124,7 +126,7 @@ class MeteredModelTest {
         assertEquals(100L, e.inputTokens)
         assertEquals(20L, e.outputTokens)
         assertEquals(60L, e.cachedTokens)
-        // 总账照记每一次
+        // The general ledger records every time
         assertEquals(4, recorded.size)
     }
 }

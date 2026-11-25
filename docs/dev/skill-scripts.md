@@ -1,26 +1,32 @@
-# 沙箱脚本
+# sandbox script
 
-技能和网站知识可以带脚本,放在各自目录的 `scripts/` 下。打包后这些目录出现在沙箱的 `/opt/mina/skills/` 下,
-由 `run_bundled_script` 在沙箱里运行。参数:
+Skills and website knowledge can be brought with scripts and placed under `scripts/` in their
+respective directories. After packaging, these directories appear under `/opt/mina/skills/` in the
+sandbox, and are run by `run_bundled_script` in the sandbox. parameter:
 
-- `source`:脚本所在的目录,也就是 `knowledge_read`、`skill_read` 结果里给出的 `scriptSource`,例如 `skills/documents`;
-- `script`:目录里的脚本路径,例如 `scripts/extract_pdf.py`;
-- `args`:参数数组(最多 50 个),原样交给脚本,中间不经过 shell;
-- `timeoutSec`:时限,1–600 秒,默认 60。
+- `source`: The directory where the script is located, that is, `scriptSource` given in the results
+  of `knowledge_read` and `skill_read`, such as `skills/documents`;
+- `script`: The script path in the directory, such as `scripts/extract_pdf.py`;
+- `args`: Parameter array (up to 50), handed to the script as it is, without passing through the
+  shell;
+- `timeoutSec`: time limit, 1–600 seconds, default 60.
 
-解释器按扩展名选:`.py` 用 python3,`.mjs`、`.js` 用 node,`.sh` 用 sh(`ScriptManifest.interpreterFor`)。
+The interpreter is selected by extension: python3 is used for `.py`, node is used for `.mjs` and
+`.js`, and sh(`ScriptManifest.interpreterFor`) is used for `.sh`.
 
-目前仓库里有一个脚本:
+There is currently a script in the repository:
 
-| 脚本 | 位置 | 做什么 | 需要什么 |
+| script | Location | do what | what is needed |
 |---|---|---|---|
-| `scripts/extract_pdf.py` | `skills/documents/` | 从文本型 PDF 取字,可按页、看元数据、写入文件;扫描件不处理 | Alpine 包 `py3-pypdf` |
+| `scripts/extract_pdf.py` | `skills/documents/` | You can extract words from text-based PDF by page, view metadata, and write files; scanned files will not be processed. | Alpine bag `py3-pypdf` |
 
-以上位置都在 `core/src/main/resources/` 下。脚本都带 `--help`,出错时以非 0 退出,并在标准错误写一句原因。
+The above locations are all under `core/src/main/resources/`. The scripts all carry `--help`. When
+an error occurs, they exit with a non-zero value and write a reason on the standard error.
 
 ## `scripts/manifest.json`
 
-每个带脚本的目录有一份 `scripts/manifest.json`,是一个数组,每个脚本一项:
+Each directory with scripts has one copy of `scripts/manifest.json`, which is an array, one item for
+each script:
 
 ```json
 [
@@ -28,15 +34,30 @@
 ]
 ```
 
-- `file`:脚本相对该目录的路径;不是目录内相对路径的项会被丢掉。
-- `runnable`:能否在沙箱里运行。`false` 的脚本只用来说明缺什么,`run_bundled_script` 会拒绝。
-- `reason`:可选,`runnable` 为 `false` 时给出的原因。
-- `needs`:依赖列表。`apk:<包名>` 表示需要这个 Alpine 包(必须在 `SANDBOX_PACKAGES` 里);`net` 表示要联网。
-- `network`:是否需要联网。为 `true` 而设置 → 高级里的「允许脚本联网」关着(默认关)时,`run_bundled_script` 会拒绝运行并提示去打开。
+- `file`: The path of the script relative to the directory; items that are not relative paths within
+  the directory will be discarded.
+- `runnable`: Can it run in a sandbox? The script of `false` is only used to indicate what is
+  missing, `run_bundled_script` will reject it.
+- `reason`: Optional, the reason given when `runnable` is `false`.
+- `needs`: dependency list. `apk:<package>` means that this Alpine package is needed (must be in
+  `SANDBOX_PACKAGES`); `net` means that it needs to be connected to the Internet.
+- `network`: Do you need to connect to the Internet? Set for `true` → When "Allow script networking"
+  in Advanced is turned off (off by default), `run_bundled_script` will refuse to run and prompt to
+  open it.
 
-解析与「此刻能不能跑」的判断在 `core/.../knowledge/ScriptManifest.kt`;清单、文档里提到的脚本与脚本文件是否对得上,由 `BundledScriptsManifestTest` 核对。
+The judgment of analysis and "whether it can run at this moment" is made by
+`core/.../knowledge/ScriptManifest.kt`; whether the scripts mentioned in the list and documents
+match the script files are checked by `BundledScriptsManifestTest`.
 
-## 运行环境
+## Operating environment
 
-沙箱基于 Alpine 3.22,`SANDBOX_PACKAGES`(`core/.../cap/sandbox/SandboxPackages.kt`)列出随 APK 自带的软件包:python3、nodejs、py3-pillow、py3-pypdf、tzdata。其中 py3-pypdf 供 PDF 取字脚本用;py3-pillow 现在没有内置技能脚本用到,包本身先留着;tzdata 让命令按手机当前时区处理本地时间。
-这些包在构建时装进随 APK 自带的运行环境(`tools/sandbox/build-runtime.py`,见 `tools/sandbox/README.md`);包有变化时,运行环境的版本随之改变,手机上启动时会自动重新解包。
+The sandbox is based on Alpine 3.22, `SANDBOX_PACKAGES` (`core/.../cap/sandbox/SandboxPackages.kt`)
+lists the software packages that come with the APK: python3, nodejs, py3-pillow, py3-pypdf, tzdata.
+Among them, py3-pypdf is used for PDF word extraction scripts; py3-pillow is currently not used by
+built-in skill scripts, so the package itself is reserved for now; tzdata allows the command to
+process local time according to the current time zone of the mobile phone. These packages are loaded
+into the running environment that comes with the APK (`tools/sandbox/build-runtime.py`, see
+`tools/sandbox/README.md`) when building; when the package changes, the version of the running
+environment changes accordingly, and the phone will automatically re-unpack it when it is started.
+
+

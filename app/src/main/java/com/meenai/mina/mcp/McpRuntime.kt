@@ -28,7 +28,7 @@ import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
-/** 电脑连接此刻的样子:关着、在监听哪个端口、或没能开起来(端口被占等)。 */
+/** The computer connection looks like at the moment: it is closed, which port it is listening on, or it cannot be opened (the port is occupied, etc.). */
 sealed interface McpServerState {
     data object Off : McpServerState
     data class Listening(val port: Int) : McpServerState
@@ -36,9 +36,11 @@ sealed interface McpServerState {
 }
 
 /**
- * 电脑连接(MCP)的开关与服务:整个进程一份。局域网([settings])和 USB([usb])的监听范围见 [McpModes],
- * 远程网关([relaySettings])使用独立出站通道。有一种开着就起 [McpService] 前台服务,
- * 由各自开关决定本地监听和出站连接;都关了就停止。三种方式的任务共用 [tasks] 和同一协议入口。
+ * Computer Connection (MCP) switches and services: one copy of the entire process. See [McpModes] for
+ * the monitoring range of LAN ([settings]) and USB ([usb]), and the remote gateway ([relaySettings])
+ * uses independent outbound channels. There is a [McpService] front-end service that starts when it is
+ * turned on. Local monitoring and outbound connections are determined by their respective switches; it
+ * stops when they are turned off. Tasks in the three modes share [tasks] and the same protocol entry.
  */
 class McpRuntime(
     private val context: Context, val settings: McpSettings, val usb: McpUsbSettings, private val tasks: RemoteTasks,
@@ -51,7 +53,9 @@ class McpRuntime(
     private var hostListen = McpModes.Listen.Off
     private val endpoints = RemoteEndpoints(tasks, BuildConfig.VERSION_NAME, device = device.access)
     private val relayAccess = RemoteAccess(token = { if (relaySettings.config.value.enabled) settings.token() else null })
-    // 经网关来的请求要另开「允许经网关唤醒和解锁」才看得到屏幕能力;手机上的远程亮屏与解锁许可照样要开。
+    // For requests coming through the gateway, you need to turn on "Allow wake-up and unlocking through
+    // the gateway" to see the screen capabilities; the remote screen brightening and unlocking
+    // permissions on the phone still need to be turned on.
     private val relay = RelayClient(CoroutineScope(SupervisorJob() + Dispatchers.IO), { req ->
         relayAccess.handle(req) { endpoints.handle(it, deviceAccess = relaySettings.config.value.deviceAccess) }
     })
@@ -59,10 +63,10 @@ class McpRuntime(
     val relayState get() = relay.state
     private val active get() = listen() != McpModes.Listen.Off || relaySettings.config.value.enabled
 
-    /** 最近连过的客户端和最后一次请求;没在监听时为空。 */
+    /** The most recently connected client and the last request; empty when not listening. */
     val activity: RemoteActivity get() = if (active) endpoints.activity.value else RemoteActivity()
 
-    /** 配对只保存凭据,必须用户另行开启远程访问。 */
+    /** Pairing only saves credentials and the user must enable remote access separately. */
     suspend fun pairRelay(gateway: String, code: String) {
         check(!relaySettings.config.value.paired) { "Unpair the previous gateway first" }
         val remote = RelayGateway(RelayGateway.parse(gateway), RelayGateway.http())
@@ -90,19 +94,19 @@ class McpRuntime(
 
     fun listen(): McpModes.Listen = McpModes.listen(settings.enabled.value, usb.enabled.value)
 
-    /** 设置页上局域网那种的开关。 */
+    /** The LAN switch on the settings page. */
     fun setEnabled(on: Boolean) {
         settings.setEnabled(on)
         apply()
     }
 
-    /** 设置页上 USB 那种的开关(电脑经 adb 开关的走 [McpService] 的动作,同一套)。 */
+    /** The USB switch on the settings page (the computer uses the adb switch to perform [McpService] actions, the same set). */
     fun setUsbEnabled(on: Boolean) {
         if (on) usb.enable() else usb.disable()
         apply()
     }
 
-    /** 开关变了:还有一种开着就让服务按新的开关重新监听,都关了就停服务。 */
+    /** The switch has changed: There is also a method that allows the service to re-monitor by pressing the new switch when it is turned on, and stops the service when it is turned off. */
     private fun apply() {
         if (active) ensureRunning() else {
             context.stopService(Intent(context, McpService::class.java))
@@ -111,8 +115,10 @@ class McpRuntime(
     }
 
     /**
-     * 有一种开着就把服务起来(已经在跑就让它按开关重新对一遍)。从后台起前台服务可能被系统拒绝,这时记成没开起来,
-     * 等下次打开 Mina 的界面再起。
+     * There is one method that starts the service when it is turned on (if it is already running, just
+     * press the switch to readjust it). The foreground service may be rejected by the system from the
+     * background. In this case, it will be recorded as not started and will be restarted next time when
+     * the Mina interface is opened.
      */
     fun ensureRunning() {
         if (!active) return
@@ -124,8 +130,10 @@ class McpRuntime(
     }
 
     /**
-     * 由 [McpService] 调:同步本地监听和远程通道。监听范围没变时复用服务,USB 开着时发布连接信息。
-     * 本地监听和远程通道均未启用或未能启动时返回 false。
+     * Tuned by [McpService]: Synchronize local monitoring and remote channels. The service is reused
+     * when the listening range does not change, and connection information is published when USB is
+     * turned on. Returns false if neither the local listening nor the remote channel is enabled or
+     * failed to start.
      */
     @Synchronized internal fun sync(): Boolean {
         val want = listen()
@@ -174,7 +182,7 @@ class McpRuntime(
         if (_state.value is McpServerState.Listening) _state.value = McpServerState.Off
     }
 
-    /** 给电脑跑的「经 USB 连接」脚本:不带秘密,App 启动时写一次(外部存储不可用就跳过)。 */
+    /** "Connect via USB" script to run on the computer: no secret, written once when the App starts (skip if external storage is not available). */
     fun writeUsbScript() {
         val dir = context.getExternalFilesDir(null) ?: return
         val f = File(dir, McpUsb.SCRIPT)
@@ -194,23 +202,23 @@ class McpRuntime(
         }
     }
 
-    /** 电脑上要跑的那条命令(设置页显示的就是它)。 */
+    /** The command to be run on the computer (it is what is displayed on the settings page). */
     fun usbCommand(): String {
         val path = context.getExternalFilesDir(null)?.let { File(it, McpUsb.SCRIPT).absolutePath }
             ?: "/storage/emulated/0/Android/data/${context.packageName}/files/${McpUsb.SCRIPT}"
         return "adb shell sh " + shortPath(path)
     }
 
-    /** 换令牌:旧的当场失效。 */
+    /** Change the token: the old one becomes invalid on the spot. */
     fun regenerateToken(): String = settings.regenerate()
 
     companion object {
         private const val TAG = "MinaMcp"
 
-        /** 主用户的外部存储在 shell 里也叫 /sdcard;给人看的命令用短写法(和「用电脑启动」的脚本一样)。 */
+        /** The master user's external storage is also called /sdcard in the shell; the commands shown to humans are shorthand (the same as the "launch from computer" script). */
         private fun shortPath(path: String) = HelperHandoff.usbCommand(path).removePrefix("adb shell sh ")
 
-        /** 电脑能连的地址:开着的网卡上的局域网、私有组网 IPv4 地址。 */
+        /** Addresses that the computer can connect to: LAN and private network IPv4 addresses on the enabled network card. */
         fun addresses(): List<String> = runCatching {
             NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
                 .filter { runCatching { it.isUp && !it.isLoopback }.getOrDefault(false) }
@@ -223,7 +231,7 @@ class McpRuntime(
 
         fun url(address: String, port: Int) = "http://$address:$port${McpRpc.PATH}"
 
-        /** 给电脑上的 MCP 客户端用的配置片段:地址加 Authorization 头。 */
+        /** Configuration fragment for the MCP client on the computer: address plus Authorization header. */
         fun clientConfig(url: String, token: String): String = """
             {
               "mcpServers": {

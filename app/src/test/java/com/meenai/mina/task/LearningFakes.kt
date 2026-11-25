@@ -14,7 +14,7 @@ import com.meenai.mina.core.skills.PersonalSkill
 import com.meenai.mina.core.skills.PersonalSkills
 import com.meenai.mina.core.skills.SkillStatus
 
-/** 按顺序回复固定文字的模型;记下每次请求。 */
+/** A model for replying to fixed text in sequence; note each request. */
 class TextModel(vararg replies: String) : ChatModel {
     override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 64_000, reasoning = false)
     private val queue = replies.toMutableList()

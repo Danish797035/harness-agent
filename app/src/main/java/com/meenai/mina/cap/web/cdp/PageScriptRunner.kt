@@ -36,13 +36,15 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 在一个标签的主框架里建隔离世界跑页面脚本(web_script)。
- * 发件箱只在这个隔离世界里,页面自己的脚本看不到;模型代码在里面拿不到任何页面对象(见 [PageScriptProtocol]),
- * 脚本的每个 `mina.*` 调用放进发件箱,由一直挂着的取件求值([PageScriptProtocol.TAKE])交回来,一次一个交给 [ScriptBridge](Mina 的动作路径),结果用 `Runtime.evaluate` 在同一个世界里回传。
- * 兜底:脚本发起的网络请求、没有 mina 动作在做时主框架的跳转(后者先 `Page.stopLoading`)都让脚本以错误结束。
- * 整页跳走会销毁隔离世界,脚本就停在那里(返回 [ScriptRun.Navigated])。
- * 时限只算脚本自己的时间:mina 动作在做(含等锁屏关卡)时不走表;到时限先等手上的动作做完再收尾。
- * [preflight] 每个 mina 调用之前查一次标签(接管中、崩溃),不为 null 就结束脚本。
+ * Create an isolated world and run the page script (web_script) in the main frame of a tag. action
+ * path), and the result is returned in the same world with `Runtime.evaluate`. Bottom line: The network
+ * request initiated by the script and the jump of the main frame when there is no mina action (the
+ * latter starts with `Page.stopLoading`) all cause the script to end with an error. A full page jump
+ * will destroy the quarantine world and the script will stop there (returning to [ScriptRun.Navigated]).
+ * The time limit only counts the script's own time: the clock does not run while Mina is doing an action
+ * (including waiting for the lock screen level); when the time limit is reached, wait for the action in
+ * hand to be completed before finishing. [preflight] Check the tag before each mina call (taking over,
+ * crashing), and end the script if it is not null.
  */
 class PageScriptRunner(
     private val session: CdpSession,
@@ -54,14 +56,15 @@ class PageScriptRunner(
         val world = PageScriptProtocol.WORLD_PREFIX + UUID.randomUUID()
         val outcome = CompletableDeferred<ScriptRun>()
         val calls = Channel<ScriptCall>(Channel.UNLIMITED)
-        // 拿着它时有一个动作在做;收尾前要等它做完,动作不能做到一半被打断
+        // There is an action being performed while holding it; you must wait for it to finish before
+        // finishing, and the action cannot be interrupted in the middle.
         val busy = Mutex()
         val context = AtomicInteger(-1)
         val gone = AtomicBoolean(false)
         val mainFrame = AtomicReference<String?>(null)
         val reader = AtomicInteger(-1)
 
-        // 先订阅再建世界:事件流不重放
+        // Subscribe first and then build the world: the event stream does not replay
         launch(start = CoroutineStart.UNDISPATCHED) {
             session.events.collect { e ->
                 if (e.sessionId != sessionId) return@collect
@@ -69,7 +72,8 @@ class PageScriptRunner(
                 when (e.method) {
                     "Runtime.executionContextDestroyed" -> if (p.int("executionContextId") == context.get()) gone.set(true)
                     "Runtime.executionContextsCleared" -> gone.set(true)
-                    // 不开 Runtime 时没有上下文销毁的事件:主框架换了文档,世界就没了
+                    // There is no context destruction event when Runtime is not enabled: if the main
+                    // frame changes the document, the world will be gone.
                     "Page.frameNavigated" -> if (mainFrameNavigated(p, mainFrame.get())) gone.set(true)
                     "Network.requestWillBeSent" -> if (context.get() >= 0 && PageScriptProtocol.requestFromScript(p)) {
                         outcome.complete(ScriptRun.Failed(BLOCKED_NETWORK, "the script sent a network request (${p.requestUrl()}); scripts may only read the page"))
@@ -94,7 +98,9 @@ class PageScriptRunner(
                 return@coroutineScope ScriptRun.Failed(DEVTOOLS_UNAVAILABLE, "the page did not answer in time")
             }
 
-            // 一直挂着一个取件:脚本的 mina 调用一条条交回来;收尾(__minaEnd)交回 null,世界没了求值失败,都就此停
+            // There is always a pickup: the mina call of the script is returned one by one; the ending
+            // (__minaEnd) returns null, the world is gone, the evaluation fails, and everything stops
+            // here
             launch {
                 while (!outcome.isCompleted) {
                     val r = try {
@@ -115,7 +121,8 @@ class PageScriptRunner(
 
             launch {
                 outcome.complete(try {
-                    // 不设上限:时限由下面的表管(动作在做时不走表)
+                    // No upper limit: the time limit is managed by the watch below (the watch does not
+                    // run while the action is being performed)
                     val r = session.send("Runtime.evaluate", buildJsonObject {
                         put("expression", PageScriptProtocol.run(code)); put("contextId", contextId)
                         put("awaitPromise", true); put("returnByValue", true)
@@ -127,7 +134,7 @@ class PageScriptRunner(
                         else -> ScriptRun.Done((r["result"] as? JsonObject)?.get("value")?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.content)
                     }
                 } catch (e: CdpException) {
-                    // 世界随整页跳转没了,脚本的 Promise 也就没了
+                    // The world jumps with the whole page and the Promise of the script is gone.
                     if (gone.get() || CONTEXT_GONE.containsMatchIn(e.errorMessage)) ScriptRun.Navigated else ScriptRun.Failed("script_error", e.errorMessage)
                 })
             }
@@ -161,7 +168,7 @@ class PageScriptRunner(
                 }
             }
 
-            // 只在没有动作在做时走表
+            // Only run the watch when there is no action being done
             launch {
                 var left = timeoutMs
                 while (left > 0) {
@@ -185,7 +192,10 @@ class PageScriptRunner(
                     } catch (e: Exception) {
                         true
                     }
-                    // 收尾都等不到回应:脚本在跑同步死循环,占着页面。只在这时打断(没在跑时打断会误伤页面下一段脚本)
+                    // I can't even wait for a response at the end: the script is running in a
+                    // synchronization infinite loop, occupying the page. Only interrupt at this time
+                    // (not interrupting while running will accidentally damage the next script on the
+                    // page)
                     if (!ended) runCatching { session.send("Runtime.terminateExecution", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS) }
                 }
             }
@@ -195,7 +205,7 @@ class PageScriptRunner(
 
     private class Worlds(val frameId: String, val script: Int, val reader: Int)
 
-    /** 在读取世界里照校验过的参数读 DOM,只拿回纯数据。 */
+    /** In the reading world, read the DOM according to the verified parameters and only get back pure data. */
     private suspend fun readPage(ctx: Int, spec: JsonObject): JsonObject {
         val r = session.send("Runtime.evaluate", buildJsonObject {
             put("expression", PageScriptProtocol.read(spec)); put("contextId", ctx); put("returnByValue", true)
@@ -209,11 +219,14 @@ class PageScriptRunner(
     }
 
     /**
-     * 建两个隔离世界:脚本世界(发件箱、`mina`、跑模型代码,拿不到页面对象)和读取世界(只有 Mina 固定的读取器)。
+     * Build two isolated worlds: the script world (outbox, `mina`, running model code, cannot get the
+     * page object) and the reading world (only Mina fixed reader).
      */
     private suspend fun setUp(world: String): Worlds {
-        // 不开 Runtime:开着它时页面能察觉到调试器(有的网站因此一直重载);隔离世界和求值都不需要它
-        // 兜底要看的事件:跳转请求、网络请求(已开着的再开一次无妨)
+        // Do not turn on Runtime: the page can detect the debugger when it is turned on (some websites
+        // are always reloaded because of this); it is not needed for isolation of the world and
+        // evaluation. Events to look at: jump requests, network requests (it doesn't hurt to open it
+        // again if it is already turned on)
         session.send("Page.enable", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)
         session.send("Network.enable", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)
         val frameId = session.send("Page.getFrameTree", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)["frameTree"]
@@ -221,7 +234,7 @@ class PageScriptRunner(
             ?: throw CdpException(0, "no main frame", "Page.getFrameTree")
         val ctx = session.send("Page.createIsolatedWorld", buildJsonObject {
             put("frameId", frameId); put("worldName", world)
-            // 协议里的参数名就是这么拼的
+            // This is how the parameter names in the protocol are spelled.
             put("grantUniveralAccess", false)
         }, sessionId, STEP_TIMEOUT_MS)["executionContextId"]?.jsonPrimitive?.intOrNull
             ?: throw CdpException(0, "no execution context", "Page.createIsolatedWorld")
@@ -235,7 +248,7 @@ class PageScriptRunner(
         return Worlds(frameId, ctx, readerCtx)
     }
 
-    /** 装不上就不跑模型代码。 */
+    /** If it cannot be installed, the model code will not be run. */
     private suspend fun install(ctx: Int, source: String) {
         val r = session.send("Runtime.evaluate", buildJsonObject {
             put("expression", source); put("contextId", ctx); put("returnByValue", true)

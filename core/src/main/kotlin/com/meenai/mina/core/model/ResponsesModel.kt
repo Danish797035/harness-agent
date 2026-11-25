@@ -18,15 +18,17 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 请求时带的 Bearer 令牌。[fresh] 为真表示上一个被拒了(HTTP 401),要先换一个新的;换不到抛 [ModelError]。
- * 没有令牌(本地服务)为 null。[refreshable] 为假的(固定的 API Key)被拒后不再重试。
+ * The Bearer token brought with the request. If [fresh] is true, it means that the previous one was
+ * rejected (HTTP 401), and a new one needs to be replaced first; if it cannot be replaced, throw
+ * [ModelError]. No token (local service) is null. [refreshable] is false (fixed API Key) and will not be
+ * retried after being rejected.
  */
 interface BearerToken {
     val refreshable: Boolean get() = false
     suspend fun get(fresh: Boolean): String?
 
     companion object {
-        /** 固定的 API Key。 */
+        /** Fixed API Key. */
         fun fixed(key: String?): BearerToken = object : BearerToken {
             override suspend fun get(fresh: Boolean): String? = key
         }
@@ -34,18 +36,28 @@ interface BearerToken {
 }
 
 /**
- * OpenAI Responses 接口(`POST {base}/responses`),一律流式、不在服务端存对话(`store:false`):每次把要用的上下文都放在
- * `input` 数组里发,系统提示词放 `instructions`,对话里的系统消息改成 developer 消息(system 消息条目有的服务端不收)。
- * 工具是 function 工具(`strict:false`,Mina 的参数 schema 不按严格模式写);结果按 `function_call_output` 回给模型。
- * 默认只发这几项和 `include`;用户选了思考档位才发 `reasoning.effort`。温度、输出上限不发(套餐接口不收)。
+ * The OpenAI Responses interface (`POST {base}/responses`) is always streaming and does not store
+ * conversations on the server (`store:false`): each time the context to be used is sent in the `input`
+ * array, the system prompt word is placed in `instructions`, and the system messages in the conversation
+ * are changed to developer messages (some system message entries are not accepted by the server). The
+ * tool is a function tool (`strict:false`, Mina’s parameter schema is not written in strict mode); the
+ * result is returned to the model in `function_call_output`. By default, only these items and `include`
+ * are sent; the user selects the thinking gear to send `reasoning.effort`. The temperature and output
+ * upper limit are not sent (the package interface is not collected).
  *
- * 推理模型的思考:请求加密后的思考内容(`include: reasoning.encrypted_content`),原样存在这一回合第一个工具调用的
- * [Part.ToolCall.opaque] 里,回放时放回工具调用前面,模型接着上一步的思路做;只给文字回答的回合不需要接着想,不存。
- * 服务端说不收 `include` 时去掉再发一次。
+ * Thinking of the inference model: The encrypted thinking content (`include:
+ * reasoning.encrypted_content`) of the request is stored as it is in [Part.ToolCall.opaque] of the first
+ * tool call in this round. During playback, it is put back to the front of the tool call, and the model
+ * continues the idea of the previous step; in the round that only gives text answers, there is no need
+ * to continue thinking and it is not saved. When the server says it will not receive `include`, remove
+ * it and send it again.
  *
- * 只有收到 `response.completed`(或 `response.incomplete`)才算成功;流在这之前断开当作网络故障(会重试)。
- * [chatGptPlan] 为真时请求用的是用户的 ChatGPT 套餐额度:HTTP 429 是额度到了上限、403 是账号不能这样用,都不重试。
- * [accountLogin] 是用别家账号登录(如 xAI)时那一家的名字:HTTP 403 是订阅档位不能用这个接口([ModelError.AccountPlanNotAllowed])。
+ * Only when `response.completed` (or `response.incomplete`) is received is it considered successful; if
+ * the stream is disconnected before this, it is treated as a network failure (will be retried). When
+ * [chatGptPlan] is true, the request uses the user's ChatGPT package quota: HTTP 429 means the quota has
+ * reached the upper limit, 403 means the account cannot be used in this way, and there is no retry.
+ * [accountLogin] is the name of that company when you log in with another account (such as xAI): HTTP
+ * 403 means that the subscription level cannot use this interface ([ModelError.AccountPlanNotAllowed]).
  */
 class ResponsesModel(
     baseUrl: String,
@@ -54,9 +66,9 @@ class ResponsesModel(
     override val capabilities: Capabilities,
     private val http: OkHttpClient,
     private val chatGptPlan: Boolean = false,
-    /** 每个请求都带的头(见 [ClientHeaders]);令牌的头由适配器自己加。这个接口不给回复上限(套餐那条路不收)。 */
+    /** Each request carries a header (see [ClientHeaders]); the token header is added by the adapter itself. This interface does not give a reply upper limit (the package route does not charge). */
     private val headers: Map<String, String> = emptyMap(),
-    /** null 使用服务端默认;服务端拒绝所选档位时照常报错,不悄悄换档重试。 */
+    /** null Use the server default; when the server rejects the selected gear, it will report an error as usual and will not quietly change gears and try again. */
     private val reasoningEffort: String? = null,
     private val accountLogin: String? = null,
 ) : StreamingChatModel {
@@ -124,7 +136,7 @@ class ResponsesModel(
         put("strict", false)
     }
 
-    /** 一条内部消息展开成若干 `input` 条目:助手的话、思考、工具调用;工具结果各占一条;文字和图片合成一条消息。 */
+    /** An internal message is expanded into several `input` items: assistant's words, thoughts, tool calls; tool results each account for one; text and pictures are combined into one message. */
     private fun serialize(m: Message): List<JsonObject> {
         if (m.role == Role.Assistant) return assistantItems(m)
         val out = mutableListOf<JsonObject>()
@@ -177,11 +189,11 @@ class ResponsesModel(
         return root.str("detail")?.let { ErrorBody(null, it, null) }
     }
 
-    /** 流里的 `response.failed` / `error`,以及 HTTP 出错时内容里的 `error.code`。认不出的代码为 null。 */
+    /** `response.failed` / `error` in the stream, and `error.code` in the content when HTTP error occurs. Unrecognized code is null. */
     private fun errorOf(code: String?, message: String, param: String?): ModelError? = when (code) {
         "subscription_sharing_usage_limit_exceeded" -> ModelError.ChatGptLimitReached()
         "subscription_sharing_user_not_eligible" -> ModelError.ChatGptNotEligible(message.take(200))
-        // 服务端一时不可用:保留登录,过一会儿再试
+        // The server is temporarily unavailable: keep the login and try again later.
         "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable" -> ModelError.Server(503)
         "subscription_sharing_unsupported_capability" -> ModelError.BadResponse("服务端不支持请求里的 ${param ?: "某项内容"}")
         "subscription_sharing_route_not_supported" -> ModelError.BadResponse("服务端不支持这个接口")
@@ -197,7 +209,9 @@ class ResponsesModel(
 
     private fun httpError(status: Int, retryAfter: String?, body: String, err: ErrorBody?): ModelError =
         err?.let { errorOf(it.code, it.message, it.param) }
-            // 账号登录已经核对过身份:没有认得出的错误代码的 403 是档位不够,不当成 Key 不对或某个模型没开通
+            // The account has been logged in and the identity has been verified: 403 with no recognized
+            // error code means that the gear level is not enough and should not be considered as a wrong
+            // Key or a certain model is not activated.
             ?: (if (status == 403 && accountLogin != null) ModelError.AccountPlanNotAllowed(accountLogin, err?.message.orEmpty().take(200)) else null)
             ?: ModelAccessErrors.of(status, body, model) ?: when {
             status == 401 -> ModelError.Auth()
@@ -219,8 +233,9 @@ class ResponsesModel(
 private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 
 /**
- * 读 Responses 的事件流:`response.output_text.delta` 是逐段文字,`response.output_item.done` 是做完的一项
- * (消息、工具调用、思考),`response.completed` / `response.incomplete` 收尾,`response.failed` / `error` 是失败。
+ * Read the event stream of Responses: `response.output_text.delta` is a piece of text,
+ * `response.output_item.done` is a completed item (message, tool call, thinking), `response.completed` /
+ * `response.incomplete` is the end, `response.failed` / `error` is a failure.
  */
 private class ResponsesStream(
     private val onText: (String) -> Unit,
@@ -258,7 +273,7 @@ private class ResponsesStream(
         return errorOf(code, message, e?.str("param")) ?: ModelError.BadResponse(listOfNotNull(code, message.take(200)).joinToString(" "))
     }
 
-    /** 服务端没按流式回、直接给了整个 response 对象。 */
+    /** The server did not respond by streaming, but directly gave the entire response object. */
     fun fromBody(text: String): ModelReply {
         val root = try { json.parseToJsonElement(text) as? JsonObject } catch (e: Exception) { null }
             ?: throw ModelError.BadResponse("返回内容不是合法 JSON")
@@ -269,7 +284,7 @@ private class ResponsesStream(
     }
 
     fun finish(): ModelReply {
-        // 没等到 response.completed / response.incomplete 是连接中途被断开
+        // Before response.completed / response.incomplete, the connection was disconnected midway.
         val response = final ?: throw ModelError.StreamCut()
         val output = items.ifEmpty { (response["output"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty() }
         val reasoning = mutableListOf<JsonObject>()
@@ -281,7 +296,8 @@ private class ResponsesStream(
             when (item.str("type")) {
                 "reasoning" -> {
                     (item["summary"] as? JsonArray)?.forEach { s -> (s as? JsonObject)?.str("text")?.let(thinking::append) }
-                    // 回放用:去掉只在服务端有意义的编号和状态,留下加密的思考
+                    // For playback: remove numbers and statuses that are only meaningful on the server
+                    // side, leaving behind encryption considerations
                     if (item["encrypted_content"] != null) reasoning += JsonObject(item - "id" - "status")
                 }
                 "message" -> (item["content"] as? JsonArray)?.forEach { c ->

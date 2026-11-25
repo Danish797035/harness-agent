@@ -17,18 +17,18 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** 用户为「语音转文字」做的选择,以及它在设置里的存取。具体用哪个引擎由 [SpeechResolver] 结合手机能力再定。 */
+/** User choices for Speech to Text, and its access in settings. The specific engine to use is determined by [SpeechResolver] combined with the capabilities of the mobile phone. */
 sealed interface SpeechChoice {
-    /** 没选过:有手机自带识别就用它。 */
+    /** Not selected: If there is a mobile phone with built-in recognition, use it. */
     data object Auto : SpeechChoice
 
-    /** 明确选了手机自带识别。 */
+    /** Explicitly select the built-in identification of the mobile phone. */
     data object System : SpeechChoice
 
-    /** 不用语音输入。 */
+    /** No voice input is required. */
     data object Off : SpeechChoice
 
-    /** 用某个服务商的某个模型转写,[method] 决定请求怎么发。 */
+    /** Transcribed using a certain model of a certain service provider, [method] determines how to send the request. */
     data class Provider(val providerId: String, val model: String, val method: TranscribeMethod) : SpeechChoice
 
     /** Native streaming ASR, with credentials stored separately from this non-secret selection. */
@@ -36,19 +36,26 @@ sealed interface SpeechChoice {
 }
 
 /**
- * 服务商转写音频的接口形态。存的是名字,只能往后加、不能改名或删,旧设置才读得回来。
- * 带 ChatInputAudio 前缀的三种都是对话接口里的 input_audio,只是写法不同,选模型试转时依次都试:
- * [ChatInputAudio] 的 data 放裸 base64 并附一句转写指令;[ChatInputAudioUri] 的 data 换成
- * `data:audio/wav;base64,...` 的 data URI(有的服务只认这种);[ChatInputAudioOnly] 也用 data URI,
- * 但只发音频不带指令(专做转写的模型不收文字块)。
+ * The service provider transcribes the audio interface form. What is saved is the name, which can only
+ * be added later and cannot be renamed or deleted. Only the old settings can be read back. The three
+ * types with the ChatInputAudio prefix are all input_audio in the conversation interface, but the
+ * writing methods are different. When selecting a model to try to transfer, try them all in sequence:
+ * [ChatInputAudio]'s data is exposed to base64 and a transliteration instruction is attached;
+ * [ChatInputAudioUri]'s data is replaced with `data:audio/wav;base64,...`'s data URI (some services only
+ * recognize this); [ChatInputAudioOnly] also uses data URI. But it only sends audio without instructions
+ * (models that specialize in transcription do not accept text blocks).
  */
 enum class TranscribeMethod { AudioTranscriptions, ChatInputAudio, GeminiInline, ChatInputAudioUri, ChatInputAudioOnly }
 
 /**
- * 选择存在 [FeatureFlags] 那份设置里,一个键、一段 JSON;读不出来一律当 [SpeechChoice.Auto]。
- * 另记一个「手机自带识别不响应」([systemSilent]):按住说话时服务一直不回话,连着 [SILENT_STRIKES] 次才记上
- * (一次卡住多半是识别服务冷启动慢,不该从此关掉这条路);中间任何一次回了话就重新数。
- * 用户在设置里选「自动」或「手机自带」时记号和次数都清掉,好让换了识别服务、更新过系统的手机能再试。
+ * Select the setting where [FeatureFlags] exists, a key and a piece of JSON; if it cannot be read, it
+ * will be treated as [SpeechChoice.Auto]. Another note is "the mobile phone's built-in recognition does
+ * not respond" ([systemSilent]): the service never responds when you press and hold to speak, and it is
+ * recorded consecutively [SILENT_STRIKES] times (a stuck is probably due to the slow cold start of the
+ * recognition service, and this path should not be turned off from now on); if there is a reply any time
+ * in the middle, count again. When the user selects "Automatic" or "Included with the phone" in the
+ * settings, the marks and times are cleared so that phones that have changed the recognition service and
+ * updated the system can try again.
  */
 class SpeechSettings(private val prefs: SharedPreferences, private val cipher: KeyCipher = KeystoreKeyCipher("mina-speech-keys")) {
     private val _choice = MutableStateFlow(read())
@@ -89,7 +96,8 @@ class SpeechSettings(private val prefs: SharedPreferences, private val cipher: K
     val systemSilent: StateFlow<Boolean> = _systemSilent.asStateFlow()
 
     fun set(choice: SpeechChoice) {
-        // 这两种都会去用手机自带识别:用户主动选了,就再给它机会
+        // Both of these will use the phone's built-in recognition: if the user actively chooses it, then
+        // give it another chance.
         val retry = choice == SpeechChoice.System || choice == SpeechChoice.Auto
         val edit = prefs.edit().putString(KEY, encode(choice).toString())
         if (retry) edit.remove(SILENT).remove(STRIKES)
@@ -98,7 +106,7 @@ class SpeechSettings(private val prefs: SharedPreferences, private val cipher: K
         if (retry) _systemSilent.value = false
     }
 
-    /** 手机自带识别这次一个回调都没给:连着第 [SILENT_STRIKES] 次才记成不响应。 */
+    /** The built-in recognition of the mobile phone did not give a single callback this time: it was recorded as not responding until the [SILENT_STRIKES]th time in a row. */
     fun noteSystemSilent() {
         val strikes = prefs.getInt(STRIKES, 0) + 1
         val edit = prefs.edit().putInt(STRIKES, strikes)
@@ -108,12 +116,13 @@ class SpeechSettings(private val prefs: SharedPreferences, private val cipher: K
     }
 
     /**
-     * 点名试通过的识别服务(系统默认的不回话、它回了),下次先试它;null 是没有,或者系统默认的就回话。
-     * 见 [SystemSpeech.attempts]。
+     * If the identification service passes the roll call test (the system does not reply by default, it
+     * will reply), try it first next time; null means it does not exist, or the system will reply by
+     * default. See [SystemSpeech.attempts].
      */
     val systemService: String? get() = prefs.getString(SERVICE, null)
 
-    /** 手机自带识别这次回了话([service] 是回话的那个,null 是系统默认的):之前没响应的次数作废,记住回话的服务。 */
+    /** The mobile phone comes with a built-in recognition that the call was answered this time ([service] is the one who answered the call, null is the system default): the previous times of no response are invalid, and the service of the call is remembered. */
     fun noteSystemAnswered(service: String? = null) {
         val edit = prefs.edit()
         var changed = false
@@ -148,7 +157,7 @@ class SpeechSettings(private val prefs: SharedPreferences, private val cipher: K
         }
     }
 
-    /** 字段缺了、类型不认识、方法名不存在都返回 null,由调用处退回自动。 */
+    /** If the field is missing, the type is not recognized, or the method name does not exist, null will be returned, and it will be returned automatically by the calling site. */
     private fun decode(obj: JsonObject): SpeechChoice? = when (obj[TYPE]?.jsonPrimitive?.contentOrNull) {
         "auto" -> SpeechChoice.Auto
         "system" -> SpeechChoice.System
@@ -172,7 +181,7 @@ class SpeechSettings(private val prefs: SharedPreferences, private val cipher: K
         private const val STRIKES = "speech_system_silent_strikes"
         private const val SERVICE = "speech_system_service"
 
-        /** 连着这么多次不响应才记下。 */
+        /** I wrote it down after not responding so many times. */
         const val SILENT_STRIKES = 2
 
         fun get(context: Context) = SpeechSettings(

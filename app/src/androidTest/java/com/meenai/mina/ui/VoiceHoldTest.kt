@@ -34,13 +34,13 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 对话输入栏按住说话:长按输入框浮起「在听」卡片,松开后字接在输入框里;上滑取消时什么都不填。用假的语音来源,不用麦克风。 */
+/** Press and hold in the dialogue input field to speak: long press the input box to pop up the "Listening" card, release it and the words will be connected to the input box; slide up to cancel and fill in nothing. Use a fake voice source, no microphone. */
 @RunWith(AndroidJUnit4::class)
 class VoiceHoldTest {
 
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    /** 假会话:事件由测试喂;记下松开、取消的次数。 */
+    /** Fake session: Events are fed by the test; record the number of releases and cancellations. */
     private class FakeSession : SpeechSession {
         val out = Channel<SpeechEvent>(Channel.UNLIMITED)
         override val events: Flow<SpeechEvent> = out.receiveAsFlow()
@@ -86,7 +86,7 @@ class VoiceHoldTest {
         waitTag("voice-listen")
         val session = voice.sessions.single()
         session.out.trySend(SpeechEvent.Partial("订明天", "的票"))
-        // 按满半秒以上才不算误触
+        // Pressing for more than half a second is not considered an accidental touch.
         Thread.sleep(700)
         compose.onNodeWithTag("composer-field").performTouchInput { up() }
         compose.waitUntil(5_000) { session.released == 1 }
@@ -98,10 +98,11 @@ class VoiceHoldTest {
 
     @Test fun focusedFieldKeepsLongPressForTheSystem() {
         composer("帮我订票")
-        // 点一下:聚焦打字
+        // Click: Focus on typing
         compose.onNodeWithTag("composer-field").performClick()
         compose.onNodeWithTag("composer-field").assertIsFocused()
-        // 聚焦后长按是系统的选字、粘贴,不开始听
+        // After focusing, long pressing is the system's word selection and pasting, and does not start
+        // listening.
         compose.onNodeWithTag("composer-field").performTouchInput { down(center) }
         Thread.sleep(800)
         compose.waitForIdle()
@@ -129,7 +130,7 @@ class VoiceHoldTest {
         compose.onNodeWithTag("composer-field").assertTextEquals("帮我订明天的票")
     }
 
-    /** 已允许录音,识别服务仍报录音出错:弹说明(麦克风总开关、权限管理);别的麦克风起不来照旧只提示一句。 */
+    /** Recording has been allowed, but the recognition service still reports a recording error: pops up a description (microphone master switch, permission management); if other microphones cannot be turned on, it still only prompts one sentence. */
     @Test fun audioErrorExplainsWhereToCheckButClientErrorKeepsTheOldHint() {
         composer()
         fun failWith(why: SpeechFailure) {

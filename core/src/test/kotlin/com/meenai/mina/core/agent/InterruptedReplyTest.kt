@@ -30,8 +30,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 插话撤掉正在流式输出的请求时,用户已经看到的那段字记进历史,接在插话前面;
- * 回复刚好先说完、插话随后才到时,说完的那段挂到插话上方(界面不丢)。
+ * When the interrupt cancels the request that is being streamed, the words that the user has already
+ * seen are recorded in the history and are connected before the interrupt; when the reply happens to be
+ * finished first and the interrupt comes later, the finished paragraph is hung above the interrupt (the
+ * interface is not lost).
  */
 class InterruptedReplyTest {
     private fun spec() = RunSpec(RunId("r1"), "查今天的天气", "thread-1")
@@ -44,7 +46,7 @@ class InterruptedReplyTest {
         }
     }
 
-    /** 跑一次:第一次请求流出 [chunks] 后停住,插一句话,模型随后回答。返回第二次请求看到的消息。 */
+    /** Run once: After the first request flows out of [chunks], stop, insert a sentence, and the model will then answer. Returns the message seen on the second request. */
     private suspend fun kotlinx.coroutines.test.TestScope.steerDuring(
         chunks: List<String>, events: Events = Events(), streamReplies: Boolean = true,
     ): List<Message> {
@@ -124,7 +126,9 @@ class InterruptedReplyTest {
         fun detail(name: String) = states.filter { it.first == name }.map { it.second }
     }
 
-    // 回复刚好先说完、插话随后才到:回复照常记进历史,说完的那段(全文,不截短)发给界面挂到插话上方,不算被打断
+    // The reply happens to be finished first, and the interruption comes later: the reply is recorded in
+    // the history as usual, and the part that is finished (full text, not truncated) is sent to the
+    // interface and hung above the interruption, so it does not count as being interrupted.
     @Test fun aReplyThatFinishedJustBeforeTheSteerIsKeptOnScreen() = runTest {
         val full = "今天晴,最高 25 度,傍晚有风。"
         val inbox = RunInbox()
@@ -145,7 +149,8 @@ class InterruptedReplyTest {
             all.states.map { it.first }.filter { it == "reply_finished_before_steer" || it == "steer_received" })
     }
 
-    // 没显示过字(不流式显示)时没有什么要挂的,插话照常接上
+    // When no words are displayed (no streaming display), there is nothing to hang up. Interruptions are
+    // connected as usual.
     @Test fun nothingIsAttachedWhenTheFinishedReplyWasNotShown() = runTest {
         val inbox = RunInbox()
         val all = AllStates()

@@ -10,14 +10,16 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/** AndroidSandbox 的路径规则在 JVM 上跑:目录换成临时目录,不起进程。 */
+/** The path rules of AndroidSandbox are run on the JVM: the directory is changed to a temporary directory, and the process cannot be started. */
 class AndroidSandboxContractTest : SandboxPathContract() {
     private val tmp: File = Files.createTempDirectory("android-sandbox").toFile()
     private fun dirs() = SandboxDirs(File(tmp, "files/sandbox"), File(tmp, "cache/proot-tmp"), File(tmp, "lib"), JVM_GATE, SandboxTree())
     override fun sandbox(): SandboxPort = AndroidSandbox(dirs(), { SandboxStatus.Ready(false) }, { emptyList() })
     override fun outsideDir(): File = File(tmp, "outside").apply { mkdirs() }
 
-    // 读文件、搜文件、查上传路径不持有写树的许可:它们要是顺手建出工作区目录,重置删到一半时最后的 rmdir 就会 ENOTEMPTY
+    // Reading files, searching files, and checking upload paths do not have permission to write the
+    // tree: if they create the workspace directory smoothly, the last rmdir will be ENOTEMPTY when the
+    // reset is halfway through deletion.
     @Test fun lookingUpPathsNeverCreatesTheWorkspace() {
         val sb = AndroidSandbox(dirs(), { SandboxStatus.Ready(false) }, { emptyList() })
         assertNotNull(sb.hostRoot("fresh", "/workspace/a.txt", forWrite = false))

@@ -25,14 +25,19 @@ import java.lang.reflect.Proxy
 import kotlin.system.exitProcess
 
 /**
- * 内置助手进程的入口。Mina 经本机无线调试(adbd 的 exec: 服务)以 shell 身份启动它:
- * `CLASSPATH=<base.apk> app_process /system/bin --nice-name=<包名>:helper com.meenai.mina.shell.HelperMain <包名> <Mina 的 uid> <签名指纹>`,
- * 一次性口令从标准输入读一行(见 [HelperHandoff.command])。电脑经 USB 调试跑「用电脑启动」脚本时起的也是它,命令和参数相同
- * (见 [HelperHandoff.usbScript])。
+ * Entry point to the built-in helper process. Mina starts it as a shell through native wireless
+ * debugging (adbd's exec: service): `CLASSPATH=<base.apk> app_process /system/bin
+ * --nice-name=<package name>:helper com.meenai.mina.shell.HelperMain <package name> <Mina's uid> <signature fingerprint>`, and the one-time
+ * password reads one line from the standard input (see [HelperHandoff.command]). It is also the one that
+ * starts when the computer runs the "Start with Computer" script through USB debugging. The commands and
+ * parameters are the same (see [HelperHandoff.usbScript]).
  *
- * 特权逻辑全在 [ShellService];这里只负责把它的 Binder 交给 Mina,并且在 Mina 进程结束后不退出:
- * 撤掉 Mina 留下的改动,等 Mina 再起来时重新交接。Mina 死后一会儿还没回来、而它交来的心愿([RestoreWish])要拉起来时,
- * 把它的无障碍服务写回系统列表,再经交接用的 provider 把它的进程拉起来(见 [HelperRestorePolicy])。
+ * The privilege logic is all in [ShellService]; here it is only responsible for handing over its Binder
+ * to Mina, and not exiting after the Mina process ends: undoing the changes left by Mina, and handing
+ * over again when Mina gets up again. Mina dies but does not come back for a while, and when the wish it
+ * handed over ([RestoreWish]) is about to be started, its accessibility service is written back to the
+ * system list, and then its process is started through the handover provider (see
+ * [HelperRestorePolicy]).
  */
 object HelperProcess {
     private const val TAG = "MinaHelper"
@@ -46,17 +51,18 @@ object HelperProcess {
         val packageName = args[0]
         val appUid = args[1].toIntOrNull() ?: exitProcess(2)
         val certPin = args[2]
-        // 读完就关:标准输入只用来递口令
+        // Close after reading: standard input is only used to pass passwords
         val launchNonce = runCatching { System.`in`.bufferedReader().readLine()?.trim() }.getOrNull()
         runCatching { System.`in`.close() }
         if (launchNonce.isNullOrEmpty()) {
             Log.e(TAG, "no nonce on stdin")
             exitProcess(2)
         }
-        // ShellContext 自建 ActivityThread 时要有主线程 Looper
+        // When ShellContext builds its own ActivityThread, it must have a main thread Looper.
         Looper.prepareMainLooper()
         val service = ShellService(allowedUid = appUid)
-        // 上次在静音中被杀、没来得及恢复的 App,先把声音还回去
+        // For apps that were killed in mute last time and could not be restored in time, please return
+        // the sound first.
         service.recoverMuted()
         val helper = Helper(service, packageName, appUid, certPin)
         helper.start(launchNonce)
@@ -72,17 +78,17 @@ object HelperProcess {
         private val context: Context = ShellContext.create()
         private val authority = HelperHandoff.authority(packageName)
         private val userId = appUid / PER_USER_RANGE
-        /** 交接、Mina 死亡处理都排在这一条线程上,彼此不交错,也不堵主线程。 */
+        /** The handover and Mina death processing are all arranged on this thread, without interleaving with each other or blocking the main thread. */
         private val worker = Handler(HandlerThread("helper-handoff").apply { start() }.looper)
-        /** 下次交接用的口令(Mina 上次收下时换发的)。 */
+        /** The password for the next handover (reissued when Mina accepted it last time). */
         private var nonce: String? = null
-        /** Mina 进程交给我们的令牌;为 null 表示 Mina 现在不在。 */
+        /** The token handed to us by the Mina process; null means Mina is not around now. */
         private var appToken: IBinder? = null
         private var retrying = false
-        /** Mina 最后交来的心愿;助手刚起来时什么都不做。 */
+        /** The last wish Mina handed over; the assistant did nothing when he first got up. */
         private var wish = RestoreWish.NONE
         private val restorePolicy = HelperRestorePolicy()
-        /** 每次 Mina 死去加一:等的这一会儿里 Mina 回来又死了,前一次的等待作废。 */
+        /** Every time Mina dies, one will be added: during this period of waiting, Mina comes back and dies again, and the previous wait is invalid. */
         private var deaths = 0
 
         init {
@@ -98,7 +104,8 @@ object HelperProcess {
         fun start(launchNonce: String) = worker.post {
             when (deliver(launchNonce)) {
                 Outcome.Accepted -> {
-                    // Mina 收下了这一个:之前起的(或残留的)助手实例都该走了
+                    // Mina accepted this one: all previously created (or remaining) helper instances
+                    // should go.
                     killOtherInstances()
                     watchUid()
                 }
@@ -109,11 +116,12 @@ object HelperProcess {
 
         private enum class Outcome { Accepted, Rejected, Failed }
 
-        /** 经 ActivityManager 拿 Mina 的 provider(同 `content call` 的做法),把 Binder 和自报的 uid/pid 交过去。 */
+        /** Get Mina's provider through ActivityManager (same as `content call`), and hand over the Binder and self-reported uid/pid. */
         @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
         private fun deliver(n: String?): Outcome {
             if (n == null) return Outcome.Rejected
-            // 包名和 uid 可能被重装的别的 App 占用:签名对不上就不交 Binder,撤掉改动退出
+            // The package name and uid may be occupied by other apps that have been reinstalled: If the
+            // signature does not match, do not submit it to Binder, undo the changes and exit.
             if (!signedAsPinned()) {
                 Log.e(TAG, "$packageName is missing or not signed with the pinned certificate; exiting")
                 runCatching { service.releaseAll() }
@@ -131,7 +139,8 @@ object HelperProcess {
                 return Outcome.Failed
             } ?: return Outcome.Failed
             try {
-                // 同名 authority 只可能属于一个包;还是核对一下,不把 Binder 交给 Mina 以外的 App
+                // The authority with the same name can only belong to one package; it is better to check
+                // and do not hand over the Binder to apps other than Mina.
                 val info = holder.javaClass.getField("info").get(holder) as? ProviderInfo
                 if (info == null || info.packageName != packageName || info.applicationInfo?.uid != appUid) {
                     Log.e(TAG, "provider $authority does not belong to $packageName/$appUid")
@@ -181,7 +190,7 @@ object HelperProcess {
             }
         }
 
-        /** Mina 进程没了:它建的屏、静音、剪贴板改动跟着撤掉(和服务结束时一样),助手本身留着。 */
+        /** The Mina process is gone: the screen, mute, and clipboard changes it created are removed (the same as when the service ended), and the assistant itself remains. */
         private fun onAppDied(token: IBinder) {
             if (appToken !== token) return
             appToken = null
@@ -196,9 +205,13 @@ object HelperProcess {
         }
 
         /**
-         * Mina 死了一会儿还没回来:按它最后交来的心愿决定拉不拉。拉的话先写回无障碍服务(被强行停止时系统会把它拿掉),
-         * 再重新交接:拿 Mina 的 provider 时系统会把它的进程起来(provider 不受后台启动限制,也不显示界面),
-         * Application 照常创建,胶囊和别的服务跟着起来。shell 能拿任意 App 的 provider(`content` 命令用的同一条路)。
+         * Mina has been dead for a while and hasn't come back yet: she decides whether to poop or not
+         * according to her last wish. If you pull it, first write it back to the accessibility service
+         * (the system will remove it when it is forcibly stopped), and then transfer it again: when you
+         * get Mina's provider, the system will start its process (the provider is not subject to
+         * background startup restrictions, and does not display the interface), the Application is
+         * created as usual, and the capsule and other services follow. The shell can get the provider of
+         * any App (the same path used by the `content` command).
          */
         private fun maybeRestore() {
             val now = System.currentTimeMillis()
@@ -216,7 +229,7 @@ object HelperProcess {
             redeliver(0)
         }
 
-        /** 把 Mina 的无障碍服务追加回系统列表、打开总开关;别的服务不动。失败只记日志,照样去拉 Mina(它起来后自己还会修)。 */
+        /** Add Mina's accessibility service back to the system list and turn on the main switch; leave other services untouched. If it fails, just keep a log and pull Mina as usual (it will repair itself after it gets up). */
         private fun restoreAccessibility() {
             val me = PermissionCommands.accessibilityService(packageName)
             val current = service.runCommand(PermissionCommands.READ_ACCESSIBILITY).getString("output")
@@ -236,20 +249,25 @@ object HelperProcess {
                 .invoke(context.packageManager, packageName, 0, userId)
             true
         }.getOrElse { t ->
-            // 包不在了才退出;反射不可用时看不清,当作还在
+            // Exit only when the package is no longer available; when reflection is unavailable and
+            // cannot be seen clearly, it is treated as if it is still there.
             val cause = (t as? java.lang.reflect.InvocationTargetException)?.targetException ?: t
             cause !is android.content.pm.PackageManager.NameNotFoundException
         }
 
         /**
-         * 盯着 Mina 的 uid:进程重新起来时(从不存在变成任一状态)系统会报一次,这时把 Binder 再交过去。
-         * 用的是 ActivityManager 的 uid 重要性监听(要 PACKAGE_USAGE_STATS,shell 有),回调在 binder 线程。
-         * 注册不上时由 Mina 那边兜底:等不到交接就经 adbd 另起一个助手,新的收下后会结束这个。
+         * Stare at Mina's uid: when the process restarts (from non-existence to any state), the system
+         * will report it once, and then hand over the Binder again. The uid importance monitor of
+         * ActivityManager is used (PACKAGE_USAGE_STATS is required, the shell has it), and the callback
+         * is in the binder thread. When the registration fails, Mina will take care of it: before the
+         * handover, a new assistant will be created through adbd, and this will be terminated after the
+         * new one is accepted.
          */
         @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
         private fun watchUid() {
             runCatching {
-                // 用 shell 包名的上下文建 ActivityManager:注册时系统按调用方包名核对权限
+                // Create an ActivityManager using the context of the shell package name: when
+                // registering, the system checks permissions based on the caller's package name.
                 val manager = ActivityManager::class.java.getDeclaredConstructor(Context::class.java, Handler::class.java)
                     .apply { isAccessible = true }.newInstance(context, worker)
                 val listenerClass = Class.forName("android.app.ActivityManager\$OnUidImportanceListener")
@@ -272,12 +290,13 @@ object HelperProcess {
             worker.post { if (appToken == null && !retrying) redeliver(0) }
         }
 
-        /** 重新交接;provider 暂时不可用时隔一会儿再试几次,还不行就等下一次 Mina 起来。 */
+        /** Re-handover; if the provider is temporarily unavailable, try again after a while. If it still doesn't work, wait until Mina comes up next time. */
         private fun redeliver(attempt: Int) {
             if (appToken != null) return
             when (deliver(nonce)) {
                 Outcome.Accepted -> retrying = false
-                // Mina 不认这个助手了(重装过、解除了配对、或者已经换了新的):退出
+                // Mina does not recognize this assistant (has been reinstalled, unpaired, or has been
+                // replaced with a new one): Exit
                 Outcome.Rejected -> exitProcess(0)
                 Outcome.Failed -> {
                     retrying = attempt + 1 < RETRY_DELAYS_MS.size
@@ -286,7 +305,7 @@ object HelperProcess {
             }
         }
 
-        /** 现在装着的 [packageName] 仍是这个 uid、签名证书指纹与启动时 Mina 给的一致。看不清一律当不一致。 */
+        /** The [packageName] installed now still has the same uid and signature certificate fingerprint as those given by Mina at startup. If you can't see clearly, it will be regarded as inconsistent. */
         @SuppressLint("DiscouragedPrivateApi")
         private fun signedAsPinned(): Boolean = runCatching {
             val pm = context.packageManager
@@ -301,7 +320,7 @@ object HelperProcess {
             false
         }
 
-        /** 只认进程名完全相同的同 uid 进程:别的 app_process 不能误伤。 */
+        /** Only recognize processes with exactly the same process name and the same uid: other app_processes cannot be accidentally damaged. */
         private fun killOtherInstances() {
             val me = Process.myPid()
             val name = HelperHandoff.processName(packageName)

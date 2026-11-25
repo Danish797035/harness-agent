@@ -1,24 +1,31 @@
 package com.meenai.mina.core.cap.web
 
 /**
- * 交给页面的 CSS 选择器不许按 value 属性选元素:`input[value^="h"]` 一位一位试,猜得出密码框、隐藏字段的值。
- * 只看字面会漏,所以先照 CSS 读选择器的规矩还原成浏览器看到的样子再找:去掉注释,解开转义(`v\61 lue` 就是 value),
- * 引号里的整段拿掉(属性名不写在引号里,引号里的注释记号、`[value` 也不算数);属性名前可以带命名空间(`*|value`、`|value`)。
- * 还原时宁可多认:转义出来的方括号(类名 `.\5b value`)也算作按 value 选。
- * 带 `url(` 的一律算作按 value 选:url( 后面不带引号时到 `)` 为止是一个记号,里面的注释记号、引号既不开始注释也不开始字符串,
- * 上面的还原对不上;`:is()` 只丢掉写错的那一项,后面的 `[value` 照样生效。选择器里本来也用不到它。
- * web_script 的 mina.query 在 Kotlin 里查([selectsByValue]);只读脚本的查找方法在页面里调,用同一套规矩的 JS 版([JS])。
+ * The CSS selector handed to the page cannot select elements based on the value attribute:
+ * `input[value^="h"]` Try one by one to guess the value of the password box and hidden field. If you
+ * only look at the literal words, you will miss it, so first restore it to the way it is seen by the
+ * browser according to the rules of the CSS read selector: remove comments, escape escapes (`v\61 lue`
+ * is value), and remove the entire paragraph in quotation marks (the attribute name is not written in
+ * quotation marks, and the comment mark and `[value` in quotation marks do not count); the attribute
+ * name can be preceded by a namespace (`*|value`, `|value`). It is better to recognize more when
+ * restoring: the escaped square brackets (class name `.\5b value`) are also counted as selecting by
+ * value. Anything with `url(` will be counted as selecting by value: url( without quotation marks after
+ * it is a mark up to `)`. The comment marks and quotes inside neither start the comment nor start the
+ * string. The above restoration does not match; `:is()` only discards the wrong item, and the following
+ * `[value` still takes effect. It is not used in the selector. Web_script mina.query is searched in
+ * Kotlin ([selectsByValue]); the search method of the read-only script is called in the page, using the
+ * JS version of the same set of rules ([JS]).
  */
 object SelectorPolicy {
     fun selectsByValue(selector: String): Boolean = plain(selector).let { URL_FUNCTION.containsMatchIn(it) || BY_VALUE.containsMatchIn(it) }
 
-    /** `[`、可有可无的命名空间、value,后面不再接名字里的字。只认 CSS 的空白(空格、制表、换行),和 JS 版一致。 */
+    /** `[`, optional namespace, value, no more words in the name will follow. Only CSS whitespace (spaces, tabs, line breaks) is recognized, which is the same as the JS version. */
     private val BY_VALUE = Regex("""\[[ \t\n]*(?:[^ \t\n\[\]|]*[ \t\n]*\|[ \t\n]*)?value(?![\w\x{80}-\x{10FFFF}-])""", RegexOption.IGNORE_CASE)
 
-    /** 还原后出现 `url(`(名字可以是转义拼出来的):CSS 在这里开始一个 url 记号。 */
+    /** After restoration, `url(` appears (the name can be spelled out with escape): CSS starts a url mark here. */
     private val URL_FUNCTION = Regex("""url\(""", RegexOption.IGNORE_CASE)
 
-    /** 按 CSS 的读法还原:换行先统一成 \n;注释换成一个空格;引号里的整段换成 `""`;转义换成它代表的字。 */
+    /** Restore according to CSS pronunciation: first unify line breaks into \n; change comments into a space; change the entire paragraph in quotation marks into `""`; convert into the word it represents. */
     internal fun plain(selector: String): String {
         val s = selector.replace("\r\n", "\n").replace('\r', '\n').replace('\u000C', '\n')
         val out = StringBuilder()
@@ -33,7 +40,9 @@ object SelectorPolicy {
                 }
                 c == '"' || c == '\'' -> {
                     i++
-                    // 引号里:反斜杠加换行是续行,别的转义照常吃掉;没转义的换行让这段字到此为止(浏览器也这样)
+                    // In quotation marks: a backslash plus a newline is a line continuation, and other
+                    // escapes are eaten as usual; an unescaped newline ends the paragraph (this is also
+                    // the case with browsers)
                     while (i < s.length && s[i] != c && s[i] != '\n') {
                         i = when {
                             s[i] != '\\' -> i + 1
@@ -55,7 +64,7 @@ object SelectorPolicy {
         return out.toString()
     }
 
-    /** [i] 处是反斜杠:返回转义出的字和下一个位置。1–6 位十六进制(紧跟的一个空白算在转义里),否则就是下一个字本身。 */
+    /** [i] is a backslash: return the escaped word and the next position. 1–6 hexadecimal digits (the following space counts as an escape), otherwise the next word itself. */
     private fun escape(s: String, i: Int): Pair<String, Int> {
         if (i + 1 >= s.length) return "\uFFFD" to s.length
         var j = i + 1
@@ -71,7 +80,7 @@ object SelectorPolicy {
 
     private fun Char.isHex() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
-    /** JS 版:在页面里定义 `selectsByValue(选择器字符串)`,和上面一行一行对应。 */
+    /** JS version: Define `selectsByValue(selector string)` in the page, corresponding to the above line by line. */
     val JS: String = """
   const selectsByValue = (() => {
     const HEX = /^[0-9a-fA-F]${'$'}/;

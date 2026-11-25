@@ -12,7 +12,7 @@ import java.nio.file.Files
 
 class SiteCommandsTest {
     companion object {
-        /** 测试用的一条站点命令(只在测试里有)。 */
+        /** A site command for testing (only available in testing). */
         const val FIXTURE = """/* mina-command
 name: list_items
 description: 列出结果页上的条目
@@ -94,7 +94,8 @@ return rows.filter(r => r.title.includes(args.query)).slice(0, args.limit || 20)
         val script = "knowledge/sites/example.test/scripts/list_items.js" to FIXTURE
         val files = arrayOf(parent, child, script)
         val catalog = testCatalog(*files)
-        // 子站点有自己的知识:命令按它认,父站点的命令不借用
+        // The subsite has its own knowledge: commands are recognized by it, and the commands of the
+        // parent site are not borrowed.
         assertEquals(emptyList<SiteCommand>(), catalog.siteCommands("shop.example.test"))
         assertEquals(listOf("list_items"), catalog.siteCommands("www.example.test").map { it.decl.name })
         val store = KnowledgeStore(KnowledgeStore.loadBundled(fixtureLoader(mapOf(*files))))
@@ -110,7 +111,7 @@ return rows.filter(r => r.title.includes(args.query)).slice(0, args.limit || 20)
             "knowledge/sites/shop.test/scripts/manifest.json" to """[{"file":"scripts/list_items.js","runnable":true}]""")
         assertError("只能写在站点知识里", skillMd("buy"), "skills/buy/scripts/list_items.js" to FIXTURE)
         assertError("scripts/list_items.js: 缺少 description", siteMd("shop.test"), "knowledge/sites/shop.test/scripts/list_items.js" to FIXTURE.replace("description: 列出结果页上的条目\n", ""))
-        // 沙箱脚本照旧:列在清单里的 .js 不当站点命令
+        // Sandbox scripts as usual:.js listed in the list of inappropriate site commands
         assertEquals(emptyList<String>(), errors(siteMd("shop.test"), "knowledge/sites/shop.test/scripts/tool.js" to "console.log(1)",
             "knowledge/sites/shop.test/scripts/manifest.json" to """[{"file":"scripts/tool.js","runnable":true}]"""))
     }

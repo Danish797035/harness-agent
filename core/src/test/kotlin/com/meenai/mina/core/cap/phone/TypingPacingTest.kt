@@ -9,14 +9,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
 
-/** 打字的节奏:前缀越来越长、最后是全文;字不拆开;中日韩文字一个词一个词上屏;长文分段且有总时长上限;分段写入不成就退回整段写入。 */
+/** The rhythm of typing: the prefixes are getting longer and longer, and finally the full text; words are not split; Chinese, Japanese and Korean characters are displayed on the screen one word at a time; long articles are segmented and there is an upper limit on the total length; if the segmented writing fails, the whole paragraph will be returned to writing. */
 class TypingPacingTest {
     private val limits = TypingPacing.Limits()
 
     private fun checkShape(text: String, steps: List<TypingPacing.Step>) {
         assertEquals(text.length, steps.last().end)
         steps.zipWithNext().forEach { (a, b) -> assertTrue("$a $b", a.end < b.end) }
-        // 段的边界不落在一个字的中间
+        // The segment boundary does not fall in the middle of a word
         val units = TypingPacing.units(text).toSet() + text.length
         steps.forEach { assertTrue("${it.end} in $text", it.end in units) }
         steps.forEach { assertTrue(it.delayMs >= 0) }
@@ -43,7 +43,8 @@ class TypingPacingTest {
             val text = "今天天气很好，我们去公园散步吧"
             val steps = TypingPacing.human(Random(seed)).plan(text)
             checkShape(text, steps)
-            // 汉字一段 1–3 个,标点自成一段
+            // One paragraph of Chinese characters consists of 1-3 characters, with punctuation forming a
+            // paragraph of its own
             var start = 0
             for (s in steps) {
                 val chunk = text.substring(start, s.end)
@@ -58,7 +59,8 @@ class TypingPacingTest {
     }
 
     @Test fun charactersAreNeverSplit() {
-        // a、笑脸(代理对)、b、点赞加肤色、c、一家人(零宽连接)、e 加附加的重音、中
+        // a. Smiling face (agent pair), b. Like plus skin color, c. Family (zero-width connection), e
+        // plus additional accent, medium
         val text = "a😀b👍🏽c👨‍👩‍👧é中"
         assertEquals(listOf(0, 1, 3, 4, 8, 9, 17, 19), TypingPacing.units(text))
         repeat(20) { seed -> checkShape(text, TypingPacing.human(Random(seed)).plan(text)) }
@@ -72,11 +74,11 @@ class TypingPacingTest {
                 val steps = TypingPacing.human(Random(7), l).plan(text)
                 checkShape(text, steps)
                 assertTrue("${steps.size}", steps.size <= l.maxSteps)
-                // 按比例缩短时取整,至多每段差 1 毫秒
+                // When scaling down, round to the nearest 1 millisecond.
                 assertTrue("${steps.sumOf { it.delayMs }}", steps.sumOf { it.delayMs } <= l.maxTotalMs + steps.size)
             }
         }
-        // 短的不缩
+        // Short enough not to shrink
         val short = TypingPacing.human(Random(3)).plan("ok")
         assertTrue(short.sumOf { it.delayMs } >= 2 * limits.latinMs.first)
     }
@@ -88,7 +90,7 @@ class TypingPacingTest {
         assertTrue("$normal < $careful", normal < careful)
     }
 
-    /** 记下写入的输入框;[accepts] 为假时像不接受半截字的框(读回总是空的)。 */
+    /** Note the input box that is written; when [accepts] is false, it will be like a box that does not accept half-words (it will always be empty when read back). */
     private class Field(private val accepts: Boolean = true, private val writable: Boolean = true) : TextField {
         val writes = mutableListOf<String>()
         private var text = ""
@@ -103,7 +105,7 @@ class TypingPacingTest {
 
     @Test fun leadInWritesGrowingPrefixesAndLeavesTheWholeTextToTheCaller() = runTest {
         val text = "你好，world"
-        // 同一个种子排出的段和写入时的一样
+        // The segments emitted from the same seed are the same as when written.
         val plan = TypingPacing.human(Random(1)).plan(text)
         val pacing = TypingPacing.human(Random(1))
         val field = Field()
@@ -119,7 +121,7 @@ class TypingPacingTest {
         assertEquals(listOf("h"), rejecting.writes)
         val locked = Field(writable = false)
         assertFalse(TypingPacing.human(Random(1)).leadIn(locked, "hello") {})
-        // 不分段时什么也不写,调用方照旧整段写入
+        // When not segmented, nothing is written. The caller writes the entire segment as usual.
         val instant = Field()
         assertFalse(TypingPacing.Instant.leadIn(instant, "hello") { error("no wait") })
         assertTrue(instant.writes.isEmpty())

@@ -23,8 +23,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * 把一个滚轮选择器(时间、日期、地区……)转到一个值:一次调用在端口里转到位(能输入就输入,能无障碍滚就滚,
- * 不行就按一格多高拖),不用模型一格一格看。转不到时照实报此刻显示的值。
+ * Turn a scroll wheel selector (time, date, region...) to a value: one call to turn the position in the
+ * port (enter if you can, scroll if you can scroll without obstacles, press and drag one grid higher if
+ * it doesn't work), there is no need to look at each grid of the model. If it cannot be transferred, the
+ * value displayed at this moment will be reported accordingly.
  */
 internal object SetWheel : PhoneTool {
     override val verb = Verb.SetWheel

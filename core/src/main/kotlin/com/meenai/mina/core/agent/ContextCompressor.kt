@@ -15,7 +15,7 @@ import kotlinx.serialization.json.contentOrNull
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.tool.Verb
 
-/** [estimate]:[messages] 的 token 粗估(未校准),发出后和真实用量比对用。[rewritten]:这次是否改写了请求前缀。 */
+/** [estimate]: A rough estimate (uncalibrated) of the token [messages], which will be used for comparison with the actual usage after it is issued. [rewritten]: Whether the request prefix was rewritten this time. */
 data class Compressed(
     val messages: List<Message>,
     val foldedSteps: Int,
@@ -24,59 +24,70 @@ data class Compressed(
 )
 
 /**
- * 请求按缓存分区:区 0 系统提示词与工具(任务内不变)→ 区 1 开局上下文(只写一次)→ 区 2 历史(只追加)→ 区 3 尾部
- * (这一步的结果、画面、运行时状态)。服务商按前缀缓存,所以发过的消息平常一律原样再发。
+ * The request is partitioned by cache: Area 0 system prompts and tools (unchanged within the task) →
+ * Area 1 deployment context (only written once) → Area 2 history (only appended) → Area 3 tail (results,
+ * screens, runtime status of this step). The service provider caches by prefix, so messages that have
+ * been sent are usually sent again as they are.
  *
- * 只在整份请求的大小([UsageMeter]:最近一次真实用量 + 之后的估算)越过触发点([ContextLimits.trigger])时压缩一次:
- * 先把最近 [keepRecent] 次工具往返之前的旧结果、旧图缩短
- * ([HistoryPruner.prune]),还超就把这些往返折成一条确定性的「之前的步骤」摘要(不调模型);任务原话、插话、参考资料、
- * 交回与追问的往返不折。压缩要压到 [ContextLimits.target] 以下(压不到就用能压到的最小一级),
- * 之后的请求 = 这次压缩的结果 + 其后追加的消息,只追加,直到再次越过触发点(压完至少再长一个 [ContextLimits.margin])。
- * 往返整段删除,调用与结果的配对始终完整。
- * 只返回副本,调用方的完整历史不变。一个任务一个实例;状态按上下文大小分开记。
+ * Only compress once when the size of the entire request ([UsageMeter]: the most recent real usage +
+ * subsequent estimates) crosses the trigger point ([ContextLimits.trigger]): First, shorten the old
+ * results and old images before the most recent [keepRecent] tool round-trips ([HistoryPruner.prune]),
+ * and then fold these round-trips into a deterministic "previous step" summary (without adjusting the
+ * model); the original words of the task, interruptions, reference materials, handovers and questioning
+ * round-trips are not discounted. The compression should be below [ContextLimits.target] (if it cannot
+ * be compressed, use the smallest level that can be compressed). Subsequent requests = the result of
+ * this compression + subsequent additional messages, which are only appended until the trigger point is
+ * exceeded again (at least one more [ContextLimits.margin] will be added after compression). Round trip
+ * deletion of entire segments, the pairing of calls and results is always complete. Only a copy is
+ * returned, leaving the caller's complete history unchanged. One instance per task; status is recorded
+ * separately according to context size.
  *
- * [structured]:摘要写成「目标 / 已确认的事实 / 进展 / 下一步」([StepSummary])。
- * [diffScreens]:动作结果带差异屏幕(inlineScreen)。
+ * [structured]: The summary is written as "goal/confirmed facts/progress/next step" ([StepSummary]).
+ * [diffScreens]: Action result with difference screen (inlineScreen).
  */
 class ContextCompressor(
-    /** 按调用的工具名查它做的动作。 */
+    /** Check the action performed by the called tool name. */
     private val tools: ToolIndex,
     private val keepRecent: Int = 12,
     private val structured: Boolean = false,
     private val diffScreens: Boolean = false,
     private val triggerOverride: Int? = null,
 ) {
-    /** 「真实 / 粗估」比值:每次用量回来就平滑更新([TokenEstimate.calibrated]);只决定什么时候压缩、压到哪一级,不改发过的内容。 */
+    /** "Real / rough estimate" ratio: Smoothly updated every time the usage comes back ([TokenEstimate.calibrated]); it only determines when to compress and to which level, and does not change the content that has been posted. */
     private var observed: Double? = null
-    /** 估算乘的比值:校准过用校准值,还没有真实用量时用偏保守的 [UNCALIBRATED_SCALE]。消息和固定开销都乘它。 */
+    /** Estimated multiplication ratio: Use the calibration value after calibration, and use the conservative [UNCALIBRATED_SCALE] when the actual dosage is not available. Both message and fixed overhead are multiplied by it. */
     internal val scale: Double get() = observed ?: UNCALIBRATED_SCALE
 
-    /** 上一次压缩:它覆盖的完整历史开头 [covered],压成的 [base](粗估 [estimate]);[aggressive]:按模型报超长那一档压的。 */
+    /** The last compression: it covers the complete history starting from [covered], compressed into [base] (rough estimate [estimate]); [aggressive]: compressed according to the model to report the extra long file. */
     private class View(val covered: List<Message>, val base: List<Message>, val folded: Int, val aggressive: Boolean) {
         val estimate = TokenEstimate.of(base)
     }
     private val views = HashMap<Int, View>()
 
-    /** 一次请求发出后:[estimated] 是这次请求的粗估(含固定开销),[actual] 是服务商报的输入 token。 */
+    /** After a request is issued: [estimated] is the rough estimate of the request (including fixed overhead), and [actual] is the input token reported by the service provider. */
     fun calibrate(estimated: Int, actual: Int) {
         observed = TokenEstimate.calibrated(observed, estimated, actual)
     }
 
-    /** 新任务:压缩状态清空(校准比值留着,同一个模型)。 */
+    /** New task: Clear the compression state (keep the calibration ratio, the same model). */
     fun forget() = views.clear()
 
     private fun tokens(ms: List<Message>) = TokenEstimate.of(ms) * scale
 
-    /** 上一次压缩之后实际会发出的消息(没有压缩过就是完整历史);调用方据此算当前上下文大小。 */
+    /** The message that will actually be sent after the last compression (complete history without compression); the caller calculates the current context size based on this. */
     fun current(history: List<Message>, contextTokens: Int): List<Message> =
         sent(valid(views[contextTokens], history), history)
 
     /**
-     * [currentTokens]:整份请求的大小(含固定开销,见 [UsageMeter]);null 时按 [current] 加 [fixedOverhead] 全量估算。越过触发点才压缩。
-     * [aggressive]:模型已报上下文超长,不看估算,按只留最近 [AGGRESSIVE_KEEP] 次往返压一次(之后照样只追加)。
-     * [fixedOverhead]:每次都要发、但不在 [history] 里的部分(基础提示词、工具定义)的估算(未乘比值);
-     * 只在估算整份请求、以及算消息能占多少时用,触发点本身不扣它。
-     * [maxImages]:服务商一次请求最多收几张图(发过的图平常不换成占位,超过它才从最早的换)。
+     * [currentTokens]: size of the whole request (including fixed overhead, see [UsageMeter]); when
+     * null, estimate it as [current] plus [fixedOverhead]. Compression happens only after the trigger
+     * point is crossed. [aggressive]: the model already reported an over-long context, so ignore the
+     * estimate and keep only the latest [AGGRESSIVE_KEEP] exchanges (after that, still append-only).
+     * [fixedOverhead]: estimate for the parts sent on every request but not in [history] (base prompt,
+     * tool definitions), before scaling; used only when estimating the whole request and how much room
+     * messages have, and not subtracted from the trigger point itself. [maxImages]: maximum number of
+     * images the provider accepts per request (sent images are not normally replaced by placeholders;
+     * beyond this limit the oldest are replaced).
      */
     fun compress(
         history: List<Message>,
@@ -91,7 +102,10 @@ class ContextCompressor(
         val view = valid(last, history)
         val sent = sent(view, history)
         val size = currentTokens ?: UsageMeter.of(sent, fixedOverhead, scale)
-        // 回差:压缩之后至少再长一个 margin 才再压,压不到触发点以下的历史也不会每步都压;但不越过可用窗口,越过了每步都得压
+        // Hysteresis: After compression, at least one margin will grow before compressing again. If the
+        // history cannot be compressed below the trigger point, it will not be compressed every step;
+        // but it does not exceed the available window. If it exceeds the available window, it will be
+        // compressed every step.
         val trigger = view?.let {
             maxOf(limits.trigger, UsageMeter.estimate(it.estimate + fixedOverhead, scale) + limits.margin).coerceAtMost(limits.usable)
         } ?: limits.trigger
@@ -103,8 +117,10 @@ class ContextCompressor(
     }
 
     /**
-     * 模型报了上下文超长:从完整历史重新按狠的一档压一次(上次狠压之后历史又长了也重压)。
-     * 压出来的比刚发出的小才换上并返回 true(调用方据此重发一次);一样大说明压不动了,返回 false。
+     * The model reports that the context is too long: press the first level again from the complete
+     * history (the history is longer and the pressure is heavier after the last hard press). If the
+     * pressed one is smaller than the one just sent, replace it and return true (the caller resends it
+     * accordingly); if it is the same size, it means that it cannot be pressed, so it returns false.
      */
     fun overflow(history: List<Message>, contextTokens: Int, fixedOverhead: Int = 0): Boolean {
         val current = sent(valid(views[contextTokens], history), history)
@@ -114,19 +130,24 @@ class ContextCompressor(
         return true
     }
 
-    /** 压缩覆盖的那段历史没被改过才接着用;否则(不会发生在正常流程里)重新压。 */
+    /** The history covered by the compression must not be changed before using it; otherwise (it will not happen in the normal process) re-compress. */
     private fun valid(v: View?, history: List<Message>) = v?.takeIf { it.covered.size <= history.size && history.subList(0, it.covered.size) == it.covered }
 
-    /** 总是副本:调用方的历史随后还会追加。 */
+    /** Always a copy: the caller's history is appended later. */
     private fun sent(view: View?, history: List<Message>) =
         if (view == null) history.toList() else view.base + history.subList(view.covered.size, history.size)
 
     /**
-     * 一次压缩,从轻到重,取第一个让整份请求压到 [ContextLimits.target] 以下的(都压不到取最重的):
-     * 只缩短最近 [keepRecent] 次往返之前的旧结果 → 再把它们折进摘要 → 只留最近一次往返原样、其余缩短后再折,
-     * 原样留的往返依次为 [keepRecent]、[AGGRESSIVE_KEEP]、1 次。模型报过超长时从 [AGGRESSIVE_KEEP] 起。
-     * 最重的一级整份请求仍超过 [ContextLimits.usable](最近的结果本身太大)时,从最新的开始缩短大结果,直到放得下。
-     * 比较的是消息的估算:目标和可用窗口先扣掉固定开销(同一个比值),固定开销只算这一次。
+     * One compression, from light to heavy, takes the first one that reduces the entire request to
+     * [ContextLimits.target] (cannot take the heaviest one): only shorten the old results before the
+     * most recent [keepRecent] round trips → fold them into the summary → leave only the latest round
+     * trip as it is, and shorten the others before folding them. The round trips left as they are are
+     * [keepRecent], [AGGRESSIVE_KEEP], and 1 time. When the model reports an excessive length, it starts
+     * from [AGGRESSIVE_KEEP]. When the heaviest level of the entire request still exceeds
+     * [ContextLimits.usable] (the latest result is itself too large), the large results will be
+     * shortened from the latest until they can be accommodated. The comparison is the estimation of the
+     * message: the target and available windows are first deducted from the fixed overhead (the same
+     * ratio), and the fixed overhead is only calculated this time.
      */
     private fun compact(history: List<Message>, limits: ContextLimits, fixedOverhead: Int, aggressive: Boolean): View {
         val overhead = UsageMeter.estimate(fixedOverhead, scale)
@@ -147,26 +168,32 @@ class ContextCompressor(
             if (tokens(c.messages) <= target) break
         }
         if (tokens(chosen.messages) > window) chosen = chosen.copy(messages = HistoryPruner.shrinkOversized(chosen.messages) { tokens(it) <= window })
-        // 副本:什么都没裁时 chosen 可能就是调用方那份还会追加的历史
+        // Copy: When nothing is cut, chosen may be the caller's history that will be appended.
         return View(history.toList(), chosen.messages.toList(), chosen.foldedSteps, aggressive)
     }
 
     private fun fold(pruned: List<Message>, keep: Int, aggressive: Boolean): Compressed {
-        // 一个往返 = 一条助手消息及其后到下一条助手消息之前的消息;之前的是开头(任务原话、标准等)
+        // A round trip = one assistant message and the messages after it and before the next assistant
+        // message; the one before it is the beginning (task wording, standard, etc.)
         val starts = pruned.indices.filter { pruned[it].role == Role.Assistant }
         if (starts.isEmpty()) return Compressed(pruned, 0)
         val toolStarts = starts.filter { i -> pruned[i].parts.any { it is Part.ToolCall } }
         if (toolStarts.size <= keep) return Compressed(pruned, 0)
         val cut = toolStarts[toolStarts.size - keep]
-        // 动作自带屏幕:折叠边界前最近一次全量读屏和它之后的差异链不折,差异要靠它们才看得懂(狠压缩时照折,分发器随后发全量);
+        // The action comes with the screen: the most recent full screen reading before the folding
+        // border and the difference after it are inextricably linked, and the difference depends on them
+        // to understand (folding is taken when compressing hard, and the distributor then sends the full
+        // screen);
         val rounds = starts.mapIndexed { k, start -> pruned.subList(start, starts.getOrElse(k + 1) { pruned.size }) }
         val screenRounds = rounds.map(::screenKind)
         val before = starts.count { it < cut }
         val anchor = if (aggressive || !diffScreens) -1 else (0 until before).lastOrNull { screenRounds[it] == ScreenKind.FULL } ?: -1
 
         val out = ArrayList<Message>(pruned.subList(0, starts.first()))
-        // 每段连续折叠的往返各得一条摘要,放在这一段原来的位置;中间保留的往返把段隔开。
-        // 结构化时只有一份摘要,放在第一段的位置,各段的步骤依次并进去
+        // Each consecutively folded round trip gets a summary, which is placed in the original position
+        // of the paragraph; the round trip left in the middle separates the paragraphs. When
+        // structuring, there is only one summary, which is placed in the first paragraph, and the steps
+        // of each paragraph are included in sequence.
         var block: MutableList<String>? = null
         var blockAt = 0
         var folded = 0
@@ -179,7 +206,8 @@ class ContextCompressor(
         starts.takeWhile { it < cut }.forEachIndexed { k, start ->
             val end = starts.getOrElse(k + 1) { pruned.size }
             val round = pruned.subList(start, end)
-            // 每轮只执行第一个调用,其余都以 parallel_tool_call_skipped 退回,所以按第一个调用判断要不要保留
+            // Only the first call is executed in each round, and the rest are returned with
+            // parallel_tool_call_skipped, so judge whether to keep it based on the first call.
             val call = round.first().parts.filterIsInstance<Part.ToolCall>().firstOrNull()
             if (tools.verb(call?.name) in PINNED_VERBS || (anchor >= 0 && k >= anchor && screenRounds[k] != ScreenKind.NONE)) {
                 closeBlock()
@@ -205,7 +233,7 @@ class ContextCompressor(
 
     private enum class ScreenKind { NONE, FULL, DIFF }
 
-    /** 这一轮的结果里有没有屏幕:observe/list_elements 的完整元素列表或 screen.full 为真算全量,其余 screen 算差异。 */
+    /** Is there any screen in the result of this round: the complete element list of observe/list_elements or screen.full is true and counts as the full amount, and the remaining screen counts as the difference. */
     private fun screenKind(round: List<Message>): ScreenKind {
         val verbs = round.flatMap { it.parts }.filterIsInstance<Part.ToolCall>().associate { it.id to tools.verb(it.name) }
         var kind = ScreenKind.NONE
@@ -225,20 +253,20 @@ class ContextCompressor(
 
     private fun notice(text: String) = Message(Role.User, listOf(Part.Text(ContextBuilder.envelope(ContextKind.Notice, SUMMARY_SOURCE, text))), Author.Mina)
 
-    /** 开头里用户的原话(不在上下文外壳里的那条)。 */
+    /** The user's original words at the beginning (the one not in the context shell). */
     private fun goal(head: List<Message>): String = head.firstOrNull { it.author == Author.User }
         ?.parts?.filterIsInstance<Part.Text>()?.firstOrNull()?.text?.replace('\n', ' ')?.trim()?.let { if (it.length <= GOAL_LIMIT) it else it.take(GOAL_LIMIT) + "…" }
         .orEmpty()
 
-    /** 这一轮成功的工具结果。 */
+    /** A successful tool result for this round. */
     private fun okResults(round: List<Message>): List<JsonObject> = round.flatMap { it.parts }.filterIsInstance<Part.ToolResult>()
         .filter { !it.isError }.mapNotNull { parse(it.content) }.filter { (it["ok"] as? JsonPrimitive)?.booleanOrNull != false }
 
-    /** 模型这一轮说的话。 */
+    /** What the model says this round. */
     private fun said(round: List<Message>): String? =
         round.first().parts.filterIsInstance<Part.Text>().joinToString(" ") { it.text }.trim().takeIf { it.isNotEmpty() }
 
-    /** 折叠时随轮次保留的上下文(参考资料、技能等,见 [ContextKind.pinned])。 */
+    /** Context retained with the round when folded (references, skills, etc., see [ContextKind.pinned]). */
     private fun isPinnedContext(m: Message) = ContextBuilder.kindOf(m)?.pinned == true
 
 
@@ -247,8 +275,10 @@ class ContextCompressor(
         val result = round.firstNotNullOfOrNull { m ->
             m.parts.firstNotNullOfOrNull { (it as? Part.ToolResult)?.takeIf { r -> r.callId == call.id } }
         }
-        // 读屏留下截图编号,折叠后仍能用 view_past_screens 回看
-        // 写操作结果带的屏幕(screen)也有截图编号;没带屏幕时动作后附的画面编号在结果顶层
+        // Screen reading leaves the screenshot number, which can still be used after folding.
+        // View_past_screens Review The screen with the write operation result also has the screenshot
+        // number; when there is no screen, the screen number attached to the action is at the top level
+        // of the result.
         val shot = result?.let { parse(it.content) }?.let { o -> if (tools.verb(call.name) in OBSERVATIONS) o["screenshotId"] else (o["screen"] as? JsonObject)?.get("screenshotId") ?: o["screenshotId"] }
             ?.let { it as? JsonPrimitive }?.contentOrNull?.let { " #$it" }.orEmpty()
         return "Step $step ${clip(call.name)}$target$shot → ${outcome(result)}"
@@ -258,13 +288,14 @@ class ContextCompressor(
         r ?: return NO_RESULT
         val obj = parse(r.content)
         if (obj == null) {
-            // 不是 JSON:出错时能认出错误码就写错误码
+            // Not JSON: If you can recognize the error code when an error occurs, write the error code.
             val code = r.content.trim().takeIf { CODE.matches(it) }
             return if (r.isError) code ?: FAILED else APPLIED
         }
         fun s(k: String) = (obj[k] as? JsonPrimitive)?.contentOrNull
         return when {
-            // 只认错误码;说明文字可长可短,不进摘要
+            // Only error codes are recognized; the description text can be long or short, and no summary
+            // is included.
             r.isError || (obj["ok"] as? JsonPrimitive)?.booleanOrNull == false -> (s("error") ?: s("reason"))?.takeIf { CODE.matches(it) } ?: FAILED
             (obj["changed"] as? JsonPrimitive)?.booleanOrNull == false -> UNCHANGED
             else -> APPLIED
@@ -296,7 +327,10 @@ class ContextCompressor(
         private const val SUMMARY_SOURCE = "earlier steps"
         const val AGGRESSIVE_KEEP = 6
         /**
-         * 还没有真实用量可校准时估算乘的比值。粗估对英文、JSON 常偏少(分词器切得更碎),宁可早一点压,不要先超长再狠压。
+         * Estimated multiplication ratios when there are no real quantities to calibrate. A rough
+         * estimate is that English and JSON are often too small (the tokenizer cuts them into smaller
+         * pieces). It is better to press them earlier than to press them too long first and then press
+         * them hard.
          */
         const val UNCALIBRATED_SCALE = 1.2
         private const val APPLIED = "applied"
@@ -306,7 +340,7 @@ class ContextCompressor(
         private const val TARGET_LIMIT = 20
         private const val GOAL_LIMIT = 120
         private val CODE = Regex("[a-z][a-z0-9_:]{0,63}")
-        /** 交回、追问与确认的结果(不论回答是工具结果还是随后的用户消息)整段保留。 */
+        /** The results of returns, follow-up questions and confirmations (whether the answers are tool results or subsequent user messages) are retained in their entirety. */
         private val OBSERVATIONS = setOf(Verb.Observe, Verb.ListElements)
         private val PINNED_VERBS = setOf(Verb.HandToUser, Verb.AskUser, Verb.RequestConfirmation)
         private val TARGET_KEYS = listOf("target", "text", "package", "query", "direction", "key", "name", "ref", "seconds")

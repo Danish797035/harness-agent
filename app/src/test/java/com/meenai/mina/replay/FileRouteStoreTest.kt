@@ -26,7 +26,7 @@ class FileRouteStoreTest {
         assertEquals(setOf("a", "c"), store.all().map { it.id }.toSet())
         assertEquals(2, store.count())
         assertTrue(File(dir, "com.a/c.json").isFile)
-        // 换一个实例读回来也一样
+        // The same thing happens if you change another instance and read it back.
         assertEquals(setOf("a", "c"), FileRouteStore(dir, max = 2).all().map { it.id }.toSet())
     }
 
@@ -73,7 +73,8 @@ class FileRouteStoreTest {
         assertEquals(listOf("a"), store.all().map { it.id })
     }
 
-    // 两个任务同时给同一条路线记数:读改写一次完成,一次也不丢
+    // Two tasks count the same route at the same time: reading, rewriting and writing are completed in
+    // one step without losing a single step.
     @Test fun updateIsAtomicAcrossThreads() {
         val store = FileRouteStore(tmp.newFolder("routes"))
         store.put(route("a", "p.one", 1))
@@ -81,7 +82,7 @@ class FileRouteStoreTest {
         threads.forEach(Thread::start)
         threads.forEach(Thread::join)
         assertEquals(100, store.all().single().successes)
-        // 没有这条、或不改时什么也不做
+        // If there is no such item or no change is made, nothing will be done.
         store.update("missing") { error("not called") }
         store.update("a") { null }
         assertEquals(100, store.all().single().successes)

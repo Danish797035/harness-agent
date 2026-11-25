@@ -30,7 +30,7 @@ import org.junit.runner.RunWith
 import kotlin.coroutines.resume
 import kotlin.math.abs
 
-/** 真机测试:页面脚本读元素树、读页、核对输入。夹具经 WebViewAssetLoader 从测试包提供,第二个主机名用来造跨源框架。 */
+/** Real machine test: The page script reads the element tree, reads the page, and checks the input. The fixture is provided from the test package via WebViewAssetLoader, and the second hostname is used to build the cross-source framework. */
 @RunWith(AndroidJUnit4::class)
 class PageScriptTest {
     private val instr = InstrumentationRegistry.getInstrumentation()
@@ -337,7 +337,8 @@ class PageScriptTest {
         assertFalse(raw.contains("otp-secret-4"))
         assertEquals("已填 13 位", byId("card")!!.str("n"))
         assertEquals("已填 12 位", byId("otp")!!.str("n"))
-        // textarea 里的字就是它的值:名字、读页、摘要里都不带(包着它的 label 没有别的字)
+        // The words in the textarea are its values: the name, reading page, and summary are not included
+        // (the label surrounding it has no other words)
         assertFalse(raw.contains("otp-area-secret-9"))
         assertEquals("已填 17 位", byId("otparea")!!.str("n"))
         val read = page.readPage(12_000, 0, scroll = false)
@@ -346,7 +347,8 @@ class PageScriptTest {
         val digest = page.digest()!!.toString()
         assertTrue(digest, digest.contains("正文一段"))
         assertFalse(digest, digest.contains("otp-area-secret-9"))
-        // 打字后的核对照旧读值比对(只在 App 里,不交给模型)
+        // Verification after typing and comparison of old readings (only in the app, not handed over to
+        // the model)
         assertEquals(FieldValue.Text("card-secret-6"), page.fieldValue(refOf("card")))
     }
 

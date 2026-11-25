@@ -1,32 +1,36 @@
 package com.meenai.mina.core.uistate
 
 /**
- * 这一屏的无障碍树够不够用;不够用时写进读屏结果的 treeQuality。
- * [Partial]:树缺了一块(控件大多没名字,或屏上有不少字树里没有);[Unusable]:树里几乎读不到东西;
- * [Protected]:防截屏页面,画面也看不到(照旧按 protected 处理)。
+ * Whether the screen's accessibility tree is usable; written to `treeQuality` when insufficient.
+ * [Partial]: the tree is missing a piece (most controls lack labels, or on-screen text is missing from
+ * the tree); [Unusable]: almost nothing readable in the tree; [Protected]: screenshot-blocked page
+ * whose screen cannot be captured (handled as `protected`).
  */
 internal enum class TreeQuality(val wire: String) {
     Adequate("adequate"), Partial("partial"), Unusable("unusable"), Protected("protected"),
 }
 
-/** 一次判断。[quality] 为 null:光看树判不准,要读屏上文字再定(读不到字就一直是 null);[reason] 是不够用的原因,附画面时就是 imageReason。 */
+/** One judgment. [quality] is null: it is not accurate to judge by just looking at the tree. You have to read the text on the screen to determine (it will always be null if you cannot read the words); [reason] is not enough, and it is imageReason when the picture is attached. */
 internal data class TreeCheck(val quality: TreeQuality?, val reason: String? = null) {
-    /** 树缺东西或不能用:模型要靠画面或屏上文字补。 */
+    /** The tree is missing something or cannot be used: the model must be supplemented by pictures or on-screen text. */
     val poor: Boolean get() = quality == TreeQuality.Partial || quality == TreeQuality.Unusable
 }
 
 /**
- * 先用便宜的树判,判不准再读屏上文字(OCR)比一比。树「明显够用」才不读字:有名字的元素够多、控件大多有名字、
- * App 窗口里没有一大块一个字也没有的区域(画布、地图、图片、读不到内容的网页)。其余拿不准的一律读字,宁可多读一次。
+ * First use a cheap tree to judge. If the judgment is not accurate, then read the text on the screen
+ * (OCR) to compare. The tree cannot read words unless it is "obviously useful": there are enough
+ * elements with names, most controls have names, and there is not a large area in the App window without
+ * any words (canvas, map, picture, web page whose content cannot be read). For the rest of the words
+ * that you are not sure about, just read them. It is better to read them one more time.
  */
 internal object TreeAdequacy {
-    /** 有名字的元素少于这个数就拿不准:只有几个字的简单页面和树缺了一大块看起来一样。 */
+    /** Having less than this number of named elements makes you uncertain: a simple page with just a few words will look the same as a tree with a chunk missing. */
     private const val ENOUGH_NAMED = 6
-    /** 子树里一个字也没有的节点占屏幕这么大(0–1)就是一块盲区。 */
+    /** A node with no words in the subtree takes up so much of the screen (0–1) that it is a blind spot. */
     private const val BLIND_AREA = 0.2
-    /** 有这么多个有名字的元素落在里面的,只是垫在下面的底板(背景图、容器),不算盲区。 */
+    /** There are so many named elements inside, just the base plate (background image, container) underneath, not a blind area. */
     private const val NAMED_INSIDE = 3
-    /** OCR 补出这么多行树里没有的字,就算树缺了一块。 */
+    /** OCR fills in so many lines of words that are not in the tree, even if the tree is missing a piece. */
     private const val MISSING_LINES = 3
     private const val APPLICATION = "application"
 
@@ -37,7 +41,8 @@ internal object TreeAdequacy {
         if (s.elements.isEmpty()) return TreeCheck(TreeQuality.Unusable, "empty_elements")
         val named = s.elements.filter { it.name.isNotBlank() }
         val controls = s.elements.filter { it.clickable || it.editable }
-        // resourceId 常是开发者内部编号,不能当成用户能认出的控件名称。
+        // The resourceId is often the developer's internal number and cannot be used as a control name
+        // that users can recognize.
         val namedControls = controls.count { it.name.isNotBlank() || !it.placeholder.isNullOrBlank() }
         if (controls.isNotEmpty() && (namedControls == 0 || (controls.size >= 4 && namedControls * 3 <= controls.size)))
             return TreeCheck(if (named.isEmpty()) TreeQuality.Unusable else TreeQuality.Partial, "unlabeled_controls")
@@ -46,16 +51,16 @@ internal object TreeAdequacy {
         return TreeCheck(TreeQuality.Adequate)
     }
 
-    /** 树判不准时按 OCR 补出的、树里没有的字([missing],已去掉认错的行)定下来;没读到字([missing] 为 null)照旧判不准。 */
+    /** If the tree judgment is not correct, it will be determined based on the characters that are added by OCR and are not in the tree ([missing], the error recognition line has been removed); if the word is not read ([missing] is null), the judgment is still inaccurate. */
     fun withText(tree: TreeCheck, missing: List<VisibleTextLine>?): TreeCheck {
         if (tree.quality != null || missing == null) return tree
         return if (missing.size >= MISSING_LINES) TreeCheck(TreeQuality.Partial, "text_outside_tree") else TreeCheck(TreeQuality.Adequate)
     }
 
-    /** App 窗口里有一块盲区:子树一个字也没有、够大,而且不是垫在有名字的元素下面的底板。 */
+    /** There is a blind spot in the app window: the subtree is not a word, it is large enough, and it is not a base under the named element. */
     private fun blindArea(s: ScreenSnapshot, named: List<UiElement>): Boolean {
         var found = false
-        // 返回这棵子树里有没有字;一遍走完,每个节点只看一次
+        // Returns whether there are words in this subtree; after one pass, each node is only viewed once
         fun visit(node: UiTreeNode): Boolean {
             var text = !node.text.isNullOrBlank() || !node.description.isNullOrBlank() || !node.hintText.isNullOrBlank()
             for (child in node.children) if (visit(child)) text = true

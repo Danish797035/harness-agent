@@ -35,7 +35,7 @@ class AgentLoopHistoryHintTest {
         assertTrue(text.startsWith(Conversation.HEADER))
         assertTrue(text.endsWith(hint))
         assertFalse(firstMessage(prior, withRecords = false).contains(hint))
-        // 之前的轮次都没记过运行:不提
+        // Didn't remember running in previous rounds: don't mention it
         assertFalse(firstMessage(listOf(Turn("你好", "你好!", "succeeded")), withRecords = true).contains(hint))
     }
 }

@@ -14,7 +14,7 @@ import org.junit.Test
 
 class InterfaceUpdateTest {
     private var port = 0
-    /** 同名元素位置不变。 */
+    /** The position of elements with the same name remains unchanged. */
     private fun shot(names: List<String>, pkg: String = "com.x") = ScreenSnapshot("p${++port}", pkg,
         names.mapIndexed { i, n -> UiElement("@e${i + 1}", "button", n, 500, 100 + 80 * n.hashCode().mod(20), listOf(0, 0, 10, 10), null, true, false, false) }, 1000, 2000)
     private fun JsonObject.full() = this["full"]!!.jsonPrimitive.boolean
@@ -23,7 +23,8 @@ class InterfaceUpdateTest {
     @Test fun addedRemovedChangedCounted() {
         val st = RefStabilizer()
         val a = st.next(shot(names(10)))
-        // 去掉项2,加一个新的;项1 的 bounds 变了(位置不变,编号沿用)
+        // Remove item 2 and add a new one; the bounds of item 1 have changed (the position remains
+        // unchanged and the number remains the same)
         val els = shot(names(10).filter { it != "项2" } + "新的").let { s ->
             s.copy(elements = s.elements.map { if (it.name == "项1") it.copy(bounds = listOf(0, 0, 20, 20)) else it })
         }
@@ -38,7 +39,7 @@ class InterfaceUpdateTest {
         assertEquals("项2", d["removed"]!!.jsonArray.single().jsonObject["name"]!!.jsonPrimitive.content)
         val changed = d["changed"]!!.jsonArray.single().jsonObject
         assertEquals("项1", changed["name"]!!.jsonPrimitive.content)
-        assertNull(changed["was"]) // 名字没变
+        assertNull(changed["was"]) // The name hasn't changed
         assertEquals(8, d["unchanged"]!!.jsonPrimitive.int)
         assertNull(d["elements"])
     }
@@ -78,7 +79,7 @@ class InterfaceUpdateTest {
     @Test fun diffUsesFullListsThenTruncates() {
         val st = RefStabilizer()
         val a = st.next(shot(names(10)))
-        // 只有第 10 个变了:按前 2 个比较会漏掉它
+        // Only the 10th one has changed: pressing the first 2 comparisons will miss it
         val b = st.next(shot(names(10)).let { s -> s.copy(elements = s.elements.map { if (it.name == "项10") it.copy(bounds = listOf(0, 0, 30, 30)) else it }) })
         val d = InterfaceUpdate.between(a, b, baseVisible = true, maxElements = 2)
         assertFalse(d.full())

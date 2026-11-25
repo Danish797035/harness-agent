@@ -11,20 +11,21 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * 在后台准备运行环境:App 启动时、Mina 升级后、重置后、任务要用而还没准备好时。
- * 对用户不可见,只在准备期间有一条低优先级的中性通知([SandboxForeground])。不联网。
+ * Prepare the running environment in the background: when the App starts, after Mina upgrade, after
+ * reset, when the task is to be used but is not ready yet. Invisible to the user, only a low priority
+ * neutral notification ([SandboxForeground]) during preparation. Not connected to the Internet.
  */
 object RuntimePreparer {
     private const val TAG = "RuntimePreparer"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var job: Job? = null
-    /** 这个进程里准备失败过:App 启动时不再自动重试,任务要用时([ensure] 的 retryFailed)才再试。 */
+    /** Preparation has failed in this process: the App no longer automatically retries when it starts, and the task takes time (retryFailed of [ensure]) before trying again. */
     @Volatile private var failed = false
 
-    /** 正在进行的准备;没有为 null。 */
+    /** Preparations in progress; not null. */
     val current: Job? get() = job?.takeIf { it.isActive }
 
-    /** 需要准备就开始,返回这次准备(已在准备就返回那一个);不需要返回 null。 */
+    /** If preparation is needed, start and return the preparation (return the one if it is already being prepared); there is no need to return null. */
     @Synchronized
     fun ensure(context: Context, retryFailed: Boolean = false): Job? {
         current?.let { return it }
@@ -43,7 +44,9 @@ object RuntimePreparer {
             }
         }
         job = j
-        // 前台服务让进程在准备期间不被回收,并显示中性通知;后台时系统不让启动前台服务,就只在进程里准备
+        // The foreground service prevents the process from being recycled during the preparation period
+        // and displays a neutral notification; in the background, the system does not allow the
+        // foreground service to be started and only prepares the process in the process.
         try {
             SandboxForeground.start(app)
         } catch (e: Exception) {
@@ -52,7 +55,7 @@ object RuntimePreparer {
         return j
     }
 
-    /** 要不要准备:没装、装了旧版本(Mina 升级了)、出过错(除非 [skipBroken])。不支持或正在进行的不动。 */
+    /** Do you need to be prepared: not installed, installed with an old version (Mina has been upgraded), or errors (unless [skipBroken]). Unsupported or ongoing immobility. */
     internal fun needsWork(status: SandboxStatus, installed: String?, bundled: String, skipBroken: Boolean): Boolean = when (status) {
         is SandboxStatus.Unsupported, is SandboxStatus.Installing -> false
         is SandboxStatus.Ready -> installed != bundled

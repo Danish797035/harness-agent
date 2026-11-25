@@ -9,8 +9,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 模型把工具调用标记吐进正文时的清洗与还原。
- * 样本按实际见过的泄漏输出(双竖线 DSML、调用名 memory_write,一个不存在的工具)。
+ * Cleaning and restoration of the model when it spits tool call markers into the text. The sample output
+ * is based on actual leaks seen (double vertical bar DSML, call name memory_write, a tool that does not
+ * exist).
  */
 class LeakedToolMarkupTest {
     private val bars = "｜｜"
@@ -115,19 +116,19 @@ class LeakedToolMarkupTest {
         assertEquals(text, LeakedToolMarkup.stripMarkup(text))
     }
 
-    /** 正文里有 `<` 又提到 DSML 这个词,但不是标记:一个字也不剥。 */
+    /** There is `<` in the text and the word DSML is mentioned, but it is not a mark: not a word is stripped. */
     @Test fun textMentioningDsmlAfterALessThanIsUntouched() {
         val text = "比较 a<b 时,顺便说说 DSML 这种写法"
         assertEquals(text, LeakedToolMarkup.stripMarkup(text))
         assertEquals(text, LeakedToolMarkup.scan(text).text)
     }
 
-    /** 收不全的半个结束标记也不显示。 */
+    /** The incomplete half-end mark is not displayed either. */
     @Test fun partialClosingTagIsHiddenInPreview() {
         assertEquals("我查一下", LeakedToolMarkup.stripMarkup("我查一下</${bars}DSM"))
     }
 
-    /** `<tool_call>` 里不是合法 JSON(例如 XML 写法):原样留着,交给 AgentLoop 的漏调用检查,不剥成只剩前面一句。 */
+    /** `<tool_call>` is not legal JSON (such as XML writing): leave it as it is and hand it over to AgentLoop’s missed call check without stripping it down to just the previous sentence. */
     @Test fun unparsableToolCallBlockIsKept() {
         val text = "我查一下\n<tool_call>\n<function=phone_observe>\n</function>\n</tool_call>"
         val reply = ModelReply(listOf(Part.Text(text)), StopReason.EndTurn, null)
@@ -165,7 +166,8 @@ class LeakedToolMarkupTest {
     }
 
     @Test fun streamingPreviewNeverShowsMarkup() {
-        // 流式预览按累计文字逐帧清洗,标记落地前的那一帧也不能带出乱码
+        // The streaming preview is cleaned frame by frame according to the accumulated text, and the
+        // frame before the mark is landed cannot bring out garbled characters.
         val frames = listOf(
             "我查一下\n<${bars}DSML",
             "我查一下\n$dsml",

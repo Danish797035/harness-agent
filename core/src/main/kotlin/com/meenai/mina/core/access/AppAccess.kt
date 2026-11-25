@@ -1,6 +1,6 @@
 package com.meenai.mina.core.access
 
-/** 应用分类仅用于整理列表,不决定执行权限。名字按界面语言放在 app 侧资源里(values/strings_appaccess.xml)。 */
+/** Application classification is only used to organize the list and does not determine execution permissions. The name is placed in the app side resource (values/strings_appaccess.xml) according to the interface language. */
 enum class AppCategory {
     Finance, Social, Game, Shopping, Productivity, Media, Other, Unknown;
 }
@@ -24,7 +24,7 @@ data class AppAccessState(
     fun canShare(packageName: String): Boolean = available && (packageName !in blocked || packageName in shareAllowed)
 }
 
-/** 每次读取最新状态,不在任务开始时冻结权限。 */
+/** Read the latest status each time and do not freeze permissions at the beginning of the task. */
 fun interface AppAccessPolicy {
     fun current(): AppAccessState
 
@@ -48,7 +48,7 @@ class AppAccessDenied(val code: String, val packageName: String?) : RuntimeExcep
     },
 ) {
     companion object {
-        /** 应用访问拒绝不是普通操作失败:要交给模型,不能当成任务异常。 */
+        /** Application access denial is not an ordinary operation failure: it must be handed over to the model and cannot be treated as a task exception. */
         fun isAppAccessCode(code: String): Boolean = code == "app_blocked" || code.startsWith("app_access_")
     }
 }

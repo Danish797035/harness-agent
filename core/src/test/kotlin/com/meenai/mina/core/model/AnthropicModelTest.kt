@@ -73,7 +73,8 @@ class AnthropicModelTest {
         assertEquals("adaptive", j["thinking"]!!.jsonObject.str("type"))
         assertEquals("summarized", j["thinking"]!!.jsonObject.str("display"))
         assertEquals("high", j["output_config"]!!.jsonObject.str("effort"))
-        // 开思考时思考也占输出上限,默认上限放大
+        // When thinking is turned on, thinking also accounts for the upper limit of the output, and the
+        // upper limit is enlarged by default.
         assertEquals("16000", j.str("max_tokens"))
 
         server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
@@ -89,7 +90,9 @@ class AnthropicModelTest {
         assertFalse(off.containsKey("output_config"))
     }
 
-    // 列表写明了思考方式的:不接受自适应思考的模型不发档位,不接受关掉思考的不发 disabled(什么都不发,按服务端默认)
+    // The list specifies the thinking method: models that do not accept adaptive thinking will not be
+    // issued a gear, and models that do not accept turning off thinking will not be issued disabled
+    // (nothing is issued, according to the server default)
     @Test fun sendsOnlyTheThinkingTypesTheModelAccepts() = runTest {
         repeat(4) { server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}""")) }
         model(reasoningEffort = "high", thinkingTypes = listOf("enabled", "disabled")).complete("s", user, emptyList())
@@ -111,7 +114,7 @@ class AnthropicModelTest {
         Message(Role.User, listOf(Part.Text("go")), Author.Mina),
         Message(Role.Assistant, listOf(
             Part.Thinking("想", SignedThinking.signed(endpoint, "sig-1")), Part.Thinking("", SignedThinking.redacted(endpoint, "xyz")),
-            // 别的服务商留下的思考不能被当成本家的签名发出去
+            // Thoughts left by other service providers cannot be sent out as our signature.
             Part.Thinking("旧", """{"endpoint":"https://other.test","via":"reasoning"}"""),
             Part.Text("a"), Part.ToolCall("t1", "phone_tap", "{}"),
         ), Author.Mina),
@@ -120,7 +123,9 @@ class AnthropicModelTest {
 
     private fun sentAssistantBlocks() = sentBody().arr("messages")[1].jsonObject.arr("content").map { it.jsonObject }
 
-    // 带工具调用的回合要把签名思考块原样带回:选了档位和没选(服务端默认可能也在思考)都带;明确关掉思考时不带
+    // In the round with tool call, the signature thinking block should be brought back as it is: whether
+    // the gear is selected or not (the server may also be thinking by default); it will not be brought
+    // when thinking is explicitly turned off.
     @Test fun replaysSignedThinkingBlocksUnlessThinkingIsTurnedOff() = runTest {
         val history = signedHistory(endpoint)
         repeat(3) { server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}""")) }
@@ -138,14 +143,17 @@ class AnthropicModelTest {
         assertEquals(listOf("text", "tool_use"), sentAssistantBlocks().map { it.str("type") })
     }
 
-    // 签名只有发它的服务认:另一个地址收到的思考块(换了 Anthropic 兼容服务)不回传
+    // The signature is only recognized by the service that sent it: the thinking block received by
+    // another address (changed to Anthropic compatible service) will not be returned.
     @Test fun doesNotReplaySignaturesToAnotherEndpoint() = runTest {
         server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
         model(reasoningEffort = "high").complete("s", signedHistory("https://other-gateway.test/v1/messages"), emptyList())
         assertEquals(listOf("text", "tool_use"), sentAssistantBlocks().map { it.str("type") })
     }
 
-    // 工具调用前的进度说明是单独的思考块,排在文字后面:回传时照收到的顺序,不挪到最前面
+    // The progress description before the tool is called is a separate thinking block, arranged after
+    // the text: when returned, the order in which it is received will be followed, and will not be moved
+    // to the front.
     @Test fun replaysBlocksInTheOrderReceived() = runTest {
         server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
         val history = listOf(
@@ -166,7 +174,10 @@ class AnthropicModelTest {
         """{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\"."}}""",
     )
 
-    // 展开一组工具、压缩历史以后,签名绑着之前请求前缀的思考块被拒:这次带的都去掉重发一次,之后也不再带;重发后收到的照常回传
+    // After expanding a set of tools and compressing the history, the thinking block whose signature was
+    // tied to the previous request prefix was rejected: all the ones that were included this time were
+    // removed and resent, and they will not be included again after that; the ones received after
+    // resending were returned as usual.
     @Test fun dropsRejectedThinkingAndSendsAgainOnce() = runTest {
         val m = model(reasoningEffort = "high")
         server.enqueue(staleThinking())
@@ -208,7 +219,8 @@ class AnthropicModelTest {
         server.enqueue(staleThinking())
         server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(sse))
         val shown = mutableListOf<String>()
-        // 没选思考强度(服务端默认可能也在思考)时同样回传、同样去掉重发
+        // When the thinking intensity is not selected (the server may also be thinking by default), the
+        // same is sent back and the retransmission is also removed.
         val r = model().completeStreaming("s", signedHistory(endpoint), emptyList()) { shown += it }
         assertEquals(listOf(Part.Text("好")), r.parts)
         assertEquals(listOf("好"), shown)
@@ -216,7 +228,10 @@ class AnthropicModelTest {
         assertEquals(listOf("text", "tool_use"), sentAssistantBlocks().map { it.str("type") })
     }
 
-    // 别的 400 照常报错;签名本身坏了(只有前半句)不重发;这次没带思考块(关掉了思考)时不重发;去掉以后还被拒的不再发第三次
+    // Other 400 errors will be reported as usual; if the signature itself is broken (only the first half
+    // of the sentence), it will not be resent; if there is no thinking block this time (thinking is
+    // turned off), it will not be resent; if it is rejected after being removed, it will not be resent a
+    // third time.
     @Test fun otherRejectionsAreNotSentAgain() = runTest {
         suspend fun rejected(m: AnthropicModel) =
             try { m.complete("s", signedHistory(endpoint), emptyList()); null } catch (e: ModelError.BadResponse) { e }
@@ -274,7 +289,8 @@ class AnthropicModelTest {
         assertEquals("object", t[0].jsonObject["input_schema"]!!.jsonObject.str("type"))
     }
 
-    // 对话只在最后一条 user 消息的最后一块上标缓存;前面的消息原样,两次请求的开头逐字相同
+    // The conversation is cached only on the last block of the last user message; the previous messages
+    // are unchanged, and the beginning of the two requests is the same word-for-word.
     @Test fun marksCacheOnLastUserMessage() = runTest {
         val first = listOf(
             Message(Role.User, listOf(Part.Text("goal")), Author.User),
@@ -297,7 +313,8 @@ class AnthropicModelTest {
         assertEquals(listOf(2 to 1), marked(a))
         assertEquals(listOf(4 to 1), marked(b))
         assertEquals("ephemeral", b[4].jsonObject.arr("content")[1].jsonObject["cache_control"]!!.jsonObject.str("type"))
-        // 上一次标记的那块在下一次请求里不带标记,其余逐字相同
+        // The piece marked last time will not be marked in the next request, and the rest will be the
+        // same verbatim.
         assertEquals(a[0], b[0]); assertEquals(a[1], b[1])
         assertEquals(a[2].jsonObject.arr("content")[0], b[2].jsonObject.arr("content")[0])
     }
@@ -388,7 +405,9 @@ class AnthropicModelTest {
         assertFalse(sentBody().containsKey("system"))
     }
 
-    // 插话打断后:半截回复是只有一个文字块的 assistant 消息(没有思考块);插话和运行时状态并进下一条 user 消息,角色交替
+    // After interruption: half of the reply is an assistant message with only one text block (no
+    // thinking block); the interruption and runtime state merge into the next user message, and the
+    // roles alternate.
     @Test fun interruptedReplyIsATextOnlyAssistantTurnBeforeTheSteer() = runTest {
         server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
         model().complete("s", InterruptedHistory.messages, emptyList())

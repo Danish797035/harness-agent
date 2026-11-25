@@ -9,27 +9,30 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 
-/** 站点命令的一个参数;[type] 是 string / integer / number / boolean。 */
+/** An argument to the site command; [type] is a string/integer/number/boolean. */
 @Serializable
 data class CommandArg(val name: String, val type: String, val required: Boolean = false, val description: String = "")
 
-/** 站点命令的声明(脚本头部);[file] 是站点目录下的相对路径 `scripts/<name>.js`。 */
+/** Declaration of site command (script header); [file] is the relative path `scripts/<name>.js` under the site directory. */
 @Serializable
 data class SiteCommandDecl(val name: String, val description: String, val args: List<CommandArg> = emptyList(), val returns: String, val file: String)
 
-/** 一条可运行的站点命令:所属站点、声明、脚本正文(头部之后)。 */
+/** An executable site command: the site it belongs to, the statement, and the script body (after the header). */
 data class SiteCommand(val site: String, val decl: SiteCommandDecl, val body: String)
 
 /**
- * 站点命令:站点知识目录里的 `scripts/<name>.js`(不在 scripts/manifest.json 里的那些),在当前页面的读取世界里只读地跑。
- * 文件以一段块注释开头:第一行是 [MARK],之后一行一项,到注释结束为止,例如
+ * Site commands: `scripts/<name>.js` in the site knowledge directory (those not in
+ * scripts/manifest.json), run read-only in the reading world of the current page. The file starts with a
+ * block comment: the first line is [MARK], followed by one line per line until the end of the comment,
+ * for example
  * - `name: list_results`
- * - `description: 列出当前结果页上的条目`
- * - `arg: limit integer - 最多几条`
- * - `arg: query string required - 只要标题里有这段字的`
+ * - `description: List items on the current results page`
+ * - `arg: limit integer - maximum number of items`
+ * - `arg: query string required - as long as this word is in the title`
  * - `returns: [{title, url}]`
  *
- * name 与文件名相同;arg 可以有多行,写作「名字 类型 [required] [- 说明]」;头部之后是 async 函数体,参数在 `args` 里。
+ * name is the same as the file name; arg can have multiple lines, written as "name type [required] [-
+ * description]"; after the header is the async function body, and the parameters are in `args`.
  */
 object SiteCommandFile {
     const val MARK = "/* mina-command"
@@ -41,12 +44,12 @@ object SiteCommandFile {
 
     fun isCommand(text: String): Boolean = clean(text).startsWith(MARK)
 
-    /** [decl] 在没有错误时才有;[body] 是头部之后的脚本。 */
+    /** [decl] is available when there are no errors; [body] is the script after the header. */
     class Parsed(val decl: SiteCommandDecl?, val body: String, val errors: List<String>)
 
     private fun clean(text: String) = text.removePrefix("﻿").replace("\r\n", "\n").trimStart()
 
-    /** [file] 是站点目录下的相对路径(`scripts/<name>.js`)。 */
+    /** [file] is the relative path (`scripts/<name>.js`) under the site directory. */
     fun parse(file: String, text: String): Parsed {
         val t = clean(text)
         if (!t.startsWith(MARK)) return Parsed(null, "", listOf("头部要以 `$MARK` 开头"))
@@ -92,7 +95,7 @@ object SiteCommandFile {
         return Parsed(decl, body, errors)
     }
 
-    /** 模型给的参数按声明查:没声明的、缺了必填的、类型不对的,返回问题说明;没问题为 null。 */
+    /** The parameters given by the model are checked according to the declaration: if they are not declared, required fields are missing, or the type is wrong, a problem description will be returned; if there is no problem, it will be null. */
     fun checkArgs(decl: SiteCommandDecl, args: JsonObject): String? {
         val declared = decl.args.associateBy { it.name }
         args.keys.firstOrNull { it !in declared }?.let {
@@ -116,10 +119,11 @@ object SiteCommandFile {
         return null
     }
 
-    /** 站点知识块里列出的一行。 */
+    /** A row listed in the site knowledge block. */
     fun line(d: SiteCommandDecl): String {
         val sig = d.args.joinToString(", ") { it.name + (if (it.required) "" else "?") + ": " + it.type }
         val notes = d.args.filter { it.description.isNotEmpty() }.joinToString("; ") { "${it.name} ${it.description}" }
         return "- ${d.name}($sig): ${d.description}. Returns ${d.returns}" + (if (notes.isEmpty()) "" else ". Arguments: $notes")
     }
 }
+

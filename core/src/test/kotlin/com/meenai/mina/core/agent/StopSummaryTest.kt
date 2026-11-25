@@ -25,7 +25,7 @@ class StopSummaryTest {
     private fun said(step: Int, tool: String, text: String = "", args: String? = null) =
         RunEvent.ModelReply(step.toLong(), step, text, tool, args, null, null, null)
 
-    /** 一次成批打招呼:打开站点、读推荐列表、给三个人打了招呼、第四个没发出去。 */
+    /** Greetings in batches at once: opening the site, reading the recommendation list, greeting three people, and not sending the fourth one. */
     private val greeting = listOf(
         said(1, "web_open"), act(1, "web_open", "Site jobs.example.com"),
         act(2, "web_read", "Site jobs.example.com", kind = "observe", title = "推荐职位"),
@@ -83,7 +83,7 @@ class StopSummaryTest {
         assertTrue(input, input.contains("<request>\n把推荐里的岗位都打个招呼\n</request>"))
         assertTrue(input, input.contains("Step 3 点击 · jobs.example.com(sent out) -- intent: 给张三的产品经理岗位打招呼"))
         assertTrue(input, input.contains("Step 6 点击 · jobs.example.com(failed) -- intent: 给赵六的测试岗位打招呼"))
-        // 连着读同一处只记一行
+        // Read the same place consecutively and remember only one line
         assertEquals(1, Regex("Step 2 读网页").findAll(input).count())
         assertTrue(input, input.contains("<last_read>\n推荐职位:张三"))
         assertTrue(input, input.contains("<draft>\n写到一半\n</draft>"))
@@ -106,10 +106,10 @@ class StopSummaryTest {
     @Test fun fallsBackToMainModelThenToPlainText() = runTest {
         val main = FakeModel(answerReply("主模型写的"))
         assertEquals("主模型写的", StopSummary(FakeModel(IllegalStateException("down")), main).summarize("g", greeting, null))
-        // 都写不出(出错、空回复):按记录直接拼
+        // Can't write anything (error, empty reply): press record to spell directly
         val plain = StopSummary(FakeModel(IllegalStateException("down")), FakeModel(answerReply("  "))).summarize("g", greeting, null, ::label, ::app)
         assertEquals(StopSummary.plain("g", greeting, null, ::label, ::app), plain)
-        // 没有模型
+        // no model
         assertEquals(StopSummary.plain("g", greeting, null), StopSummary(null).summarize("g", greeting, null))
     }
 

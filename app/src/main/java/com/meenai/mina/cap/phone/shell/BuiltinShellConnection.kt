@@ -9,12 +9,15 @@ import kotlinx.coroutines.flow.StateFlow
 import com.meenai.mina.shell.IHarnessShell
 
 /**
- * 内置助手的连接。助手进程常驻,不跟着解绑结束:解绑时让它撤掉这次的改动([IHarnessShell.releaseAll]),
- * 效果与服务结束相同;再绑定时直接用手里的 Binder。没有助手时请看门狗起一个。
+ * Connectivity for built-in assistants. The assistant process is resident and does not end with the
+ * unbinding: when unbinding, let it undo this change ([IHarnessShell.releaseAll]), the effect is the
+ * same as the end of the service; when rebinding, directly use the Binder in hand. If there is no
+ * assistant, ask the watchdog to pick one up.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class BuiltinShellConnection(hub: HelperHub, need: () -> Unit) : ShellBinding {
-    // 单线程:撤销和下一次发布按先后执行;撤销是同步 binder 调用,不放主线程
+    // Single thread: revocation and next release are executed sequentially; revocation is a synchronous
+    // binder call, leaving the main thread alone
     private val link = HelperLink(
         hub.shell,
         CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1)),

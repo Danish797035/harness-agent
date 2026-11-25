@@ -35,13 +35,18 @@ import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
 /**
- * 桌面上把「用 ChatGPT 登录」整条路走一遍:用 App 同一套登录、列模型和 Responses 代码,对着 OpenAI 的真实服务,
- * 好在上手机之前先确认服务端这一侧没问题。用法见 docs/dev/chatgpt-signin-check.md。
+ * Go through the whole process of "login with ChatGPT" on the desktop: use the same set of login, column
+ * model and Responses codes in the App, facing the real service of OpenAI. It is good to make sure that
+ * there is no problem on the server side before using the mobile phone. See
+ * docs/dev/chatgpt-signin-check.md for usage.
  *
- * 本机标识和注册到的 client_id 存在 ~/.mina-dev/chatgpt-check/(目录 0700),多次运行沿用,和 App 一样。
- * 令牌、授权码、ID 令牌一律不打印;默认只在内存里,`--keep` 才写到同一目录的 session.json(0600)。
+ * The local identity and registered client_id exist in ~/.mina-dev/chatgpt-check/ (directory 0700), and
+ * will be used for multiple runs, just like the App. Tokens, authorization codes, and ID tokens are
+ * never printed; by default, they are only in memory, and `--keep` is written to session.json(0600) in
+ * the same directory.
  *
- * 参数:`--timeout=<秒>` 等回调多久(默认 300);`--model=<slug>` 指定模型;`--keep` 保存登录。
+ * Parameters: `--timeout=<seconds>` how long to wait for callback (default 300); `--model=<slug>` specifies
+ * the model; `--keep` saves the login.
  */
 fun main(args: Array<String>) {
     val opts = args.associate { a -> a.removePrefix("--").let { it.substringBefore('=') to it.substringAfter('=', "") } }
@@ -84,7 +89,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         return summary()
     }
 
-    // ---------- 1. 本机标识 ----------
+    // ---------- 1. Local identification ----------
 
     private fun prepareDir() {
         dir.mkdirs()
@@ -106,10 +111,11 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         step("注册 client(client_id 已记到 ${hostFile.name})", true)
     }
 
-    // ---------- 2–3. 登录 ----------
+    // ---------- 2–3. Login ----------
 
     private suspend fun signIn(hostId: String, clientId: String?): ChatGptSession? {
-        // 只拿上次的邮箱当登录提示;不带 ID 令牌,打印出来的授权地址里就不会有令牌
+        // Only use the last email address as the login prompt; without the ID token, there will be no
+        // token in the printed authorization address.
         val previous = if (sessionFile.isFile) ChatGptSession.fromJson(sessionFile.readText())?.signedOut() else null
         return try {
             val s = signInWithChatGpt(
@@ -164,7 +170,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         SignInFailure.Network -> "连接 OpenAI 登录服务"
     }
 
-    // ---------- 4. 列模型 ----------
+    // ---------- 4. Column model ----------
 
     private suspend fun listModels(accessToken: String): ListedModel? {
         val listed = when (val r = ModelCatalog(http).openAiCompat(ChatGptAuth.API_BASE, accessToken)) {
@@ -186,14 +192,15 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         val chosen = if (modelArg != null) {
             listed.firstOrNull { it.id == modelArg } ?: ListedModel(modelArg).also { println("    注意:--model=$modelArg 不在列表里,照样试") }
         } else {
-            // 优先挑推理模型:工具调用那一步要顺带验加密思考的回放
+            // Prioritize the inference model: the step of calling the tool should also verify the
+            // playback of cryptographic thinking
             listed.firstOrNull { it.usable && it.reasoning == true && it.toolCalls != false } ?: listed.firstOrNull { it.usable }
         }
         chosen?.let { println("    用模型:${it.id}") }
         return chosen
     }
 
-    // ---------- 5. 一次简单调用 ----------
+    // ---------- 5. A simple call ----------
 
     private suspend fun simpleCall(model: ResponsesModel) {
         val name = "Responses 调用"
@@ -210,7 +217,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         }
     }
 
-    // ---------- 6. 工具调用往返 ----------
+    // ---------- 6. Tool call round trip ----------
 
     private suspend fun toolRoundTrip(model: ResponsesModel) {
         val tool = ToolSpec(
@@ -246,7 +253,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         }
     }
 
-    // ---------- 7. 换新令牌 ----------
+    // ---------- 7. Replace with new token ----------
 
     private suspend fun refresh(tokens: ChatGptTokens, current: () -> ChatGptSession) {
         val before = current()
@@ -269,7 +276,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
         println("已保存登录到 ${sessionFile.absolutePath}(0600)")
     }
 
-    // ---------- 输出 ----------
+    // ---------- Output ----------
 
     private fun step(name: String, ok: Boolean, why: String? = null, record: Boolean = true) {
         println("${if (ok) "✓" else "✗"} $name")
@@ -300,7 +307,7 @@ private class Check(private val timeoutSec: Long, private val modelArg: String?,
     }
 }
 
-/** 把已知的错误说成人话。 */
+/** Put known errors into words. */
 private fun explain(e: Throwable): String = when (e) {
     is SignInException -> when (e.reason) {
         SignInFailure.Denied -> "授权页返回了错误(${e.message?.substringAfter(": ", "")}):" +

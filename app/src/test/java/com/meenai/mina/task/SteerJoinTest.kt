@@ -9,7 +9,8 @@ class SteerJoinTest {
         SteerNote("m2", "顺便看看后天", SteerState.Received),
     )
 
-    // 一批两句插话一起交给模型:打断的那段字只挂在第一句上,第二句没有
+    // A batch of two-sentence interruptions are given to the model together: the interrupted paragraph
+    // is only attached to the first sentence, but not to the second sentence.
     @Test fun interruptedReplyGoesToTheFirstSteerOfTheBatch() {
         val join = SteerJoin()
         join.interrupted("今天晴")
@@ -18,14 +19,14 @@ class SteerJoinTest {
         assertEquals(listOf("今天晴", null), after.map { it.interrupted })
     }
 
-    // 没有打断什么时只改去向
+    // Just change direction when not interrupting anything
     @Test fun steerWithoutInterruptionOnlyChangesState() {
         val after = SteerJoin().joined(notes, "m2")
         assertEquals(listOf(SteerState.Received, SteerState.Joined), after.map { it.state })
         assertEquals(listOf(null, null), after.map { it.interrupted })
     }
 
-    // 用过即清:下一批插话不会再挂上上一次的那段字
+    // Clear once used: The next batch of comments will not contain the last paragraph.
     @Test fun interruptedReplyIsUsedOnce() {
         val join = SteerJoin()
         join.interrupted("今天晴")
@@ -34,7 +35,8 @@ class SteerJoinTest {
         assertEquals(listOf("今天晴", null, null), second.map { it.interrupted })
     }
 
-    // 插话之前已经说完的回复同样挂到这一批的第一句上,和被打断的分开记
+    // The replies that have been finished before interrupting are also linked to the first sentence of
+    // this batch, and are recorded separately from the interrupted ones.
     @Test fun finishedReplyGoesToTheFirstSteerAndIsUsedOnce() {
         val join = SteerJoin()
         join.finished("光合作用是……的过程。")
@@ -57,7 +59,9 @@ class SteerJoinTest {
             remoteSteers(joined, finished = true))
     }
 
-    // 远程插话本来撤不回;万一是撤回状态也只报没用上,不多出一种对外状态;手机上撤回的不报给电脑
+    // Remote interruption cannot be withdrawn originally; if it is withdrawn, it will only be reported
+    // and useless, and there will be no more external status; the withdrawn on the mobile phone will not
+    // be reported to the computer
     @Test fun withdrawnMapsToNotAppliedAndLocalWithdrawalsStayHidden() {
         val remote = SteerNote("remote", "only today", SteerState.Withdrawn, remote = true)
         val local = SteerNote("local", "phone-only text", SteerState.Withdrawn)

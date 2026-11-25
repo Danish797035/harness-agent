@@ -35,11 +35,12 @@ class SpeechSettingsTest {
         val prefs = MemoryPrefs()
         val s = SpeechSettings(prefs)
         assertEquals(false, s.systemSilent.value)
-        // 一次卡住(冷启动慢)不算
+        // A stuck time (slow cold start) does not count
         s.noteSystemSilent()
         assertEquals(false, s.systemSilent.value)
         assertEquals(false, SpeechSettings(prefs).systemSilent.value)
-        // 次数也记在设置里:重启 App 后再一次不响应就够了
+        // The number of times is also recorded in the settings: restarting the app and not responding
+        // again is enough.
         SpeechSettings(prefs).noteSystemSilent()
         assertEquals(true, SpeechSettings(prefs).systemSilent.value)
     }
@@ -63,14 +64,16 @@ class SpeechSettingsTest {
             s.noteSystemSilent()
             assertEquals(true, s.systemSilent.value)
             assertEquals(true, SpeechSettings(prefs).systemSilent.value)
-            // 选别的不清:记号说的是这台手机的识别服务
+            // It’s not clear what else to choose: the mark refers to the identification service of this
+            // mobile phone
             s.set(SpeechChoice.Off)
             s.set(SpeechChoice.Provider("p", "m", TranscribeMethod.AudioTranscriptions))
             assertEquals(true, SpeechSettings(prefs).systemSilent.value)
             s.set(retry)
             assertEquals(false, s.systemSilent.value)
             assertEquals(false, SpeechSettings(prefs).systemSilent.value)
-            // 次数也清了:再一次不响应不立刻记上
+            // The number of times has also been cleared: if there is no response again, it will be
+            // recorded immediately.
             s.noteSystemSilent()
             assertEquals(retry.toString(), false, s.systemSilent.value)
         }
@@ -99,7 +102,7 @@ class SpeechSettingsTest {
         }
     }
 
-    /** 点名试通的服务记下来、重开 App 还在;之后系统默认的回了话,就不再记着点名的那个。 */
+    /** The roll call service will still be there after you re-open the app; after that, the system will reply by default and will no longer remember the one you called. */
     @Test fun theServiceThatAnsweredIsRemembered() {
         val prefs = MemoryPrefs()
         SpeechSettings(prefs).noteSystemAnswered("a.b/.Two")

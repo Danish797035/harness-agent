@@ -2,7 +2,7 @@ package com.meenai.mina.core.shell
 
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** 测试和还没接上真实现时用:记下调用,状态由调用方摆。[pairingResult] 是 [startPairing] 之后的状态。 */
+/** Use when testing and not yet connected to the real implementation: write down the call, the status is set by the caller. [pairingResult] is the state after [startPairing]. */
 class FakeBuiltinShellControl(
     initial: BuiltinShellStatus = BuiltinShellStatus.NotPaired,
     var pairingResult: BuiltinShellStatus = BuiltinShellStatus.Running,

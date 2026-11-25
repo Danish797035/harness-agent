@@ -24,7 +24,8 @@ class SystemSpeechTest {
             SystemSpeech.Outcome.Fail(SpeechFailure.Unavailable(SpeechEngineSpec.Why.SystemNoResponse)),
             SystemSpeech.afterSilence(answered = false),
         )
-        // 回过话的服务只是这一段卡住:按已听到的收尾,不记成不响应
+        // The service that has been answered is only stuck in this section: press the end of what has
+        // been heard, and if it is not recorded, it will not respond.
         assertEquals(SystemSpeech.Outcome.Finish, SystemSpeech.afterSilence(answered = true))
     }
 
@@ -60,14 +61,14 @@ class SystemSpeechTest {
 
     private fun svc(name: String, open: Boolean = true) = RecognizerService("a.b/.$name", open, null)
 
-    /** 只有一个识别服务时它就是默认的:只试默认的,不点名再试一遍白等。 */
+    /** When there is only one identification service, it is the default: just try the default one, and try again without naming it, and you will wait in vain. */
     @Test
     fun aSingleServiceIsOnlyTriedAsTheDefault() {
         assertEquals(listOf<String?>(null), SystemSpeech.attempts(listOf(svc("One")), remembered = null))
         assertEquals(listOf<String?>(null), SystemSpeech.attempts(emptyList(), remembered = null))
     }
 
-    /** 默认的不回话时,再点名试其余的,对别的 App 开放的在前;总数有上限。 */
+    /** When the default is no reply, the others will be called and those open to other apps will come first; the total number has an upper limit. */
     @Test
     fun otherServicesFollowTheDefaultOpenOnesFirst() {
         val services = listOf(svc("Closed", open = false), svc("Open"), svc("Third"))
@@ -75,7 +76,7 @@ class SystemSpeechTest {
         assertEquals(SystemSpeech.MAX_ATTEMPTS, SystemSpeech.attempts(services + svc("Fourth"), null).size)
     }
 
-    /** 之前点名试通的排最前、不重复;它已经不在手机上了就不管它。 */
+    /** The one that was previously called by name will be ranked first and will not be repeated; if it is no longer on the phone, just ignore it. */
     @Test
     fun theServiceThatAnsweredBeforeGoesFirst() {
         val services = listOf(svc("One"), svc("Two"))

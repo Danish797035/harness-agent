@@ -17,7 +17,7 @@ class HandoverActivityCounterTest {
         counter.onEvent(0, "a.app", TYPE_VIEW_CLICKED, null, 100)
         counter.onEvent(0, "a.app", TYPE_VIEW_TEXT_CHANGED, null, 200)
         counter.onEvent(0, "a.app", TYPE_VIEW_TEXT_CHANGED, null, 2_300)
-        // 别的屏、别的包、不算操作的事件都不计
+        // Other screens, other packages, and events that are not operations are not counted.
         counter.onEvent(9, "a.app", TYPE_VIEW_CLICKED, null, 400)
         counter.onEvent(0, "other.app", TYPE_VIEW_CLICKED, null, 500)
         counter.onEvent(0, "a.app", TYPE_VIEW_FOCUSED, null, 600)
@@ -27,13 +27,14 @@ class HandoverActivityCounterTest {
 
     @Test
     fun mergesScrollBursts() {
-        // 一次滑动连着发很多滚动事件,间隔不到 1 秒的算同一次
+        // One swipe sends many scrolling events in succession, and those with an interval of less than 1
+        // second are counted as the same event.
         listOf(1_000L, 1_100, 1_300, 1_900, 2_800).forEach { counter.onEvent(0, "a.app", TYPE_VIEW_SCROLLED, null, it) }
         assertEquals(1, counter.inputCount)
         counter.onEvent(0, "a.app", TYPE_VIEW_SCROLLED, null, 4_000)
         counter.onEvent(0, "a.app", TYPE_VIEW_SCROLLED, null, 4_200)
         assertEquals(2, counter.inputCount)
-        // 点击不受滚动合并影响
+        // Clicks are not affected by scroll merge
         counter.onEvent(0, "a.app", TYPE_VIEW_CLICKED, null, 4_300)
         assertEquals(3, counter.inputCount)
     }
@@ -50,7 +51,7 @@ class HandoverActivityCounterTest {
 
     @Test
     fun longBurstCountsMoreThanOnce() {
-        // 每 0.5 秒一个滚动事件持续 12 秒:每 5 秒封顶一次 -> 3 次
+        // A rolling event every 0.5 seconds for 12 seconds: capped every 5 seconds -> 3 times
         (0..24).forEach { counter.onEvent(0, "a.app", TYPE_VIEW_SCROLLED, null, 1_000L + it * 500) }
         assertEquals(3, counter.inputCount)
     }
@@ -68,7 +69,7 @@ class HandoverActivityCounterTest {
     fun remembersLastActivitySimpleName() {
         assertNull(counter.lastActivity)
         counter.onEvent(0, "a.app", TYPE_WINDOW_STATE_CHANGED, "a.app.pay.PayActivity", 100)
-        // 别的包、别的屏不覆盖
+        // Other packages and other screens are not covered
         counter.onEvent(0, "other.app", TYPE_WINDOW_STATE_CHANGED, "o.MainActivity", 200)
         counter.onEvent(9, "a.app", TYPE_WINDOW_STATE_CHANGED, "a.app.OtherActivity", 300)
         assertEquals("PayActivity", counter.lastActivity)

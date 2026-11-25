@@ -88,18 +88,18 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** 文本类和 Markdown 最多读这么多字节,再多只显示前面一部分。 */
+/** The text class and Markdown can read up to this many bytes, and any more will only display the first part. */
 private const val TEXT_CAP = 1 shl 20
 
-/** 图片解码的最长边,超过就按比例缩小,免得大图占满内存。 */
+/** The longest side of the picture to be decoded will be scaled down if it exceeds it to prevent the large picture from filling up the memory. */
 private const val IMAGE_MAX_SIDE = 4096
 
-/** 每段文本的行数:长文本分段放进懒加载列表,只排看得见的几段。 */
+/** The number of lines of each text paragraph: Long text is put into the lazy loading list in segments, and only the visible paragraphs are arranged. */
 private const val LINES_PER_CHUNK = 200
 
 private val MonoText = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 18.sp)
 
-/** 读进来的内容;PDF 不在这里,它按页现读现画。 */
+/** The content that is read in; the PDF is not here, it reads and draws page by page. */
 private sealed interface Loaded {
     data class Text(val text: String, val truncated: Boolean) : Loaded
     data class Html(val html: String) : Loaded
@@ -107,8 +107,9 @@ private sealed interface Loaded {
 }
 
 /**
- * 文件查看页:顶栏是返回、文件名和「分享」「用其他应用打开」;下面按 [kind] 显示内容。
- * [kind] 为 null(这里不认识的类型)时只说一句,并给「用其他应用打开」。
+ * File viewing page: The top bar is return, file name and "Share" and "Open with other applications";
+ * below, press [kind] to display the content. When [kind] is null (a type not recognized here), just say
+ * one sentence and give "Open with other applications".
  */
 @Composable
 fun FileViewerScreen(uri: Uri, name: String, kind: ViewerKind?, onBack: () -> Unit) {
@@ -161,7 +162,9 @@ private fun load(context: Context, uri: Uri, kind: ViewerKind): Loaded = when (k
         },
     )
     else -> {
-        // 多读一个字节,用来判断是不是被截断了;截在多字节字符中间时解码会换成替代符,不影响前面的内容
+        // Read one more byte to determine whether it has been truncated; if it is truncated in the
+        // middle of a multi-byte character, the decoding will be replaced by a substitution character,
+        // which will not affect the previous content.
         val bytes = open(context, uri).use { input ->
             val buf = ByteArray(TEXT_CAP + 1)
             var n = 0
@@ -181,7 +184,7 @@ private fun load(context: Context, uri: Uri, kind: ViewerKind): Loaded = when (k
 private fun open(context: Context, uri: Uri) =
     context.contentResolver.openInputStream(uri) ?: error("Cannot open $uri")
 
-// ---------- 各类内容 ----------
+// ---------- Various contents ----------
 
 @Composable
 private fun MarkdownView(l: Loaded.Text) {
@@ -196,7 +199,7 @@ private fun MarkdownView(l: Loaded.Text) {
     }
 }
 
-/** 等宽、可选中;按行分段放进懒加载列表,长文件也只排看得见的部分。长行自动折行。 */
+/** Equal width, selectable; put into the lazy loading list in sections by line, and only the visible part of long files will be arranged. Long lines are automatically wrapped. */
 @Composable
 private fun PlainTextView(l: Loaded.Text) {
     val c = MinaTheme.colors
@@ -213,7 +216,7 @@ private fun PlainTextView(l: Loaded.Text) {
     }
 }
 
-/** 网页:一个新的 WebView,脚本打开、可双指缩放、按宽视口排版;点链接交给系统处理。 */
+/** Web page: a new WebView, the script is opened, can be zoomed with two fingers, and typeset according to the wide viewport; click the link and let the system process it. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun HtmlView(html: String) {
@@ -235,7 +238,7 @@ private fun HtmlView(html: String) {
     )
 }
 
-/** 图片:铺满可见区域(按比例),双指缩放,放大后单指拖动,双击放大或还原。 */
+/** Picture: Fill the visible area (proportionally), zoom with two fingers, drag with one finger after zooming in, double-click to enlarge or restore. */
 @Composable
 private fun PictureView(bitmap: Bitmap) {
     val zoom = remember { Zoom() }
@@ -251,7 +254,7 @@ private fun PictureView(bitmap: Bitmap) {
 
 // ---------- PDF ----------
 
-/** 打开的 PDF:各页的原始尺寸先读好(排版占位用),画页时一页一页来(渲染器同时只能开一页)。 */
+/** Open PDF: The original size of each page is read first (used for typesetting), and the pages are drawn one by one (the renderer can only open one page at the same time). */
 private class PdfDoc(private val fd: ParcelFileDescriptor) {
     private val renderer = PdfRenderer(fd)
     private val lock = Mutex()
@@ -269,7 +272,7 @@ private class PdfDoc(private val fd: ParcelFileDescriptor) {
         }
     }
 
-    /** 等手上这一页画完再关。 */
+    /** Wait until you finish drawing the page on hand before closing it. */
     fun close() {
         CoroutineScope(Dispatchers.IO).launch {
             lock.withLock {
@@ -280,7 +283,7 @@ private class PdfDoc(private val fd: ParcelFileDescriptor) {
     }
 }
 
-/** PDF:页按屏宽一列排开,只画看得见的页(滑走的页回收位图);双指缩放整列;底部「3 / 12」。 */
+/** PDF: The pages are arranged in a column according to the screen width, and only the visible pages are drawn (the sliding pages are recycled into bitmaps); pinch to zoom the entire column; "3 / 12" at the bottom. */
 @Composable
 private fun PdfView(uri: Uri, openElsewhere: () -> Unit) {
     val context = LocalContext.current
@@ -325,7 +328,7 @@ private fun PdfPages(doc: PdfDoc) {
     }
 }
 
-/** 视口中线所在的那一页。 */
+/** The page where the center line of the viewport is located. */
 private fun currentPage(list: LazyListState): Int {
     val info = list.layoutInfo
     val middle = (info.viewportStartOffset + info.viewportEndOffset) / 2
@@ -344,7 +347,8 @@ private fun PdfPage(doc: PdfDoc, index: Int, size: IntSize) {
             if (widthPx <= 0) return@produceState
             val b = runCatching { doc.render(index, widthPx) }.getOrNull() ?: return@produceState
             value = b
-            // 滑出列表或尺寸变了:先撤下再回收,别让界面画到已回收的位图
+            // Slide out of the list or the size has changed: remove it first and then recycle it, do not
+            // let the interface draw the recycled bitmap
             try { awaitCancellation() } finally { value = null; b.recycle() }
         }
         bitmap?.let { b ->
@@ -354,9 +358,9 @@ private fun PdfPage(doc: PdfDoc, index: Int, size: IntSize) {
     }
 }
 
-// ---------- 缩放 ----------
+// ---------- Zoom ----------
 
-/** 缩放和平移的状态:1 到 5 倍,平移不超出放大后的边。 */
+/** Zoom and pan status: 1 to 5 times, pan does not exceed the magnified side. */
 private class Zoom {
     var scale by mutableFloatStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
@@ -375,8 +379,9 @@ private class Zoom {
 }
 
 /**
- * 双指缩放、平移;[panWithOneFinger] 为真时放大后单指也能拖。
- * 在事件的第一轮里先拿到,两指时滚动列表就收不到,单指照常滚。
+ * Use two fingers to zoom and pan; when [panWithOneFinger] is true, you can also drag with one finger
+ * after zooming in. If you get it first in the first round of the event, you won't be able to get it
+ * when scrolling the list with two fingers. You can still scroll with one finger.
  */
 private fun Modifier.zoomable(zoom: Zoom, panWithOneFinger: Boolean): Modifier = this
     .pointerInput(zoom) {
@@ -399,7 +404,7 @@ private fun Modifier.zoomable(zoom: Zoom, panWithOneFinger: Boolean): Modifier =
         translationY = zoom.offset.y
     }
 
-// ---------- 状态 ----------
+// ---------- state ----------
 
 @Composable
 private fun Loading() {

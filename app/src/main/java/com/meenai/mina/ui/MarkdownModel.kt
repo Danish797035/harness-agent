@@ -43,26 +43,26 @@ import org.commonmark.parser.Parser
 import com.meenai.mina.ui.theme.LightColors
 import com.meenai.mina.ui.theme.MinaColors
 
-/** 回答里的 Markdown 解析成的显示模型:块级结构 + 带样式的行内文字。纯数据,不依赖界面。 */
+/** The display model parsed by Markdown in the answer: block-level structure + styled inline text. Pure data, does not rely on interfaces. */
 sealed interface MdBlock {
     data class Para(val text: AnnotatedString) : MdBlock
     data class Heading(val level: Int, val text: AnnotatedString) : MdBlock
     data class Code(val info: String, val code: String) : MdBlock
     data class Quote(val blocks: List<MdBlock>) : MdBlock
-    /** [start] 为 null 是无序列表;每个列表项是一组块。 */
+    /** [start] is null is an unordered list; each list item is a set of blocks. */
     data class ListBlock(val start: Int?, val tight: Boolean, val items: List<List<MdBlock>>) : MdBlock
-    /** 每行的格数都补齐到表头的列数。 */
+    /** The number of cells in each row is completed to the number of columns in the header. */
     data class Table(val header: List<AnnotatedString>, val rows: List<List<AnnotatedString>>) : MdBlock
     data class Image(val destination: String, val alt: String) : MdBlock
     data object Rule : MdBlock
 }
 
 object MarkdownModel {
-    /** 嵌套再深的引用、列表就按纯文字显示,免得递归太深。 */
+    /** No matter how deeply nested the references or lists are, they will be displayed as plain text to avoid recursion too deep. */
     private const val MAX_DEPTH = 12
     private val LINK_SCHEMES = setOf("http", "https", "mailto", "tel")
 
-    /** 行内代码和链接的样式;颜色跟着深浅色,由显示的地方按当前配色给。 */
+    /** The style of inline code and links; the color follows the dark and light colors, and is given by the current color matching where it is displayed. */
     class Styles(val code: SpanStyle, val link: TextLinkStyles) {
         companion object {
             fun of(c: MinaColors) = Styles(
@@ -78,7 +78,7 @@ object MarkdownModel {
         .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
         .build()
 
-    /** 解析失败(包括写到一半的流式文字导致的任何意外)时,整段按纯文字一段显示。 */
+    /** When parsing fails (including any accidents caused by half-written streaming text), the entire paragraph is displayed as plain text. */
     fun parse(markdown: String, styles: Styles = Styles.Light): List<MdBlock> = try {
         blocks(parser.parse(markdown), 0, styles)
     } catch (e: Exception) {
@@ -87,12 +87,14 @@ object MarkdownModel {
         plain(markdown)
     }
 
-    /** 流式片段可停在语法中间；只在显示时补全尾部，不修改实际回答。 */
+    /** Streaming snippets can be stopped in the middle of the grammar; only the tail is completed when displayed, and the actual answer is not modified. */
     fun parseStreaming(markdown: String, styles: Styles = Styles.Light): List<MdBlock> = parse(StreamingMarkdown.preview(markdown), styles)
 
     /**
-     * 回答去掉 Markdown 符号后的纯文字(复制、引用用):段落、标题、代码照原文,各块之间空一行;
-     * 列表每项一行,前面「• 」或「1. 」;引用每行前面「> 」;表格每行一行、格子之间用制表符;分隔线不要。
+     * Answer the plain text after removing the Markdown symbols (for copying and quoting): paragraphs,
+     * titles, and codes are as original text, with a blank line between each block; each item in the
+     * list is on one line, preceded by "•" or "1."; each line of quotation is preceded by ">"; each line
+     * of the table is one line, and tabs are used between cells; no separators are required.
      */
     fun toPlainText(markdown: String): String = blocksText(parse(markdown)).trim()
 
@@ -206,7 +208,8 @@ object MarkdownModel {
             is StrongEmphasis -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { appendInlines(n, s) }
             is Strikethrough -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { appendInlines(n, s) }
             is Link -> link(n.destination, s) { appendInlines(n, s) }
-            // 聊天里不显示图片,只留替代文字(有可打开的地址就做成链接)
+            // Do not display pictures in the chat, only leave alternative text (if there is an address
+            // that can be opened, make it a link)
             is Image -> link(n.destination, s) { if (n.firstChild != null) appendInlines(n, s) else append(n.destination.orEmpty()) }
             is HtmlInline -> append(n.literal)
             else -> appendInlines(n, s)

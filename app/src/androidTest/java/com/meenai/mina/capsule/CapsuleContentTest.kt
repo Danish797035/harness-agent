@@ -41,7 +41,7 @@ class CapsuleContentTest {
         show(CapsuleView.Shown(CapsuleKind.Running, "在搜牙膏", count = 1, runKey = "a", conversationId = "c"))
         compose.onNodeWithContentDescription("Mina 在干活：在搜牙膏，点开看详情").assertIsDisplayed()
         compose.onNodeWithTag("capsule-ring", useUnmergedTree = true).assertIsDisplayed()
-        // 一颗上不写那句话
+        // Don’t write that sentence on one
         compose.onNodeWithText("在搜牙膏").assertDoesNotExist()
         compose.onNodeWithTag("capsule-ball").performClick()
         assertEquals(listOf("open"), clicks)
@@ -52,24 +52,24 @@ class CapsuleContentTest {
         compose.setContent {
             MinaTheme(dark = false, reduceMotion = true) { CapsuleContent(view, {}, {}, {}) }
         }
-        // 好几件:角上写件数
+        // Several pieces: Write the number of pieces in the corner
         compose.onNodeWithTag("capsule-count", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("3", useUnmergedTree = true).assertIsDisplayed()
-        // 等条件:灰圈,没有件数
+        // Other conditions: gray circle, no number of pieces
         view = CapsuleView.Shown(CapsuleKind.Held, "先等等：排队中", count = 1)
         compose.onNodeWithTag("capsule-ring", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("capsule-count", useUnmergedTree = true).assertDoesNotExist()
-        // 看过的要你处理:还是一颗,橙圈
+        // I want you to deal with what you have seen: There is still one, orange circle
         view = CapsuleView.Shown(CapsuleKind.NeedConfirm, "要你同意：发送", count = 1, needCount = 1)
         compose.onNodeWithContentDescription("要你同意：发送，点开处理").assertIsDisplayed()
         compose.onNodeWithTag("capsule-ring", useUnmergedTree = true).assertIsDisplayed()
-        // 办好了、没办成、已停止:角标,没有圈
+        // Completed, not completed, stopped: corner mark, no circle
         for (kind in listOf(CapsuleKind.Done, CapsuleKind.Failed, CapsuleKind.Cancelled)) {
             view = CapsuleView.Shown(kind, "结果")
             compose.onNodeWithTag("capsule-badge", useUnmergedTree = true).assertIsDisplayed()
             compose.onNodeWithTag("capsule-ring", useUnmergedTree = true).assertDoesNotExist()
         }
-        // 空闲:只有图标
+        // Idle: only icons
         view = CapsuleView.Shown(CapsuleKind.Idle, "")
         compose.onNodeWithContentDescription(CapsuleCopy.IDLE).assertIsDisplayed()
         compose.onNodeWithTag("capsule-badge", useUnmergedTree = true).assertDoesNotExist()
@@ -98,7 +98,7 @@ class CapsuleContentTest {
         assertEquals(listOf("open"), clicks)
     }
 
-    /** 展开、缩回:同一块底换宽度,缩回后是一颗那么宽。 */
+    /** Expand and retract: Change the width of the same base, and it will be as wide as a star after retracting. */
     @Test fun pillShrinksBackToBall() {
         var view by mutableStateOf(CapsuleView.Shown(CapsuleKind.Done, "办好了 · 点开看结果", pill = true))
         compose.setContent {
@@ -122,7 +122,7 @@ class CapsuleContentTest {
         assertEquals(listOf("stop", "back"), clicks)
     }
 
-    /** 同一段([CapsuleView.Shown.widthEpoch] 不变)里换成短句,胶囊不变窄;换了一段才重新定宽。 */
+    /** If the same paragraph ([CapsuleView.Shown.widthEpoch] remains unchanged) is changed to a short sentence, the capsule will not be narrowed; the width will be reset after changing a paragraph. */
     @Test fun widthOnlyGrowsWithinEpoch() {
         var view by mutableStateOf(CapsuleView.Shown(CapsuleKind.NeedAnswer, "Mina 问你：要三家店里哪一家的", pill = true, widthEpoch = 1))
         compose.setContent {
@@ -137,7 +137,7 @@ class CapsuleContentTest {
         assertTrue("new epoch should re-fit: $narrow vs $wide", narrow < wide)
     }
 
-    /** 一颗淡下去时外圈和角标照样在;读屏时能「移到屏幕另一边」。 */
+    /** When the star fades out, the outer ring and corner mark are still there; when reading the screen, it can be "moved to the other side of the screen". */
     @Test fun fadedBallKeepsMarksAndOffersSwapSide() {
         var swapped = 0
         compose.setContent {
@@ -155,7 +155,7 @@ class CapsuleContentTest {
         assertEquals(1, swapped)
     }
 
-    /** 读屏时多一个「说话」代替长按;长按说话中胶囊亮蓝边。 */
+    /** When reading the screen, there is an additional "Talk" instead of long pressing; long pressing and talking will make the capsule light up with a blue border. */
     @Test fun talkActionAndHoldingRing() {
         var talked = 0
         compose.setContent {

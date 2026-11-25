@@ -39,7 +39,7 @@ class RunTimelineViewModelTest {
 
     private fun ready(runId: String) = RunTimelineViewModel(store, runId).load() as TimelineUi.Ready
 
-    /** 任务还在跑、还没有结束事件时算「进行中」:页面据此每秒重读,跑完就停。 */
+    /** When the task is still running and the event has not yet ended, it is considered "in progress": the page is reread every second and stops when it is finished. */
     @Test fun anUnfinishedRunOfALiveTaskReadsAsRunning() {
         val h = store.open("打开设置")
         store.append(h.runId, RunEvent.ModelReply(clock + 1_000, 1, "", null, null, 500, 10, 0, 900, repliedAtMs = clock + 1_000))
@@ -50,7 +50,7 @@ class RunTimelineViewModelTest {
         assertFalse("结束之后不再重读", done.header.running)
     }
 
-    /** 没有结束记录、任务也已经不在了(进程被杀、记录没写完):算已结束,不一直按秒重读。 */
+    /** The record is not ended and the task is no longer there (the process is killed and the record is not finished): it is considered to be over and does not keep rereading every second. */
     @Test fun anUnfinishedRunWhoseTaskIsGoneIsNotRunning() {
         val h = store.open("打开设置")
         store.append(h.runId, RunEvent.ModelReply(clock + 1_000, 1, "", null, null, 500, 10, 0, 900, repliedAtMs = clock + 1_000))
@@ -129,7 +129,8 @@ class RunTimelineViewModelTest {
         }
         val ui = ready(id)
         assertEquals(2, ui.header.modelCalls)
-        // 改派掉的 observe 不进步骤:这一步显示的是主模型的 tap
+        // The reassigned observe does not advance to the next step: this step displays the tap of the
+        // main model.
         assertEquals(ToolLabels(knownTools()).label("phone_tap"), ui.steps.single().tool)
     }
 
@@ -187,18 +188,18 @@ class RunTimelineViewModelTest {
     }
 
     @Test fun showsVerifierAndGuardTags() {
-        // 和 AgentLoop 一样用守卫自己的序列化拼结果
+        // Just like AgentLoop, use guard's own serialization to spell the results.
         fun withGuard(vararg v: GuardVerdict) =
             JsonObject(mapOf("ok" to JsonPrimitive(true), "guard" to JsonArray(v.map { it.toJson() }))).toString()
         val warn = withGuard(GuardVerdict("no_progress", Severity.Warn, buildJsonObject { put("same", 3) }))
         val stop = withGuard(GuardVerdict("repeating_action", Severity.Stop, buildJsonObject { put("code", "x"); put("n", 3) }))
-        // 键的顺序换了也认得
+        // Even if the order of the keys is changed, I can still recognize it.
         val reordered = """{"ok":true,"guard":[{"evidence":{"a":1},"severity":"warn","code":"too_many_failures"},{"severity":"warn","code":"brand_new"}]}"""
         val id = run("发消息") {
             event(RunEvent.ModelReply(clock, 1, "", "phone_scroll", "{}", null, null, null))
             event(RunEvent.ToolResult(clock, 1, "phone_scroll", warn, false, null))
             event(RunEvent.ModelReply(clock, 2, "", "phone_scroll", "{}", null, null, null))
-            // 截短的结果不再是合法 JSON,标签照样认得出
+            // The truncated result is no longer valid JSON, and the tags are still recognizable.
             event(RunEvent.ToolResult(clock, 2, "phone_scroll", RunEvent.clip(stop + " ".repeat(RunEvent.MAX_FIELD)), false, null))
             event(RunEvent.ModelReply(clock, 4, "", "phone_tap", "{}", null, null, null))
             event(RunEvent.ToolResult(clock, 4, "phone_tap", reordered, null, null))

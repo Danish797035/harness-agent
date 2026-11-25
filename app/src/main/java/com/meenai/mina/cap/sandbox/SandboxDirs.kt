@@ -7,14 +7,15 @@ import java.security.MessageDigest
 import com.meenai.mina.core.workspace.SandboxTree
 
 /**
- * 沙箱在宿主上的目录:`files/sandbox/` 下的根文件系统、工作区、技能、/proc 替身;PRoot 的临时目录在缓存里;
- * 可执行文件只在 [nativeDir](安卓 10 起数据目录里的文件不能 execve)。
+ * The directory of the sandbox on the host: the root file system, workspace, skills, /proc alias under
+ * `files/sandbox/`; the temporary directory of PRoot is in the cache; the executable file is only in
+ * [nativeDir] (files in the data directory cannot be execve since Android 10).
  */
 class SandboxDirs internal constructor(
     val root: File, val tmp: File, val nativeDir: File,
-    /** 宿主侧读写这些目录(沙箱碰得到)都过它;手机上是 [AndroidFdSys.gate],JVM 测试传按路径的那份。 */
+    /** The host side can read and write these directories (reachable by the sandbox) through it; on the mobile phone, it is [AndroidFdSys.gate], the copy of the JVM test transfer path. */
     val gate: WorkspaceFileGate,
-    /** 往这棵树里写都先拿它的许可;手机上是进程里那一份([SandboxOwner]),测试自己给一份。不设默认:私有的一份锁不住别人。 */
+    /** Before writing to this tree, you must first obtain its permission; the copy on your phone is the one in the process ([SandboxOwner]), and you can give it to yourself when testing. No default: a private copy cannot be locked to others. */
     val tree: SandboxTree,
 ) {
     constructor(context: Context) : this(
@@ -27,14 +28,16 @@ class SandboxDirs internal constructor(
     val skills: File get() = File(root, "skills")
     val procStandIns: File get() = File(root, "proc")
 
-    /** 一个对话一个工作区:简单名字的 ID 为 c-<ID>,其余为 h-<哈希>(不让 ID 拼出别的路径,两类也不会撞名)。 */
+    /** One conversation and one workspace: the ID of the simple name is c-<ID>, and the rest is h-<hash> (the ID is not allowed to spell out other paths, and the two categories will not conflict with each other). */
     fun workspace(conversationId: String): File = File(work, dirName(conversationId))
 
     fun lib(name: String): File = File(nativeDir, name)
 
     /**
-     * 绑定前把要绑的目录都建好:源目录不存在时 PRoot 会往标准错误写一句警告,
-     * 而标准错误并进了命令输出,模型会看到。技能目录还没同步时就是空目录。
+     * Before binding, create all the directories to be bound: when the source directory does not exist,
+     * PRoot will write a warning to the standard error, and the standard error will be merged into the
+     * command output, and the model will see it. When the skill directory has not been synchronized, it
+     * is an empty directory.
      */
     fun ensureBindSources(workspace: File) {
         for (d in listOf(workspace, skills, tmp)) d.mkdirs()

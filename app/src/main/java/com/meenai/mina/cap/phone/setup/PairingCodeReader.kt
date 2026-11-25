@@ -18,12 +18,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 
 /**
- * 配对时借 Mina 的无障碍服务读出系统配对窗口上的配对码,读到就直接配对,用户不用去通知里填。
- * 只在 [PairingCoordinator] 开着的这段时间里跑,只看系统设置的窗口;读到的码不写日志。
- * 无障碍没开就什么也不做,配对照样走通知。
+ * When pairing, use Mina's accessibility service to read the pairing code on the system pairing window,
+ * and pair directly after reading it. The user does not need to fill in the notification. Only run
+ * during the period when [PairingCoordinator] is open, and only look at the system settings window; no
+ * logs will be written for the read codes. If accessibility is not turned on, nothing will be done, and
+ * the notification will still be sent when paired.
  */
 internal object PairingCodeReader {
-    /** 窗口内容常常分几次刷出来,等它稳一下再读。 */
+    /** The content of the window is often brushed out several times, waiting for it to stabilize before reading. */
     private const val SETTLE_MS = 300L
     private const val MAX_NODES = 400
 
@@ -49,7 +51,7 @@ internal object PairingCodeReader {
         }
     }
 
-    /** 每个系统设置窗口各读一次:配对码和端口要在同一个窗口里(配对窗口下面那页也有一个「IP:端口」)。 */
+    /** Read each system setting window once: the pairing code and port must be in the same window (the page below the pairing window also has an "IP:Port"). */
     private fun readings(service: ScreenAccessibility, settings: String): List<PairingScreenReading> =
         service.windowsOn(Display.DEFAULT_DISPLAY).mapNotNull { w ->
             val root = runCatching { w.root }.getOrNull() ?: return@mapNotNull null

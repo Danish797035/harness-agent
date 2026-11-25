@@ -12,14 +12,18 @@ import kotlinx.serialization.json.put
 import java.io.File
 
 /**
- * 「记忆与技能」的三个开关:[useMemory] 总开关(关 = 不检索、不注入、不提取、不提供记忆工具);
- * [autoRemember]「自动记住我说过的事」;[learnSkills]「从办成的任务里学技能」(默认开,学到的要用户收下才用)。
+ * Three switches of "Memory and Skills": [useMemory] master switch (off = no retrieval, no injection, no
+ * extraction, no memory tools); [autoRemember] "automatically remember what I said"; [learnSkills]
+ * "learn skills from completed tasks" (on by default, the user must accept what they have learned before
+ * using it).
  */
 data class MemorySwitches(val useMemory: Boolean = true, val autoRemember: Boolean = true, val learnSkills: Boolean = true)
 
 /**
- * 开关存成一个小 JSON 文件;读不懂按默认值。
- * 旧版本存下的文件没有 [LEARN_DEFAULT_APPLIED]:那时「学技能」默认关,读的时候升级一次打开;之后一存就带上它,用户手动关掉就保持关闭。
+ * The switch is saved as a small JSON file; if you don't understand it, press the default value. Files
+ * saved in the old version do not have [LEARN_DEFAULT_APPLIED]: At that time, "Learn Skills" was off by
+ * default, and it was opened once when reading; after that, it was brought in as soon as it was saved,
+ * and it remained closed when the user manually turned it off.
  */
 class MemorySettings(private val file: File) {
     private val _switches = MutableStateFlow(read())

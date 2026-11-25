@@ -1,10 +1,10 @@
 package com.meenai.mina.core.record
 
-/** 运行记录的接收方。实现方自己吞掉写盘错误:记录失败不能影响任务。 */
+/** Receiver of running records. The implementation swallows disk write errors by itself: recording failure cannot affect the task. */
 interface RunSink {
     fun event(e: RunEvent)
 
-    /** [png] 是第 [mediaId] 张存下的画面。 */
+    /** [png] is the saved picture [mediaId]. */
     fun media(mediaId: Int, png: ByteArray) {}
 
     companion object {

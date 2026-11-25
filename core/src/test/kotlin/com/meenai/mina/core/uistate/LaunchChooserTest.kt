@@ -23,14 +23,17 @@ class LaunchChooserTest {
         val window = listOf(el(1, "选择要打开的应用", clickable = false), el(2, "Chat"), el(3, "Chat (分身应用)"), el(4, "取消"))
         val options = LaunchChooser.options("Chat", window, profiles = listOf("分身应用"))!!
         assertEquals(listOf(ChoiceOption("Chat", clone = false), ChoiceOption("Chat (分身应用)", clone = true)), options)
-        // 不知道另一份用户叫什么:名字正好是 App 名的是本来那份,其余看不出
+        // I don’t know the name of the other user: the one whose name happens to be the name of the app
+        // is the original one, and the rest cannot be seen
         assertEquals(listOf(false, null), LaunchChooser.options("Chat", window, emptyList())!!.map { it.clone })
-        // 两项名字一模一样(只靠角标区分):都列出来,不说哪个是本来那份
+        // The two names are exactly the same (differentiated only by corner marks): both are listed,
+        // without saying which one is the original one.
         assertEquals(listOf(null, null), LaunchChooser.options("Chat", listOf(el(1, "Chat"), el(2, "Chat")), listOf("分身应用"))!!.map { it.clone })
     }
 
     @Test fun windowsThatOnlyMentionTheAppAreNotAChoice() {
-        // 权限框的说明文字提到 App 名,按钮不带:不是在问打开哪一个
+        // The description text of the permission box mentions the app name, but the button does not: it
+        // is not asking which one to open.
         val permission = listOf(el(1, "要允许 Chat 发送通知吗?", clickable = false), el(2, "允许"), el(3, "不允许"))
         assertNull(LaunchChooser.options("Chat", permission, emptyList()))
         assertNull(LaunchChooser.options("", listOf(el(1, "Chat")), emptyList()))

@@ -5,7 +5,7 @@ import com.meenai.mina.core.uistate.ScreenPort
 import com.meenai.mina.core.uistate.ScreenSnapshot
 import com.meenai.mina.core.uistate.UiElement
 
-/** 剧本里的一屏。 */
+/** A screen in the script. */
 data class Screen(val app: String, val elements: List<UiElement>)
 
 fun button(ref: String, name: String, y: Int = 500) =
@@ -18,8 +18,10 @@ fun field(ref: String, name: String, y: Int = 900, hint: Boolean = true) =
     UiElement(ref, "edit", name, 540, y * 24 / 10, listOf(0, y - 40, 999, y + 40), null, true, true, false, hint = hint)
 
 /**
- * 按剧本换屏的手机屏幕:读屏(编号 s1、s2…)给出当前一屏;每个写操作取 [results] 里的下一个结果(用完为 Ok(changed=true)),
- * 结果是画面变了的 Ok 就换到下一屏(最后一屏之后停在最后一屏)。不登记编号的 peek 编号 p1、p2…。
+ * The mobile phone screen changes according to the script: reading the screen (numbered s1, s2...) gives
+ * the current screen; each writing operation takes the next result in [results] (when used up, it is Ok
+ * (changed=true)). If the result is that the screen has changed, Ok will change to the next screen (it
+ * will stop at the last screen after the last screen). The peek numbers p1, p2... are not registered.
  */
 class ScriptedScreen(private val screens: List<Screen>, results: List<ActionResult> = emptyList()) : ScreenPort {
     private val results = ArrayDeque(results)

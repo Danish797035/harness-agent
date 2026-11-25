@@ -100,13 +100,13 @@ import java.time.ZoneOffset
 import com.meenai.mina.i18n.uiLocale
 import kotlin.math.roundToInt
 
-/** 用量页顶上的五段:前四段是固定的范围,[Custom] 打开日期选择。 */
+/** The five segments at the top of the usage page: the first four segments are fixed ranges, [Custom] opens date selection. */
 enum class UsagePreset(private val labelRes: Int) {
     Day(R.string.usage_24h), Week(R.string.usage_7d), Month(R.string.usage_30d), Quarter(R.string.usage_90d), Custom(R.string.usage_custom);
 
     val label: String get() = tr(labelRes)
 
-    /** 这一段对应的范围;[Custom] 要给出 [from]..[to](本地日期)。 */
+    /** The corresponding range of this section; [Custom] should give [from]..[to](local date). */
     fun range(from: LocalDate?, to: LocalDate?): UsageRange = when (this) {
         Day -> UsageRange.Last24Hours
         Week -> UsageRange.LastDays(7)
@@ -116,10 +116,10 @@ enum class UsagePreset(private val labelRes: Int) {
     }
 }
 
-/** 按模型排行里的一行:[share] 是占这一排(全部服务商,或选中的那家)的比例。 */
+/** A row in the model ranking: [share] is the proportion of this row (all service providers, or the selected one). */
 data class ModelRank(val provider: ProviderUsage, val model: ModelUsage, val share: Double)
 
-/** Token 用量的文字、数字写法和图表用的小规则。 */
+/** Small rules for writing token usage in words, numbers, and charts. */
 object UsageCopy {
     val TITLE: String get() = tr(R.string.usage_title)
     val NONE: String get() = tr(R.string.usage_none)
@@ -138,12 +138,12 @@ object UsageCopy {
     val CHANGE_DATES: String get() = tr(R.string.usage_change_dates)
     const val UNIT = "Token"
 
-    /** 图表里有自己颜色的服务商最多几家(主题里 [MinaColors.series] 的个数),其余在趋势图里归为「其他」。 */
+    /** The maximum number of service providers with their own colors in the chart (the number of [MinaColors.series] in the theme), and the rest are classified as "others" in the trend chart. */
     const val COLORED = 3
 
     /**
-     * token 数:一万以下照写;往上按 K、M、B,保留三位有效数字(四舍五入,去掉末尾的 0),
-     * 例如 8765、10K、12.3K、123K、1.23M、1.5B。
+     * Number of tokens: Write as below 10,000; press K, M, B upwards and keep three significant digits
+     * (round off and remove the 0 at the end), such as 8765, 10K, 12.3K, 123K, 1.23M, 1.5B.
      */
     fun tokens(n: Long): String {
         if (n < 10_000) return n.toString()
@@ -163,12 +163,12 @@ object UsageCopy {
         RoundingMode.HALF_UP,
     )
 
-    /** 设置首页那一行的值:近 7 天的合计,没有时写「还没有」。 */
+    /** Set the value of the row on the home page: the total of the past 7 days. If not, write "not yet". */
     fun settingsValue(weekTokens: Long): String = if (weekTokens <= 0) NONE else tr(R.string.usage_last_7d, tokens(weekTokens))
 
     fun calls(n: Long) = trPlural(R.plurals.times, n.toInt())
 
-    /** 占比:不到 1% 但不是 0 时写「<1%」。 */
+    /** Proportion: less than 1% but not 0, write "<1%". */
     fun percent(share: Double): String {
         val p = (share * 100).roundToInt()
         return if (p == 0 && share > 0) "<1%" else "$p%"
@@ -184,12 +184,12 @@ object UsageCopy {
         UsageStep.Week -> tr(R.string.usage_weekly)
     }
 
-    /** 本地日期:今年的不写年份。 */
+    /** Local date: Do not write the year of this year. */
     fun date(d: LocalDate, today: LocalDate): String =
         if (d.year == today.year) tr(R.string.date_month_day, d.monthValue, d.month.getDisplayName(java.time.format.TextStyle.SHORT, uiLocale()), d.dayOfMonth)
         else tr(R.string.date_year_month_day, d.year, d.monthValue, d.month.getDisplayName(java.time.format.TextStyle.SHORT, uiLocale()), d.dayOfMonth)
 
-    /** 范围选择下面那一行,写出实际是哪几天。 */
+    /** Select the line below for the range and write down the actual days. */
     fun rangeText(range: UsageRange, today: LocalDate): String = when (range) {
         UsageRange.Last24Hours -> tr(R.string.usage_past_24h)
         is UsageRange.LastDays -> tr(R.string.usage_until_today, date(UsageQuery.days(range, today).first, today))
@@ -198,7 +198,7 @@ object UsageCopy {
         }
     }
 
-    /** 趋势图下面的刻度:按小时写「18:00」(此刻那一格写「现在」),按天、按周写「10/27」(今天写「今天」)。 */
+    /** The scale under the trend chart: write "18:00" by hour (write "now" in the box at this moment), write "10/27" by day and week (write "today" by day). */
     fun axis(b: UsageBucket, step: UsageStep, today: LocalDate, last: Boolean = false): String = when {
         step == UsageStep.Hour && last -> tr(R.string.usage_now)
         step == UsageStep.Hour -> "%d:%02d".format(b.start.hour, b.start.minute)
@@ -206,7 +206,7 @@ object UsageCopy {
         else -> "${b.start.monthValue}/${b.start.dayOfMonth}"
     }
 
-    /** 点中一根柱子时说的是哪段时间。 */
+    /** Which period of time is indicated when you click on a pillar. */
     fun period(b: UsageBucket, step: UsageStep, today: LocalDate): String = when (step) {
         UsageStep.Hour -> "%d:%02d".format(b.start.hour, b.start.minute)
         UsageStep.Day -> date(b.start.toLocalDate(), today)
@@ -217,10 +217,10 @@ object UsageCopy {
         }
     }
 
-    /** 这家服务商在图表里用第几种颜色;排在 [COLORED] 家之后的为 null(灰色、趋势图里归「其他」)。 */
+    /** What color does this service provider use in the chart? The one after [COLORED] is null (gray, and it is classified as "other" in the trend chart). */
     fun colorSlot(p: ProviderUsage): Int? = p.order.takeIf { it < COLORED }
 
-    /** 网格线的顶:不小于 [max] 的 1、2、4、6、8 乘 10 的幂,一半处的刻度也是整数。 */
+    /** The top of the grid line: not less than the power of 1, 2, 4, 6, 8 times 10 of [max], and the scale at half of it is also an integer. */
     fun niceMax(max: Long): Long {
         if (max <= 0) return 1
         var scale = 1L
@@ -228,7 +228,7 @@ object UsageCopy {
         return listOf(1L, 2L, 4L, 6L, 8L, 10L).map { it * scale }.first { it >= max }
     }
 
-    /** 按模型排行:选了服务商只列这家的,没选列全部服务商的;按 token 从多到少,占比按这一排的合计。 */
+    /** Ranking by model: If you select a service provider, only this one will be listed, not all service providers; by token, from most to least, the proportion will be based on the total of this row. */
     fun modelRanking(report: UsageReport, providerId: String?): List<ModelRank> {
         val from = providerId?.let { id -> listOfNotNull(report.provider(id)) } ?: report.providers
         val rows = from.flatMap { p -> p.models.map { p to it } }
@@ -239,14 +239,18 @@ object UsageCopy {
 }
 
 /**
- * 设置 › Token 用量:一个页面。顶上选时间和这段时间的总用量,下面三张图:用量趋势(按服务商叠起来)、
- * 按服务商排行(点一家选中,再点取消)、按模型排行(可切服务商)。选中的服务商只影响图里亮哪家、模型列哪家的,
- * 总用量始终是全部。账本每记一笔([UsageLedger.version])就重新统计;本地时区在统计时换算。
+ * Settings › Token Usage: One page. Select the time at the top and the total usage during this period,
+ * and there are three pictures below: Usage trend (stacked by service provider), ranking by service
+ * provider (click one to select, then click cancel), and ranking by model (can switch service
+ * providers). The selected service provider only affects which one is highlighted in the picture and
+ * which one is listed in the model. The total usage is always all. Every time a record
+ * ([UsageLedger.version]) is recorded in the ledger, the statistics are recalculated; the local time
+ * zone is converted during statistics.
  */
 @Composable
 fun UsageScreen(ledger: UsageLedger, providers: StateFlow<List<Provider>>, onBack: () -> Unit) {
     var preset by rememberSaveable { mutableStateOf(UsagePreset.Week) }
-    // 自定义范围的两头,存成纪元日(rememberSaveable 能存的类型)
+    // Both ends of the custom range are saved as the epoch day (rememberSaveable type can be saved)
     var customFrom by rememberSaveable { mutableStateOf<Long?>(null) }
     var customTo by rememberSaveable { mutableStateOf<Long?>(null) }
     var picking by remember { mutableStateOf(false) }
@@ -257,11 +261,13 @@ fun UsageScreen(ledger: UsageLedger, providers: StateFlow<List<Provider>>, onBac
     val zone = ZoneId.systemDefault()
     val report by produceState<UsageReport?>(null, version, range, live) {
         value = withContext(Dispatchers.Default) {
-            // 连着的服务商按连接先后传进去,配色按这个先后固定
+            // The connected service providers are passed in according to the connection order, and the
+            // color matching is fixed according to this order.
             UsageQuery.report(ledger.snapshot(), range, Instant.now(), zone, live.associate { it.id to it.name })
         }
     }
-    // 换了时间后选中的服务商在这段里没有用量了,就退回全部
+    // If the service provider selected after changing the time has no usage during this period, all will
+    // be refunded.
     LaunchedEffect(report) {
         val r = report ?: return@LaunchedEffect
         if (selected?.let(r::provider) == null) selected = null
@@ -290,9 +296,11 @@ fun UsageScreen(ledger: UsageLedger, providers: StateFlow<List<Provider>>, onBac
 }
 
 /**
- * 不带状态的用量页,便于测试。[report] 为 null 表示还在统计,只显示范围选择。
- * [onPreset] 收到 [UsagePreset.Custom] 时由调用方打开日期选择;已经是自定义时点「改日期」也打开([onPickCustom])。
- * [selected] 是选中的服务商(null 为全部),点排行或胶囊经 [onSelect] 改。
+ * Usage page without status for easy testing. [report] is null, indicating that statistics are still
+ * being collected and only range selection is displayed. [onPreset] When [UsagePreset.Custom] is
+ * received, the caller opens the date selection; "Change date" is also opened at the custom time point
+ * ([onPickCustom]). [selected] is the selected service provider (null means all), click the ranking or
+ * capsule to change it with [onSelect].
  */
 @Composable
 fun UsageContent(
@@ -378,7 +386,7 @@ fun UsageContent(
 
 private fun seriesColor(c: MinaColors, p: ProviderUsage): Color = UsageCopy.colorSlot(p)?.let { c.series.getOrNull(it) } ?: c.seriesOther
 
-/** 总用量卡:大字是输入加输出,下面一排输入、输出、缓存命中、调用次数。 */
+/** Total usage card: The big words are input plus output, and the bottom row is input, output, cache hits, and call times. */
 @Composable
 private fun TotalsCard(t: UsageTotals) {
     val c = MinaTheme.colors
@@ -415,7 +423,7 @@ private fun Stat(label: String, value: String, modifier: Modifier) {
     }
 }
 
-/** 一张图的卡片:左边标题,右边一句小字。 */
+/** A card with a picture: a title on the left and a small text on the right. */
 @Composable
 private fun ChartCard(title: String, hint: String, content: @Composable () -> Unit) {
     val c = MinaTheme.colors
@@ -432,7 +440,7 @@ private fun ChartCard(title: String, hint: String, content: @Composable () -> Un
 
 private val CardTitle = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
 
-/** 没有用量时:一张居中的说明卡。 */
+/** Without dosage: a centered instruction card. */
 @Composable
 private fun EmptyCard() {
     val c = MinaTheme.colors
@@ -449,8 +457,10 @@ private fun EmptyCard() {
 }
 
 /**
- * 排行的一行:名字、横条(颜色是服务商的)、用量和占比。[dim] 时整行变淡(选了别的服务商),[bold] 时名字加粗(选中的);
- * [muted] 的名字用辅助文字色(已删除的服务商)。
+ * The ranking row: name, horizontal bar (the color is that of the service provider), usage and
+ * proportion. When [dim], the whole line becomes lighter (another service provider is selected), when
+ * [bold], the name is bolded (selected); when [muted], the name uses the auxiliary text color (the
+ * service provider has been deleted).
  */
 @Composable
 private fun RankRow(
@@ -495,7 +505,7 @@ private val RankMono = TextStyle(fontSize = 12.5.sp, lineHeight = 18.sp, fontFam
 private val RankValue = TextStyle(fontSize = 13.sp, lineHeight = 17.sp)
 private val RankShare = TextStyle(fontSize = 11.sp, lineHeight = 14.sp)
 
-/** 切换服务商的胶囊:选中时强调色实底;[deleted] 的名字变淡、后面写「（已删除）」。 */
+/** Capsules for switching service providers: When selected, the color is emphasized and the solid background is highlighted; the name of [deleted] becomes lighter and "(deleted)" is written after it. */
 @Composable
 private fun UsageChip(text: String, selected: Boolean, onClick: () -> Unit, deleted: Boolean = false, tag: String) {
     val c = MinaTheme.colors
@@ -519,13 +529,16 @@ private fun UsageChip(text: String, selected: Boolean, onClick: () -> Unit, dele
 
 private val ChipText = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
 
-/** 趋势图里的一段:有自己颜色的服务商各一段([slot] 是颜色序号),其余合成「其他」([slot] 为 null)。 */
+/** A segment in the trend chart: each service provider has its own color ([slot] is the color number), and the rest are combined into "others" ([slot] is null). */
 private data class StackPart(val slot: Int?, val tokens: Long)
 
 /**
- * 用量趋势:每格一根柱子,按服务商叠起来(有颜色的在下、「其他」在最上),段与段、柱与柱之间留 2dp,每根柱子顶上圆角 4dp。
- * 右边留一列写两条虚线网格的刻度(整数的顶和一半)。点一根在上方写出这一格的合计和各家的用量,再点一次收起;
- * 选了服务商时别家的段淡到四分之一。
+ * Usage trend: One pillar per grid, stacked according to the service provider (the colored one is at the
+ * bottom, "other" is at the top), leaving 2dp between segments and columns, and 4dp rounded corners on
+ * the top of each column. Leave a column on the right to write the scale of the two dotted grids (the
+ * top and half of the integer). Click one to write the total of this box and the usage of each company
+ * at the top, and click again to close it; when you choose a service provider, the other companies'
+ * segments will fade to a quarter.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -537,7 +550,7 @@ private fun TrendChart(report: UsageReport, selected: String?, today: LocalDate)
     val colored = report.providers.filter { UsageCopy.colorSlot(it) != null }.sortedBy { it.order }
     val hasOthers = report.providers.any { UsageCopy.colorSlot(it) == null && it.totals.tokens > 0 }
     val selectedSlot = selected?.let(byId::get)?.let { UsageCopy.colorSlot(it) ?: -1 }
-    // 自下而上:有颜色的按先后,「其他」在最上
+    // Bottom-up: colored items in order, "others" on top
     val slots: List<Int?> = colored.map(UsageCopy::colorSlot) + if (hasOthers) listOf(null) else emptyList()
     val stacks = series.map { b ->
         val bySlot = b.byProvider.entries.groupBy { byId[it.key]?.let(UsageCopy::colorSlot) }
@@ -597,7 +610,7 @@ private fun TrendChart(report: UsageReport, selected: String?, today: LocalDate)
                 }
             }
         }
-        // 网格刻度写在右边那一列
+        // The grid scale is written in the right column
         GridLabel(UsageCopy.tokens(nice), Modifier.align(Alignment.TopEnd).offset(y = (-7).dp))
         GridLabel(UsageCopy.tokens(nice / 2), Modifier.align(Alignment.CenterEnd).offset(y = (-7).dp))
         tapped?.let { i -> TrendTip(series[i], report, i, gutter, today) }
@@ -631,7 +644,7 @@ private fun GridLabel(text: String, modifier: Modifier) {
 
 private val GridText = TextStyle(fontSize = 10.5.sp, lineHeight = 14.sp)
 
-/** 点中一根柱子时的说明:哪段时间、合计,下面各家服务商各一行(按用量从多到少);横向对着那根柱子,不出图的左右边。 */
+/** Instructions when clicking on a pillar: Which period of time, total, each service provider below has one line (from most to least usage); face that pillar horizontally, and do not show the left and right sides of the picture. */
 @Composable
 private fun TrendTip(b: UsageBucket, report: UsageReport, index: Int, gutter: Dp, today: LocalDate) {
     val c = MinaTheme.colors
@@ -660,11 +673,11 @@ private fun TrendTip(b: UsageBucket, report: UsageReport, index: Int, gutter: Dp
 private val TipShape = RoundedCornerShape(8.dp)
 private val TipText = TextStyle(fontSize = 11.5.sp, lineHeight = 18.sp)
 
-/** 自定义范围的日期选择:只能选账本还留着的日子(最近 [UsageLedger.KEEP_DAYS] 天)到今天,两头都选了才可查看。 */
+/** Custom range date selection: You can only select the days from which the ledger is still retained (the most recent [UsageLedger.KEEP_DAYS] days) to today. You can view both ends by selecting both. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UsageRangePicker(today: LocalDate, from: LocalDate?, to: LocalDate?, onPicked: (LocalDate, LocalDate) -> Unit, onDismiss: () -> Unit) {
-    // 日期选择器的日期是 UTC 零点的毫秒数
+    // The date picker date is the number of milliseconds from UTC zero
     fun millis(d: LocalDate) = d.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     fun date(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate()
     val earliest = today.minusDays(UsageLedger.KEEP_DAYS.toLong())

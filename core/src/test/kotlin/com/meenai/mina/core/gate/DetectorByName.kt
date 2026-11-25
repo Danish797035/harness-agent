@@ -6,7 +6,7 @@ import com.meenai.mina.core.tool.FakeScreen
 import kotlinx.serialization.json.JsonObject
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 测试里按工具名判:目标取工具声明的那个(和执行入口传给判定的一样)。 */
+/** In the test, the judgment is based on the tool name: the target is the one declared by the tool (the same as the one passed to the judgment at the execution entry). */
 private val declarations by lazy { toolDispatcher(FakeScreen()) }
 
 internal fun gateTargetOf(tool: String): GateTarget? = declarations.gateTarget(tool)

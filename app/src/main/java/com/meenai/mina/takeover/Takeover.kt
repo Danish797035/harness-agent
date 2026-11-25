@@ -13,46 +13,51 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** 接管要用到的设备能力与 Agent 动作;由任务服务按当前任务实现。任务编号无效时为 -1。 */
+/** Take over the device capabilities and Agent actions to be used; implemented by the task service according to the current task. -1 when the task number is invalid. */
 interface TakeoverPort {
-    /** Agent 虚拟屏最上面的任务。 */
+    /** Agent The top task on the virtual screen. */
     suspend fun agentTopTask(): Int
-    /** launch_app 打开的那个任务与包。 */
+    /** The task and package opened by launch_app. */
     suspend fun targetTask(): Int
     fun targetPackage(): String?
     suspend fun packageOf(taskId: Int): String?
-    /** 任务所在的屏;任务已经不在了(页面办完自己关掉了)为 -1。 */
+    /** The screen where the task is located; the task is no longer there (the page is closed after completing it) is -1. */
     suspend fun displayOf(taskId: Int): Int
     suspend fun moveToMain(taskId: Int): Boolean
     suspend fun moveBack(taskId: Int): Boolean
-    /** 开或关该 App 的声音。 */
+    /** Turn the app's sound on or off. */
     fun setSound(packageName: String, on: Boolean)
-    /** 开始数用户在主屏上对该包的操作;App 交到用户手上时调用。 */
+    /** Start counting the user's operations on the package on the home screen; called when the App is handed over to the user. */
     fun watchInput(packageName: String)
-    /** 此刻数到的操作和所在页面;没在数时为 null。 */
+    /** The operation and page being counted at this moment; it is null when not counting. */
     suspend fun handoverActivity(): HandoverActivity?
     fun stopWatching()
-    /** 把接管的结局交还 Agent 循环。 */
+    /** Return the end of the takeover to the Agent loop. */
     suspend fun resume(result: HandBack)
     fun cancel()
 
     /**
-     * 当前界面是网页时,把当前标签(同一个页面)拿到主屏给用户:成功 true,失败 false;不是网页界面为 null,走挪任务的老路。
-     * [key] 是这次等待的编号,网页接管界面上的按钮带着它。
+     * When the current interface is a web page, take the current tab (the same page) to the home screen
+     * and give it to the user: true if successful, false if failed; if the web interface is not null,
+     * follow the old path of moving tasks. [key] is the waiting number this time, and the button on the
+     * web page takeover interface carries it.
      */
     suspend fun showWeb(reason: String, key: Int): Boolean? = null
 
-    /** 把网页标签放回后台,返回接管期间的操作次数和页面标题;[loggedIn] 时把当前网站记为「用户登录过」。 */
+    /** Put the web page tag back into the background, return the number of operations and page title during the takeover; when [loggedIn], record the current website as "user logged in". */
     suspend fun returnWeb(loggedIn: Boolean): HandoverActivity? = null
 
-    /** 主屏上的网页界面此刻被占着(设置页的网站登录开着):[showWeb] 失败时据此告诉用户「先把那边弄完」而不是「挪动失败」。 */
+    /** The web interface on the home screen is currently occupied (the login page of the settings page is open): [showWeb]. When it fails, the user will be told to "finish there first" instead of "the move failed". */
     fun webBusy(): Boolean = false
 }
 
 /**
- * 主屏一次只交一个 App 给用户:几个任务同时请求接管时按先后排队,只有排在最前的能「我来处理」。
- * 排队的是各任务的 [Takeover];[changes] 每次进出队都变,任务服务据此重画通知。
- * 排在后面的不计等待时限,排到最前时才开始计时(见 [Takeover.reachedFront])。
+ * Only one App is handed over to the user on the home screen at a time: when several tasks are requested
+ * to be taken over at the same time, they are queued in order, and only the one at the top can be
+ * "handled by me". The queued [Takeover]; [changes] of each task changes every time it enters and exits
+ * the queue, and the task service redraws the notification accordingly. Those at the back of the queue
+ * will not count the waiting time limit, and the waiting time will only start when the queue reaches the
+ * front (see [Takeover.reachedFront]).
  */
 class TakeoverQueue {
     private val waiting = mutableListOf<Takeover>()
@@ -73,13 +78,13 @@ class TakeoverQueue {
         front?.reachedFront()
     }
 
-    /** 不在队里的(没在等接管)也算最前:它不会挡别人,也不被别人挡。 */
+    /** Those that are not in the team (not waiting to take over) are also considered the front: they will not block others, nor will they be blocked by others. */
     @Synchronized fun isFirst(owner: Any): Boolean = waiting.indexOfFirst { it === owner } <= 0
 
-    /** [owner] 前面还有几个任务在等用户处理;不在队里为 -1。 */
+    /** [owner] There are still several tasks waiting for the user to process; not in the queue is -1. */
     @Synchronized fun ahead(owner: Any): Int = waiting.indexOfFirst { it === owner }
 
-    /** 排在 [owner] 后面还有几个任务等用户处理。 */
+    /** There are several tasks waiting for the user to process after [owner]. */
     @Synchronized fun behind(owner: Any): Int {
         val i = waiting.indexOfFirst { it === owner }
         return if (i < 0) 0 else waiting.size - 1 - i
@@ -87,12 +92,15 @@ class TakeoverQueue {
 }
 
 /**
- * 接管的状态机:Agent 请求接管 → 等待 →「我来处理」把虚拟屏最上面的任务挪到主屏 →
- * 「处理好了」/「我自己做完了」挪回并交还 Agent;「跳过」不处理直接交还(App 在主屏就先挪回);
- * 任何时候都可「取消任务」,取消时 App 留在原处。
- * 没人点「我来处理」时等 [TAKEOVER_WAIT_TIMEOUT_MS] 后交还超时,App 不挪动;接手之后不再计时。
- * 计时跑在 [scope] 上,[now] 量接手时长;测试换成虚拟时间。
- * 给了 [queue] 时和其他任务的接管排队,排在后面的不能「我来处理」。
+ * The state machine of the takeover: Agent requests to take over → Wait → "I will handle it" and move
+ * the top task of the virtual screen to the home screen → "Processed" / "I have done it myself" Move it
+ * back and return it to the Agent; "Skip" and return it directly without processing (the App will be
+ * moved back to the home screen first); You can "Cancel the task" at any time, and the App will stay
+ * where it is when cancelled. When no one clicks "I will handle it", the handover will time out after
+ * [TAKEOVER_WAIT_TIMEOUT_MS], and the App will not move; it will no longer time after taking over. The
+ * timing runs on [scope], and the [now] measurement takes over the duration; the test is replaced by
+ * virtual time. When [queue] is given and other tasks are queued for taking over, those at the back
+ * cannot be "handled by me".
  */
 class Takeover(
     private val port: TakeoverPort,
@@ -106,22 +114,22 @@ class Takeover(
     private val _stage = MutableStateFlow(Stage.None)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
     private val _problem = MutableStateFlow<Problem?>(null)
-    /** 最近一次挪动失败的原因,下一次成功后清空。 */
+    /** The reason for the failure of the latest move. It will be cleared after the next success. */
     val problem: StateFlow<Problem?> = _problem.asStateFlow()
 
-    /** App 在用户手上(主屏):这时它不在虚拟屏上是有意的,不算「被用户拿走」。 */
+    /** The App is in the user's hand (home screen): At this time, it is not on the virtual screen intentionally and is not considered "taken away by the user". */
     val handedOver: Boolean get() = _stage.value == Stage.HandedOver
 
     private val mutex = Mutex()
-    /** 当前这次等待,和已经交还的那次;同一个状态在循环往下走之前被再次发布时不能重新进入等待。 */
+    /** The current wait, and the one that has been handed back; the same state cannot be re-entered when it is released again before the cycle goes down. */
     @Volatile private var current: TaskState.WaitingTakeover? = null
     @Volatile private var answered: TaskState.WaitingTakeover? = null
-    /** 第几次等待;通知按钮带着它,点到的若是上一次等待遗留的就不算数。 */
+    /** How many times to wait; the notification button carries it, and if the clicked one is left over from the last wait, it will not count. */
     @Volatile var waitKey = 0
         private set
-    /** 交到用户手上的是网页标签(不是挪到主屏的任务)。 */
+    /** What is handed over to the user is the web page tab (not the task of moving it to the home screen). */
     private var handedWeb = false
-    /** 挪到主屏的任务和它的包。 */
+    /** Move the task and its package to the home screen. */
     private var handed = -1
     private var handedPackage: String? = null
     private var handedAt = 0L
@@ -135,10 +143,12 @@ class Takeover(
                 waitKey++
                 _problem.value = null
                 _stage.value = Stage.Waiting
-                // 排在别的任务的接管后面时先不计时:用户还没空看它
+                // Do not time it when it is queued behind the takeover of other tasks: the user has not
+                // had time to look at it yet
                 if (queue == null || queue.isFirst(this)) armTimer(state)
             }
-            // 等待接管时循环停在那里,不会发布别的状态;发布了别的就是交还后往下走了,或任务结束了
+            // When waiting for takeover, the loop stops there and no other status will be released; if
+            // other status is released, it will be returned and then go down, or the task will end.
             else -> {
                 stopTimer()
                 if (_stage.value == Stage.HandedOver) port.stopWatching()
@@ -154,13 +164,14 @@ class Takeover(
         }
     }
 
-    /** 「我来处理」。 */
+    /** "I'll handle it." */
     suspend fun handOver(key: Int? = null): Boolean = mutex.withLock {
         if (_stage.value != Stage.Waiting || !keyMatches(key)) return false
         if (queue != null && !queue.isFirst(this)) return false
-        // 先标记再挪:轮询「被挪走」的监视器可能在挪动刚完成时就看到
+        // Mark first, then move: Monitors polling for "moved" may see this as soon as the move is
+        // completed.
         _stage.value = Stage.HandedOver
-        // 网页界面:把同一个标签拿到眼前,不挪任务、不动声音
+        // Web interface: hold the same tab in front of your eyes without moving tasks or sound
         when (port.showWeb(current?.reason ?: "other", waitKey)) {
             true -> {
                 handedWeb = true
@@ -176,7 +187,8 @@ class Takeover(
             }
             null -> Unit
         }
-        // 挪虚拟屏最上面的任务:App 常把登录、付款页开在另一个任务里
+        // Move the task at the top of the virtual screen: App often opens the login and payment pages in
+        // another task
         val id = port.agentTopTask().takeIf { it >= 0 } ?: port.targetTask()
         if (id >= 0) {
             if (!port.moveToMain(id)) {
@@ -197,18 +209,20 @@ class Takeover(
         true
     }
 
-    /** 「处理好了」:Agent 先读屏核实再继续。 */
+    /** "Processed": Agent reads the screen to verify before continuing. */
     suspend fun handBack(key: Int? = null): Boolean = giveBack(HandBack(HandBackOutcome.complete), key)
 
-    /** 「我自己做完了」:Agent 不再操作,只核实结果并结束。 */
+    /** "I finished it myself": Agent no longer operates, only verifies the results and ends. */
     suspend fun finishedMyself(key: Int? = null): Boolean = giveBack(HandBack(HandBackOutcome.complete, userFinished = true), key)
 
-    /** 「跳过」:不处理,告诉 Agent 没有发生交回;App 若在主屏先挪回,挪不回就保持原状。 */
+    /** "Skip": No processing, telling the Agent that no handover has occurred; if the App is moved back to the home screen first, it will remain in its original state if it cannot be moved back. */
     suspend fun skip(key: Int? = null): Boolean = giveBack(HandBack(HandBackOutcome.skipped), key)
 
     /**
-     * 网页接管界面上按了系统返回键 =「先放着」:标签放回后台,任务回到等待接管(通知还在,可以再点「我来处理」),
-     * 等待照常计时。只在已经接手时有效。
+     * Press the system return key on the web page takeover interface = "Put it aside first": the label
+     * will be put back into the background, and the task will return to waiting for takeover (the
+     * notification is still there, you can click "I will handle it" again), and the wait will be timed
+     * as usual. Only valid if already taken over.
      */
     suspend fun putAside(key: Int? = null): Boolean = mutex.withLock {
         if (_stage.value != Stage.HandedOver || !handedWeb || !keyMatches(key)) return false
@@ -219,7 +233,7 @@ class Takeover(
         true
     }
 
-    /** 「取消任务」:App 若在主屏就留在主屏,不从用户眼前抽走;网页标签则放回后台(任务的标签随后关掉)。 */
+    /** "Cancel task": If the App is on the home screen, it will stay on the home screen and will not be taken away from the user's eyes; the web page label will be returned to the background (the task label will then be closed). */
     suspend fun cancel() = mutex.withLock {
         stopTimer()
         if (handedWeb) {
@@ -235,7 +249,7 @@ class Takeover(
         port.cancel()
     }
 
-    /** 没带 key(应用内按钮)总是认;带了的必须是当前这次等待。 */
+    /** If the key (button in the application) is not brought, it will always be recognized; if it is brought, it must be the current waiting time. */
     private fun keyMatches(key: Int?) = key == null || key == waitKey
 
     private suspend fun giveBack(result: HandBack, key: Int?): Boolean = mutex.withLock {
@@ -247,18 +261,22 @@ class Takeover(
         if (from == Stage.None) return false
         var result = given
         if (from == Stage.HandedOver && handedWeb) {
-            // 交回(完成或我自己做完了)都算用户在这个网站上登录过;跳过则不算
+            // Submitting (completed or done by myself) will be counted as the user has logged in to this
+            // website; skipping will not be counted.
             val done = result.outcome == HandBackOutcome.complete
             val activity = port.returnWeb(loggedIn = done)
             if (done) result = result.copy(durationMs = now() - handedAt, inputCount = activity?.inputCount, stoppedAt = activity?.stoppedAt)
             handedWeb = false
         } else if (from == Stage.HandedOver) {
-            // 停在哪一页要在挪回之前看:挪回后它就不在主屏了
+            // You should check which page you are on before moving back: it will no longer be on the
+            // home screen after moving back.
             if (result.outcome == HandBackOutcome.complete) {
                 val activity = port.handoverActivity()
                 result = result.copy(durationMs = now() - handedAt, inputCount = activity?.inputCount, stoppedAt = activity?.stoppedAt)
             }
-            // 交出去的任务可能已经办完自己关掉了(不在了就不用挪);launch_app 的任务若还在主屏也一并挪回
+            // The handed-in task may have been completed and closed by itself (no need to move it if it
+            // is no longer there); if the launch_app task is still on the home screen, it will also be
+            // moved back.
             val target = port.targetTask()
             for (id in listOf(handed, target).filter { it >= 0 }.distinct()) {
                 if (port.displayOf(id) == MAIN_DISPLAY && !port.moveBack(id)) {
@@ -280,7 +298,7 @@ class Takeover(
         return true
     }
 
-    /** 前面的接管处理完,轮到这一个:从现在起计等待时限。 */
+    /** After the previous takeover is processed, it’s this one’s turn: the waiting time limit starts from now on. */
     internal fun reachedFront() {
         val waiting = current
         if (_stage.value == Stage.Waiting && waiting != null && timer == null) armTimer(waiting)
@@ -291,9 +309,10 @@ class Takeover(
         timer = scope.launch {
             delay(TAKEOVER_WAIT_TIMEOUT_MS)
             mutex.withLock {
-                // 挪到主屏失败退回等待时也照常超时;已经接手或换成了下一次等待就不算
+                // If you fail to move to the home screen and return to wait, it will time out as usual;
+                // if you have taken over or changed to the next wait, it will not count.
                 if (_stage.value == Stage.Waiting && current === state) {
-                    timer = null // 交还时不能把正在交还的自己取消掉
+                    timer = null // When returning, you cannot cancel the self you are returning.
                     giveBackLocked(HandBack(HandBackOutcome.timeout))
                 }
             }
@@ -307,7 +326,7 @@ class Takeover(
 
     companion object {
         private const val MAIN_DISPLAY = 0
-        /** 等用户点「我来处理」的时限;接手之后不计时。 */
+        /** The time limit for waiting for the user to click "I will handle it"; there will be no time limit after taking over. */
         const val TAKEOVER_WAIT_TIMEOUT_MS = 15 * 60_000L
     }
 }

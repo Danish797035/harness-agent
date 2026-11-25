@@ -12,7 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 能看图的主模型:动作后自动附图;历史里的画面在裁剪线之前换成可回看的占位。 */
+/** The main model that can view pictures: pictures are automatically attached after the action; the pictures in the history are replaced with placeholders that can be viewed before the cutting line. */
 class AgentLoopFrameTest {
     private var seq = 0
     private fun call(name: String, args: String = "{}") = Part.ToolCall("f${++seq}", name, args)
@@ -27,13 +27,16 @@ class AgentLoopFrameTest {
         val msgs = m.requests[2]
         val at = msgs.indexOfFirst { it.parts.any { p -> p is Part.ToolResult && p.callId == tap.id } }
         assertEquals(Role.Tool, msgs[at].role)
-        // 图紧跟在工具结果后面,用和 observe 一样的用户消息(各家接口的调用/结果配对不受影响)
+        // The graph follows the tool results, using the same user message as observe (the call/result
+        // pairing of each interface is not affected)
         val frame = msgs[at + 1]
         assertEquals(Role.User, frame.role)
         val img = frame.parts.filterIsInstance<Part.Image>().single()
         assertEquals(2, img.screenshotId)
         assertTrue("\"screenshotId\":2" in (msgs[at].parts.single() as Part.ToolResult).content)
-        // 发过的画面不再换成占位:裁剪线越过前 5 次往返之后,那几张也原样留着(请求的开头不变,缓存照样命中)
+        // The pictures that have been sent are no longer replaced by placeholders: after the cropping
+        // line crosses the first 5 round trips, those pictures are left as they are (the beginning of
+        // the request remains unchanged, and the cache is still hit)
         assertEquals(listOf<Int?>(1, 2), images(msgs).map { it.screenshotId })
         assertEquals((1..6).toList(), images(m.requests[6]).map { it.screenshotId })
         val seventh = m.requests[7]

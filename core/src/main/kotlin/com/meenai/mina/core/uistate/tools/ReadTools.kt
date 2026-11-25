@@ -20,7 +20,7 @@ import com.meenai.mina.core.uistate.lastSnapshot
 import com.meenai.mina.core.uistate.screen
 import com.meenai.mina.core.uistate.session
 
-/** 读这块屏:元素表(observe 按配置补截图)、单独截图。 */
+/** Read this screen: element table (observe screenshot according to configuration), individual screenshot. */
 internal class Observe(f: ScreenFamily) : ScreenTool(f, "observe") {
     override val verb = Verb.Observe
     override val label = "Look at screen"
@@ -42,7 +42,7 @@ internal class ListElements(f: ScreenFamily) : ScreenTool(f, "list_elements") {
     override suspend fun execute(a: Args, ctx: ToolContext) = ctx.session.observe(withImage = false, recordFrame = false)
 }
 
-/** 主模型能看图才提供。 */
+/** The main model will only be provided if it can be viewed in pictures. */
 internal class Screenshot(f: ScreenFamily) : ScreenTool(f, "screenshot") {
     override val verb = Verb.Screenshot
     override val label = "Screenshot"
@@ -60,10 +60,11 @@ internal class Screenshot(f: ScreenFamily) : ScreenTool(f, "screenshot") {
         val png = screen.screenshotPng() ?: return fail("screenshot_unavailable", Feedback["screenshot_unavailable"])
         val s = ctx.lastSnapshot
         val shots = ctx.shots
-        // 和读屏一样登记进回看,旧图被裁掉后还能按 screenshotId 找回;付款页的图不留
+        // Register and review in the same way as screen reading. After the old picture is cropped, it
+        // can be retrieved by pressing screenshotId; the picture on the payment page will not be
+        // retained.
         val shotId = shots.next()
         shots.remember(Recall(shotId, ctx.currentStep, s?.packageName, png, s?.let(::screenText).orEmpty()))
         return ToolExecution(okObj { s?.let { put("width", it.width); put("height", it.height) }; put("screenshotId", shotId) }, image = png, imageIds = listOf(shotId))
     }
 }
-

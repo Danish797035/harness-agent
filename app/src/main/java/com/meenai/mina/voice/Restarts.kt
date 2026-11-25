@@ -1,9 +1,13 @@
 package com.meenai.mina.voice
 
 /**
- * 按住期间识别服务结束了一段却没听到字(没匹配上、没开口、空结果)时,要不要重开、隔多久。
- * 正常的空段(用户停顿几秒)立刻重开;有的服务刚重开就又回空,连着很快回空就隔一会儿再开,
- * 太多次就不再重开、按已听到的收尾,免得主线程一直在开、错、开里打转。纯逻辑,时间由调用方给。
+ * When the recognition service ends for a period of time but no words are heard (no matching, no
+ * speaking, empty results) during the press and hold period, should you restart it and how long should
+ * it take? A normal empty segment (the user pauses for a few seconds) will be restarted immediately;
+ * some services will be empty again as soon as they are restarted. If the service returns to empty soon,
+ * it will be restarted after a while. If it is too many times, it will not be restarted and the end will
+ * be pressed according to what has been heard, so as to avoid the main thread being started, wrongly,
+ * and started again. Pure logic, the time is given by the caller.
  */
 class Restarts {
     sealed interface Decision {
@@ -14,7 +18,7 @@ class Restarts {
     private var quick = 0
     private var last = Long.MIN_VALUE
 
-    /** 又一段空的,[now] 是此刻(毫秒,单调时钟)。 */
+    /** Another empty section, [now] is the moment (milliseconds, monotonic clock). */
     fun onEmpty(now: Long): Decision {
         quick = if (last != Long.MIN_VALUE && now - last <= WINDOW_MS) quick + 1 else 1
         last = now
@@ -25,18 +29,18 @@ class Restarts {
         }
     }
 
-    /** 听到了字:重新计数。 */
+    /** The word was heard: recount. */
     fun onSpeech() {
         quick = 0
         last = Long.MIN_VALUE
     }
 
     companion object {
-        /** 和上一次空段隔这么久以内算「很快又回空」。 */
+        /** If it is within such a long time since the last empty period, it is considered as "it will be empty again soon". */
         const val WINDOW_MS = 2_000L
-        /** 连着这么多次很快回空之后开始隔一会儿再开。 */
+        /** After so many times it quickly returned to empty space, it started to open again after a while. */
         const val QUICK = 3
-        /** 连着很快回空超过这么多次就不再重开。 */
+        /** If it closes short more than once this many times in a row, it will not be reopened again. */
         const val MAX_QUICK = 8
         const val BACKOFF_MS = 250L
     }

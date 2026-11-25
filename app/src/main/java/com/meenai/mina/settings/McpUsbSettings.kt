@@ -16,14 +16,22 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
- * 经 USB 的电脑连接(电脑用 adb 打开的那种)的开关和令牌。和局域网那种([McpSettings])各管各的,令牌也各用各的。
+ * Switch and token via USB computer connection (the kind that the computer opens with adb). Like the
+ * local area network ([McpSettings]), each has its own business, and each has its own token.
  *
- * - 打开时生成一个新令牌;已经开着再打开沿用原来的(电脑重跑一次命令,已经配好的不失效)。
- * - 监听起来后 [publish] 把连接信息写到 [infoFile](外部文件目录,安卓 11 起只有 Mina 和 shell 读得到)。
- * - 关掉时忘掉令牌(下次打开换新的)、删掉连接信息文件。
- * - 不跨重启:开关记着是哪次开机([bootId])打开的,换了一次开机就当关着,顺手清掉上次留下的文件。
+ * - - A new token is generated when it is opened; if it is already opened and opened again, the original
+ * one will be used (the computer reruns the command, and the configured one will not be invalidated).
+ * - - After monitoring, [publish] writes the connection information to [infoFile] (external file
+ * directory, only Mina starting from Android 11
+ * and shell readable).
+ * - - Forget the token when shutting down (replace it with a new one next time you open it) and delete
+ * the connection information file.
+ * - - No cross-reboot: The switch remembers which boot time ([bootId]) it was turned on, and it will be
+ * turned off after another boot, and the files left last time can be cleared easily.
  *
- * 令牌同时以明文写在连接信息文件里(电脑要读),所以 App 自己的私有目录里也存明文,不另加密。
+ * The token is also written in clear text in the connection information file (which must be read by the
+ * computer), so the clear text is also stored in the App's own private directory without additional
+ * encryption.
  */
 class McpUsbSettings(
     private val dir: File,
@@ -50,10 +58,10 @@ class McpUsbSettings(
         }
     }
 
-    /** 开着时的令牌;关着为 null。 */
+    /** The token when on; null when off. */
     fun token(): String? = token
 
-    /** 打开;已经开着就沿用原来的令牌。返回此刻的令牌。 */
+    /** Open; if it is already open, the original token will be used. Returns the token at this moment. */
     @Synchronized fun enable(): String {
         token?.let { return it }
         val t = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(random::nextBytes))
@@ -66,7 +74,7 @@ class McpUsbSettings(
         return t
     }
 
-    /** 关掉:令牌当场作废,连接信息文件删掉。 */
+    /** Turn off: The token is invalidated on the spot and the connection information file is deleted. */
     @Synchronized fun disable() {
         token = null
         _enabled.value = false
@@ -74,7 +82,7 @@ class McpUsbSettings(
         unpublish()
     }
 
-    /** 监听起来了:把连接信息写给电脑(先写临时文件再改名,电脑正在读时不会读到半截)。关着时什么也不做。 */
+    /** The monitoring sounds: write the connection information to the computer (write the temporary file first and then change the name, so that the computer will not read half of it while it is reading). Does nothing when closed. */
     @Synchronized fun publish(port: Int) {
         val t = token ?: return
         val f = infoFile() ?: return
@@ -87,7 +95,7 @@ class McpUsbSettings(
         }
     }
 
-    /** 没在监听(没开起来、关了):删掉连接信息文件,电脑那边的脚本就知道没开成。 */
+    /** Not monitoring (not turned on, turned off): Delete the connection information file, and the script on the computer will know that it is not turned on. */
     @Synchronized fun unpublish() {
         runCatching { infoFile()?.delete() }
     }

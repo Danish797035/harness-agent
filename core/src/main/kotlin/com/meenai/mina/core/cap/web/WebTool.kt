@@ -5,26 +5,26 @@ import com.meenai.mina.core.uistate.tools.ScreenTool
 import com.meenai.mina.core.tool.AgentTool
 import com.meenai.mina.core.tool.ToolContext
 
-/** 网页专属的工具:只有接了网页端口时才提供。 */
+/** Web-specific tools: only provided when the web port is connected. */
 internal interface WebTool : AgentTool {
     override val capability: String get() = WEB
     override fun available(ctx: ToolContext) = ctx.web != null
 }
 
-/** 网页能力的 id,也是网页那一套工具名字的前缀。 */
+/** The id of the web page capability is also the prefix of the name of the set of tools on the web page. */
 const val WEB = "web"
 
-/** 网页上 press_key 只接受这些键:回车、退格、删除、Tab、方向键、翻页键。 */
+/** On the web page, press_key only accepts these keys: Enter, Backspace, Delete, Tab, arrow keys, and page turning keys. */
 private val KEYS = setOf(66, 160, 67, 112, 61, 19, 20, 21, 22, 92, 93)
 private const val KEYS_HINT = "on a web page only Enter, Backspace, Delete, Tab, arrow and page keys are allowed"
 
-/** 网页那一套屏幕工具:读屏编号以 w 开头,「在哪」报站点;经验路线不记网页上的做法。 */
+/** The set of screen tools on the web page: the screen reading number starts with w, and the site is reported "where"; the experience route does not remember the practices on the web page. */
 internal val WEB_FAMILY = ScreenFamily(
     WEB, snapshotPrefix = "w", placeKey = ScreenFamily.SITE_PLACE, keys = KEYS, keysHint = KEYS_HINT,
     ownPrompts = setOf("observe", "back"), emptyHint = "empty_page",
 )
 
-/** 网页一组:那一套屏幕工具,再加网页专属的导航、读页、标签、下载上传、脚本、等待、任务结束后留下这一页。按发给模型的顺序。 */
+/** A set of web pages: a set of screen tools, plus web page-specific navigation, page reading, tags, downloading and uploading, scripts, waiting, and leaving this page after the task is completed. In the order issued to the model. */
 internal object WebGroup {
     val tools: List<AgentTool> = ScreenTool.of(WEB_FAMILY) + listOf(
         Navigate, ReadPage, EvaluateJs, RunSiteCommand, Tabs, Downloads, Upload, SiteMode, WebScriptTool, Interact, Capture, WebWaitFor, KeepOpen,

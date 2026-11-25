@@ -17,7 +17,7 @@ import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** 远程网关仅接受 HTTPS 源地址。HTTP 回环只供 JVM 集成测试显式打开,产品没有降级开关。 */
+/** The remote gateway only accepts HTTPS source addresses. HTTP loopback is only explicitly turned on for JVM integration testing, and the product does not have a downgrade switch. */
 class RelayGateway(val url: HttpUrl, private val http: OkHttpClient) {
     class Failure(val unauthorized: Boolean = false) : IOException("Remote gateway request failed")
 
@@ -70,7 +70,7 @@ class RelayGateway(val url: HttpUrl, private val http: OkHttpClient) {
     }
 }
 
-/** 不用 data class,避免生成带凭据的 toString。整个配置只经手机的加密存储保留。 */
+/** Do not use data class to avoid generating toString with credentials. The entire configuration is retained only by the phone's encrypted storage. */
 class RelayPairing(val gateway: String, val deviceToken: String)
 
 @Serializable private data class PairRequest(val code: String)

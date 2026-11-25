@@ -1,43 +1,89 @@
-# 豆包流式语音识别 2.0
+# Doubao Streaming Speech Recognition 2.0
 
-## 入口与配置
+## Entry and configuration
 
-设置 › 模型 › 语音转文字里「边说边转的语音服务」一组只有一行「豆包流式语音识别模型 2.0」：没存凭据时标「未设置」，点进单独的设置页（`app/ui/SpeechModelScreen.kt`）；存了以后点圆圈就选用，右边「设置」进去改凭据、换计费方式或删除。设置页顶上分段切换新版控制台（语音服务 API Key）和旧版控制台（App ID + Access Token），计费方式选小时版 `volc.seedasr.sauc.duration` 或并发版 `volc.seedasr.sauc.concurrent`，需要账号先开通对应服务。只换计费方式、不重填凭据时沿用已存的凭据。方舟聊天服务商、聊天模型列表及其凭据不参与此流程。
+Settings › Model › Speech-to-text "Voice while speaking service" group has only one line "Beanbao
+Streaming Speech Recognition Model 2.0": If the credentials are not saved, the time mark is "Not
+Set", click on the separate settings page (`app/ui/SpeechModelScreen.kt`); after saving, click the
+circle to select it, go to "Settings" on the right to change the credentials, change the billing
+method or delete it. On the top of the settings page, switch between the new version of the console
+(voice service API Key) and the old version of the console (App ID + Access Token). Select the
+hourly version `volc.seedasr.sauc.duration` or the concurrent version `volc.seedasr.sauc.concurrent`
+as the billing method. You need to activate the corresponding service first. If you only change the
+billing method and do not refill the credentials, the existing credentials will be used. Ark chat
+service providers, chat model lists and their credentials are not involved in this process.
 
-保存只在本机加密存储，不调用在线服务，也不把配置标为验证通过。按住麦克风才建立连接并发送音频，可能产生服务费用。凭据可单独删除；删除当前使用的豆包凭据时关闭语音输入。系统识别、已有的整段音频转写保持各自路径，不自动切换到收费服务。
+The storage is only encrypted and stored locally, no online services are called, and the
+configuration is not marked as verified. Press and hold the microphone to establish a connection and
+send audio. Service charges may apply. Credentials can be deleted individually; voice input is
+turned off when deleting the currently used Beanbao credential. The system recognizes and
+transcribes existing entire audio segments to maintain their own paths and does not automatically
+switch to paid services.
 
-凭据使用现有 `KeyCipher` / Android Keystore 独立 alias 加密，选择 JSON 只含资源 ID。输入框不回填密钥，不使用可持久化的 Compose 状态。诊断只记录引擎及资源 ID；服务端错误消息不直接展示，避免意外回显凭据或音频内容。
+Credentials are encrypted using existing `KeyCipher` / Android Keystore standalone alias, select
+JSON with only the resource ID. The input box does not backfill keys and does not use persistent
+Compose state. Diagnostics only record engine and resource IDs; server-side error messages are not
+displayed directly to avoid accidentally echoing credentials or audio content.
 
-## 实时路径
+## real time path
 
-`SpeechChoice.Doubao` → `SpeechResolver` → `VoiceInput` → `DoubaoSpeech`。聊天输入和悬浮胶囊共用同一条入口。
+`SpeechChoice.Doubao` → `SpeechResolver` → `VoiceInput` → `DoubaoSpeech`. Chat input and floating
+capsule share the same entrance.
 
-- `PcmRecorder(streaming = true)` 实时提供 16 kHz、单声道、PCM16 采样，原有非流式模式仍可返回整段录音。
-- `DoubaoTransport` 使用独立 OkHttp WebSocket 客户端连接 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`。凭据只发往固定官方端点；生产客户端不跟随重定向。
-- 握手后先发送 gzip JSON 初始化，等服务端首个确认，再发送音频。50 ms 采样块合并为 200 ms 音频包；缓存音频也按 200 ms 间隔发送。PCM 使用小端，协议长度和可选序号使用大端。
-- 音频发送与结果接收并行。请求 `result_type=full`，每个 `Partial` 覆盖之前全文，不拼接造成重复。`definite` 是分句稳定标志，不能作为整个会话结束条件。
-- 松开时停止录音，保留已排队的采样，发送最后一包（flag 2，包含不足 200 ms 的尾音，或者空终包），继续等服务端 final flag/负序号，再发 `Final`。断开但没收到终包会失败，不把未完整的文本当最终结果。
-- 取消会关闭事件、音频流和连接，抑制迟到结果。录音自动结束同样发送终包。握手/初始化各 10 秒，终包发出后等待最多 10 秒，总会话最多 75 秒；原有 UI 的按住录音上限仍为 60 秒。
-- 音频队列最多约 5 秒，网络发送队列和响应队列也有上限。超过上限时失败并释放麦克风，不静默丢音。gzip 解码后的响应限制为 1 MiB。
+- `PcmRecorder(streaming = true)` provides 16 kHz, mono, PCM16 sampling in real time, and the
+  original non-streaming mode can still return the entire recording.
+- `DoubaoTransport` uses a standalone OkHttp WebSocket client to connect to
+  `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`. Credentials are only sent to fixed
+  official endpoints; production clients do not follow redirects.
+- After the handshake, send gzip JSON initialization first, wait for the first confirmation from the
+  server, and then send the audio. 50 ms sample blocks are combined into 200 ms audio packets;
+  buffered audio is also sent at 200 ms intervals. PCM uses little endian, and protocol length and
+  optional sequence numbers use big endian.
+- Audio is sent in parallel with result reception. Request `result_type=full`, each `Partial` covers
+  the previous full text, without splicing to cause duplication. `definite` is a clause stability
+  flag and cannot be used as the end condition of the entire session.
+- Stop recording when released, retain the queued samples, send the last packet (flag 2, containing
+  tail tone less than 200 ms, or empty final packet), continue to wait for the server's final
+  flag/negative sequence number, and then send `Final`. Disconnecting without receiving the final
+  packet will fail, and the incomplete text will not be regarded as the final result.
+- Cancellation closes events, audio streams, and connections, suppressing late results. The
+  recording ends automatically and the final packet is also sent. The handshake/initialization time
+  is 10 seconds each, the waiting time is up to 10 seconds after the final packet is sent, and the
+  total session is up to 75 seconds; the original UI’s press and hold recording limit is still 60
+  seconds.
+- The audio queue is capped at about 5 seconds, and the network send queue and response queue are
+  also capped. When the upper limit is exceeded, it fails and releases the microphone without
+  silently losing sound. gzip decoded responses are limited to 1 MiB.
 
-不发送设备 IMEI/MAC、历史聊天或图片。双向接口按服务默认识别能力处理语言，不把仅单向接口支持的 `audio.language` 硬塞进去。
+Does not send device IMEI/MAC, historical chats or pictures. The two-way interface handles the
+language according to the default recognition capability of the service, and does not shoehorn
+`audio.language`, which is only supported by the one-way interface.
 
-## 验证与限制
+## Authentication and restrictions
 
-新增 `DoubaoProtocolTest`、`DoubaoSpeechTest`、`DoubaoTransportTest`、`DoubaoSettingsTest`，覆盖协议样例、实时上传、全文替换、尾包、超时、取消、两代请求头、鉴权失败、AES/GCM 凭据保存/恢复/删除。所有 fixture 为模拟采样和虚假凭据；WebSocket 测试只连接本机 MockWebServer。
+Added `DoubaoProtocolTest`, `DoubaoSpeechTest`, `DoubaoTransportTest`, `DoubaoSettingsTest`,
+covering protocol samples, real-time upload, full text replacement, tail packet, timeout,
+cancellation, two generations of request headers, authentication failure, AES/GCM credential
+saving/recovery/deletion. All fixtures sample mocks and fake credentials; WebSocket tests only
+connect to the native MockWebServer.
 
-正常 Android 开发环境可运行：
+A normal Android development environment can run:
 
 ```sh
 ./gradlew :app:testDebugUnitTest --tests 'com.meenai.mina.voice.*'
 ./gradlew :app:assembleDebug
 ```
 
-真实火山账号的权限、收费、延迟和准确率需要有账号的人验证；没有账号时只能确认设置页、保存与删除凭据和失败提示。
+The permissions, charges, delays and accuracy of real volcano accounts need to be verified by people
+with accounts; if you don’t have an account, you can only confirm the settings page, save and delete
+credentials and failure prompts.
 
-## 资料与实现来源
+## Data and implementation sources
 
-2026-11-01 核对的官方协议：
+Official agreement verified on 2026-11-01:
 
-- [大模型流式语音识别 API（二进制帧）](https://docs.volcengine.com/docs/doubao-voice/large-model-streaming-automatic-speech-recognition-api-1?lang=zh)
-- [实时语音识别（当前参数与 2.0 资源）](https://docs.volcengine.com/docs/doubao-voice/bidirectional-streaming-automatic-speech-recognition-websocket?lang=zh)
+- [Large Model Streaming Speech Recognition API (Binary
+  Frame)](https://docs.volcengine.com/docs/doubao-voice/large-model-streaming-automatic-speech-recognition-api-1?lang=zh)
+- [Real-time speech recognition (current parameters and 2.0
+  resources)](https://docs.volcengine.com/docs/doubao-voice/bidirectional-streaming-automatic-speech-recognition-websocket?lang=zh)
+

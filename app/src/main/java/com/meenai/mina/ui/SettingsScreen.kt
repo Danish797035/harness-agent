@@ -71,12 +71,14 @@ import com.meenai.mina.about.UpdateState
 import com.meenai.mina.about.CheckStatus
 import android.widget.Toast
 
-/** 设置里能进入的子页面;[Home] 是设置首页。 */
+/** The subpages that can be entered in the settings; [Home] is the settings homepage. */
 private enum class SettingsPage { Home, AppAccess, Usage, UsageLimits, PhoneOps, DuringWork, Capsule, Language, Notifications, WebSites, Sandbox, Routes, Recovery, SelfCheck, ComputerAccess, Developer, RunStats, ModelSpecialist }
 
 /**
- * 设置页:总状态卡 + 基本 / 隐私与数据 / 高级 / 关于四组。各子页面在这里切换(返回键先回首页),
- * 模型页由 [onOpenModels]、关于页由 [onOpenAbout] 交给 Activity。修复动作由 [onFix] 交给 Activity 去做(请求权限、跳转系统设置)。
+ * Settings page: General Status Card + Basic/Privacy & Data/Advanced/About four groups. Each sub-page is
+ * switched here (the return key returns to the homepage first). The model page is handed over to
+ * Activity by [onOpenModels], and the about page is handed over to Activity. The repair action is handed
+ * over to Activity by [onFix] (requesting permissions, jumping to system settings).
  */
 @Composable
 fun SettingsScreen(
@@ -90,10 +92,10 @@ fun SettingsScreen(
     onOpenVault: (() -> Unit)? = null,
     vaultCount: Int? = null,
     webSites: WebSitesState? = null,
-    /** 开发者选项里的「自主模式」:当前值和换它的办法。 */
+    /** "Autonomous Mode" in Developer Options: Current value and how to change it. */
     autonomous: Boolean = false,
     onAutonomous: (Boolean) -> Unit = {},
-    /** 查到的新版本号;有它时「关于 Mina」一行写「x 可更新」带红点。 */
+    /** The new version number found; when it is found, the "About Mina" line says "x can be updated" with a red dot. */
     updateVersion: String? = null,
     onOpenAbout: () -> Unit = {},
     onCheckUpdates: (() -> Unit)? = null,
@@ -102,7 +104,8 @@ fun SettingsScreen(
     val configs by store.configs.collectAsState()
     val providerList by store.providers.collectAsState()
     val roles by store.roles.collectAsState()
-    // 开发者选项里的「看图定位已验证」跟着看图模型(看图用主模型时是主模型那条配置)
+    // "View image positioning verified" in the developer options follows the image model (when using the
+    // main model to view images, it is the configuration of the main model)
     val visionConfig = remember(configs, roles) { store.configFor(ModelRole.Vision) }
     var page by rememberSaveable { mutableStateOf(SettingsPage.Home) }
     var explaining by remember { mutableStateOf<Problem?>(null) }
@@ -122,7 +125,9 @@ fun SettingsScreen(
         }
     }
 
-    // 并行任务的上限只在实验开关 parallelTasks 打开时出现;设备能力按此刻算,第二块屏建失败过就按失败算
+    // The upper limit of parallel tasks only appears when the experimental switch parallelTasks is
+    // turned on; the device capability is calculated based on this moment, and if the second screen
+    // fails to be built, it is calculated as failure.
     val flags = remember { FeatureFlags.get(context) }
     var parallelMax by remember { mutableIntStateOf(flags.parallelMax()) }
     var keepScreenOn by remember { mutableStateOf(flags.keepScreenOn()) }
@@ -130,7 +135,8 @@ fun SettingsScreen(
     var operatingPace by remember { mutableStateOf(flags.operatingPace()) }
     var selfConfig by remember { mutableStateOf(flags.selfConfig()) }
     var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
-    // 换语言时界面会重建,这里每次进来读一次即可
+    // The interface will be rebuilt when you change the language. Just read it here every time you come
+    // in.
     val language = remember { AppLanguage.current(context) }
     val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
     var speed by remember { mutableStateOf(flags.speedFlags()) }
@@ -139,7 +145,8 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { routeCount = withContext(Dispatchers.IO) { runCatching { routeStore.count() }.getOrNull() } }
     val sandboxStatus by remember { SandboxState.get(context) }.status.collectAsState()
-    // 网络代理:只在这里改;读设置要解密、看浏览器支不支持要加载 WebView,都放到后台
+    // Network proxy: only change it here; read settings to decrypt, see if the browser supports it and
+    // load WebView, all in the background
     val proxies = remember { NetProxyStore.get(context) }
     var proxy by remember { mutableStateOf<String?>(null) }
     var browserProxy by remember { mutableStateOf<WebProxy.Mode?>(null) }
@@ -152,7 +159,8 @@ fun SettingsScreen(
     val mcpNetworkOn by mcp.settings.enabled.collectAsState()
     val mcpUsbOn by mcp.usb.enabled.collectAsState()
     val mcpOn = mcpNetworkOn || mcpUsbOn
-    // 「Token 用量」一行的值:近 7 天的合计,账本每记一笔就重算
+    // The value of the "Token Usage" row: the total of the past 7 days, the ledger will be recalculated
+    // every time an entry is made.
     val usage = remember { (context.applicationContext as com.meenai.mina.HarnessApp).usage }
     val usageVersion by usage.version.collectAsState()
     var usageWeek by remember { mutableStateOf<Long?>(null) }
@@ -178,10 +186,12 @@ fun SettingsScreen(
             secondDisplayFailed = runtimeLimit.reason == ParallelCapability.SECOND_DISPLAY_FAILED,
         ),
     )
-    // 开发者选项只在调试版和性能测试版里列出:发布版的各开关按评测结果统一定默认值
+    // Developer options are only listed in the debug version and performance test version: the default
+    // values of each switch in the release version are determined based on the evaluation results.
     val showDeveloper = com.meenai.mina.record.DetailedTraces.supportedBuild
     val toHome = { page = SettingsPage.Home }
-    // 通知页可以从首页或手机操作页进,返回回到进来的那一页
+    // The notification page can be entered from the home page or mobile operation page, and returned to
+    // the page from which it was entered.
     var notificationsFrom by rememberSaveable { mutableStateOf(SettingsPage.Home) }
     val back = {
         page = when (page) {
@@ -240,7 +250,8 @@ fun SettingsScreen(
         )
         SettingsPage.Language -> LanguageScreen(language, onLanguage = { AppLanguage.set(context, it) }, onBack = toHome)
         SettingsPage.Capsule -> CapsuleScreen(capsuleMode, onMode = { flags.setCapsuleMode(it); capsuleMode = it }, onBack = toHome)
-        // 没有数据时首页不显示入口,走不到这一页
+        // When there is no data, the homepage does not display the entrance and you cannot reach this
+        // page.
         SettingsPage.WebSites -> webSites?.let { WebSitesScreen(it, onBack = toHome) }
         SettingsPage.Sandbox -> SandboxScreen(onBack = toHome)
         SettingsPage.Routes -> RoutesScreen(
@@ -293,37 +304,38 @@ fun SettingsScreen(
 }
 
 /**
- * 不带状态的设置首页,便于测试。可选的入口([usageTokens]、[onOpenMemory]、[webSitesCount]、[grantsCount]、[routes]、[sandbox])
- * 为空时对应那一行不显示;[showDeveloper] 为假(发布版)时没有开发者选项。
+ * Set the homepage without status for easy testing. When the optional entry ([usageTokens],
+ * [onOpenMemory], [webSitesCount], [grantsCount], [routes], [sandbox]) is empty, the corresponding row
+ * will not be displayed; when [showDeveloper] is false (release version), there is no developer option.
  */
 @Composable
 fun SettingsContent(
     status: SystemStatus,
     androidRelease: String,
-    /** 当前主模型的名字;没有可用的主模型时为空。 */
+    /** The name of the current main model; empty if no main model is available. */
     mainModel: String?,
     onBack: () -> Unit,
     onProblem: (Problem) -> Unit,
     onOpenModels: () -> Unit,
-    /** 网络代理(空串表示不用);为空(还没读出来)时不显示这一行。 */
+    /** Network proxy (empty string means not used); this line will not be displayed when it is empty (it has not been read out yet). */
     proxy: String? = null,
-    /** 网络代理那一行下面的说明。 */
+    /** Description below the network proxy line. */
     proxyNote: String? = null,
     onOpenProxy: () -> Unit = {},
-    /** 近 7 天用了多少 token;为空(还没统计出来)时不显示这一行。 */
+    /** How many tokens have been used in the past 7 days; if it is empty (not yet calculated), this line will not be displayed. */
     usageTokens: Long? = null,
     onOpenUsage: () -> Unit = {},
-    /** 今天发了多少请求;为空(还没统计出来)时不显示「用量上限」这一行。 */
+    /** How many requests were sent today; if it is empty (not yet calculated), the "Usage Limit" line will not be displayed. */
     usageToday: Int? = null,
     onOpenUsageLimits: () -> Unit = {},
     onOpenPhoneOps: () -> Unit = {},
     onOpenAppAccess: () -> Unit = {},
     onOpenDuringWork: () -> Unit = {},
-    /** 悬浮胶囊此刻的选择,写在「悬浮胶囊」一行的右边。 */
+    /** The current selection of the suspended capsule is written to the right of the "suspended capsule" line. */
     capsuleMode: CapsuleMode = CapsuleMode.DEFAULT,
     onOpenCapsule: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
-    /** 此刻选的界面语言,写在「语言」一行的右边。 */
+    /** The interface language selected at this time is written to the right of the "Language" line. */
     language: AppLanguage = AppLanguage.System,
     onOpenLanguage: () -> Unit = {},
     onOpenMemory: (() -> Unit)? = null,
@@ -333,11 +345,11 @@ fun SettingsContent(
     onOpenWebSites: () -> Unit = {},
     sandbox: SandboxStatus? = null,
     onOpenSandbox: () -> Unit = {},
-    /** 已记住的操作路线条数;为空(还没读出来)时不显示这一行。 */
+    /** The number of memorized operation routes; if it is empty (not read yet), this line will not be displayed. */
     routes: Int? = null,
     onOpenRoutes: () -> Unit = {},
     onOpenRecovery: () -> Unit = {},
-    /** 电脑连接(MCP)开着没有;为空时不显示这一行。 */
+    /** Computer connection (MCP) is turned on or not; this line will not be displayed when it is empty. */
     computerAccess: Boolean? = null,
     onOpenComputerAccess: () -> Unit = {},
     showDeveloper: Boolean = false,
@@ -368,7 +380,8 @@ fun SettingsContent(
                 RowValue(stringResource(R.string.router_mode_auto))
                 RowChevron()
             }
-            // 调模型的连接要不要走代理,和模型放在一起找得到;容器、更新、内置浏览器也按这一处
+            // Adjust whether the connection of the model should use a proxy. You can find it together
+            // with the model; containers, updates, and built-in browsers can also be found here.
             proxy?.let {
                 ListRow(MinaIcons.Link, NetProxyCopy.TITLE, proxyNote, onClick = onOpenProxy) {
                     RowValue(NetProxyCopy.value(it))
@@ -485,7 +498,7 @@ fun SettingsContent(
     }
 }
 
-/** 「手机操作」一行尾部的状态胶囊:无障碍和内置助手都就绪才是「可用」。 */
+/** Status capsule at the end of the "Mobile Operation" line: "Available" only when accessibility and built-in assistants are ready. */
 @Composable
 private fun PhoneOpsPill(status: SystemStatus) {
     when {
@@ -503,8 +516,10 @@ private fun sandboxValue(s: SandboxStatus): String = when (s) {
 }
 
 /**
- * 页面顶上的总状态:一切正常是「一切就绪」;否则变成第一个问题的提示,带修复按钮。
- * 焦点提醒改不了,只在手机操作页的「系统版本」一行里提示,不占这里。
+ * The overall status at the top of the page: If everything is normal, it means "everything is ready";
+ * otherwise, it becomes a prompt for the first problem with a repair button. The focus reminder cannot
+ * be changed. It is only prompted in the "System Version" line of the mobile phone operation page and
+ * does not occupy this space.
  */
 @Composable
 private fun StatusSummary(check: Prerequisites.Check, onProblem: (Problem) -> Unit) {

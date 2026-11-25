@@ -3,17 +3,25 @@ package com.meenai.mina.cap.phone.a11y
 import com.meenai.mina.cap.phone.display.FrameMath
 
 /**
- * 动作之后等界面稳定再判断有没有变化。只看事件安静不够:反应慢的页面安静时可能还没开始画,
- * 会被误判为没变,模型就会重复点。
+ * After the action, wait for the interface to stabilize before judging whether there are any changes.
+ * Just watching the event quiet is not enough: a slow-responsive page may not start drawing when it is
+ * quiet, and it will be misjudged as unchanged, and the model will repeat points.
  *
- * - 无障碍事件安静 [QUIET_MS] 且控件树变了:立即判为变了,不等画面停(视频、直播的画面永远在动)。
- * - 只有画面变了(自绘界面):还要前后两帧相近,才判为变了,免得把画到一半的过渡当结果。
- * - 判「没变」要事件安静且画面稳定,在此之前一直等到 [CAP_MS]。
- * - 到 [CAP_MS] 时不管事件是否还在来、画面是否还在动,都按当时的状态下结论:
- *   控件树或画面与动作前不同就是变了。事件一直不停的页面(进度条、计时器)也不会让动作卡住超过上限。
+ * - - Accessibility event is quiet [QUIET_MS] and the control tree has changed: it is immediately judged
+ * as changed, without waiting for the screen to stop (video and live broadcast screens are always
+ * moving).
+ * - - Only the picture has changed (self-drawn interface): it must be similar between the two frames
+ * before it is judged to have changed, so as not to regard the transition in the middle of the painting
+ * as the result.
+ * - - To judge "no change", the event must be quiet and the picture stable. Wait until [CAP_MS].
+ * - - When reaching [CAP_MS], no matter whether the event is still coming or the screen is still moving,
+ * the conclusion will be drawn based on the current state:
+ * If the control tree or screen is different from before the action, it has changed. Pages with non-stop
+ * events (progress bar, timer) will not cause the action to get stuck exceeding the upper limit.
  *
- * 只差事件安静时按剩余的安静时间睡,普通页面在最后一个事件之后约 [QUIET_MS] 就能返回。
- * 时钟、等待、取帧都由调用方注入,便于在 JVM 上测。
+ * The only difference is that when the event is quiet, sleep according to the remaining quiet time. The
+ * normal page can be returned about [QUIET_MS] after the last event. Clock, wait, and frame fetching are
+ * all injected by the caller to facilitate testing on the JVM.
  */
 internal object ChangeWait {
     const val POLL_MS = 150L
@@ -22,10 +30,11 @@ internal object ChangeWait {
     private const val MIN_SLEEP_MS = 10L
 
     /**
-     * @param frame 当前预览帧的亮度格子,没有画面时为 null(此时只靠控件树和事件安静)
-     * @param quietForMs 距最近一次界面事件过了多久
-     * @param treeChanged 控件树指纹是否与动作前不同
-     * @param beforeFrame 动作前的亮度格子
+     * @param frame The brightness grid of the current preview frame, which is null when there is no
+     * picture (at this time, only the control tree and events are quiet)
+     * @param quietForMs How long has passed since the last interface event
+     * @param treeChanged Is the control tree fingerprint different from before the action?
+     * @param beforeFrame Brightness grid before action
      */
     suspend fun awaitStableChange(
         now: () -> Long,

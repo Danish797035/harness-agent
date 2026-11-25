@@ -8,20 +8,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.locks.ReentrantLock
 
-/** 进程内的共享资源入口。TaskCenter 管运行队列，这里管运行之间会互相争用的资源。 */
+/** Shared resource entry within the process. TaskCenter manages the run queue, which manages the resources that will compete with each other. */
 class ResourceScheduler(
     val tabBudget: TabBudget = TabBudget(),
     val takeoverQueue: TakeoverQueue = TakeoverQueue(),
     val clipboard: ReentrantLock = ReentrantLock(true),
 ) {
-    /** App(包名,另一份用户的写成「包名@用户」)→ 占着它的任务。 */
+    /** App (package name, another user's written as "package name@user") → occupies its task. */
     private val apps = HashMap<String, String>()
-    /** 正在等别的任务放开 App 的任务 → 它等的那个 App。 */
+    /** Waiting for another task to release the app's task → the app it is waiting for. */
     private val waiting = HashMap<String, String>()
-    /** 有任务放开了它占着的 App 就加一:等着的任务据此马上再看一眼,不用等到下一次轮询。 */
+    /** If a task releases the app it occupies, it will be incremented by one: the waiting task will take a look at it immediately without waiting for the next polling. */
     private val released = MutableStateFlow(0L)
 
-    /** 占用与检查在同一把锁里；App 已被另一任务释放或关闭时允许接管。 */
+    /** Occupy and check in the same lock; allow takeover when the App has been released or closed by another task. */
     @Synchronized
     fun reserveApp(packageName: String, owner: String, holderActive: (String) -> Boolean, stillUsed: () -> Boolean): Boolean {
         if (!appFree(packageName, owner, holderActive, stillUsed)) return false
@@ -29,7 +29,7 @@ class ResourceScheduler(
         return true
     }
 
-    /** [owner] 此刻能不能占 [packageName]:没人占、自己占着、占着的任务已经不在或不再用它([stillUsed] 为假)。只查不占。 */
+    /** [owner] Can it be occupied at this moment? [packageName]: No one is occupying it, it is occupied by myself, the occupied task is no longer there or it is no longer used ([stillUsed] is false). Only checking but not accounting. */
     @Synchronized
     fun appFree(packageName: String, owner: String, holderActive: (String) -> Boolean, stillUsed: () -> Boolean): Boolean {
         val holder = apps[packageName]
@@ -44,12 +44,16 @@ class ResourceScheduler(
     @Synchronized fun appHolder(packageName: String): String? = apps[packageName]
 
     /**
-     * [owner] 等 [packageName] 被放开,最多 [timeoutMs]。[free] 是调用方的完整判断(登记之外还看别的屏上有没有它),
-     * 每 [pollMs] 看一次,有任务放开 App 时马上再看。只等不占:等到了调用方自己再去占、去开。
+     * [owner] etc. [packageName] are released, up to [timeoutMs]. [free] is the complete judgment of the
+     * caller (in addition to registration, check whether there is it on other screens). Check it once
+     * every [pollMs], and check it again immediately when there is a task to release the app. Just wait
+     * and don’t occupy it: wait until the caller arrives and then occupy or open it.
      *
-     * 互相等的不等:占着它的任务(顺着「谁在等谁手里的 App」一路找下去)最后在等 [owner] 手里的 App 时,
-     * 返回 [AppWait.WouldDeadlock];查与登记在同一把锁里,两个任务同时开始等时后来的那个看得见先来的。
-     * [holderActive] 认占着的任务还在不在(不在的不算占着)。
+     * Waiting for each other is not equal: the task occupying it (following "Who is waiting for the App
+     * in whose hand" to find all the way) finally returns to [AppWait.WouldDeadlock] while waiting for
+     * the App in the hand of [owner]; the search and registration are in the same lock, and the two
+     * tasks start waiting at the same time. The one that comes later can see the one that came first.
+     * [holderActive] The occupied task is still there (the absence is not counted as occupied).
      */
     suspend fun awaitApp(
         packageName: String, owner: String, timeoutMs: Long,
@@ -79,7 +83,7 @@ class ResourceScheduler(
         waiting.remove(owner)
     }
 
-    /** 从 [packageName] 的占用者起,顺着「它在等谁手里的 App」往下找,绕回 [owner] 就是互相等。 */
+    /** Starting from the occupier of [packageName], follow "whose app is it waiting for" and then go back to [owner] to wait for each other. */
     private fun wouldDeadlock(owner: String, packageName: String, holderActive: (String) -> Boolean): Boolean {
         fun holderOf(pkg: String) = apps[pkg]?.takeIf(holderActive)
         var holder = holderOf(packageName)?.takeIf { it != owner } ?: return false
@@ -93,7 +97,7 @@ class ResourceScheduler(
     }
 
     private companion object {
-        /** 别的屏上的 App 自己关掉不会通知这里:隔这么久再看一眼。 */
+        /** Apps on other screens will not notify you if you close them by yourself: take a look again after such a long time. */
         const val POLL_MS = 1_000L
     }
 }

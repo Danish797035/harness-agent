@@ -3,25 +3,49 @@ package com.meenai.mina.core.record
 import kotlinx.serialization.Serializable
 
 /**
- * 一次运行的小结,全部由运行记录里的事件算出(纯函数,见 [of]),落盘后不随事件清理而丢(见 [RunMetricsStore])。
- * 时间都从 [RunEvent.TaskStarted] 算起:之前的准备(载入知识、连手机)不计。
+ * The summary of a run is all calculated from the events in the run record (pure function, see [of]),
+ * and will not be lost with event cleaning after the order is placed (see [RunMetricsStore]). The time
+ * is calculated from [RunEvent.TaskStarted]: the previous preparation (loading knowledge, even mobile
+ * phone) is not included.
  *
- * - [totalMs]:开始到 [RunEvent.TaskEnded];没结束的([ended] 为 false)到最后一个事件。
- * - [firstFeedbackMs]:开始到用户第一次看到这次运行的实际进展——最早一条真执行了的模型回复到手([RunEvent.ModelReply.repliedAtMs],
- *   旧记录用它的 [RunEvent.atMs]):这时界面显示它的进度说明、要做的事或回答;或最早一条活动(回放不经模型时,第一步做完)。
- *   改派掉的轻量模型回复不算(用户看不到);回答逐段显示时第一段字会更早,没记录,不算。两样都没有为 null。
- * - [modelCalls]:模型回复事件数,即主循环的请求次数(含改派掉的轻量模型回复,[lightCalls] 是其中轻量模型的);
- *   [callsWithoutUsage] 是其中服务商没报用量的。token 是这些回复的用量之和([inputTokens] 含 [cachedTokens])。
- * - [allCalls] 等:运行期间经计量的全部请求([RunEvent.ModelCalls]:另含旁路调用和失败重试的每一次);旧记录为 null。
- * - [modelMs]:各次回复的请求耗时之和(最后一次请求发出到收完);之前失败的请求和退避另记在 [retryWaitMs]。
- * - [observeMs] / [actMs]:顶层工具调用(模型直接调的、回放的)的执行耗时,按执行入口给活动定的种类分:风险为只读的是读
- *   (读屏、读网页、列元素、截图、查资料……),其余是操作(点、输入、滑、打开 App……)。一批动作、页面脚本的外层调用里,
- *   子步中的读计入读、其余计入操作,不重复计;没有活动的控制类调用(等待、问用户、请确认、交给用户、说做不成)不算读也不算操作。
- *   [uiWaitMs] 是等界面的时间:单个工具里端口等界面稳定的部分(端口能报时才有,仍算在那次读或操作里),
- *   加上一批动作里各步做完后按条件等界面的时间——后者和单独调等待工具一样不算操作,落在 [otherMs] 里。
- * - [otherMs]:总时长减模型、读、操作,剩下的是等用户、重试退避、控制类调用、核查与其他开销。
- * - [steps]:主循环走到第几轮(真执行了的回复里最大的步号);[observeCalls] / [actCalls] 是读、操作各做了几次(含子步)。
- * - [outcome]:[RunEvent.TaskEnded.outcome],没结束为 unfinished;[failKind] 是失败的类别;[judged] 是交出回答后另判的结局。
+ * - - [totalMs]: starts to [RunEvent.TaskEnded]; does not end ([ended] is false) to the last event.
+ * - - [firstFeedbackMs]: From the beginning until the user sees the actual progress of this run for the
+ * first time - the earliest model that is actually executed is returned
+ * ([RunEvent.ModelReply.repliedAtMs],
+ * The old record uses its [RunEvent.atMs]): At this time, the interface displays its progress
+ * description, things to be done or answers; or the earliest activity (when playing back without going
+ * through the model, the first step is completed). Replies from the reassigned lightweight model are not
+ * counted (cannot be seen by the user); when the reply is displayed paragraph by paragraph, the first
+ * paragraph will appear earlier and is not recorded, so it is not counted. Neither is null.
+ * - - [modelCalls]: The number of model response events, that is, the number of requests in the main
+ * loop (including responses from lightweight models that have been dispatched, among which [lightCalls]
+ * is a lightweight model);
+ * [callsWithoutUsage] is one in which the service provider did not report the usage. The token is the
+ * sum of the usage of these replies ([inputTokens] including [cachedTokens]).
+ * - - [allCalls], etc.: all metered requests during the run ([RunEvent.ModelCalls]: plus every bypass
+ * call and failed retry); old records are null.
+ * - - [modelMs]: The sum of the request time for each reply (from the last request sent to the receipt);
+ * previously failed requests and backoffs are recorded separately in [retryWaitMs].
+ * - - [observeMs] / [actMs]: The execution time of top-level tool calls (direct model adjustment and
+ * playback) is divided according to the type of activity given by the execution entry: the risk is
+ * read-only
+ * (Read the screen, read the web page, list elements, take screenshots, look up information...), and the
+ * rest are operations (click, input, slide, open the app...). In the outer calls of a batch of actions
+ * and page scripts, the reads in the sub-steps are counted as reads, and the rest are counted as
+ * operations, and are not counted repeatedly; control calls with no activity (waiting, asking the user,
+ * please confirm, handing it to the user, saying it can't be done) are not counted as reads or
+ * operations. [uiWaitMs] is the time of waiting for the interface: the stable part of the interface such
+ * as the port in a single tool (only when the port can report, is still counted in that read or
+ * operation), plus the time of waiting for the interface according to conditions after each step in a
+ * batch of actions is completed - the latter is not counted as an operation like the separate waiting
+ * tool, and falls in [otherMs].
+ * - - [otherMs]: The total time is minus model, read, and operation, and the rest is waiting for users,
+ * retry backoff, control class invocation, verification, and other overhead.
+ * - - [steps]: Which round does the main loop go to (the largest step number in the response that is
+ * actually executed); [observeCalls] / [actCalls] refers to how many times the reading and operation are
+ * performed (including sub-steps).
+ * - - [outcome]: [RunEvent.TaskEnded.outcome], unfinished; [failKind] is the category of failure;
+ * [judged] is the ending that will be judged after handing in the answer.
  */
 @Serializable
 data class RunMetrics(
@@ -54,15 +78,17 @@ data class RunMetrics(
 ) {
     val otherMs: Long get() = (totalMs - modelMs - observeMs - actMs).coerceAtLeast(0)
 
-    /** 输入加输出(缓存命中含在输入里)。 */
+    /** Input plus output (cache hit included in input). */
     val tokens: Long get() = inputTokens + outputTokens
 
-    /** 办成了:报了成功(含没能核实的),交出回答后也没判成只办了一部分或办不到。 */
+    /** Completed: The application was successful (including those that could not be verified), and after submitting the answers, it was not judged that it was only partially completed or could not be completed. */
     val succeeded: Boolean get() = outcome in SUCCESS && judged !in NOT_DONE
 
     /**
-     * 按事件顺序累计;[build] 随时可调。运行记录的写线程用它边写边算,不必在收尾时重读整份记录。
-     * 只留每个工具结果的几项数字,不留原文。
+     * Accumulated in the order of events; [build] can be adjusted at any time. The writing thread
+     * running the record uses it to calculate as it writes, without having to reread the entire record
+     * at the end. Only a few numbers of the results of each tool are retained, and the original text is
+     * not retained.
      */
     class Builder(private val runId: String = "") {
         private class Tool(val step: Int, val source: String, val callId: String?, val durationMs: Long, val waitMs: Long)
@@ -84,7 +110,7 @@ data class RunMetrics(
         private var steps = 0
         private var judged: String? = null
         private val tools = mutableListOf<Tool>()
-        /** (来源, 步, 调用 id) → 活动种类(observe / act)。 */
+        /** (source, step, call id) → activity type (observe / act). */
         private val kinds = HashMap<Triple<String, Int, String?>, String>()
 
         fun add(e: RunEvent) {
@@ -121,7 +147,7 @@ data class RunMetrics(
             if (firstFeedback == null || at < firstFeedback!!) firstFeedback = at
         }
 
-        /** 没有开始事件(记录开了却没跑起来)时为 null。 */
+        /** It is null when there is no start event (recording is started but not running). */
         fun build(): RunMetrics? {
             val start = started ?: return null
             val end = ended
@@ -132,13 +158,17 @@ data class RunMetrics(
             for (t in top) {
                 val kind = kindOf(t)
                 val inner = nested.filter { it.step == t.step }
-                // 外层调用的耗时已含子步:子步里的读计入读,余下的算操作
+                // The time consumption of the outer call already includes the sub-step: the reading in
+                // the sub-step is included in the reading, and the remaining calculation operations are
+                // included in the sub-step.
                 val innerObserve = inner.filter { kindOf(it) == OBSERVE }.sumOf { it.durationMs }.coerceAtMost(t.durationMs)
                 when {
                     kind == OBSERVE -> observe += t.durationMs
-                    // 外层调用记的 waitMs 是子步之后按条件等界面的时间,不在子步里,也不算操作
+                    // The waitMs recorded in the outer call is the time to wait for the interface
+                    // according to the conditions after the sub-step. It is not in the sub-step and does
+                    // not count as an operation.
                     inner.isNotEmpty() -> { observe += innerObserve; act += (t.durationMs - innerObserve - t.waitMs).coerceAtLeast(0) }
-                    // 为节奏补的停留(waitMs)算等待,不算操作
+                    // The pauses (waitMs) added to the rhythm are considered waiting, not operations.
                     kind != null -> act += (t.durationMs - t.waitMs).coerceAtLeast(0)
                     else -> Unit
                 }
@@ -181,19 +211,20 @@ data class RunMetrics(
         private const val OBSERVE = "observe"
         private const val ACT = "act"
         private const val ROLE_LIGHT = "light"
-        /** 包在外层调用里的子步:一批动作里的一步、页面脚本里的一个动作。 */
+        /** A substep wrapped in an outer call: a step in a batch of actions, an action in a page script. */
         private val NESTED = setOf("batch", "script")
         private val SUCCESS = setOf("succeeded", "unverified")
         private val NOT_DONE = setOf("partial", "not_possible")
 
-        /** 一次运行的小结;没有开始事件时为 null。 */
+        /** Summary of a run; null if there is no start event. */
         fun of(events: List<RunEvent>, runId: String = ""): RunMetrics? = Builder(runId).apply { events.forEach(::add) }.build()
     }
 }
 
 /**
- * 多次运行的汇总([of]):办成率、用时与第一次反馈的中位数、平均来回次数与 token,以及时间的去向(各项之和占总时长之和)。
- * 第一次反馈只在有这一项的运行里取中位数;一次都没有为 null。
+ * Summary of multiple runs ([of]): completion rate, median time and first feedback, average number of
+ * round trips and tokens, and the direction of time (the sum of each item accounts for the total time).
+ * The first feedback only takes the median of the runs with this item; it is not null even once.
  */
 data class RunStats(
     val runs: Int,
@@ -225,7 +256,7 @@ data class RunStats(
             otherMs = runs.sumOf { it.otherMs },
         )
 
-        /** 中位数;偶数个取中间两个的平均(向下取整)。空表为 null。 */
+        /** Median; for even numbers, take the average of the middle two (rounded down). An empty table is null. */
         fun median(xs: List<Long>): Long? {
             if (xs.isEmpty()) return null
             val s = xs.sorted()

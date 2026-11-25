@@ -20,12 +20,15 @@ import java.io.InputStream
 
 class FileTooLarge(val bytes: Long) : Exception("file is larger than ${ShareRules.MAX_BYTES shr 20} MB")
 
-/** 把工作区里的文件存到手机的「下载/Mina」(MediaStore,不需要存储权限)。 */
+/** Save the files in the workspace to "Download/Mina" (MediaStore, no storage permission required) on your phone. */
 class ShareExporter(private val context: Context) {
     /**
-     * [file] 已过关口核实(不跟随链接打开一次,按句柄确认在它自己的工作区里、是普通文件、只有一个硬链接);
-     * 这里再看大小不超过 100 MB,然后从这同一个句柄复制。检查之后被换成链接或别的文件也读不到外面的东西。
-     * 返回导出的文件,其中 savedAs 是 "Download/Mina/<实际名字>"(重名时系统加序号);不会把 Mina 的私有路径交出去。
+     * [file] has passed the checkpoint verification (do not follow the link to open it once, press the
+     * handle to confirm that it is in its own workspace, it is an ordinary file, and there is only one
+     * hard link); here again, the size does not exceed 100 MB, and then copied from the same handle.
+     * Even if it is replaced with a link or other file after checking, the outside content cannot be
+     * read. Returns the exported file, in which savedAs is "Download/Mina/<actual name>" (the system adds the
+     * serial number when the name is the same); Mina's private path will not be handed over.
      */
     suspend fun export(file: GatedFile, requestedName: String): SharedFile = withContext(Dispatchers.IO) {
         if (!ShareRules.plainName(requestedName)) throw SandboxError("invalid_arguments", "name: must be a plain file name", recoverable = true)
@@ -51,12 +54,14 @@ class ShareExporter(private val context: Context) {
             resolver.openOutputStream(uri)!!.use { out ->
                 val buf = ByteArray(64 * 1024)
                 while (true) {
-                    // 会话关了(任务取消、命令结束)就不再写下去
+                    // When the session is closed (task cancelled, command ended), no more writing will
+                    // be done.
                     currentCoroutineContext().ensureActive()
                     val n = input.read(buf)
                     if (n < 0) break
                     size += n
-                    // 检查之后文件又变大了:同样按上限算
+                    // After checking, the file became larger again: the calculation is also based on the
+                    // upper limit.
                     if (size > ShareRules.MAX_BYTES) throw FileTooLarge(size)
                     out.write(buf, 0, n)
                 }
@@ -72,7 +77,9 @@ class ShareExporter(private val context: Context) {
     }
 
     /**
-     * 删掉本 App 在「下载/Mina」里留下的、没写完的条目(写到一半进程被杀会留下 IS_PENDING 的空壳)。启动时调用。
+     * Delete the unfinished entries left by this App in "Download/Mina" (the process will be killed when
+     * the process is killed in the middle of writing, leaving an empty shell of IS_PENDING). Called on
+     * startup.
      */
     fun cleanPending() {
         val resolver = context.contentResolver

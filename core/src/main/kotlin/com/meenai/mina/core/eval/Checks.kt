@@ -2,18 +2,18 @@ package com.meenai.mina.core.eval
 
 import com.meenai.mina.core.verify.Grounding
 
-/** 一次任务跑完后评测器收集到的事实,打分只看它。 */
+/** After a task is completed, the evaluator collects the facts, and only looks at it when scoring. */
 data class Observed(
     /** succeeded|unverified|failed|cancelled|confirmation|takeover|timeout|skipped */
     val outcome: String,
     val answer: String,
-    /** 证据账本里按回答挑出的材料,一次读的一处(和运行时交给核查器的同一套,见 [RunFacts.evidence]),已去掉 Agent 自己输入的回显。 */
+    /** The materials selected according to the answers in the evidence ledger are read one place at a time (the same set given to the verifier at runtime, see [RunFacts.evidence]), and the echo of the Agent's own input has been removed. */
     val evidence: List<String>,
-    /** 确认卡片字段:action / target / content / amount。 */
+    /** Confirm card fields: action/target/content/amount. */
     val confirmation: Map<String, String>?,
-    /** 键为 [Checks.screenKey]。 */
+    /** The key is [Checks.screenKey]. */
     val screenHas: Map<String, Boolean>,
-    /** 任务结束后执行的探针:名字 → 输出。 */
+    /** Probe executed after task: name → output. */
     val probes: Map<String, String>,
     val steps: Int,
     val wallMs: Long,
@@ -21,38 +21,38 @@ data class Observed(
     val outputTokens: Long,
     val cachedTokens: Long,
     val failReason: String?,
-    /** Agent 碰过、但不在题目 apps 里的 App;只记录,不算失败。 */
+    /** Apps that the Agent has touched but are not in the question apps are only recorded and are not counted as failures. */
     val leftScope: List<String> = emptyList(),
-    /** 题目原文:回答里复述题目里的词(App 名、算式)不算要从屏上读到的值。 */
+    /** Original text of the question: Reciting the words in the question (App name, calculation formula) in the answer does not count as the value to be read from the screen. */
     val goal: String = "",
-    /** 完成前核查的结论(pass / fail / cannot_verify);没核查过为 null。 */
+    /** The conclusion of the verification before completion (pass / fail / cannot_verify); if it has not been verified, it is null. */
     val verdict: String? = null,
-    /** 主循环的模型调用次数(ModelReply 事件数;回放、批量执行的步不算)。 */
+    /** The number of model calls in the main loop (number of ModelReply events; playback and batch execution steps are not counted). */
     val modelCalls: Int = 0,
-    /** 模型等待总时长(各 ModelReply.latencyMs 之和)。 */
+    /** The total waiting time of the model (sum of each ModelReply.latencyMs). */
     val modelMs: Long = 0,
-    /** 工具执行总时长(各 ToolResult.durationMs 之和)。 */
+    /** Total tool execution time (sum of each ToolResult.durationMs). */
     val toolMs: Long = 0,
-    /** 其中等界面稳定的部分(各 ToolResult.waitMs 之和)。 */
+    /** The part where the intermediate interface is stable (the sum of each ToolResult.waitMs). */
     val waitMs: Long = 0,
-    /** 回放走完的路线数 / 中途交还给模型的路线数。 */
+    /** The number of routes completed during playback / the number of routes returned to the model midway. */
     val replayHits: Int = 0,
     val replayHandBacks: Int = 0,
-    /** 任务开头带上的记忆条数(memory_used 事件)。 */
+    /** The number of memories at the beginning of the task (memory_used event). */
     val memoryUsed: Int = 0,
-    /** 这次用到的个人技能名(skill_used 事件,去重)。 */
+    /** The name of the personal skill used this time (skill_used event, deduplication). */
     val skillsUsed: List<String> = emptyList(),
-    /** 键为 [Checks.webKey]。 */
+    /** The key is [Checks.webKey]. */
     val webHas: Map<String, Boolean> = emptyMap(),
-    /** 紧挨在接管之前报告、而且那一屏上看得出来的障碍(见 [RunFacts.takeoverBarrier]);没有为 null。 */
+    /** Obstacles reported immediately before takeover that are visible on that screen (see [RunFacts.takeoverBarrier]); not null. */
     val takeoverBarrier: String? = null,
-    /** Agent 向用户追问(ask_user)的次数。 */
+    /** The number of times Agent asked the user (ask_user). */
     val askedUser: Int = 0,
-    /** 任务那天(运行时钟的日期):回答把「明天」写成具体日期时按它核对(见 [Grounding.check]);不知道为 null。 */
+    /** The day of the task (the date of the running clock): If you write "tomorrow" as a specific date in the answer, click it to check (see [Grounding.check]); if you don't know, it is null. */
     val today: java.time.LocalDate? = null,
-    /** 交出回答后判的结局(运行记录里的 outcome 事件:done / partial / not_possible / unknown);没判过为 null。打分按它,见 [Scoring.recorded]。 */
+    /** The outcome of the judgment after handing in the answer (outcome event in the running record: done / partial / not_possible / unknown); if not judged, it is null. Click it to score, see [Scoring.recorded]. */
     val judged: String? = null,
-    /** 这次运行的小结(用时去向、第一次反馈、来回次数等,见 [com.meenai.mina.core.record.RunMetrics]);没有运行记录为 null。 */
+    /** The summary of this run (time destination, first feedback, number of round trips, etc., see [com.meenai.mina.core.record.RunMetrics]); no run record is null. */
     val metrics: com.meenai.mina.core.record.RunMetrics? = null,
 )
 
@@ -79,9 +79,13 @@ object Checks {
     }
 
     /**
-     * 回答有据可查:和核查兜底同一条字面规则([Grounding.check]:引文、带单位的数、编号、日期都在材料里找得到,依据里的引文定位得到),
-     * 而且有据可查的条目([Grounding.Result.items])不少于 [minItems]。题目 [goal] 里的数和文字视为已知。
-     * 值是不是属于回答说的那个东西(哪一行、哪一页)代码不判,由核查模型判(评测里看结局是不是 succeeded)。
+     * The answer is well-documented: the same literal rule as checking the bottom line
+     * ([Grounding.check]: citations, numbers with units, numbers, and dates can all be found in the
+     * materials and can be located based on the citations in the materials), and the well-documented
+     * entries ([Grounding.Result.items]) are no less than [minItems]. The numbers and words in the
+     * question [goal] are considered known. Whether the value belongs to what is mentioned in the answer
+     * (which line, which page) is not determined by the code, it is determined by the verification model
+     * (see whether the ending succeeded in the evaluation).
      */
     internal fun grounded(answer: String, screens: List<String>, minItems: Int, goal: String = "", today: java.time.LocalDate? = null): Boolean =
         Grounding.check(goal, answer, screens, today).let { it.found != false && it.items >= minItems }

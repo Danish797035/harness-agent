@@ -16,9 +16,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.ByteArrayOutputStream
 
 /**
- * Agent 专用的虚拟屏。画面输出到本进程的 ImageReader,截图不依赖无障碍截图接口。
- * 帧处理限速到 ≤10 帧/秒:来帧时若离上次处理不足 100ms 就延后到期再取最新一帧,
- * 期间旧帧由 acquireLatestImage 丢弃。
+ * Agent-specific virtual screen. The screen is output to the ImageReader of this process, and the
+ * screenshot does not rely on the accessible screenshot interface. The frame processing speed is limited
+ * to ≤10 frames/second: if the incoming frame is less than 100ms from the last processing, the
+ * expiration will be delayed and the latest frame will be fetched. During this period, the old frame
+ * will be discarded by acquireLatestImage.
  */
 class AgentDisplay(
     private val shell: IHarnessShell,
@@ -33,11 +35,11 @@ class AgentDisplay(
     val displayId: Int
 
     private val _frames = MutableStateFlow<Bitmap?>(null)
-    /** 实时画面:限速 ≤10 帧/秒,缩到宽 ≤360。 */
+    /** Real-time picture: speed limit ≤10 frames/second, zoom to width ≤360. */
     val frames: StateFlow<Bitmap?> = _frames.asStateFlow()
 
     private val frameLock = Any()
-    private var fullFrame: Bitmap? = null // 带行填充的整帧,宽 = rowStride / pixelStride
+    private var fullFrame: Bitmap? = null // Full frame with row padding, width = rowStride / pixelStride
     private var hasFrame = false
     private var lastProcessedAt = 0L
     private var pending = false
@@ -99,7 +101,7 @@ class AgentDisplay(
         }
     }
 
-    /** 最新一帧的整幅 PNG;还没收到画面时返回 null。 */
+    /** The entire PNG of the latest frame; returns null if the frame has not been received. */
     fun latestFramePng(): ByteArray? {
         val crop = latestFrameBitmap() ?: return null
         return try {
@@ -109,7 +111,7 @@ class AgentDisplay(
         }
     }
 
-    /** OCR 使用原始尺寸的画面副本，避免 PNG 编码和解码；调用方负责 recycle。 */
+    /** OCR uses an original size copy of the frame, avoiding PNG encoding and decoding; the caller is responsible for recycle. */
     fun latestFrameBitmap(): Bitmap? = synchronized(frameLock) {
         val bmp = fullFrame
         if (!hasFrame || bmp == null) null else Bitmap.createBitmap(bmp, 0, 0, width, height)
@@ -126,7 +128,7 @@ class AgentDisplay(
     private fun closeLocal() {
         released = true
         handler.removeCallbacksAndMessages(null)
-        // 在帧线程上收尾,避免与正在处理的帧并发
+        // End on the frame thread to avoid concurrency with frames being processed
         handler.post {
             reader.close()
             synchronized(frameLock) {

@@ -24,10 +24,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-/** 一格的归属:哪个服务商、哪个模型、哪个用途。 */
+/** The ownership of a grid: which service provider, which model, and which purpose. */
 data class UsageKey(val providerId: String, val model: String, val purpose: UsagePurpose)
 
-/** 一格里累计的数:输入(含缓存命中)、输出、缓存命中的 token,调用次数,其中没报用量的次数。 */
+/** The accumulated numbers in one grid: input (including cache hits), output, cache hit tokens, number of calls, of which the usage is not reported. */
 data class UsageCounts(
     val input: Long = 0,
     val output: Long = 0,
@@ -45,10 +45,10 @@ data class UsageCounts(
     }
 }
 
-/** [hour] 是 UTC 整点桶:从 1970-01-01T00:00Z 起的第几个小时。 */
+/** [hour] is the UTC hourly bucket: the hour since 1970-01-01T00:00Z. */
 data class UsageRow(val hour: Long, val key: UsageKey, val counts: UsageCounts)
 
-/** 账本此刻的全部内容;[providerNames] 是每个服务商最近一次记账时的名字(服务商删了也留着)。 */
+/** The entire content of the ledger at this moment; [providerNames] is the name of each service provider at the time of its latest accounting (the service provider will retain it even if it is deleted). */
 data class UsageSnapshot(val rows: List<UsageRow>, val providerNames: Map<String, String>) {
     companion object {
         val EMPTY = UsageSnapshot(emptyList(), emptyMap())
@@ -56,11 +56,16 @@ data class UsageSnapshot(val rows: List<UsageRow>, val providerNames: Map<String
 }
 
 /**
- * 本机的 token 用量账本:按 UTC 整点 × 服务商 × 模型 × 用途累计,只存在这台手机上([file],JSON)。
+ * The local token usage ledger: accumulated according to UTC hour × service provider × model × purpose,
+ * only exists on this mobile phone ([file], JSON).
  *
- * 记账([record])只在内存里加一笔,多个线程同时记也安全;改动后等 [flushDelayMs] 由一个后台线程整份写出
- * (先写临时文件再改名,写到一半断电不会坏掉原文件),进程被杀时最多丢掉最后这几秒。
- * 只留最近 [keepDays] 天,更早的在读入和写出时丢掉。文件读不出(损坏)时当作空账本重新开始。
+ * Accounting ([record]) only adds one entry to the memory, and it is safe for multiple threads to record
+ * at the same time; after the change, [flushDelayMs] will be written out in full by a background thread
+ * (the temporary file will be written first and then renamed, and the original file will not be damaged
+ * if the power is turned off in the middle). When the process is killed, at most the last few seconds
+ * will be lost. Only the most recent [keepDays] days are kept, older ones are discarded when reading in
+ * and writing out. When the file cannot be read (is damaged), the ledger will be restarted as an empty
+ * account.
  */
 class UsageLedger(
     private val file: File,
@@ -82,7 +87,7 @@ class UsageLedger(
     }
 
     private val _version = MutableStateFlow(0L)
-    /** 每记一笔加一;界面跟着它重新统计。 */
+    /** Each entry is incremented by one; the interface will re-calculate according to it. */
     val version: StateFlow<Long> = _version.asStateFlow()
 
     init {
@@ -105,7 +110,7 @@ class UsageLedger(
         UsageSnapshot(cells.map { (c, n) -> UsageRow(c.hour, c.key, n) }, HashMap(names))
     }
 
-    /** 有没写出的改动就当场写出(后台线程定时调;测试和退出前也可直接调)。写失败时留着改动,下次再写。 */
+    /** If there are any unwritten changes, write them out on the spot (the background thread will adjust them regularly; you can also adjust them directly before testing and exiting). When writing fails, keep the changes and write again next time. */
     fun flush() {
         synchronized(writeLock) {
             val text = synchronized(lock) {

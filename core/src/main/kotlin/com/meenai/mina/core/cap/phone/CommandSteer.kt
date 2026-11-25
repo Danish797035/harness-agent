@@ -1,9 +1,13 @@
 package com.meenai.mina.core.cap.phone
 
 /**
- * 系统命令在做专门工具做的事(点、滑、打字、按键、打开 App)时,结果里提醒换回那个工具:专门工具在 Mina 的屏上做,
- * 做完会核实效果,shell 发的输入不核实。第一次只提醒、照样执行;本任务提醒过之后,再做这几类事的命令不执行,
- * 只回那句提醒([refuses])。用 shell 分享文字一律不执行,指向分享文字的工具。查状态、读设置一类的命令不受影响。
+ * When a system command is used to do something that a specialized tool does (click, slide, type, press
+ * keys, open an app), the results will remind you to switch back to that tool: the specialized tool is
+ * done on Mina's screen, and the effect will be verified after it is done, and the input sent by the
+ * shell will not be verified. The first time, only the reminder will be executed as usual; after this
+ * task is reminded, the commands to do these types of things will not be executed, and only the reminder
+ * ([refuses]) will be replied. Sharing text using the shell will never be executed, pointing to the tool
+ * for sharing text. Commands such as checking status and reading settings are not affected.
  */
 internal object CommandSteer {
     enum class Purpose(val feedbackKey: String) {
@@ -11,21 +15,22 @@ internal object CommandSteer {
         Share("system_command.use_share"),
     }
 
-    /** [purpose] 的命令这回不执行:分享一律不执行;其余在本任务已提醒过([steered])之后不执行。 */
+    /** The command [purpose] will not be executed this time: sharing will not be executed; the rest will not be executed after this task has been reminded ([steered]). */
     fun refuses(purpose: Purpose?, steered: Boolean): Boolean = purpose == Purpose.Share || (purpose != null && steered)
 
-    /** 命令里每一段 `input …` 的子命令(前面可带输入源和 -d 屏号)。 */
+    /** Each `input …` subcommand in the command (can be preceded by input source and -d screen number). */
     private val INPUT = Regex("""(?:^|[;&|(\s])input\s+(?:(?:touchscreen|touchpad|keyboard|mouse|stylus|trackball|dpad|gamepad|joystick|rotaryencoder|touchnavigation)\s+)?(?:-d\s+\S+\s+)?([a-z]+)""")
     private val LAUNCH = Regex("""(?:^|[;&|(\s])(?:am\s+(?:start|start-activity)\b|cmd\s+activity\s+start(?:-activity)?\b|monkey\s+(?:.*\s)?-p\s)""")
     private val GESTURES = setOf("tap", "swipe", "draganddrop", "motionevent", "press", "roll")
-    /** 启动的是分享:动作写全(android.intent.action.SEND)或只写 -a SEND。 */
+    /** Start sharing: write all actions (android.intent.action.SEND) or just write -a SEND. */
     private val SHARE = Regex("""(?:android\.intent\.action\.SEND|-a\s+["']?SEND)(?![A-Za-z_])""")
-    /** 分享的是文件(带 STREAM):分享文字的工具做不了,按一般的启动算。 */
+    /** What is being shared is a file (with STREAM): the tool for sharing text cannot be used, and it will be counted as a normal startup. */
     private const val STREAM = "android.intent.extra.STREAM"
 
     /**
-     * 命令在模仿哪一类专门工具;都不是为 null。打字和点同在一条命令里时按打字算(要说的是打字该用什么);
-     * 分享文字排在最前:它一律不执行。
+     * What type of specialized tool the command is emulating; neither is null. When typing and clicking
+     * are in the same command, they are counted as typing (what should be used for typing); shared text
+     * is ranked first: it will not be executed.
      */
     fun purpose(command: String): Purpose? {
         val subs = INPUT.findAll(command).map { it.groupValues[1] }.toSet()

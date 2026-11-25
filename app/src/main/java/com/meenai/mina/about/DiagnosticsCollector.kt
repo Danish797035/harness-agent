@@ -32,7 +32,7 @@ import com.meenai.mina.task.TaskService
 import com.meenai.mina.voice.SpeechChoice
 import com.meenai.mina.voice.SystemSpeech
 
-/** 引导页的输入:由系统状态加上引导页自己记的几项(用户确认过的、跳过的、回头重做的)组成。引导页和诊断信息共用这一份。 */
+/** The input of the boot page: consists of the system status plus several items recorded by the boot page (the ones confirmed by the user, skipped, and redone). The boot page and diagnostic information share this one. */
 fun SystemStatus.setupInputs(
     discovery: PairingDiscovery,
     repair: Boolean,
@@ -53,8 +53,11 @@ fun SystemStatus.setupInputs(
 )
 
 /**
- * 从 App 里各处现成的状态收一份 [DiagnosticsSnapshot]:系统状态、内置助手、自动恢复、模型配置、运行记录、检查更新。
- * 要读盘(运行记录),在后台线程调。[setup] 是引导页此刻的输入;不在引导页时按系统状态现建一份(没有用户确认过的步骤)。
+ * Collect a copy of [DiagnosticsSnapshot] from the ready-made status in the App: system status, built-in
+ * assistant, automatic recovery, model configuration, running records, and check for updates. To read
+ * the disk (running record), call it in the background thread. [setup] is the current input of the boot
+ * page; when the boot page is not on the boot page, create a copy according to the system status (there
+ * is no step confirmed by the user).
  */
 object DiagnosticsCollector {
     private const val RECENT_RUNS = 3
@@ -104,7 +107,7 @@ object DiagnosticsCollector {
         )
     }
 
-    /** 内置助手连着时问它每份别的用户的判定,再数能打开的另一份有几个(只数,不列包名);问不到为 null。 */
+    /** The built-in assistant asks it for each user's judgment during the connection, and then counts how many other copies can be opened (only counting, not listing package names); if not asked, it will be null. */
     private fun appCopies(app: HarnessApp, phone: PhoneServices): String? = runCatching {
         val shell = phone.hub.shell.value ?: return null
         val summary = shell.appCopyUsers()?.getString(ShellService.KEY_COPY_SUMMARY) ?: return null
@@ -132,7 +135,7 @@ object DiagnosticsCollector {
     private fun channel(context: Context, id: String): Int? =
         runCatching { context.getSystemService(NotificationManager::class.java).getNotificationChannel(id)?.importance }.getOrNull()
 
-    /** 只看状况,不为了诊断去读钥匙。 */
+    /** Just look at the condition, don't read the key for diagnosis. */
     private fun adbKey(context: Context): String? = runCatching {
         val src = AndroidAdb.identities(context)
         src.state.name + (src.problem?.let { " ($it)" } ?: "")
@@ -159,7 +162,7 @@ object DiagnosticsCollector {
         )
     }
 
-    /** 语音转文字:选择、手机自带识别的能力和记号、手机上登记的识别服务(组件名、开不开放、要的权限)。 */
+    /** Speech to text: selection, the recognition capabilities and tokens that come with the mobile phone, and the recognition service registered on the mobile phone (component name, whether to open or not, required permissions). */
     private fun speech(app: HarnessApp): DiagnosticsSnapshot.Speech? = runCatching {
         val settings = app.speech
         val cap = SystemSpeech.capability(app, settings.systemSilent.value)
@@ -182,7 +185,7 @@ object DiagnosticsCollector {
         )
     }.getOrNull()
 
-    /** 最近几次运行:结局和步数取小结,模型取概要;目标、回答、失败原话都不取。 */
+    /** The last few runs: the ending and number of steps are summarized, and the model is summarized; the goals, answers, and original words of failure are not taken. */
     private fun runs(app: HarnessApp): List<DiagnosticsSnapshot.Run> = runCatching {
         val store = RunStore(app)
         val models = store.list().take(RECENT_RUNS * 2).associate { it.id to it.model }

@@ -8,28 +8,33 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
-/** 卡住提醒的记账:守卫报过几次「卡住」类提醒;每段字在每个地方(App 或网站)成功输过几次。 */
+/** Accounting for stuck reminders: how many times the guard has reported "stuck" reminders; how many times each paragraph has been successfully entered in each place (App or website). */
 internal data class StuckState(val warnings: Int = 0, val typed: Map<String, Int> = emptyMap())
 
 /**
- * 一个动作(单步,或批里的一个子步)交给卡住提醒的事实:守卫的结论(动作 + 目标重复、动过之后画面没变、页面没变时反复读),
- * 这次成功输入的明文([StuckAdvice.typedText],不是输入或是密码框为 null),当时在哪。
+ * The fact that an action (single step, or a sub-step in a batch) is handed over to the stuck reminder:
+ * the guard's conclusion (the action + target is repeated, the screen does not change after the move,
+ * read repeatedly when the page does not change), the plain text successfully entered this time
+ * ([StuckAdvice.typedText], not input or the password box is null), and where it was at the time.
  */
 internal data class StuckInput(val verdicts: List<GuardVerdict>, val typed: String?, val place: String?, val progressed: Boolean = false)
 
 /**
- * 卡住时给模型的建议(放进工具结果的 advice 字段):卡住类提醒第二次起建议找遍了就如实放弃;
- * 同一段字在同一个地方又输了一遍(换着词反复搜同几样东西,守卫的窗口看不出来)时说已经输过几次。
- * 单步和批里的子步走同一套。纯函数。
+ * Suggestions given to the model when stuck (put into the advice field of the tool result): stuck class
+ * reminders give up after searching for the suggestions for the second time; when the same paragraph is
+ * entered again in the same place (repeatedly searching for the same things with different words, the
+ * guard window cannot see it), it is said that it has been entered several times. The single step and
+ * the sub-steps in the batch are performed in the same set. Pure function.
  */
 internal object StuckAdvice {
     private val STUCK_CODES = setOf("no_progress", "no_new_state", "read_loop")
 
-    /** 返回之后的记账和要给的建议(没有为 null)。 */
+    /** Accounting and suggestions to be given after return (null if not). */
     fun next(s: StuckState, input: StuckInput): Pair<StuckState, String?> {
         val warnings = (if (input.progressed) 0 else s.warnings) + input.verdicts.count { it.severity == Severity.Warn && it.code in STUCK_CODES }
         var typed = if (input.progressed) emptyMap() else s.typed
-        // 按「当前地方 + 文字」计数:在别的 App 里搜同一个词不算重复
+        // Count by "current location + text": searching for the same word in other apps does not count
+        // as a duplicate
         val again = input.typed?.let { t ->
             val key = "${input.place}\u0000$t"
             val n = (typed[key] ?: 0) + 1
@@ -43,8 +48,10 @@ internal object StuckAdvice {
     }
 
     /**
-     * 这次成功输入的文字(去掉首尾空白,空的不算);不是输入、没成功,或端口没明确说「不是密码框」时为 null:
-     * 提示里会带上原文,而工具结果要进运行记录。
+     * The text successfully entered this time (remove the leading and trailing blanks, empty ones are
+     * not counted); if it is not input, it is not successful, or the port does not clearly say "not a
+     * password box", it will be null: the original text will be included in the prompt, and the tool
+     * results will be entered into the running record.
      */
     fun typedText(verb: Verb?, args: JsonObject, content: JsonObject?): String? {
         if (verb != Verb.TypeText || content?.get("ok") != JsonPrimitive(true) || content["secret"] != JsonPrimitive(false)) return null

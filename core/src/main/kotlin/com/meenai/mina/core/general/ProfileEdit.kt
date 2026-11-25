@@ -17,7 +17,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 
-/** 只接受本轮用户原话支持的画像修改，失败时带出现有条目供用户选择。 */
+/** Only the portrait modifications supported by the user's original words in this round will be accepted. If it fails, the existing entries will be displayed for the user to choose. */
 internal object ProfileEdit : AgentTool {
     override val verb = Verb.ProfileEdit
     override val risk = Risk.Read

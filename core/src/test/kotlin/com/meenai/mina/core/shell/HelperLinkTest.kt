@@ -34,7 +34,8 @@ class HelperLinkTest {
         l.unbind()
         assertNull(l.shell.value)
         runCurrent()
-        // 解绑让助手撤掉改动,但助手(和它的 Binder)还在
+        // Unbinding causes the assistant to undo the changes, but the assistant (and its Binder) is
+        // still there
         assertEquals(listOf("release A"), log)
         assertEquals("A", source.value)
     }
@@ -71,7 +72,7 @@ class HelperLinkTest {
         l.unbind()
         assertFalse(l.dropped.value)
         runCurrent()
-        // 断着的时候解绑:没有能撤销的对象
+        // Unbinding when disconnected: There is no object that can be undone
         assertEquals(listOf("need", "need"), log)
     }
 

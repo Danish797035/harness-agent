@@ -20,8 +20,10 @@ import kotlinx.coroutines.launch
 import com.meenai.mina.sandbox.SandboxService
 
 /**
- * 运行环境准备期间的前台服务(类型 dataSync,安卓要求长时间后台工作有前台服务)。
- * 只显示一条低优先级的「Mina 正在准备」,准备完就撤掉;不发结果通知。准备本身在 [RuntimePreparer] 里。
+ * Foreground service during preparation of the running environment (type dataSync, Android requires
+ * foreground service for long-term background work). Only a low-priority message "Mina is preparing"
+ * will be displayed and will be removed after preparation; no result notification will be sent. The
+ * preparation itself is in [RuntimePreparer].
  */
 open class SandboxForeground : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -36,7 +38,7 @@ open class SandboxForeground : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // startForegroundService 之后必须尽快进入前台
+        // You must enter the foreground as soon as possible after startForegroundService
         startForeground(ID, notification(null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         if (watcher?.isActive == true) return START_NOT_STICKY
         watcher = scope.launch {
@@ -71,7 +73,7 @@ open class SandboxForeground : Service() {
         private const val CHANNEL = "runtime_prepare"
         private const val ID = 20
 
-        /** 进入前台、等 [RuntimePreparer] 当前的准备结束。只由 [RuntimePreparer] 调用。 */
+        /** Enter the front desk and wait for [RuntimePreparer]'s current preparation to end. Called only by [RuntimePreparer]. */
         internal fun start(context: Context) {
             context.startForegroundService(Intent(context, SandboxService::class.java))
         }

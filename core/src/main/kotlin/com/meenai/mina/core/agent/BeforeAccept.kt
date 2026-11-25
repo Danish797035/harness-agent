@@ -1,8 +1,10 @@
 package com.meenai.mina.core.agent
 
 /**
- * 一段不带调用的回复被当作最终回答收下之前的那一刻(接缝):外部在这里还能插一句,例如任务进行中用户又发来的话。
- * [Accept] 照常收下(再去核对);[Continue] 不收,把 [note] 作为一条提醒交给模型,任务接着做。
+ * The moment before a reply without a call is accepted as the final answer (the seam): the outside can
+ * also insert a sentence here, such as another message from the user while the task is in progress.
+ * Accept [Accept] as usual (check again); do not accept [Continue], give [note] to the model as a
+ * reminder, and continue the task.
  */
 sealed interface BeforeAccept {
     data object Accept : BeforeAccept

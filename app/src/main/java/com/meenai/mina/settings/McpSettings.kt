@@ -17,9 +17,9 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
- * 电脑连接(MCP)的设置:开关和端口存成一个小 JSON 文件(读不懂按关着);
- * 访问令牌和服务商的 Key 一样经 [KeyCipher] 加密后另存一个文件,第一次要用时生成。
- * 默认关着。
+ * Computer connection (MCP) settings: switches and ports are saved in a small JSON file (press close if
+ * you can’t read it); the access token is encrypted by [KeyCipher] like the service provider’s Key and
+ * is saved in a separate file, which is generated when it is used for the first time. Off by default.
  */
 class McpSettings(private val dir: File, private val cipher: KeyCipher, private val random: SecureRandom = SecureRandom()) {
     private val file = File(dir, "mcp.json")
@@ -27,7 +27,7 @@ class McpSettings(private val dir: File, private val cipher: KeyCipher, private 
     private val _enabled: MutableStateFlow<Boolean>
     @Volatile private var cachedToken: String? = null
 
-    /** 监听的端口;文件里没写就用 [DEFAULT_PORT]。 */
+    /** The listening port; if it is not written in the file, use [DEFAULT_PORT]. */
     val port: Int
 
     init {
@@ -43,14 +43,14 @@ class McpSettings(private val dir: File, private val cipher: KeyCipher, private 
         save()
     }
 
-    /** 当前的访问令牌;还没有(或读不出来)就生成一个存下。 */
+    /** The current access token; generate one and save it if it is not yet available (or cannot be read). */
     @Synchronized fun token(): String {
         cachedToken?.let { return it }
         val stored = runCatching { if (tokenFile.isFile) String(cipher.decrypt(tokenFile.readBytes()), Charsets.UTF_8) else null }.getOrNull()
         return stored?.takeIf { it.length >= MIN_TOKEN }?.also { cachedToken = it } ?: regenerate()
     }
 
-    /** 换一个新令牌:旧的当场失效,连着的电脑要换上新的才能再用。 */
+    /** Change to a new token: the old one becomes invalid on the spot, and the connected computer must be replaced with a new one before it can be used again. */
     @Synchronized fun regenerate(): String {
         val bytes = ByteArray(32).also(random::nextBytes)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)

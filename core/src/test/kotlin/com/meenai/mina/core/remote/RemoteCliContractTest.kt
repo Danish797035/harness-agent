@@ -9,12 +9,13 @@ import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 
-/** 运行真实 Python CLI,连真实 Kotlin HTTP 服务。与纯 JVM 测试分开由 :core:cliTest 运行。 */
+/** Run real Python CLI, connected to real Kotlin HTTP service. Run by:core:cliTest separately from pure JVM tests. */
 class RemoteCliContractTest {
     @Test fun realCliCompletesLifecycleOverThePlainApiOnly() {
         val tasks = FakeRemoteTasks()
         val host = RemoteHost(tasks, { "contract-test-token" }, 0, false, "test")
-        // 自己起监听、记下 CLI 请求过的路径,核对它一次也没走 MCP。
+        // Start monitoring by yourself, write down the path requested by CLI, and check that it has not
+        // gone through MCP once.
         val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
         val server = MiniHttpServer(RemoteHost.bindAddress(false, 0), { req -> paths += req.path; host.handle(req) })
         val directory = Files.createTempDirectory("mina-cli-contract").toFile()
@@ -26,7 +27,8 @@ class RemoteCliContractTest {
             fun cli(vararg args: String, exit: Int = 0): JsonObject {
                 val process = ProcessBuilder(listOf(System.getProperty("mina.python", "python3"), script,
                     "--url", "http://127.0.0.1:${server.port}", "--token-file", token.absolutePath, "--json") + args)
-                    // stderr 是给人看的进度,stdout 只有 JSON:分开读,口令两边都不许出现
+                    // stderr is the progress that people can see, stdout is only JSON: read separately,
+                    // and neither side of the password is allowed to appear.
                     .directory(directory).redirectError(errors).start()
                 if (!process.waitFor(10, TimeUnit.SECONDS)) {
                     process.destroyForcibly()

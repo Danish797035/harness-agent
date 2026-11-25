@@ -23,7 +23,7 @@ import kotlinx.serialization.json.put
 import java.io.File
 import java.util.UUID
 
-/** 每个对话一个小 JSON 文件,放在 App 私有目录;重启后仍在。 */
+/** A small JSON file for each conversation is placed in the App's private directory; it will remain after restarting. */
 class ConversationStore(private val dir: File) {
     constructor(context: Context) : this(File(context.filesDir, "conversations"))
 
@@ -32,19 +32,22 @@ class ConversationStore(private val dir: File) {
     private val _changes = MutableSharedFlow<String>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /**
-     * 写过的对话编号:存进一轮、改了某一轮、去掉记忆提示时各发一次,不管是谁写的(对话页、悬浮胶囊、定时任务)。
-     * 对话页和侧栏据此重读,屏上的就是存下的那份。
+     * Written dialogue numbers: sent once when saving a round, changing a certain round, and removing
+     * memory prompts, no matter who wrote it (dialogue page, suspension capsule, timed task). The
+     * conversation page and sidebar are reread accordingly, and what's on the screen is the saved copy.
      */
     val changes: SharedFlow<String> = _changes.asSharedFlow()
 
     private val _deletions = MutableSharedFlow<String>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    /** 删掉的对话编号:[delete] 时发一次([changes] 也照发)。悬浮胶囊据此拿掉这个对话刚结束的任务、卡片不再接着它。 */
+    /** The deleted conversation number: [delete] is sent once ([changes] is also sent). The suspension capsule accordingly removes the task that just ended the conversation, and the card no longer continues it. */
     val deletions: SharedFlow<String> = _deletions.asSharedFlow()
 
     /**
-     * 用户此刻在哪个对话,见 [CurrentChat]。存在对话目录里的 `current` 文件(不是 `.json`,不进 [list]);
-     * 进程重启后照样读得回来,胶囊不必等对话文件写下来才知道新开的是哪个。
+     * Which conversation the user is in at the moment, see [CurrentChat]. The `current` file exists in
+     * the session directory (not `.json`, do not enter [list]); it can still be read after the process
+     * is restarted, and the capsule does not have to wait for the session file to be written down to
+     * know which one is newly opened.
      */
     private val _current = MutableStateFlow(readCurrent())
 
@@ -52,7 +55,7 @@ class ConversationStore(private val dir: File) {
 
     fun currentChat(): CurrentChat? = _current.value
 
-    /** 记下用户此刻在哪个对话;删掉的对话记不住。写进去了发一次 [current]。 */
+    /** Remember which conversation the user is in at the moment; deleted conversations cannot be remembered. After writing it in, send it [current]. */
     @Synchronized
     fun setCurrent(chat: CurrentChat?) {
         val target = when (chat) {
@@ -82,8 +85,10 @@ class ConversationStore(private val dir: File) {
     }
 
     /**
-     * 对话列表,最近改过的在前;[ConversationSummary.title] 是标题(用户改的或起好的),没有时是第一句话;
-     * [ConversationSummary.pinnedAt] 是置顶的时间;[ConversationSummary.page] 是从哪一页开始的。没有内容的对话不列。
+     * Conversation list, the most recently modified one is first; [ConversationSummary.title] is the
+     * title (changed or created by the user), if not, it is the first sentence;
+     * [ConversationSummary.pinnedAt] is the time that was pinned to the top; [ConversationSummary.page]
+     * is the page from which it started. Conversations without content are not listed.
      */
     @Synchronized
     fun list(): List<ConversationSummary> =
@@ -95,21 +100,24 @@ class ConversationStore(private val dir: File) {
                 ConversationSummary(id, title(id) ?: first.userText, f.lastModified(), pinnedAt(id), pageOrigin(id))
             }
 
-    /** 对话起好的标题(见 [ConversationTitler]);没有、读不到为 null。标题放在对话文件旁边的 `.title` 文件里,不动对话文件的格式。 */
+    /** A good title for the conversation (see [ConversationTitler]); if not, it is null if it cannot be read. The title is placed in the `.title` file next to the conversation file, leaving the format of the conversation file unchanged. */
     @Synchronized
     fun title(conversationId: String): String? =
         runCatching { titleFile(conversationId).takeIf { it.isFile }?.readText()?.trim() }.getOrNull()?.takeIf(String::isNotEmpty)
 
     /**
-     * 删掉过的对话。删之后才到的「补写」(后台起好的标题、任务收尾后补的结局和交代)不再把它写回来;
-     * 再往里存进一轮([append])就是重新开始用这个编号,从这里拿掉。只记在进程里。
+     * Deleted conversations. The "rewrite" that arrived after deletion (the title created in the
+     * background, the ending and explanation after the completion of the task) will not be written back;
+     * if you add another round ([append]) to it, you will start using this number again and remove it
+     * from here. Only recorded in the process.
      */
     private val deleted = mutableSetOf<String>()
 
     /**
-     * 删掉一个对话存下的一切:对话文件、标题、置顶,以及写到一半的临时文件和挪到一边的损坏文件。删了什么都发一次 [changes]
-     * 和 [deletions]。
-     * 对话的工作区、定时任务、在跑的任务不归这里管,见 [ConversationDeleter]。
+     * Delete everything that's left of a conversation: conversation files, titles, pins, as well as
+     * half-written temporary files and damaged files that have been moved aside. If you delete anything,
+     * send it once [changes] and [deletions]. The dialog workspace, scheduled tasks, and running tasks
+     * are not managed here, see [ConversationDeleter].
      */
     @Synchronized
     fun delete(conversationId: String) {
@@ -120,15 +128,18 @@ class ConversationStore(private val dir: File) {
                 f.name == pageFile(conversationId).name)
         }
             .orEmpty().forEach { it.delete() }
-        // 删掉的正是用户此刻在的那个:不再指着它,胶囊回落到最近那个
+        // What is deleted is exactly what the user is currently looking at: no longer pointing at it,
+        // the capsule falls back to the most recent one
         if (_current.value == CurrentChat.Open(safe(conversationId))) setCurrent(null)
         _changes.tryEmit(conversationId)
         _deletions.tryEmit(conversationId)
     }
 
     /**
-     * 给对话记下起好的标题;已经有标题(起好的或用户改的)就不动(标题只起一次)。写进去了返回 true。
-     * 所以后台起标题晚到时,用户先改的名字不会被盖掉。
+     * Write down the title for the conversation; if there is already a title (given or modified by the
+     * user), it will not be changed (the title will only be given once). Returns true if written.
+     * Therefore, when the background title is late, the name that the user changed first will not be
+     * blocked.
      */
     @Synchronized
     fun setTitle(conversationId: String, title: String): Boolean {
@@ -136,7 +147,7 @@ class ConversationStore(private val dir: File) {
         return writeTitle(conversationId, title)
     }
 
-    /** 用户给对话改名:不管有没有标题都换成 [title];空的不改。写进去了返回 true。 */
+    /** The user renames the conversation: whether it has a title or not, it will be replaced by [title]; if it is empty, it will not be changed. Returns true if written. */
     @Synchronized
     fun rename(conversationId: String, title: String): Boolean = writeTitle(conversationId, title)
 
@@ -149,12 +160,12 @@ class ConversationStore(private val dir: File) {
         return ok
     }
 
-    /** 对话置顶的时间;没置顶、读不到为 null。放在对话文件旁边的 `.pin` 文件里。 */
+    /** The time when the conversation was pinned to the top; if it is not pinned or cannot be read, it is null. Place it in the `.pin` file next to the conversation file. */
     @Synchronized
     fun pinnedAt(conversationId: String): Long? =
         runCatching { pinFile(conversationId).takeIf { it.isFile }?.readText()?.trim()?.toLongOrNull() }.getOrNull()
 
-    /** 置顶([pinned] 为真,记下时间 [at])或取消置顶。删掉的对话不动。改了返回 true。 */
+    /** Pin it to the top ([pinned] is true, note the time [at]) or cancel the pin. Deleted conversations remain unchanged. Changed to return true. */
     @Synchronized
     fun setPinned(conversationId: String, pinned: Boolean, at: Long = System.currentTimeMillis()): Boolean {
         if (safe(conversationId) in deleted) return false
@@ -168,8 +179,10 @@ class ConversationStore(private val dir: File) {
     }
 
     /**
-     * 对话是从哪一页开始的(用户在浏览器页上对着一页问 Mina);不是、读不到为 null。
-     * 放在对话文件旁边的 `.page` 文件里(JSON:url、host、title),不动对话文件的格式;旧对话没有这个文件。
+     * Which page the conversation started from (the user asks Mina on the browser page); if not, it is
+     * null if it cannot be read. Place it in the `.page` file next to the conversation file (JSON: url,
+     * host, title), and the format of the conversation file will not change; the old conversation does
+     * not have this file.
      */
     @Synchronized
     fun pageOrigin(conversationId: String): PageOrigin? = runCatching {
@@ -178,7 +191,7 @@ class ConversationStore(private val dir: File) {
         PageOrigin(str(o, "url") ?: return@runCatching null, str(o, "host") ?: return@runCatching null, str(o, "title").orEmpty())
     }.getOrNull()
 
-    /** 记下对话从哪一页开始(之后在同一页上接着问时换成最新的那一页)。删掉的对话不动。写进去了返回 true。 */
+    /** Note which page the conversation begins on (change to the latest page when you continue on the same page). Deleted conversations remain unchanged. Returns true if written. */
     @Synchronized
     fun setPageOrigin(conversationId: String, origin: PageOrigin): Boolean {
         if (safe(conversationId) in deleted) return false
@@ -189,11 +202,11 @@ class ConversationStore(private val dir: File) {
         return ok
     }
 
-    /** 文件损坏时当作空对话,不让它挡住新任务。 */
+    /** When a file is damaged, it will be treated as an empty dialog and will not block new tasks. */
     @Synchronized
     fun turns(conversationId: String): List<Turn> = records(conversationId).map { it.first }
 
-    /** 每一轮连同这一轮导出的文件(文件卡片)。 */
+    /** Each round is accompanied by the files (file cards) exported for that round. */
     @Synchronized
     fun records(conversationId: String): List<Pair<Turn, List<SharedFile>>> {
         val f = file(conversationId)
@@ -201,7 +214,7 @@ class ConversationStore(private val dir: File) {
         return read(f).orEmpty()
     }
 
-    /** 读不懂(不是 JSON 数组)时返回 null。 */
+    /** Returns null if it cannot be read (not a JSON array). */
     private fun read(f: File): List<Pair<Turn, List<SharedFile>>>? = try {
         (Json.parseToJsonElement(f.readText()) as? JsonArray)?.mapNotNull { e ->
             val o = e as? JsonObject ?: return@mapNotNull null
@@ -241,13 +254,13 @@ class ConversationStore(private val dir: File) {
         val f = file(conversationId)
         val prior = if (f.isFile) read(f) else emptyList()
         if (prior == null) {
-            // 损坏的文件挪到一边留着,不拿新内容覆盖掉
+            // Move the damaged files aside and do not overwrite them with new content.
             f.renameTo(File(dir, "${f.name}.corrupt-${System.currentTimeMillis()}"))
         }
         write(conversationId, prior.orEmpty() + (turn to files))
     }
 
-    /** 改运行编号为 [runId] 的那一轮(任务结束后补上判的结局、记忆与技能提示);找不到就不动。 */
+    /** Change the run number to the round numbered [runId] (add the ending, memory and skill tips after the mission); if you can’t find it, don’t move. */
     @Synchronized
     fun updateTurn(conversationId: String, runId: String, transform: (Turn) -> Turn) {
         val f = file(conversationId)
@@ -257,7 +270,7 @@ class ConversationStore(private val dir: File) {
         write(conversationId, records.map { (t, fs) -> (if (t.runId == runId) transform(t) else t) to fs })
     }
 
-    /** 记忆删了或全部清除时:去掉指向这些条目的提示和「用到」记录;[ids] 为 null 时去掉全部。 */
+    /** When the memory is deleted or cleared entirely: the prompts and "used" records pointing to these entries are removed; when [ids] is null, all are removed. */
     @Synchronized
     fun stripMemory(ids: Set<String>?) {
         dir.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().forEach { f ->
@@ -274,7 +287,8 @@ class ConversationStore(private val dir: File) {
             buildJsonObject {
                 put("userText", it.userText); put("outcome", it.outcome); put("status", it.status)
                 it.note?.let { n -> put("note", n) }; it.runId?.let { r -> put("runId", r) }; it.result?.let { r -> put("result", r) }
-                // 只存种类和编号:记忆内容只在加密的记忆文件里,界面现取
+                // Only the type and number are saved: the memory content is only in the encrypted memory
+                // file, and the interface can be retrieved immediately
                 if (it.memoryNotes.isNotEmpty()) put("memoryNotes", JsonArray(it.memoryNotes.map { n ->
                     buildJsonObject {
                         put("kind", n.kind.name); put("memoryId", n.memoryId)
@@ -296,7 +310,8 @@ class ConversationStore(private val dir: File) {
                 }))
             }
         })
-        // 先写临时文件再改名,写到一半被杀不会留下半个文件
+        // Write the temporary file first and then rename it. If it is killed in the middle of writing,
+        // half of the file will not be left.
         val tmp = File(dir, "${file(conversationId).name}.tmp")
         tmp.writeText(json.toString())
         if (!tmp.renameTo(file(conversationId))) {
@@ -310,20 +325,21 @@ class ConversationStore(private val dir: File) {
     private fun str(o: JsonObject, k: String) = (o[k] as? JsonPrimitive)?.contentOrNull
 
     companion object {
-        /** App 进程里共用的那一份(读写都在它的锁里串行)。 */
+        /** The share shared by the App process (reading and writing are serialized in its lock). */
         fun shared(context: Context): ConversationStore = (context.applicationContext as com.meenai.mina.HarnessApp).conversations
 
-        /** `current` 文件里表示「新开还没说话的对话」的那个值(对话编号只会是字母数字、`-`、`_`,不会撞上)。 */
+        /** `current` The value in the file that indicates "newly opened conversation that has not yet been spoken" (the conversation number will only be alphanumeric, `-`, `_`, and will not collide). */
         private const val CURRENT_FRESH = "fresh"
     }
 
-    // id 来自 newConversation 或外部传入,只留安全字符,免得拼出目录外的路径
+    // The id comes from newConversation or is passed in from outside. Only safe characters are left to
+    // avoid spelling out the path outside the directory.
     private fun file(id: String) = File(dir, "${safe(id)}.json")
     private fun titleFile(id: String) = File(dir, "${safe(id)}.title")
     private fun pinFile(id: String) = File(dir, "${safe(id)}.pin")
     private fun pageFile(id: String) = File(dir, "${safe(id)}.page")
 
-    /** 用户此刻在哪个对话,见 [CurrentChat];不是 `.json`,不进 [list]。 */
+    /** Which conversation the user is currently in, see [CurrentChat]; if not `.json`, do not enter [list]. */
     private fun currentFile() = File(dir, "current")
     private fun safe(id: String) = id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
 }
@@ -331,8 +347,11 @@ class ConversationStore(private val dir: File) {
 data class ConversationSummary(val id: String, val title: String, val updatedAt: Long, val pinnedAt: Long? = null, val page: PageOrigin? = null)
 
 /**
- * 用户此刻在哪个对话:App 里新开、还没说过话的是 [Fresh],正在看的是 [Open];没有记录(没进过 Mina、旧版本)为 null。
- * 悬浮胶囊据此接着该接的那个,而不是按「哪个对话文件最后被写过」去猜——新开的对话还没有文件,猜出来的会是上一个。
+ * Which conversation the user is in at the moment: The one that is newly opened in the App and has not
+ * spoken yet is [Fresh], and the one currently being viewed is [Open]; there is no record (never entered
+ * Mina, old version), which is null. Based on this, the floating capsule picks up the one it should pick
+ * up, instead of guessing based on "which conversation file was last written" - the newly opened
+ * conversation does not have a file yet, and the guessed one will be the previous one.
  */
 sealed interface CurrentChat {
     data object Fresh : CurrentChat
@@ -340,5 +359,5 @@ sealed interface CurrentChat {
     data class Open(val id: String) : CurrentChat
 }
 
-/** 对话从哪一页开始:网址、主机名、页面标题(没有为空串)。 */
+/** Which page the conversation starts from: URL, host name, page title (empty string if not). */
 data class PageOrigin(val url: String, val host: String, val title: String = "")

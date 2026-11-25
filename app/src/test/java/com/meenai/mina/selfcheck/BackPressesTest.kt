@@ -6,9 +6,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 自检按返回:输入法弹着时按的那几下是收起输入法,不算在次数里;总下数有上限。 */
+/** Self-check and press return: The few times you press the input method while it is playing are to close the input method and are not included in the number of times; the total number of times has an upper limit. */
 class BackPressesTest {
-    /** 一块屏:输入法要按 [imePresses] 下才收起(先清没上屏的字、再收起),之后再按 [pageLeavesAfter] 下页面离开。 */
+    /** One screen: In the input method, you need to press [imePresses] to close it (first clear the words on the screen, and then close it), and then press [pageLeavesAfter] to close the page and leave. */
     private class Screen(var imePresses: Int, val pageLeavesAfter: Int = 1) {
         var presses = 0
         private var pageBacks = 0
@@ -24,7 +24,7 @@ class BackPressesTest {
     }
 
     @Test fun keyboardThatTakesTwoPressesNoLongerFailsTheCheck() {
-        // 原来两下都被输入法吃掉就判失败
+        // It turns out that if the input method eats it twice, it will be deemed a failure.
         val screen = Screen(imePresses = 2)
         assertTrue(run(screen))
         assertEquals(3, screen.presses)

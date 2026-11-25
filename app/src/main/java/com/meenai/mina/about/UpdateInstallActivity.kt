@@ -8,8 +8,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 /**
- * 更新通知点开时先落到这里:不显示任何界面,把下好的 APK 校验后直接交给系统安装器,然后立即退出。
- * 校验不通过(文件坏了、不是更高版本、签名不对)就什么都不打开。
+ * When you click on the update notification, you will first fall here: no interface will be displayed,
+ * the downloaded APK will be verified and handed directly to the system installer, and then exit
+ * immediately. If the verification fails (the file is corrupted, not a higher version, or the signature
+ * is incorrect), nothing will be opened.
  */
 class UpdateInstallActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {

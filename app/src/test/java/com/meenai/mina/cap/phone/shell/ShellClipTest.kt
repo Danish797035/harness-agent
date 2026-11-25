@@ -6,12 +6,13 @@ import com.meenai.mina.cap.phone.shell.ShellClip.Restore
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** 粘贴输入换剪贴板、再还原:读不到绝不当成空的,剪贴板不是 Mina 的就不动。 */
+/** Paste the input into the clipboard and then restore it: if it cannot be read, it will never be regarded as empty. If the clipboard does not belong to Mina, it will not move. */
 class ShellClipTest {
     @Test fun readDistinguishesEmptyFromUnreadable() {
         assertEquals(Read.Has, ShellClip.read(clipPresent = true, hasPrimaryClip = true, descriptionPresent = true))
         assertEquals(Read.Empty, ShellClip.read(clipPresent = false, hasPrimaryClip = false, descriptionPresent = false))
-        // 取到的是空,但系统说有内容:读不到,不是空的
+        // What is obtained is empty, but the system says there is content: cannot be read, it is not
+        // empty.
         assertEquals(Read.Unreadable, ShellClip.read(clipPresent = false, hasPrimaryClip = true, descriptionPresent = false))
         assertEquals(Read.Unreadable, ShellClip.read(clipPresent = false, hasPrimaryClip = false, descriptionPresent = true))
     }
@@ -19,7 +20,7 @@ class ShellClipTest {
     @Test fun restoreOnlyTouchesOursOrEmpty() {
         assertEquals(Restore.PutBack, ShellClip.restore(priorEmpty = false, now = Now.Ours))
         assertEquals(Restore.Clear, ShellClip.restore(priorEmpty = true, now = Now.Ours))
-        // 用户中途复制了别的、或此刻读不到:不动
+        // The user copied something else in the middle, or cannot read it at the moment: does not move
         for (prior in listOf(true, false)) {
             assertEquals(Restore.Leave, ShellClip.restore(prior, Now.Other))
             assertEquals(Restore.Leave, ShellClip.restore(prior, Now.Unreadable))
@@ -27,7 +28,8 @@ class ShellClipTest {
     }
 
     @Test fun clearedByOthersGetsUsersClipBack() {
-        // Mina 的内容被别人清掉了(比如系统定时清空):原来有内容就放回去,原来是空的就不用管
+        // Mina's content has been cleared by others (for example, the system clears it regularly): put
+        // it back if there is content originally, and don't worry about it if it is empty.
         assertEquals(Restore.PutBack, ShellClip.restore(priorEmpty = false, now = Now.Empty))
         assertEquals(Restore.Leave, ShellClip.restore(priorEmpty = true, now = Now.Empty))
     }

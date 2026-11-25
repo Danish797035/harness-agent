@@ -21,9 +21,12 @@ import com.meenai.mina.ui.theme.MinaTheme
 import kotlinx.coroutines.delay
 
 /**
- * 给竖向的懒加载列表画一条细滚动条:贴在右边,长短反映看得见的部分占整个列表的多少,位置反映滚到哪。
- * 列表放得下时不画;滚动时和内容刚变化时出现,停下来一会儿后淡出。画在内容上面,不占布局。
- * 总长按已显示那几项的平均高度估算,各项高度差得不大时足够准。
+ * Draw a thin scroll bar for the vertical lazy loading list: stick it on the right, the length reflects
+ * how much of the visible part occupies the entire list, and the position reflects where to scroll. It
+ * will not be drawn when the list can fit; it will appear when scrolling and when the content just
+ * changes, and fade out after stopping for a while. Draw on the content and do not occupy the layout.
+ * Press and hold to estimate the average height of the displayed items. It will be accurate enough when
+ * the height differences between the items are not large.
  */
 @Composable
 fun Modifier.lazyListScrollbar(

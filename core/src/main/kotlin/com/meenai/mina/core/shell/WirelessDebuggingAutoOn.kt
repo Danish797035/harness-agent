@@ -5,70 +5,83 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** 替用户打开无线调试停下来的原因;停下后要等换了 Wi-Fi、用户亲手打开过、点了重试或助手起来了才再写。 */
+/** The reason why wireless debugging is stopped for the user; after stopping, you have to wait until the Wi-Fi is changed, the user has opened it, clicked Retry, or the assistant is up before writing again. */
 enum class AutoOnBlock {
-    /** 写了打开,系统马上又拨回关着:这个 Wi-Fi 还没被允许无线调试(系统同时会问用户要不要允许)。 */
+    /** After writing it and opening it, the system immediately turned it back to off: This Wi-Fi has not yet been allowed for wireless debugging (the system will also ask the user whether to allow it). */
     NotAllowedHere,
-    /** 系统不让写(写入抛异常或返回失败)。 */
+    /** The system does not allow writing (writing throws an exception or returns failure). */
     Refused,
-    /** 连着替用户打开了 [WirelessDebuggingAutoOn.MAX_WRITES] 次,助手还是没起来。 */
+    /** I opened it for the user [WirelessDebuggingAutoOn.MAX_WRITES] times in a row, but the assistant still didn't get up. */
     GaveUp,
 }
 
-/** 此刻要不要替用户打开无线调试。 */
+/** Do you want to turn on wireless debugging for the user at this time? */
 sealed interface AutoOnGate {
     data object Act : AutoOnGate
-    /** 离上一次写太近:等 [ms] 再来。 */
+    /** It’s too close to the last time I wrote: Wait for [ms] to come again. */
     data class Wait(val ms: Long) : AutoOnGate
     data class Skip(val reason: AutoOnSkip) : AutoOnGate
 }
 
 enum class AutoOnSkip {
-    /** 用户在 Mina 里关掉了「自动打开无线调试」。 */
+    /** The user turned off "Automatically turn on wireless debugging" in Mina. */
     Declined,
-    /** Mina 没有修改系统设置的授权。 */
+    /** Mina is not authorized to modify system settings. */
     NoPermission,
-    /** 没连 Wi-Fi:系统不会在没有 Wi-Fi 时打开无线调试(写了也会被拨回)。 */
+    /** Not connected to Wi-Fi: The system will not turn on wireless debugging when there is no Wi-Fi (it will be dialed back if written). */
     NoWifi,
-    /** 已经停下了,见 [AutoOnBlock]。 */
+    /** Has stopped, see [AutoOnBlock]. */
     Blocked,
 }
 
 /**
- * 内置助手要启动、无线调试却关着时,替用户把它打开(只开不关)。助手一旦起来就不再需要无线调试,
- * 但重新启动它(重启手机后、Mina 更新后、助手没了)要靠无线调试;而安卓原版在 Wi-Fi 断开时、重启后都会把它关掉。
+ * When the built-in assistant wants to be started but wireless debugging is turned off, turn it on for
+ * the user (only on but not off). Once the assistant is up, wireless debugging is no longer needed, but
+ * restarting it (after restarting the phone, after Mina is updated, and the assistant is gone) requires
+ * wireless debugging; and the original version of Android will turn it off when Wi-Fi is disconnected
+ * and after restarting.
  *
- * 只在用户没关掉「自动打开无线调试」、Mina 自己拿着修改系统设置的授权、连着 Wi-Fi 时写。
- * 要助手启动时助手当然不在,经已配对连接跑命令又要先有无线调试,所以只有 App 直接写这一条路;做不到就不动,界面照旧给手动打开的办法。
+ * Only write this when the user has not turned off "Automatically turn on wireless debugging", Mina has
+ * the authorization to modify the system settings, and is connected to Wi-Fi. Of course, the assistant
+ * is not there when the assistant is started. It has already been paired and connected to run commands,
+ * and wireless debugging is required first, so only the App can directly write this method; if it cannot
+ * be done, it will not move, and the interface will still be opened manually.
  *
- * 依赖的安卓原版行为(AdbDebuggingManager 对 `adb_wifi_enabled` 的处理):
- * - 设置被写成 1 后,系统检查当前 Wi-Fi:没连 Wi-Fi 就马上写回 0;
- *   这个网络(按 BSSID)不在「始终允许」名单里,也马上写回 0,同时弹框问用户「允许在此网络上使用无线调试吗」(可勾「始终允许」)。
- *   用户点了允许,系统自己再写回 1 并打开;拒绝就一直关着。
- * - 网络在名单里:保持 1,随后起无线调试服务(端口由连接那一步照常去找)。
- * 所以写完后看 [settleMs]:这段时间里读到关着就当这个 Wi-Fi 还没被允许,停下([AutoOnBlock.NotAllowedHere]),
- * 不再反复写(每写一次系统就弹一次框),直到换了 Wi-Fi、用户亲手打开、点了重试或助手起来了([reset])。
- * 有的系统对这一项另有处理(写入被拒、写了不生效),一样停下,不钻各家的实现。
- * 写之间按 [gapAfter] 拉开间隔;连着写了 [MAX_WRITES] 次助手都没起来也停下。
+ * Dependent Android original behavior (AdbDebuggingManager's processing of `adb_wifi_enabled`):
+ * - - After the setting is written to 1, the system checks the current Wi-Fi: if it is not connected to
+ * Wi-Fi, it immediately writes back to 0;
+ * This network (by BSSID) is not in the "Always Allow" list, and it is immediately written back to 0. At
+ * the same time, a pop-up box asks the user "Are wireless debugging allowed on this network?" (You can
+ * check "Always Allow"). If the user clicks Allow, the system will write back 1 and turn it on; if it
+ * refuses, it will remain closed.
+ * - - Network is in the list: keep 1, then start the wireless debugging service (the port is found as
+ * usual in the connection step).
+ * So after writing, read [settleMs]: During this period of time, if you read it off, just treat it as if
+ * the Wi-Fi has not been allowed, stop ([AutoOnBlock.NotAllowedHere]), and no longer write repeatedly
+ * (the system will pop up a box every time you write) until the Wi-Fi is changed, the user opens it
+ * manually, clicks Retry, or the assistant comes up ([reset]). Some systems have other processing for
+ * this item (writing is rejected, writing does not take effect), and they stop in the same way without
+ * delving into each company's implementation. Press [gapAfter] to create a gap between writing; I wrote
+ * [MAX_WRITES] times in succession without the assistant getting up and stopping.
  */
 class WirelessDebuggingAutoOn(
-    /** 用户要不要这一项(没在 Mina 里关掉「自动打开无线调试」)。 */
+    /** Does the user want this option (not turning off "Automatically turn on wireless debugging" in Mina). */
     private val wants: () -> Boolean,
-    /** Mina 自己拿着修改系统设置的授权。 */
+    /** Mina holds the authorization to modify system settings. */
     private val canWrite: () -> Boolean,
-    /** 系统的无线调试开关;读不到为 null。 */
+    /** The system's wireless debugging switch; null if not read. */
     private val read: () -> Boolean?,
-    /** 把无线调试开关写成打开;系统不让写时返回 false 或抛异常。 */
+    /** Write the wireless debugging switch to on; the system will not allow it to return false or throw an exception when writing. */
     private val write: () -> Boolean,
     private val now: () -> Long = System::currentTimeMillis,
     private val settleMs: Long = SETTLE_MS,
     private val pollMs: Long = POLL_MS,
 ) {
     private val _blocked = MutableStateFlow<AutoOnBlock?>(null)
-    /** 停下来的原因;没停下为 null。给设置页和状态说一句。 */
+    /** Reason for stopping; null if not stopped. Say something about the settings page and status. */
     val blocked: StateFlow<AutoOnBlock?> = _blocked.asStateFlow()
 
-    /** 正在写、等系统处理:这段时间里开关的变化由这里判断,别人不要跟着动。 */
+    /** Writing, waiting for system processing: Switch changes during this period are judged here, others should not follow suit. */
     @Volatile var writing = false
         private set
 
@@ -81,7 +94,7 @@ class WirelessDebuggingAutoOn(
         return decide(wants(), canWrite(), wifi, _blocked.value, writes, now() - lastWriteAt)
     }
 
-    /** 写打开并等系统处理完。开关保持打开返回 true;被拒或被拨回返回 false,并记下原因停下。 */
+    /** Write open and wait for the system to finish processing. Returns true if the switch remains open; returns false if it is rejected or turned back, and notes the reason for stopping. */
     suspend fun turnOn(): Boolean {
         synchronized(this) {
             writing = true
@@ -103,7 +116,7 @@ class WirelessDebuggingAutoOn(
         }
     }
 
-    /** 换了 Wi-Fi、用户亲手打开了无线调试或点了重试、助手起来了:从头算。 */
+    /** After changing the Wi-Fi, the user turned on wireless debugging or clicked Retry, and the assistant came up: Calculate from scratch. */
     @Synchronized
     fun reset() {
         writes = 0
@@ -116,14 +129,14 @@ class WirelessDebuggingAutoOn(
     }
 
     companion object {
-        /** 写完后看多久有没有被系统拨回去;原版是收到设置变化后马上处理,几百毫秒内就会拨回。 */
+        /** After writing, check how long it takes to see if it is dialed back by the system; the original version is processed immediately after receiving the setting change, and it will be dialed back within a few hundred milliseconds. */
         const val SETTLE_MS = 3_000L
         const val POLL_MS = 250L
         const val MAX_WRITES = 3
         const val BASE_GAP_MS = 10_000L
         const val MAX_GAP_MS = 5 * 60_000L
 
-        /** 写过 [writes] 次之后,下一次至少隔多久:第一次不等,之后 10 秒、20 秒……封顶 5 分钟。 */
+        /** After writing [writes] times, how long will it be before the next time? It doesn’t vary for the first time, then 10 seconds, 20 seconds, etc., capped at 5 minutes. */
         fun gapAfter(writes: Int): Long =
             if (writes <= 0) 0L else (BASE_GAP_MS shl (writes - 1).coerceAtMost(20)).coerceAtMost(MAX_GAP_MS)
 

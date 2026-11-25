@@ -57,7 +57,7 @@ class PhoneSetupCopyTest {
         assertEquals(41235, ConnectPortInput.parse("41235"))
         assertEquals(41235, ConnectPortInput.parse(" 41 235 "))
         assertEquals(41235, ConnectPortInput.parse("４１２３５"))
-        // 整段粘了「IP 地址和端口」也行
+        // Just paste the whole paragraph "IP address and port"
         assertEquals(41235, ConnectPortInput.parse("192.0.2.10:41235"))
         assertEquals(41235, ConnectPortInput.parse("192.0.2.10：41235"))
         assertEquals(1, ConnectPortInput.parse("1"))
@@ -75,7 +75,9 @@ class PhoneSetupCopyTest {
         reconnectable.forEach { s ->
             assertEquals(Fix.RetryPhoneHelper, StatusCopy.directFix(Problem.PhoneHelper(s)))
         }
-        // 没配对要走引导;无线调试关着要先去打开;没 Wi-Fi 会自己恢复;配对失效要重新配对
+        // If there is no pairing, you need to go through the boot; if wireless debugging is turned off,
+        // you need to turn it on first; if there is no Wi-Fi, it will recover by itself; if the pairing
+        // fails, you need to pair again.
         listOf(
             BuiltinShellStatus.NotPaired, BuiltinShellStatus.WirelessDebuggingOff, BuiltinShellStatus.Connecting,
             BuiltinShellStatus.Running, BuiltinShellStatus.Failed(BuiltinShellFailure.NoWifi),
@@ -89,7 +91,7 @@ class PhoneSetupCopyTest {
             val p = Problem.PhoneHelper(s)
             val fix = when {
                 PhoneSetupCopy.canReconnect(s) -> Fix.RetryPhoneHelper
-                // 这个 Wi-Fi 还没允许无线调试:直接去亲手打开一次
+                // This Wi-Fi does not allow wireless debugging yet: just go and turn it on yourself.
                 s == BuiltinShellStatus.Failed(BuiltinShellFailure.WifiNotAllowed) -> Fix.OpenWirelessDebugging
                 else -> Fix.OpenPhoneSetup
             }
@@ -113,7 +115,7 @@ class PhoneSetupCopyTest {
         assertEquals("Retry", PhoneSetupCopy.fixLabel(BuiltinShellStatus.Failed(BuiltinShellFailure.HelperStartFailed).fix))
     }
 
-    /** USB 命令起的助手停了:设置页、横幅都直说停了、再运行命令;不往无线调试引(有的手机根本没有)。 */
+    /** The assistant started by USB command has stopped: the settings page and banner all say stop and run the command again; it does not lead to wireless debugging (some mobile phones do not have it at all). */
     @Test
     fun usbHelperStoppedSaysHowToStartItAgain() {
         val stopped = BuiltinShellStatus.Failed(BuiltinShellFailure.UsbHelperStopped)
@@ -123,7 +125,8 @@ class PhoneSetupCopyTest {
         assertFalse(line, line.contains("Wireless debugging"))
         assertEquals(BuiltinShellFix.RunUsbCommand, stopped.fix)
         assertEquals("Copy", PhoneSetupCopy.fixLabel(stopped.fix))
-        // 本来就是用命令起的:卡片说「再运行一次」,不说「打不开无线调试」
+        // It was originally started with a command: the card said "Run it again" but did not say "Cannot
+        // open wireless debugging"
         val (againTitle, againBody) = PhoneSetupCopy.usbCard(HelperRestart.UsbCommand)
         assertEquals("Run the start command again", againTitle)
         assertTrue(againBody.contains("restart"))

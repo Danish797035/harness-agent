@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
-/** 触发器和时段账本同文件原子替换；认领时段落盘成功后才返回给派发器。 */
+/** Triggers and period ledgers are replaced atomically with files; the period is returned to the dispatcher only after the claimed period is successfully allocated. */
 class FileTriggerStore(private val file: File) : TriggerStore {
     private val memory = MemoryTriggerStore(if (file.isFile) runCatching {
         Json.decodeFromString<TriggerSnapshot>(file.readText())

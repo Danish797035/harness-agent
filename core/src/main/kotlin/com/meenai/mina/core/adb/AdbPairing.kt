@@ -9,18 +9,20 @@ import javax.crypto.AEADBadTagException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 
-/** adbd 通过 mDNS 公布的服务类型。 */
+/** The type of service advertised by adbd via mDNS. */
 object AdbServiceTypes {
-    /** 「使用配对码配对」对话框开着时才公布。 */
+    /** Announced only when the "Pair using pairing code" dialog box is open. */
     const val PAIRING = "_adb-tls-pairing._tcp"
-    /** 无线调试开着时公布;端口每次开关无线调试都会变。 */
+    /** Announced when wireless debugging is on; the port will change every time wireless debugging is turned on and off. */
     const val CONNECT = "_adb-tls-connect._tcp"
 }
 
-/** 在本机网络上找 adbd 公布的服务端口;找不到(超时)返回 null。 */
+/** Find the service port published by adbd on the local network; if not found (timeout), null is returned. */
 /**
- * 找本机 adbd 公布的服务端口。同一服务可能查到好几条(关了又开无线调试后,旧的那条可能还留在 mDNS 里,新的改名带上序号),
- * 全部交出,先查到的在前,由调用方挨个试。
+ * Find the service port published by adbd on this machine. Several entries may be found for the same
+ * service (after turning wireless debugging off and on again, the old one may still be in mDNS, and the
+ * new one may be renamed with a serial number). Hand them all over, with the first one found first, and
+ * the caller will try them one by one.
  */
 fun interface AdbServiceFinder {
     suspend fun findPorts(serviceType: String, timeoutMs: Long): List<Int>
@@ -30,14 +32,15 @@ class AdbPairingException(val reason: Reason, message: String, cause: Throwable?
     enum class Reason { CONNECT_FAILED, TLS_FAILED, WRONG_CODE, PROTOCOL }
 }
 
-/** 配对成功时设备回报的身份(通常是 type=1 的设备 GUID)。 */
+/** The identity reported by the device when pairing is successful (usually a device GUID of type=1). */
 class AdbPeerInfo(val type: Int, val data: String)
 
 /**
- * 无线调试的配对码配对(客户端)。流程:
- * TLS 1.3 → 导出 64 字节密钥("adb-label\0")→ 口令 = 配对码 + 导出密钥 → 交换 SPAKE2 消息 →
- * 用协商出的 AES-GCM 互换 8192 字节的 PeerInfo(我们发 adb 公钥,设备回 GUID)。
- * 每个包前有 6 字节头:版本(1)、类型(0=SPAKE2,1=PEER_INFO)、负载长度(大端 uint32)。
+ * Pairing code pairing for wireless debugging (client). Process: TLS 1.3 → Export 64-byte key
+ * ("adb-label\0") → Password = pairing code + export key → Exchange SPAKE2 message → Use negotiated
+ * AES-GCM to exchange 8192-byte PeerInfo (we send adb public key, the device returns GUID). There is a
+ * 6-byte header in front of each packet: version (1), type (0=SPAKE2,1=PEER_INFO), payload length
+ * (big-endian uint32).
  */
 class AdbPairing(private val tls: AdbTls) {
     fun pair(host: String, port: Int, code: String, timeoutMs: Int = 15_000): AdbPeerInfo {
@@ -72,7 +75,8 @@ class AdbPairing(private val tls: AdbTls) {
         System.arraycopy(key, 0, info, 1, key.size)
         writePacket(output, TYPE_PEER_INFO, auth.encrypt(info))
 
-        // 配对码不对时,设备解不开我们的 PeerInfo,直接断开
+        // When the pairing code is incorrect, the device cannot unlock our PeerInfo and disconnects
+        // directly.
         val sealed = try {
             readPacket(input, TYPE_PEER_INFO)
         } catch (e: IOException) {
@@ -109,7 +113,7 @@ class AdbPairing(private val tls: AdbTls) {
             out.flush()
         }
 
-        /** 读一个包并核对类型;对方在包头之前断开返回 null。 */
+        /** Read a packet and check the type; the other party disconnects before the packet header and returns null. */
         fun readPacket(input: DataInputStream, expectedType: Byte): ByteArray? {
             val header = ByteArray(6)
             try {

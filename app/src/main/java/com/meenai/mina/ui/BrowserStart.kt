@@ -82,9 +82,13 @@ val BROWSER_ADD_HINT: String get() = tr(R.string.browser_add_hint)
 private const val COLUMNS = 4
 
 /**
- * 浏览器的起始页:顶栏只有返回和「浏览器」;一个大搜索框(必应),输入时下面是联想(先是搜这句话或打开这个网址,再是最近打开里对得上的);
- * 「常用网站」一行四个(图标、名字,登录着的带小绿点,最后一格「＋」),「整理」或长按进整理(图标轻轻抖,× 移除,「完成」退出);
- * 「最近打开」(搜索写成「搜索：…」,右边是时间,标题右边「清除」)。整理和输入中按返回先退出它们。
+ * The start page of the browser: the top bar only has return and "Browser"; a large search box (Bing),
+ * with the association below when typing (first search this sentence or open this URL, and then the most
+ * recent one that matches); "frequently used websites" with a row of four (icon, name, logged in with a
+ * small green dot, the last box "+"), "organize" or long press to enter the organization (the icon
+ * shakes slightly, × removes, "complete" exits); "Recently Opened" (the search is written as
+ * "Search:...", the time is on the right, and "Clear" is on the right of the title). Press Return during
+ * sorting and input to exit them first.
  */
 @Composable
 fun BrowserStart(
@@ -155,7 +159,7 @@ fun BrowserStart(
     }
 }
 
-/** 大搜索框:52 高的白色胶囊,聚焦时一圈强调色;键盘上是「前往」。 */
+/** Large search box: 52-meter-high white capsule with a circle of accent color when focused; "Go" on the keyboard. */
 @Composable
 private fun BigSearchField(value: String, onChange: (String) -> Unit, onGo: () -> Unit) {
     val c = MinaTheme.colors
@@ -198,7 +202,7 @@ private fun Caption(text: String) {
     )
 }
 
-/** 分组标题,右边可带一个小字链接([action])。 */
+/** The group title can have a small link ([action]) on the right. */
 @Composable
 private fun SectionHeader(title: String, action: String? = null, onAction: () -> Unit = {}) {
     val c = MinaTheme.colors
@@ -222,7 +226,7 @@ private fun Legend(text: String, dot: Boolean) {
     }
 }
 
-/** 常用网站一行四格;[onAdd] 不为 null 时最后一格是「＋」。 */
+/** Commonly used websites have four cells in a row; when [onAdd] is not null, the last cell is "+". */
 @Composable
 private fun SiteGrid(
     sites: List<FavoriteSite>,
@@ -355,7 +359,7 @@ private fun SuggestionCard(list: List<Suggestion>, face: (String) -> SiteFace, o
     }
 }
 
-/** 起始页上的一行:左边 28 的小图标,标题(一行)和小字,右边可放时间。 */
+/** A row on the start page: 28 small icons on the left, title (one row) and small words, and time on the right. */
 @Composable
 private fun SmallRow(
     title: String,

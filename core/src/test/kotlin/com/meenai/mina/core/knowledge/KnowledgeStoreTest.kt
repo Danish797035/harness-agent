@@ -27,7 +27,7 @@ class KnowledgeStoreTest {
         assertTrue(body.startsWith("## 是什么"))
         assertTrue(body.endsWith("${KnowledgeStore.NOTES_HEADER}\n我的补充"))
         assertTrue(store.byDomain("www.zhihu.com")!!.body!!.endsWith("网页补充"))
-        // 没有正文的条目也能只带用户补充
+        // Entries without text can also only be supplemented by users.
         val bare = KnowledgeStore(listOf(entry("a", pkgs = listOf("p.a"), body = null)), mapOf("a" to "x"))
         assertEquals("${KnowledgeStore.NOTES_HEADER}\nx", bare.byPackage("p.a")!!.body)
     }
@@ -40,7 +40,8 @@ class KnowledgeStoreTest {
         assertTrue(trial.body!!.contains("- 草稿") && trial.body!!.contains("on trial"))
         val verified = KnowledgeStore(bundledA, learnedNotes = mapOf("a" to LearnedNote("- 已核实的补充", trial = false))).byPackage("p.a")!!
         assertTrue(!verified.trial && verified.body!!.contains("- 已核实的补充"))
-        // 自学补充的起草要看的是内置正文本身,不带补充
+        // When drafting self-study supplements, you should look at the built-in text itself, without
+        // supplements.
         assertEquals(KnowledgeStore(bundledA).byPackage("p.a")!!.body, KnowledgeStore(bundledA, learnedNotes = mapOf("a" to LearnedNote("- x", true))).builtIn("a"))
     }
 
@@ -96,7 +97,7 @@ class KnowledgeStoreTest {
         assertEquals(Surface.Android, app.surface); assertEquals(listOf("zhihu.com"), app.related)
         assertEquals(Surface.Web, site.surface); assertEquals(listOf("zhihu"), site.related)
         assertEquals("zhihu", site.service)
-        // 任务开头同一服务只给一份
+        // At the beginning of the task, only one copy of the same service will be given
         assertEquals(1, store.matchTask("用知乎看今天的热榜", 5).count { it.service == "zhihu" })
     }
 
@@ -119,10 +120,11 @@ class KnowledgeStoreTest {
             entry("market", "应用商店", pkgs = listOf("com.example.market"), aliases = listOf("应用商店")),
         ))
         val goal = "打开小米应用商店,搜索「哔哩哔哩」,告诉我评分"
-        // 品牌词后面接着另一个 App 的名字(应用商店),说的是那个 App,不是品牌的商城
+        // The brand word is followed by the name of another App (app store). It refers to that App, not
+        // the brand’s mall.
         assertTrue(store.matchTask(goal, 5).none { it.name == "mi.com" })
         assertTrue(store.matchTask(goal, 5, installed = listOf("com.example.market" to "应用商店")).none { it.name == "mi.com" })
-        // 直接点名商城照常命中
+        // Directly naming the mall will hit the target as usual.
         assertTrue(store.matchTask("小米商城上手环多少钱", 5).any { it.name == "mi.com" })
         assertTrue(store.matchTask("小米手机多少钱", 5).any { it.name == "mi.com" })
     }
@@ -139,7 +141,7 @@ class KnowledgeStoreTest {
             entry("b", "乙乙", pkgs = listOf("p.b"), aliases = listOf("乙乙")),
         ))
         val text = "用乙乙比一下购物助手甲上的价格"
-        assertEquals("a", store.matchTask(text, 1).single().name) // 命中词更长
+        assertEquals("a", store.matchTask(text, 1).single().name) // Hit words are longer
         assertEquals("b", store.matchTask(text, 1, installed = listOf("p.b" to "乙乙")).single().name)
     }
 
@@ -152,7 +154,8 @@ class KnowledgeStoreTest {
     }
 
     @Test fun bundledProfilesKeepTheirLinks() {
-        // 内置说明书和技能索引合并后,说明书里的链接不丢(没有链接的为空列表)
+        // After the built-in manual and skill index are merged, the links in the manual will not be lost
+        // (the list without links will be empty)
         bundled.forEach { e -> e.links.forEach { assertNull(com.meenai.mina.core.tool.LinkPolicy.check(null, it.uri, it.packageName)) } }
     }
 }

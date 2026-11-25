@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** README.md、docs/readme/README.zh-CN.md 里生成的段落(内置知识、服务商预设)和源头一致;不一致就跑 `./gradlew updateReadme`。 */
+/** The paragraphs (built-in knowledge, service provider defaults) generated in README.md, docs/readme/README.zh-CN.md are consistent with the source; if they are inconsistent, run `./gradlew updateReadme`. */
 class ReadmeSectionsTest {
     private val root = File("..").canonicalFile
 
@@ -53,7 +53,7 @@ class ReadmeSectionsTest {
         )
     }
 
-    /** 自定义能接的接口也写 Responses,排在最后(和界面上的次序一致),不按预设里出现的先后。 */
+    /** The interfaces that can be customized are also written as Responses, which are listed last (the same as the order on the interface), not in the order they appear in the default. */
     @Test fun customKindsListResponsesLast() {
         val presets = listOf(
             ReadmeSections.Preset("甲", "OpenAiCompat", "https://a.example/v1"),

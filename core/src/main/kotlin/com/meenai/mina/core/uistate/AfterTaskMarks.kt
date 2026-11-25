@@ -1,19 +1,21 @@
 package com.meenai.mina.core.uistate
 
 /**
- * 模型给这个任务里的 App 定下的「任务结束时怎么办」:留着(keep)还是关掉(close),附一句原因。
- * 没标过的按默认:留在后台,结束时正在出声的关掉(由手机一侧在任务结束时执行)。同一份 App 再标一次以最后一次为准。
- * [userId] 为 null 是本来那份;另一份(分身、工作资料)写那份用户的编号。
+ * The model determines "what to do when the task ends" for the App in this task: keep it (keep) or close
+ * it (close), with a reason. If it is not marked, the default is: stay in the background, and turn off
+ * the sound when it is finished (executed by the phone side at the end of the task). If the same App is
+ * marked again, the last time it will be marked shall prevail. [userId] is null, it is the original
+ * copy; write the user number in the other copy (clone, work information).
  */
 class AfterTaskMarks {
     data class Mark(val packageName: String, val userId: Int?, val keep: Boolean, val reason: String) {
-        /** 和手机一侧约定的键:本来那份是包名,另一份是 包名@用户。 */
+        /** The key agreed with the side of the mobile phone: the original copy is the package name, and the other copy is package name@user. */
         val key: String get() = key(packageName, userId)
     }
 
     private val marks = LinkedHashMap<String, Mark>()
 
-    /** 记下一条;返回这份 App 之前的那一条(没有为 null)。 */
+    /** Make a note of one; return the one before this App (null if not). */
     @Synchronized
     fun mark(packageName: String, userId: Int?, keep: Boolean, reason: String): Mark? {
         val m = Mark(packageName, userId, keep, reason)

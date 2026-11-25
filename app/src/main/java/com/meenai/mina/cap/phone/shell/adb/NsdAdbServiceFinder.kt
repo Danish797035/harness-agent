@@ -10,9 +10,12 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 
 /**
- * 用系统 mDNS(NsdManager)找本机 adbd 公布的端口。只认地址属于本机网卡的结果,
- * 同一局域网里别的手机也会公布同名服务。拿到端口后由调用方连 127.0.0.1。
- * 查到第一个后再多等 [SETTLE_MS] 收齐同时公布的几条(旧的失效记录和新的可能一起回来),逐个解析(旧版系统一次只解析一个)。
+ * Use system mDNS (NsdManager) to find the port published by adbd on this machine. If only the address
+ * belongs to the local network card, other mobile phones in the same LAN will also announce services
+ * with the same name. After getting the port, the caller connects to 127.0.0.1. After finding the first
+ * one, wait a little longer for [SETTLE_MS] to collect several records published at the same time (old
+ * invalid records and new ones may be returned together), and analyze them one by one (the old version
+ * of the system only parses one at a time).
  */
 class NsdAdbServiceFinder(context: Context) : AdbServiceFinder {
     private val nsd = context.applicationContext.getSystemService(NsdManager::class.java)
@@ -48,7 +51,7 @@ class NsdAdbServiceFinder(context: Context) : AdbServiceFinder {
         return ports.toList()
     }
 
-    /** 解析一条服务,是本机的就给出端口;解析失败或不是本机为 null。 */
+    /** To parse a service, the port is given if it is local; if the parsing fails or it is not native, it is null. */
     private suspend fun resolve(info: NsdServiceInfo): Int? {
         val done = Channel<Int?>(1)
         @Suppress("DEPRECATION")

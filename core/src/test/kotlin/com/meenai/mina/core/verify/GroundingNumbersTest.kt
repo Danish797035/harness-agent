@@ -6,7 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GroundingNumbersTest {
-    // 实测记录(豆瓣 Top250 前五):依据里「5 千与千寻」的 5 是引文开头的序号,后面的「千」是片名,不是数量级
+    // Actual measurement record (Top 5 on Douban Top 250): According to "5 Spirited Away", the 5 in "5
+    // Spirited Away" is the serial number at the beginning of the quotation, and the "thousand" after it
+    // is the title of the film, not the order of magnitude
     private val douban = listOf(
         "1",
         "肖申克的救赎 / The Shawshank Redemption / 月黑高飞(港) / 刺激1995(台) [可播放]",
@@ -45,39 +47,42 @@ class GroundingNumbersTest {
         val g = Grounding.check(doubanGoal, doubanAnswer, listOf(douban))
         assertFalse(g.claims.toString(), g.claims.any { it.kind == Grounding.Kind.Number && "千" in it.text })
         assertEquals(g.unmatched.toString(), true, g.found)
-        // 真的数量级照样算:屏上 46 亿,回答 46 万对不上;隔空格写的「1561 万热度」照样是数量级
+        // The real order of magnitude is still the same: 4.6 billion on the screen, the answer 460,000
+        // does not match; the "15.61 million heat" written with a space is still the order of magnitude
         assertEquals(false, Grounding.check("", "下载 46万 次", listOf("46亿 次安装")).found)
         assertEquals(true, Grounding.check("", "下载 46亿 次\n依据:「46亿 次安装」", listOf("46亿 次安装")).found)
     }
 
     private val rivers = listOf("长江 干流长6397公里", "黄河全长约5464千米")
 
-    // 标准单位的同义写法按一回事算:公里和千米
+    // The synonyms of standard units are calculated as the same thing: kilometers and kilometers
     @Test fun computationAcceptsUnitSynonyms() {
         val a = "长江比黄河长 933 公里:6397 公里 − 5464 千米 = 933 公里\n依据:「干流长6397公里」「黄河全长约5464千米」"
         assertEquals(Grounding.check("", a, rivers).unmatched.toString(), true, Grounding.check("", a, rivers).found)
-        // 写出处的算式(提示词里的写法)也认
+        // The calculation formula for writing the source (the writing method in the prompt word) is also
+        // recognized
         val b = "长江比黄河长 933 公里:6397(长江词条)− 5464(黄河词条)= 933\n依据:「干流长6397公里」「黄河全长约5464千米」"
         assertEquals(true, Grounding.check("", b, rivers).found)
     }
 
-    // 排版标记(加粗、代码)不影响核对:真实回答「相差约 6363 − 5464 = **899** 公里」
+    // Typesetting marks (bold, code) do not affect the verification: the real answer is "the difference
+    // is about 6363 − 5464 = **899** kilometers"
     @Test fun markupDoesNotHideTheComputation() {
         val screens = listOf("长江 全长6363千米,是中国第一大河", "黄河 干流全长5464公里")
         val a = "- **长江**:全长 **6363 千米**\n- 相差约 6363 − 5464 = **899** 公里\n依据:「全长6363千米」「干流全长5464公里」"
         assertEquals(Grounding.check("", a, screens).unmatched.toString(), true, Grounding.check("", a, screens).found)
-        // 加粗不能把编造的数变成有依据
+        // Bold cannot turn the made-up numbers into evidence-based ones.
         val invented = "- 相差约 **899** 公里\n依据:「全长6363千米」「干流全长5464公里」"
         assertFalse(Grounding.check("", invented, screens).found == true)
     }
 
-    // 单位换算不对、量纲不同的算式不算数
+    // The unit conversion is incorrect and the equations with different dimensions do not count.
     @Test fun computationRejectsWrongUnits() {
         val metres = "长江比黄河长 933 公里:6397 公里 − 5464 米 = 933 公里\n依据:「干流长6397公里」「黄河全长约5464千米」"
         assertFalse(Grounding.check("", metres, listOf("长江 干流长6397公里", "黄河 5464 米")).found == true)
         val mixed = "差 933 元:6397 公里 − 5464 千米 = 933 元\n依据:「干流长6397公里」「黄河全长约5464千米」"
         assertFalse(Grounding.check("", mixed, rivers).found == true)
-        // 换算对的照样过:1 公里 = 1000 米
+        // The conversion is still correct: 1 km = 1000 meters
         val ok = "差 5 米:6 公里 − 5995 米 = 5 米\n依据:「全程 6 公里」「已走 5995 米」"
         assertTrue(Grounding.check("", ok, listOf("全程 6 公里", "已走 5995 米")).found == true)
     }

@@ -18,7 +18,7 @@ class SelfCheckRunnerTest {
         wirelessDebugging = true, appVersion = "0.1.21", appBuild = "abc1234",
     )
 
-    /** 假端口:按表给结论,记下调用顺序;表里没写的算通过。 */
+    /** Fake port: Give conclusions according to the table and note the calling sequence; anything not written in the table will be counted as passed. */
     private class FakePort(
         val facts: DeviceFacts,
         val outcomes: Map<SelfCheck, suspend () -> CheckOutcome> = emptyMap(),
@@ -54,11 +54,11 @@ class SelfCheckRunnerTest {
             assertEquals(c.name, CheckStatus.Skipped, s.of(c).status)
             assertFalse(c.name, c in port.calls)
         }
-        // 直接缺的那一项写在跳过的原因里
+        // The item that is directly missing is written in the reason for skipping.
         assertEquals(SelfCheck.HELPER, s.of(SelfCheck.VIRTUAL_DISPLAY).blockedBy)
         assertEquals("needs helper (fail)", s.of(SelfCheck.VIRTUAL_DISPLAY).detail)
         assertEquals(SelfCheck.VIRTUAL_DISPLAY, s.of(SelfCheck.APP_LAUNCH).blockedBy)
-        // 不靠助手的照跑
+        // Just run without an assistant
         for (c in listOf(SelfCheck.PERMISSIONS, SelfCheck.BROWSER, SelfCheck.SANDBOX)) assertEquals(c.name, CheckStatus.Pass, s.of(c).status)
     }
 
@@ -117,7 +117,9 @@ class SelfCheckRunnerTest {
 
     @Test
     fun theTotalBudgetSkipsWhatIsLeft() = runTest {
-        // 每项用掉 4 秒,总时限 18 秒:前四项跑完,第五项只剩 2 秒、超时,之后的都因时间用完跳过
+        // Each item takes 4 seconds, and the total time limit is 18 seconds: the first four items are
+        // completed, the fifth item has only 2 seconds left and times out, and all subsequent items are
+        // skipped due to time running out.
         val port = object : SelfCheckPort {
             override suspend fun facts(): DeviceFacts { delay(4_000); return facts }
             override suspend fun check(check: SelfCheck): CheckOutcome { delay(4_000); return CheckOutcome.pass("ok") }

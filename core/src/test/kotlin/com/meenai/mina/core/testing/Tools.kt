@@ -7,30 +7,30 @@ import com.meenai.mina.core.cap.web.WEB
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.tool.Verb
 
-/** 测试用:Mina 全部工具的声明。 */
+/** For testing: Declaration of all Mina tools. */
 internal val TOOLS: ToolIndex get() = knownTools()
 
-/** 测试用:读运行记录的工具声明(改名前的旧名也认得)。 */
+/** For testing: read the tool statement of the running record (the old name before the name change is also recognized). */
 internal val RECORDED_TOOLS: ToolIndex get() = recordedTools()
 
-/** 测试用:按工具名查它做的动作。 */
+/** For testing: press the tool name to check the actions it performs. */
 internal fun verb(name: String): Verb? = TOOLS.verb(name)
 
-/** 测试用:能放进 do_steps 的工具名,按定义里的顺序。 */
+/** For testing: Tool names that can be put into do_steps, in the order in the definition. */
 internal val BATCHABLE: List<String> get() = TOOLS.names.filter { TOOLS[it]!!.batchable }
 
-/** 测试用:网页、沙箱一组的工具名。 */
+/** For testing: the tool name of a set of web pages and sandboxes. */
 internal val WEB_TOOLS: Set<String> get() = TOOLS.names.filter { TOOLS[it]!!.capability == WEB }.toSet()
 internal val SANDBOX_TOOLS: Set<String> get() = TOOLS.names.filter { TOOLS[it]!!.capability == SANDBOX }.toSet()
 
 internal const val WEB_SCRIPT_TOOL = "web_script"
 internal const val INTERACT_TOOL = "web_interact"
 
-/** 测试用:不带调用的回复,就是交给用户的最终回答。 */
+/** For testing: the reply without call is the final answer given to the user. */
 internal fun answerReply(text: String) =
     com.meenai.mina.core.model.ModelReply(listOf(com.meenai.mina.core.model.Part.Text(text)), com.meenai.mina.core.model.StopReason.EndTurn, null)
 
-/** 测试用:任务办成了,交出的回答是 [answer],没有核对出问题(核实过,或没有可核对的;来源另测)。 */
+/** For testing: the task is completed, the answer is [answer], there is no verification problem (it has been verified, or there is nothing that can be verified; the source will be tested separately). */
 internal fun assertAnswered(answer: String, end: com.meenai.mina.core.agent.TaskState) {
     val s = end as? com.meenai.mina.core.agent.TaskState.Succeeded ?: throw AssertionError("not succeeded: $end")
     org.junit.Assert.assertEquals(answer, s.answer)

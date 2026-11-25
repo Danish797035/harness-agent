@@ -35,15 +35,17 @@ import kotlinx.coroutines.delay
 
 private val RowShape = RoundedCornerShape(14.dp)
 
-/** 一轮下面留页的那一行该怎么显示:还开着(绿色那一行,能关)、已经关了(一句灰字)、或这一轮没留页。 */
+/** How to display the line with pages left under a round: still open (green line, can be turned off), turned off (gray text), or no pages left in this round. */
 sealed interface KeptRow {
     data class Live(val page: KeptPage) : KeptRow
     data class Closed(val reason: String?) : KeptRow
 
     companion object {
         /**
-         * [ex] 那一轮下面显示什么:此刻留着的 [live] 就是这一轮留的,是 [Live];这一轮记着留过页、而它已经不在了,是 [Closed]
-         * (没记下原因的按 Mina 退出了说);别的为 null。
+         * [ex] What is displayed under that round: The [live] that is kept at the moment is the one left
+         * in this round, which is [Live]; the page that was remembered to be left in this round, but it
+         * is no longer there, is [Closed] (if you didn’t note the reason, press Mina to exit); the
+         * others are null.
          */
         fun of(ex: Exchange, live: KeptPage?): KeptRow? = when {
             live != null && ex.runId != null && live.runId == ex.runId -> Live(live)
@@ -53,7 +55,7 @@ sealed interface KeptRow {
     }
 }
 
-/** 一轮下面留页的那一行(见 [KeptRow])。 */
+/** The row of pages left below a round (see [KeptRow]). */
 internal fun LazyListScope.keptPageRow(ex: Exchange, live: KeptPage?, onClose: () -> Unit) {
     val row = KeptRow.of(ex, live) ?: return
     item(key = "k:${ex.id}", contentType = "kept") {
@@ -70,7 +72,7 @@ internal fun LazyListScope.keptPageRow(ex: Exchange, live: KeptPage?, onClose: (
 internal fun LazyListScope.keptPageRow(index: Int, ex: Exchange, live: KeptPage?, onClose: () -> Unit) =
     keptPageRow(ex, live, onClose)
 
-/** 绿色那一行:「这一页保持在后台运行」,下面「站点 · 还剩多久后自动关」,右边「关闭」。剩下的时间每分钟走一次。 */
+/** The green line: "This page will keep running in the background", below it is "Site · How long will it take before it will automatically close", and on the right is "Close". Walk every minute the rest of the time. */
 @Composable
 fun KeptLine(page: KeptPage, onClose: () -> Unit) {
     val c = MinaTheme.colors

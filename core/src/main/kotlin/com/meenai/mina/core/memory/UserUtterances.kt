@@ -3,9 +3,12 @@ package com.meenai.mina.core.memory
 import java.text.Normalizer
 
 /**
- * 用户本人在这次任务里说的话:开局、插话和追问的回答里他自己的话(带的屏幕、浏览器页的页面说明、引的 Mina 的回答和附件行不算,
- * 引的他自己说过的话算)、接管交回时的备注。
- * 记忆的 `quote` 必须是其中某句的子串(全半角统一、去首尾空白后比较)——屏幕、网页、工具结果里的字不算。
+ * What the user himself said in this task: his own words in the opening, interjection, and follow-up
+ * answers (the accompanying screen, the page description of the browser page, the quoted Mina’s answer,
+ * and the attachment line are not counted, the quoted words of himself are counted), and the remarks
+ * when taking over and returning. The memorized `quote` must be a substring of one of the sentences (all
+ * half-widths are unified, and the leading and trailing blanks are removed before comparison) - words on
+ * the screen, web pages, and tool results are not counted.
  */
 class UserUtterances {
     private val texts = mutableListOf<String>()
@@ -16,16 +19,22 @@ class UserUtterances {
 
     val all: List<String> @Synchronized get() = texts.toList()
 
-    /** 每次任务开始清空:上一个任务里说的话不算这次的。 */
+    /** It will be cleared every time the task starts: the words said in the previous task are not counted this time. */
     @Synchronized fun clear() = texts.clear()
 
     /**
-     * [content] 里的具体值在 [quote] 和用户本次说的话里都找不到的那些:模型转述时从屏幕上抄来的值。
-     * 具体值 = 引号内的内容、数字(中文数字、分隔开的数字先统一成一串阿拉伯数字)、3 个字母以上的英文/编号、
-     * 地址片段(地名标志字连同前两个字,如「张江路」「一品苑」;只取两个字,模型多补一个区名不至于误拒)。
-     * 比较前两边都去掉「用户(的)」「我(的)」,免得第三人称转述本身造成误拒。
+     * The specific values in [content] cannot be found in [quote] or what the user said this time: the
+     * values copied from the screen when the model was paraphrasing. Specific value = content within
+     * quotation marks, numbers (Chinese numbers, separated numbers are first unified into a string of
+     * Arabic numerals), English letters/numbers of more than 3 letters, address fragments (place name
+     * signs together with the first two words, such as "Zhangjiang Road" and "Yipinyuan"; only take two
+     * words, the model will add an extra district name to avoid mistaken rejection). In the first two
+     * terms of comparison, remove "user(s)" and "I(s)" to avoid misrejection caused by the third-person
+     * narration itself.
      *
-     * 局限:没加引号的中文人名、无标志字的地名认不出来(「发给王小明」);这类靠提示词和结果卡片上用户过目。
+     * Limitations: Chinese names without quotation marks and place names without logo characters cannot
+     * be recognized ("Send to Wang Xiaoming"); this type of recognition depends on the user's review of
+     * the prompt words and result cards.
      */
     @Synchronized fun unsupportedSpecifics(content: String, quote: String): List<String> {
         val c = comparable(content)
@@ -38,7 +47,7 @@ class UserUtterances {
 
     private fun comparable(s: String) = PERSON.replace(NumberText.collapse(s), "")
 
-    /** 不足 2 个字的引文不算数:一两个字在哪句话里都找得到。 */
+    /** Quotations of less than 2 words do not count: one or two words can be found in any sentence. */
     @Synchronized fun contains(quote: String): Boolean {
         val q = norm(quote)
         if (q.length < MIN_QUOTE) return false
@@ -56,3 +65,4 @@ class UserUtterances {
         val PERSON = Regex("用户的|用户|我的|我")
     }
 }
+

@@ -16,9 +16,11 @@ import kotlinx.serialization.json.put
 import java.io.File
 
 /**
- * 站点登记表里的一项:主机名、最近访问时间、是否在 Mina 里处于登录状态(登录核实过、或页面上看出已登录时打上,
- * 看出已退出时去掉)。[challengedAtMs] / [challenge]:最近一次在这个网站上碰到人机验证或访问拦截的时间与种类
- * (captcha / access_blocked),这个网站的会话可能已被网站盯上;过了 [SiteRegistry.CHALLENGE_TTL_MS] 或清除该站数据后不再算。
+ * An entry in the site registry: host name, last visit time, and whether signed in within Mina
+ * (marked after login verification or when the page shows a signed-in state, cleared when signed
+ * out). [challengedAtMs] / [challenge]: time and kind (`captcha` / `access_blocked`) of the most
+ * recent human verification or access block on this site, indicating the session may be flagged;
+ * expires after [SiteRegistry.CHALLENGE_TTL_MS] or when clearing site data.
  */
 data class SiteEntry(
     val host: String,
@@ -27,14 +29,16 @@ data class SiteEntry(
     val challengedAtMs: Long? = null,
     val challenge: String? = null,
 ) {
-    /** 此刻([now])还算「碰到过拦截」。 */
+    /** At this moment ([now]), it can be considered as "encountered an interception". */
     fun challenged(now: Long): Boolean = challengedAtMs?.let { now - it < SiteRegistry.CHALLENGE_TTL_MS } == true
 }
 
 /**
- * 站点登记表:记下 Agent 和用户在内置浏览器里访问过的网站。系统接口列不出所有存了 Cookie 的站点,
- * 所以它是设置页「网站登录」能展示的唯一来源。存在 App 私有目录的一个 JSON 文件里;
- * 文件坏了时挪到一边留着(不拿新内容覆盖),从空表重新开始。
+ * Site registration form: Record the websites visited by the Agent and the user in the built-in browser.
+ * The system interface cannot list all sites that store cookies, so it is the only source that can be
+ * displayed on the settings page "Website Login". It is stored in a JSON file in the App's private
+ * directory; if the file is damaged, move it aside (not overwrite it with new content) and start over
+ * from an empty table.
  */
 class SiteRegistry(private val dir: File, private val clock: () -> Long = System::currentTimeMillis) {
     private val file = File(dir, FILE)
@@ -42,7 +46,7 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
     private var corrupt = false
     private val _entries = MutableStateFlow<List<SiteEntry>>(emptyList())
 
-    /** 和 [list] 相同的内容,变化时更新,给界面用。 */
+    /** The same content as [list], updated when it changes, for interface use. */
     val entries: StateFlow<List<SiteEntry>> = _entries.asStateFlow()
 
     init {
@@ -57,7 +61,7 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
         save()
     }
 
-    /** 页面上看出的登录状态:已登录记上、已退出去掉(会话过期了),看不出不动。返回记录是否变了。 */
+    /** The login status seen on the page: logged in is recorded, logged out is removed (the session has expired), and it cannot be seen that it is still. Returns whether the record has changed. */
     @Synchronized
     fun loginObserved(host: String, state: LoginState): Boolean {
         val h = normalize(host) ?: return false
@@ -70,8 +74,9 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
     }
 
     /**
-     * 人机验证或访问拦截把任务拦住了([kind]:captcha / access_blocked):记下时间与种类。
-     * 同一种在 [CHALLENGE_REFRESH_MS] 内记过就不重写。
+     * Human-computer authentication or access blocking blocked the task ([kind]: captcha /
+     * access_blocked): Note the time and type. The same type will not be rewritten if it is recorded in
+     * [CHALLENGE_REFRESH_MS].
      */
     @Synchronized
     fun challenged(host: String, kind: String) {
@@ -82,7 +87,7 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
         save()
     }
 
-    /** 此刻还算碰到过拦截的网站。 */
+    /** Now I have encountered blocked websites. */
     @Synchronized
     fun challengedSites(): Set<String> {
         val now = clock()
@@ -96,7 +101,7 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
         save()
     }
 
-    /** 登录过的在前,再按最近访问。 */
+    /** Those who have logged in first, then click Recent Visits. */
     @Synchronized
     fun list(): List<SiteEntry> = sorted()
 
@@ -142,7 +147,7 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
     private fun save() {
         dir.mkdirs()
         if (corrupt) {
-            // 损坏的文件挪到一边留着,不拿新内容覆盖掉
+            // Move the damaged files aside and do not overwrite them with new content.
             file.renameTo(File(dir, "$FILE.corrupt-${clock()}"))
             corrupt = false
         }
@@ -153,7 +158,8 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
                 it.challenge?.let { k -> put("challenge", k) }
             }
         }).toString()
-        // 先写临时文件再改名,写到一半被杀不会留下半个文件
+        // Write the temporary file first and then rename it. If it is killed in the middle of writing,
+        // half of the file will not be left.
         val tmp = File(dir, "$FILE.tmp")
         tmp.writeText(json)
         if (!tmp.renameTo(file)) {
@@ -164,15 +170,15 @@ class SiteRegistry(private val dir: File, private val clock: () -> Long = System
     }
 
     companion object {
-        /** 碰到拦截的标记保留这么久(之后网站多半已不再盯着这次会话)。 */
+        /** Marks that are blocked are retained for this long (after that the website will probably no longer be looking at the session). */
         const val CHALLENGE_TTL_MS = 7L * 24 * 60 * 60 * 1000
-        /** 同一种拦截这么久之内再碰到不重写记录。 */
+        /** If the same type of interception is encountered again within such a long time, the record will not be rewritten. */
         const val CHALLENGE_REFRESH_MS = 10L * 60 * 1000
-        /** 算作「网站盯上了这次会话」的接管原因。 */
+        /** Count as the reason for taking over "the website is targeting this session". */
         val CHALLENGE_KINDS = setOf("captcha", "access_blocked")
         private const val FILE = "sites.json"
 
-        /** 主机名统一成小写、去掉 www.;传进来的是网址也认。不像主机名的不登记。 */
+        /** Unify the host name into lower case and remove www.; the URL passed in will also be recognized. Unlike the host name which is not registered. */
         private fun normalize(raw: String): String? {
             val s = raw.trim()
             if (s.isEmpty()) return null

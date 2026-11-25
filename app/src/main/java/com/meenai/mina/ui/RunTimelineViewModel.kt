@@ -16,10 +16,10 @@ import com.meenai.mina.core.assembly.knownTools
 
 enum class TagTone { Ok, Warn, Bad }
 
-/** 时间线上的标签:守卫、核查、确认、接管、障碍的结论。 */
+/** Tags on the timeline: Guard, Verification, Confirmation, Takeover, Obstacle Conclusion. */
 data class Tag(val text: String, val tone: TagTone)
 
-/** 实际执行入口报出的活动;连续的读取可以合在一行,动作保持逐条可见。 */
+/** Actual execution of the activities reported by the portal; consecutive reads can be combined into one line, and the actions remain visible one by one. */
 data class TimelineActivity(
     val kind: String,
     val label: String,
@@ -29,7 +29,7 @@ data class TimelineActivity(
     val obsIds: List<Int> = emptyList(),
 )
 
-/** 已记录的耗时。批量/脚本的子动作包含在外层工具耗时里，只计一次。 */
+/** Recorded elapsed time. Batch/script sub-actions are included in the outer tool time consumption and are only counted once. */
 data class StepTiming(
     val modelMs: Long? = null,
     val toolMs: Long? = null,
@@ -39,8 +39,9 @@ data class StepTiming(
 }
 
 /**
- * 时间线的一行。[said] 是模型这一步说的话(截到 80 字),[tool] 是工具的中文说法,
- * [detail] 是参数里最能说明对象的那一个(记录里已脱敏,原样显示),[screenshotId] 是这一步存下的画面。
+ * A line of the timeline. [said] is what is said in this step of the model (cut to 80 words), [tool] is
+ * the Chinese term for the tool, [detail] is the parameter that best describes the object (the record
+ * has been desensitized and displayed as is), [screenshotId] is the picture saved in this step.
  */
 data class TimelineStep(
     val step: Int,
@@ -58,21 +59,21 @@ data class TimelineHeader(
     val goal: String,
     val criteria: List<String>,
     val outcome: String,
-    /** 这次运行还没结束:结局、核查、统计都还没写齐,页面按秒接着读(见 [RunTimelineScreen])。 */
+    /** This run is not over yet: the ending, verification, and statistics have not been written yet, and the page continues to be read every second (see [RunTimelineScreen]). */
     val running: Boolean = false,
     val verdict: String,
     val duration: String?,
     val modelCalls: Int,
     val usedMemory: List<String> = emptyList(),
-    /** 这次运行的小结;记录里没有开始事件时为 null(只显示用时)。 */
+    /** Summary of this run; if there is no start event in the record, it is null (only the time is displayed). */
     val metrics: RunMetrics? = null,
-    /** 哪个模型执行的或切换说明(见 Free Key Router)。 */
+    /** Which model is executed or switching instructions (see Free Key Router). */
     val routerNote: String? = null,
 )
 
 sealed interface TimelineUi {
     data object Loading : TimelineUi
-    /** 记录已被清理(只保留最近 30 次)或编号不对。 */
+    /** The record has been cleared (only the last 30 records are retained) or the number is incorrect. */
     data object Expired : TimelineUi
     data class Ready(val header: TimelineHeader, val steps: List<TimelineStep>) : TimelineUi
 
@@ -81,14 +82,15 @@ sealed interface TimelineUi {
     }
 }
 
-/** 一次运行的只读时间线。[load] 读盘,要在后台线程调。 */
+/** Read-only timeline for one run. [load] disk reading needs to be adjusted in the background thread. */
 class RunTimelineViewModel(
     private val store: RunStore, val runId: String,
     private val toolLabels: ToolLabels = ToolLabels(knownTools()),
     private val resolveMemory: (List<String>) -> List<String> = { emptyList() },
     /**
-     * 这次运行的任务此刻还在跑。没有结束记录、任务也不在了(进程被杀、记录写到一半)的运行算已结束,
-     * 页面不为它一直按秒重读。
+     * The task run this time is still running at the moment. The running calculation that has not ended
+     * the record and the task is no longer there (the process was killed and the record was written
+     * halfway) has ended, and the page is not reread every second for it.
      */
     private val alive: (runId: String) -> Boolean = { false },
 ) {
@@ -119,7 +121,9 @@ class RunTimelineViewModel(
                 ?: events.filterIsInstance<RunEvent.Criteria>().lastOrNull()?.criteria.orEmpty(),
             outcome = outcomeLabel(summary?.outcome ?: ended?.outcome,
                 summary?.judged ?: events.filterIsInstance<RunEvent.OutcomeJudged>().lastOrNull()?.outcome),
-            // 结束事件或结束时间只要有一个就算跑完了;都没有时还要任务真在跑,界面据此决定要不要按秒重读
+            // As long as there is one of the end event or the end time, the run is completed; if there
+            // is neither, the task is still running, and the interface decides whether to reread by the
+            // second based on this.
             running = isRunning,
             verdict = verdictLabel(summary?.verdict ?: events.filterIsInstance<RunEvent.Verifier>().lastOrNull()?.verdict),
             duration = endMs?.let { duration(it - startMs) },
@@ -138,7 +142,7 @@ class RunTimelineViewModel(
     companion object {
         const val SAID_MAX = 80
 
-        /** 按步号归组;没有步号的事件(核查、确认、接管、障碍)挂在它之前最近的一步上。 */
+        /** Grouped by step number; events without a step number (verification, confirmation, takeover, obstacle) are hung on the most recent step before it. */
         internal fun steps(events: List<RunEvent>, toolLabel: (String) -> String = { it }): List<TimelineStep> {
             val rows = LinkedHashMap<Int, TimelineStep>()
             val modelTimes = mutableMapOf<Int, Long>()
@@ -148,7 +152,8 @@ class RunTimelineViewModel(
             fun at(step: Int) = rows.getOrPut(step) { TimelineStep(step, "", null, null, null, emptyList(), null) }.also { current = step }
             fun tag(t: Tag) { current?.let { s -> rows[s] = rows.getValue(s).let { it.copy(tags = it.tags + t) } } }
             for (e in events) when (e) {
-                // 改派掉的轻量模型回复没执行,不进步骤;调用次数照算
+                // The response to the dispatched lightweight model was not executed and no steps were
+                // entered; the number of calls will still be counted.
                 is RunEvent.ModelReply -> {
                     val elapsed = e.latencyMs.coerceAtLeast(0) + e.retryWaitMs.coerceAtLeast(0)
                     if (elapsed > 0) modelTimes[e.step] = modelTimes.getOrDefault(e.step, 0) + elapsed
@@ -196,7 +201,8 @@ class RunTimelineViewModel(
             }
             return rows.values.map { row ->
                 val results = toolTimes[row.step].orEmpty()
-                // do_steps 和复合工具也会记子动作;外层的 durationMs 已包含它们。
+                // do_steps and compound tools also remember sub-actions; the outer durationMs already
+                // contains them.
                 val outer = results.filter { it.source == "model" && it.durationMs > 0 }
                 val measured = (outer.ifEmpty { results.filter { it.durationMs > 0 } }).sumOf { it.durationMs }
                 row.copy(
@@ -231,7 +237,9 @@ class RunTimelineViewModel(
             return DETAIL_KEYS.firstNotNullOfOrNull { k -> (o[k] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } }?.let(::clipSaid)
         }
 
-        // 结果可能被截短成不合法的 JSON:ok / error 只按顶层键的写法找(元素文字里的引号是转义过的,不会误中)
+        // The result may be truncated into illegal JSON: ok / error is only found according to the
+        // writing method of the top-level key (the quotes in the element text are escaped and will not
+        // be missed)
         private val NOT_OK = Regex(""""ok"\s*:\s*false""")
         private val ERROR = Regex(""""error"\s*:\s*"([a-z_]+)"""")
 
@@ -250,8 +258,9 @@ class RunTimelineViewModel(
         }
 
         /**
-         * 结果里 guard 数组的每一项。完整的 JSON 直接解析;被截短时从 `"guard":[` 往后逐个取出完整的对象,
-         * 截断处那个不完整的丢掉。
+         * Each item in the guard array in the result. The complete JSON is parsed directly; when it is
+         * truncated, the complete objects are taken out one by one from `"guard":[` onwards, and the
+         * incomplete ones at the truncation point are discarded.
          */
         private fun guardObjects(json: String): List<JsonObject> {
             parse(json)?.let { o -> return (o["guard"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty() }
@@ -321,7 +330,7 @@ class RunTimelineViewModel(
 
         private fun verdictLabel(verdict: String?) = if (verdict == null) tr(R.string.verify_none) else verifierTag(verdict).text
 
-        /** [judged]:交出回答后判的结局;回答如实说没办成、只办了一部分的按它写。 */
+        /** [judged]: the outcome judged after the answer was handed over; an answer that truthfully says it failed or only did part is labelled by it. */
         private fun outcomeLabel(outcome: String?, judged: String?) = when {
             outcome != "succeeded" && outcome != "unverified" -> outcomeLabel(outcome)
             judged == "partial" -> tr(R.string.outcome_partial)

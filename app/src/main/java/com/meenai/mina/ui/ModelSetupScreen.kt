@@ -93,14 +93,17 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * 配置模型:用途(主模型、看图模型、轻量模型)和服务商两块。首次上手时 [onboarding] 为真
- * (服务商在前,底部有分页点和「下一步」);设置 › 模型([ModelsScreen])也是这一页,标题和引导语不同,没有底部按钮。
- * 选用途、服务商详情、服务商的全部模型是这一页里的子页面。上手时「下一步」选好主模型才可点,点了调 [onDone]。
+ * Configuration model: two parts: purpose (main model, graph viewing model, lightweight model) and
+ * service provider. When you first get started, [onboarding] is true (the service provider is first,
+ * there is a paging point and "Next" at the bottom); Settings › Model ([ModelsScreen]) is also on this
+ * page, with a different title and guide, and no bottom button. Select usage, service provider details,
+ * and all service provider models are subpages in this page. When getting started, select the main model
+ * in "Next" and click "[onDone]".
  */
 @Composable
 fun ModelSetupScreen(
     store: ProviderStore, onboarding: Boolean, onBack: () -> Unit, onDone: () -> Unit,
-    /** 设置里点「语音转文字」卡片去选择页;上手流程不传,卡片就不出现。 */
+    /** Click the "Speech to Text" card in the settings to go to the selection page; if you don't upload the onboarding process, the card will not appear. */
     onOpenSpeech: (() -> Unit)? = null,
     routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
@@ -135,10 +138,12 @@ fun ModelSetupScreen(
     var picking by rememberSaveable { mutableStateOf<ModelRole?>(null) }
     var openProvider by rememberSaveable { mutableStateOf<String?>(null) }
     var allModels by rememberSaveable { mutableStateOf(false) }
-    // 账号登录的面板:在添加表单和服务商详情里都能打开,登录中关掉也不打断登录
+    // Account login panel: It can be opened in the add form and service provider details. It can be
+    // closed during login without interrupting login.
     var signInSheet by rememberSaveable { mutableStateOf<SignInKind?>(null) }
 
-    // 用账号登录成功:收起面板,打开这一家的详情(看账号和模型、设主模型)
+    // Successfully logged in with the account: close the panel and open the details of this company (see
+    // account and model, set the main model)
     LaunchedEffect(ui.signedInProvider) {
         val id = ui.signedInProvider ?: return@LaunchedEffect
         signInSheet = null
@@ -147,15 +152,17 @@ fun ModelSetupScreen(
         allModels = false
         vm.signedInShown()
     }
-    // ChatGPT 登录成功照旧留在这一页(第一次会说明在用套餐额度),面板收起
+    // If the ChatGPT login is successful, you will still stay on this page (the current package quota
+    // will be explained for the first time), and the panel will be closed.
     LaunchedEffect(ui.chatGptAccount?.signedIn, ui.chatGptSignIn) {
         if (signInSheet == SignInKind.ChatGpt && ui.chatGptAccount?.signedIn == true && ui.chatGptSignIn == ListState.Idle) signInSheet = null
     }
     LaunchedEffect(ui.geminiWebAccount?.signedIn, ui.geminiWebSignIn) {
         if (signInSheet == SignInKind.GeminiWeb && ui.geminiWebAccount?.signedIn == true && ui.geminiWebSignIn == ListState.Idle) signInSheet = null
     }
-    // Gemini 登录后会在服务器上发一条消息检测:检测失败时账号行已经写了原因,
-    // 让它打开一次面板,把失败原因摆给人看。
+    // After logging in, Gemini will send a detection message on the server: when the detection fails,
+    // the reason has been written in the account line. Let it open the panel once and show the reason
+    // for the failure.
     LaunchedEffect(ui.geminiWebSignIn) {
         if (signInSheet == null && ui.geminiWebSignIn is ListState.Failed) signInSheet = SignInKind.GeminiWeb
     }
@@ -178,7 +185,8 @@ fun ModelSetupScreen(
                 setVision = { model, sees -> vm.setModelVision(provider.id, model, sees) },
                 showAll = { allModels = true },
                 retest = { vm.retest(provider.id) },
-                // ChatGPT 照旧直接去浏览器登录;xAI、OpenRouter、Gemini 先打开说明面板
+                // For ChatGPT, go directly to the browser to log in as usual; for xAI, OpenRouter, and
+                // Gemini, open the help panel first.
                 signIn = { if (accountKind != null) signInSheet = accountKind else vm.signInWithChatGpt() },
                 signOut = {
                     when (accountKind) {
@@ -212,7 +220,8 @@ fun ModelSetupScreen(
                 ui, role,
                 RolePickerActions(
                     pick = { pid, model ->
-                        // 刚存下、没有一个模型试通过的那家:先试调用,通了才选上、返回
+                        // The one you just saved and none of the models passed: try calling it first,
+                        // then select it and return if it passes.
                         if (ui.probeBeforePick(role, pid)) vm.pickManual(role, pid, model) { picking = null }
                         else { vm.pick(role, pid, model); picking = null }
                     },
@@ -274,7 +283,8 @@ fun ModelSetupScreen(
                 },
                 dismiss = {
                     signInSheet = null
-                    // 失败的原因看过了;还在登录的不打断
+                    // I have seen the reasons for the failure; if you are still logged in, do not
+                    // interrupt.
                     if (!ui.accountSignIn.running && ui.geminiWebSignIn != ListState.Running) vm.dismissAccountFailure()
                 },
             ),
@@ -295,35 +305,37 @@ fun ModelSetupScreen(
     }
 }
 
-/** 主页面上的全部动作。 */
+/** All actions on the main page. */
 class ModelSetupActions(
     val selectPreset: (String) -> Unit = {},
     val setKind: (ProviderConfig.Kind) -> Unit = {},
     val setBaseUrl: (String) -> Unit = {},
     val setApiKey: (String) -> Unit = {},
     val setModel: (String) -> Unit = {},
-    /** 「手动填写模型名」的开和收。 */
+    /** Opening and closing of "Manually fill in model name". */
     val setManual: (Boolean) -> Unit = {},
     val setName: (String) -> Unit = {},
     val testAndSave: () -> Unit = {},
-    /** 不测试,直接保存(见 [ModelSetupViewModel.saveWithoutTest])。 */
+    /** Do not test, save directly (see [ModelSetupViewModel.saveWithoutTest]). */
     val saveUntested: () -> Unit = {},
     val openForm: () -> Unit = {},
     val closeForm: () -> Unit = {},
     val openProvider: (String) -> Unit = {},
     val pickRole: (ModelRole) -> Unit = {},
-    /** 打开「语音转文字」的选择页;为 null 时不显示这张卡(上手流程)。 */
+    /** Open the "speech to text" selection page; if it is null, this card will not be displayed (getting started). */
     val openSpeech: (() -> Unit)? = null,
     val next: () -> Unit = {},
-    /** 打开一家账号登录的说明面板。 */
+    /** Open the instructions panel for logging in to an account. */
     val openSignIn: (SignInKind) -> Unit = {},
     val setReasoningEffort: (ModelRole, String?) -> Unit = { _, _ -> },
     val setModelContext: (String, ModelContextSettings) -> Boolean = { _, _ -> false },
 )
 
 /**
- * 不带状态的主页面,便于测试。改动当场生效(测试通过就存下服务商,用途选完就用),
- * 所以设置里进来只有返回;上手时底部留「下一步」,键盘弹出时藏起来,把地方让给表单。
+ * The main page without state is convenient for testing. Changes take effect on the spot (save the
+ * service provider after passing the test, and use it after selecting the purpose), so you can only go
+ * back when entering the settings; leave "Next" at the bottom when you get started, and hide the
+ * keyboard when it pops up, leaving space for the form.
  */
 @Composable
 fun ModelSetupContent(
@@ -339,7 +351,8 @@ fun ModelSetupContent(
     onPinClick: (() -> Unit)? = null,
 ) {
     val c = MinaTheme.colors
-    // 表单收起(测试通过存好了,或取消)后页面上没有要打字的地方,顺手收起键盘
+    // After the form is closed (save it after passing the test, or cancel it), there is no place to type
+    // on the page, so you can easily close the keyboard
     val focus = LocalFocusManager.current
     LaunchedEffect(ui.showForm) { if (!ui.showForm) focus.clearFocus() }
     val onPick: (ModelRole) -> Unit = { role -> if (ui.providers.isEmpty()) actions.openForm() else actions.pickRole(role) }
@@ -351,7 +364,8 @@ fun ModelSetupContent(
                     if (onboarding) ModelSetupCopy.LEAD else ModelsCopy.LEAD, Modifier.padding(top = 4.dp, bottom = 12.dp),
                     fontSize = 14.5.sp, lineHeight = 23.sp, color = c.ink2,
                 )
-                // 上手时先连服务商再选模型;设置里先看用途
+                // When getting started, first connect to the service provider and then select the model;
+                // first look at the usage in the settings
                 if (onboarding) {
                     ProvidersSection(ui, actions)
                     RolesSection(ui, onPick, actions.setReasoningEffort, null)
@@ -376,7 +390,8 @@ fun ModelSetupContent(
                 }
                 Spacer(Modifier.height(16.dp))
             }
-            // 看键盘实际占的高度;isImeVisible 在系统第一次报告前默认是 true,会把按钮误藏
+            // Look at the actual height of the keyboard; isImeVisible defaults to true before the system
+            // reports it for the first time, which will hide the button by mistake.
             if (onboarding && WindowInsets.ime.getBottom(LocalDensity.current) == 0) {
                 Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)) {
                     ProgressDots(Onboarding.DOTS, Onboarding.dot(OnboardingStep.Model), Modifier.padding(bottom = 14.dp))
@@ -387,7 +402,7 @@ fun ModelSetupContent(
     }
 }
 
-/** 服务商:每家一行(写明在给哪些用途干活),加「添加服务商」;没有服务商或点了添加时,表单就摊在这里。 */
+/** Service Provider: One line for each company (indicate which purposes it is working for), add "Add Service Provider"; when there is no service provider or click Add, the form will be displayed here. */
 @Composable
 private fun ProvidersSection(ui: ModelSetupUi, actions: ModelSetupActions) {
     val c = MinaTheme.colors
@@ -396,7 +411,8 @@ private fun ProvidersSection(ui: ModelSetupUi, actions: ModelSetupActions) {
         GroupCard {
             ui.providers.forEachIndexed { i, p ->
                 val line = if (ui.signedOut(p)) ModelsCopy.CHATGPT_SIGNED_OUT else ModelsCopy.providerLine(p, ui.listing[p.id], ui.rolesOf(p))
-                // 有用着却没试通过的模型、或跳过测试存下且已经在用:这一行就提醒「没测试通过」
+                // There is a model that is used but failed to pass the test, or the test is skipped and
+                // saved and is already in use: this line reminds "the test did not pass"
                 val warning = ModelsCopy.UNVERIFIED.takeIf {
                     ui.unverified(p).isNotEmpty() || (ui.untested(p) && ui.rolesOf(p).isNotEmpty())
                 }
@@ -411,7 +427,8 @@ private fun ProvidersSection(ui: ModelSetupUi, actions: ModelSetupActions) {
         }
     }
     ui.probeNote?.let { FooterNote(it, Modifier.testTag("setup-probe-note"), color = c.warn) }
-    // 刚存下的那家一个模型都没试通过:直接去选主模型(选的时候先试调用)
+    // None of the models I just saved passed the test: go directly to select the main model (try calling
+    // it first when selecting)
     if (ui.pickToProbe != null && ui.roles.main == null) {
         Text(
             ModelSetupCopy.PICK_MAIN,
@@ -423,7 +440,7 @@ private fun ProvidersSection(ui: ModelSetupUi, actions: ModelSetupActions) {
     FooterNote(ModelsCopy.KEY_NOTE)
 }
 
-/** 添加服务商:先是「用账号登录」一组(不用填 Key),再是填 Key 的:预设胶囊 → (自定义时)接口类型和地址 → API Key →「测试并保存」。 */
+/** Add a service provider: First, the "Log in with account" group (no need to fill in the Key), then fill in the Key: Default capsule → (when customizing) interface type and address → API Key → "Test and save". */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
@@ -447,7 +464,8 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ProviderPresets.all.forEach { p ->
-            // 「自定义」按界面语言显示;服务商的名字原样
+            // "Custom" is displayed according to the interface language; the name of the service
+            // provider remains unchanged
             SelectChip(if (p == ProviderPresets.custom) stringResource(R.string.preset_custom) else p.label, f.preset == p.label, { actions.selectPreset(p.label) }, Modifier.testTag("preset-${p.label}"))
         }
     }
@@ -458,7 +476,7 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(ModelSetupCopy.KIND, Modifier.padding(end = 12.dp), style = MinaType.Body, color = c.ink)
-                // 四种接口一行放不下时折到下一行
+                // If the four interfaces cannot fit in one row, fold them to the next row.
                 FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     ProviderConfig.Kind.withApiKey.forEach { k -> SelectChip(ModelsCopy.kindLabel(k), f.kind == k, { actions.setKind(k) }, small = true) }
                 }
@@ -471,7 +489,8 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
             )
         }
         if (f.isCustom) {
-            // 可不填:提示里直接写出不填时用的名字(地址的主机名)
+            // You can leave it blank: directly write the name (the host name of the address) in the
+            // prompt if you leave it blank.
             InputRow(
                 ModelSetupCopy.NAME, f.name, actions.setName,
                 if (f.urlProblem == null) f.defaultName else ModelSetupCopy.NAME_HINT,
@@ -492,7 +511,8 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
             )
         }
     }
-    // 列表里没有要的模型、或这家不提供列表时,随时可以自己填(没列出模型时那一栏已经在了)
+    // If the model you want is not in the list, or the company does not provide a list, you can fill it
+    // in at any time (the column is already there when the model is not listed)
     if (!f.noList) {
         Text(
             if (f.manual) ModelSetupCopy.MANUAL_OFF else ModelSetupCopy.MANUAL_ON,
@@ -517,7 +537,8 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
             fontSize = 13.sp, lineHeight = 18.sp, color = c.bad,
         )
     }
-    // 试不成又想先存下的:做成按钮,不要藏成一行小字——它是个真实的动作,不是说明
+    // What I want to save first after trying it out: make it a button, don’t hide it in a line of small
+    // words - it is a real action, not an explanation
     MinaButton(
         ModelSetupCopy.SAVE_UNTESTED, { confirmUntested = true },
         Modifier.fillMaxWidth().padding(top = 6.dp).testTag("setup-save-untested"),
@@ -540,7 +561,7 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
     FooterNote(ModelSetupCopy.TEST_NOTE, Modifier.padding(top = 6.dp))
 }
 
-/** 自定义填的是某家的官方地址:建议改用那家的预设(不拦着),接口类型对不上时一并说;点一下就换过去,Key 留着。 */
+/** The custom address is a certain company's official address: it is recommended to use that company's default (without blocking), and if the interface type does not match, tell it as well; click to change it, and keep the key. */
 @Composable
 private fun PresetSuggestion(f: AddForm, label: String, onUse: () -> Unit) {
     val c = MinaTheme.colors
@@ -552,7 +573,7 @@ private fun PresetSuggestion(f: AddForm, label: String, onUse: () -> Unit) {
     )
 }
 
-/** 第一次用 ChatGPT 登录成功后说明一次:Mina 里的用量走你的 ChatGPT 套餐。 */
+/** After successfully logging in with ChatGPT for the first time, please explain: The usage in Mina will be used for your ChatGPT package. */
 @Composable
 private fun ChatGptWelcome(onDismiss: () -> Unit) {
     AlertDialog(
@@ -564,8 +585,12 @@ private fun ChatGptWelcome(onDismiss: () -> Unit) {
 }
 
 /**
- * 登录要用的系统能力:授权页用系统浏览器打开;回调页(换完令牌之后才给出)写成功或失败的原因,再放一个回到 Mina 的链接(intent 链接,点了由浏览器打开 Mina);
- * 登录完(成功或失败)把 Mina 带回前台。安卓限制后台打开界面,带不回来时用户点回调页的链接或从最近任务回来。
+ * The system capabilities required for login: the authorization page is opened with the system browser;
+ * the callback page (given after the token is replaced) writes the reason for success or failure, and
+ * then puts a link back to Mina (intent link, click to open Mina with the browser); after the login is
+ * completed (success or failure), Mina is brought back to the front desk. Android restricts the
+ * background opening interface and cannot bring it back when the user clicks the link of the callback
+ * page or returns from the recent task.
  */
 private class AndroidSignInBrowser(private val context: Context) : SignInBrowser {
     override fun open(url: String) {
@@ -593,7 +618,7 @@ private class AndroidSignInBrowser(private val context: Context) : SignInBrowser
     }
 }
 
-/** 回调后浏览器里那一页:一句话加一个回到 App 的按钮。文字转义后放进去。 */
+/** The page in the browser after the callback: Add a button to return to the App in one sentence. The text is escaped and put in. */
 internal object SignInPage {
     fun html(title: String, text: String, back: String, backUrl: String): String {
         fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
@@ -604,7 +629,7 @@ internal object SignInPage {
     }
 }
 
-/** 用途:主模型、看图模型、轻量模型各一张卡,点开是选择页。 */
+/** Purpose: There is one card each for the main model, the picture viewing model, and the lightweight model. Click to open the selection page. */
 @Composable
 private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReasoning: (ModelRole, String?) -> Unit,
     onSpeech: (() -> Unit)?, onContext: ((String, ModelContextSettings) -> Boolean)? = null,
@@ -618,7 +643,7 @@ private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReason
             ReasoningControl(ui, role) { onReasoning(role, it) }
             if (onContext != null) ModelContextControl(ui, role, onContext)
         }
-        // 第四个用途:语音转文字(不是对话模型,点开是单独的选择页)
+        // The fourth use: speech to text (not a dialogue model, click to open a separate selection page)
         if (onSpeech != null) {
             RoleCard(ModelsCopy.SPEECH_ICON, ModelsCopy.SPEECH_LABEL, ModelsCopy.speechLine(ui), tag = "role-speech", onClick = onSpeech)
         }
@@ -683,7 +708,7 @@ private fun ModelContextControl(ui: ModelSetupUi, role: ModelRole,
     )
 }
 
-/** 模型的能力标签;[accent] 为假时一律中性色(列表行里强调色留给「在用」的胶囊)。 */
+/** The model's ability tag; [accent] is always a neutral color when false (the accent color in the list row is reserved for "in use" capsules). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun Tags(o: ModelOption, forVision: Boolean = false, accent: Boolean = true) {
@@ -694,7 +719,7 @@ internal fun Tags(o: ModelOption, forVision: Boolean = false, accent: Boolean = 
 
 internal val ModelIdStyle = MinaType.Body.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
 
-/** 配置模型页(上手时)和添加服务商表单的文字(纯函数,便于测试)。用途的说法在 [ModelsCopy]。 */
+/** Configure the model page (when getting started) and add the text of the service provider form (pure function, easy for testing). The usage statement is in [ModelsCopy]. */
 object ModelSetupCopy {
     val TITLE: String get() = tr(R.string.model_setup_title)
     val LEAD: String get() = tr(R.string.model_setup_lead)
@@ -723,7 +748,7 @@ object ModelSetupCopy {
     val SAVE_UNTESTED_BODY: String get() = tr(R.string.model_save_untested_body)
     val SAVE_UNTESTED_CONFIRM: String get() = tr(R.string.model_save_untested_confirm)
 
-    /** 手填模型名时举的例子,按接口类型(各家模型名的样子不同)。 */
+    /** Examples of hand-filled model names, based on interface type (model names look different from company to company). */
     fun modelExample(kind: ProviderConfig.Kind): String = tr(
         when (kind) {
             ProviderConfig.Kind.Gemini, ProviderConfig.Kind.GeminiWeb -> R.string.model_example_gemini
@@ -734,7 +759,7 @@ object ModelSetupCopy {
         },
     )
 
-    /** 自定义地址是某家官方地址时的建议;接口类型和那家对不上时补一句。 */
+    /** It is recommended when the custom address is the official address of a certain company; add a supplement if the interface type does not match that company. */
     fun presetSuggestion(f: AddForm): String {
         val preset = f.suggestedPreset ?: return ""
         val match = tr(R.string.model_preset_match, preset.label)
@@ -747,7 +772,7 @@ object ModelSetupCopy {
 
     fun failed(reason: String) = tr(R.string.model_failed, reason)
 
-    /** 模型的能力标签:(文字, 是否强调色)。接口没给、用户也没说、按预设推断的标「未确认」。只作参考,不拦选择。 */
+    /** Model's ability label: (text, whether to accent color). The interface was not provided, the user did not say anything, and it was marked "Unconfirmed" based on the default inference. For reference only, does not prevent selection. */
     fun tags(o: ModelOption, forVision: Boolean = false): List<Pair<String, Boolean>> = buildList {
         val caps = o.capabilities
         val visionKnown = o.visionKnown || o.visionByUser != null

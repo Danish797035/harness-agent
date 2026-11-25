@@ -7,12 +7,13 @@ import com.meenai.mina.core.tool.fail
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** 最近 [RECALL_KEEP] 次读屏,供 view_past_screens 回看;受保护页面、付款页不留图。 */
+/** The last [RECALL_KEEP] screen readings are for view_past_screens to review; no pictures are left on protected pages and payment pages. */
 internal class Recall(val id: Int, val step: Int, val app: String?, val png: ByteArray?, val elementsText: String)
 
 /**
- * 几块屏共用的画面编号与回看:screenshotId 在一个任务里统一往上数,view_past_screens 不管是哪块屏的都找得到。
- * [step] 是本次调用所在的轮次(循环的「第 N 步」),回看记录里的 step。
+ * The screen number and review:screenshotId shared by several screens are counted upwards in a task, and
+ * view_past_screens can be found no matter which screen it is. [step] is the round of this call (the
+ * "Nth step" of the cycle), look back at the step in the record.
  */
 internal class Shots {
     var step = 0
@@ -28,8 +29,10 @@ internal class Shots {
     }
 
     /**
-     * 把画面的 screenshotId 当成了 snapshotId(看着图操作时常这样):画面编号只用来回看,不能拿来点。
-     * 读屏编号从来不是纯数字,纯数字且不超过已发过的画面编号的就是这种错;照实指出该用哪个。
+     * The screenshotId of the screen is regarded as snapshotId (this is often done when looking at
+     * pictures): the screen number is only used for review, not for clicking. The screen reading number
+     * is never a pure number. It is a mistake to use a pure number that does not exceed the screen
+     * number that has been sent. Please tell the truth which one should be used.
      */
     fun idAsSnapshot(o: JsonObject): ToolExecution? {
         val p = o["snapshotId"] as? JsonPrimitive ?: return null

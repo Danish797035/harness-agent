@@ -9,14 +9,14 @@ import java.io.File
 import com.meenai.mina.core.testing.BATCHABLE
 import com.meenai.mina.core.assembly.allTools
 
-/** prompts/ 的分层规矩(见 prompts/README.md):高层不点工具名、每个工具一份说明、没有多余的文件、反馈自成一体;各层大小写进金样。 */
+/** The hierarchical rules of prompts/ (see prompts/README.md): senior management does not mention the tool name, each tool has a description, no redundant files, and the feedback is self-contained; each layer is capitalized. */
 class PromptLayoutTest {
     private val root = File("src/main/resources/prompts")
     private fun files(layer: String) = File(root, layer).listFiles().orEmpty().filter { it.isFile }.map { it.name }.toSet()
     private fun size(layer: String) = File(root, layer).listFiles().orEmpty().filter { it.isFile }.sumOf { it.readBytes().size }
 
     private val toolNames = allTools().map { it.name } + BatchRunner.spec(BATCHABLE).name
-    /** 也是普通英文词的工具名:system/ 里照常当词用,不算点名。 */
+    /** It is also the tool name of the common English word: system/. It is used as a word as usual and does not count as a roll call. */
     private val plainWords = setOf("phone_screenshot", "phone_back", "wait", "phone_tap", "phone_scroll", "phone_swipe")
 
     @Test fun systemLayerNamesNoTools() {
@@ -27,7 +27,7 @@ class PromptLayoutTest {
         }
     }
 
-    /** 通用工具的总规则一直都在,不点名任何能力的工具(没有那种能力时也照样出现)。 */
+    /** The general rule for universal tools has always been to not name tools with any ability (it will still appear even if it doesn't have that ability). */
     @Test fun generalNamesNoCapabilityTool() {
         val text = File(root, "capabilities/general.md").readText()
         val named = allTools().filter { it.capability != null }.map { it.name }
@@ -40,7 +40,8 @@ class PromptLayoutTest {
         val defs = allTools().associate { it.name to it.description } + (BatchRunner.spec(BATCHABLE).name to BatchRunner.spec(BATCHABLE).description)
         for ((tool, file) in used) {
             assertTrue("$tool: missing prompts/tools/$file.md", File(root, "tools/$file.md").isFile)
-            // 说明确实出自这份文件:模板里的占位符换成「任意文字」后能对上
+            // The description does come from this document: the placeholder in the template can be
+            // matched after being replaced with "any text"
             val template = File(root, "tools/$file.md").readText().trim()
             val pattern = template.split(Regex("\\{\\{[a-z0-9_]+}}")).joinToString(".+") { Regex.escape(it) }
             assertTrue("$tool does not load prompts/tools/$file.md", Regex(pattern).matches(defs.getValue(tool)))
@@ -48,7 +49,7 @@ class PromptLayoutTest {
         assertEquals("orphan or missing files in prompts/tools", used.values.map { "$it.md" }.toSet(), files("tools"))
     }
 
-    /** 入口工具(能力那一组收着时也提供的)各有一份短说明,没有多余的;短说明只点名本任务登记的工具。 */
+    /** Each entrance tool (also provided when the ability group is collected) has a short description, which is not redundant; the short description only names the tools registered for this task. */
     @Test fun everyEntryToolHasShortDescription() {
         val entries = allTools().filter { it.entry != null }.map { it.name }
         assertEquals(setOf("phone_launch_app", "phone_list_apps", "phone_set_alarm", "phone_set_timer", "phone_add_calendar_event", "web_navigate", "web_read_page", "run_command"), entries.toSet())
@@ -70,7 +71,7 @@ class PromptLayoutTest {
         assertEquals(setOf("README.md"), root.listFiles().orEmpty().filter { it.isFile }.map { it.name }.toSet())
     }
 
-    /** 反馈目录里的每个键都有代码在用(按错误码的说明整段按前缀取)。 */
+    /** Each key in the feedback directory has a code in use (according to the error code description, the entire section is taken by prefix). */
     @Test fun noOrphanFeedbackKeys() {
         val code = File("src/main/kotlin").walk().filter { it.extension == "kt" }.joinToString("\n") { it.readText() }
         val unused = Feedback.keys.filter { k -> "\"$k\"" !in code && !(k.startsWith("failure.") && "\"failure.\"" in code) }
@@ -78,8 +79,11 @@ class PromptLayoutTest {
     }
 
     /**
-     * 每条反馈自成一体:首尾不带空白(读取时首尾的换行本来就会去掉,靠它们分隔的拼法会悄悄丢字),
-     * 代码也不拿一条反馈和别的字用 + 或字符串模板拼;要拼就在模板里写好分隔,用 {{占位符}} 填。
+     * Each piece of feedback is self-contained: no blanks at the beginning or end (the newlines at the
+     * beginning and end will be removed when reading, and spelling separated by them will quietly lose
+     * words), and the code does not use a piece of feedback to spell it with other words using + or a
+     * string template; if you want to spell it out, write the separation in the template and fill it in
+     * with {{placeholder}}.
      */
     @Test fun feedbackEntriesAreSelfContained() {
         for (f in Feedback.FILES) for ((k, v) in Feedback.parse(File(root, "feedback/$f.md").readText())) {
@@ -94,12 +98,13 @@ class PromptLayoutTest {
                 val after = s.substring(end + 1).trimStart()
                 if (before.endsWith("+") || after.startsWith("+") || before.endsWith("\${")) problems += "${file.name}: ${s.substring(m.range.first, end + 1).take(60)}"
             }
-            // 取反馈的名字(val X get() = Feedback…、fun x(…) = Feedback.format…)也不能拿去拼
+            // The name of the feedback (val X get() = Feedback..., fun x(...) = Feedback.format...)
+            // cannot be spelled out
             val names = Regex("""val ([A-Z_0-9]+): String get\(\) = Feedback""").findAll(s).map { it.groupValues[1] } +
                 Regex("""fun ([a-zA-Z0-9]+)\([^)]*\) = Feedback\.format""").findAll(s).map { it.groupValues[1] }
             for (n in names.toSet()) {
                 val used = Regex("""(\+\s*$n\b)|(\b$n\s*\+)|(\$$n\b)|(\$\{$n\b)""")
-                // 别的文件也可能用
+                // Other files may also be used
                 File("src/main/kotlin").walk().filter { it.extension == "kt" }.forEach { g ->
                     used.find(g.readText())?.let { problems += "${g.name}: ${it.value} concatenates feedback $n" }
                 }
@@ -108,7 +113,7 @@ class PromptLayoutTest {
         assertTrue("feedback used as part of a concatenation: $problems", problems.isEmpty())
     }
 
-    /** 从开括号 [open] 起找配对的闭括号;跳过字符串。 */
+    /** Find the matching closing bracket starting from the opening bracket [open]; skip the string. */
     private fun closing(s: String, open: Int): Int {
         var depth = 0
         var i = open
@@ -124,8 +129,9 @@ class PromptLayoutTest {
     }
 
     /**
-     * 各层的大小(字节,UTF-8)写进提示词表面的金样(prompt-surface/sizes.txt):不设硬上限,
-     * 增长在提交的差异里看得到,审的时候判断该不该。
+     * The size of each layer (bytes, UTF-8) is written into the golden sample of the prompt surface
+     * (prompt-surface/sizes.txt): there is no hard upper limit, the increase can be seen in the
+     * submitted differences, and you can judge whether it is appropriate during review.
      */
     @Test fun layerSizesRendered() {
         val text = buildString {

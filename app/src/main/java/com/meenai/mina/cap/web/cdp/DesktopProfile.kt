@@ -6,48 +6,54 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.math.roundToInt
 
-/** 内核自报的一个品牌及版本(UA-CH 的 brands / fullVersionList 各取一种版本)。 */
+/** A brand and version reported by the kernel (UA-CH's brands / fullVersionList each takes one version). */
 data class Brand(val brand: String, val major: String, val full: String)
 
 /**
- * 桌面版网页的身份:Linux 桌面的 UA 与 UA-CH,内核版本号如实沿用本机 WebView 的,品牌沿用内核自己的(去掉 Android WebView)。
- * 页面能读到的都要和这个身份对得上:UA / UA-CH / navigator.platform 与视口、屏幕、像素比由仿真设([userAgentOverride]、
- * [metricsOverride]、[emulationCalls]);仿真设不了的(触摸能力、指针与悬停的媒体查询、窗口外框、WebView 特有的痕迹)
- * 由文档开始时注入的 [identityScript] 补上。时区不动,沿用本机的;语言默认也沿用本机的,用户在 Mina 里选定了语言时
- * 请求头与 navigator.language(s) 换成那一种(见 [PageLanguage])。
- * 手机版站点一律不改,用本机真实的手机身份。
+ * The identity of the desktop version of the webpage: UA and UA-CH of the Linux desktop, the kernel
+ * version number faithfully follows the native WebView, and the brand follows the kernel's own (removing
+ * Android WebView). Everything that can be read on the page must match this identity: UA / UA-CH /
+ * navigator.platform and the viewport, screen, and pixel ratio are set by simulation
+ * ([userAgentOverride], [metricsOverride], [emulationCalls]); those that cannot be set by simulation
+ * (touch capabilities, pointer and hover media queries, window frames, and WebView-specific traces) are
+ * filled in by [identityScript] injected at the beginning of the document. The time zone does not change
+ * and the local one is used; the language defaults to the local one. When the user selects the language
+ * in Mina, the request header and navigator.language(s) are changed to that one (see [PageLanguage]).
+ * The mobile version of the site will not be changed, and the real mobile phone identity of the machine
+ * will be used.
  */
 object DesktopProfile {
-    /** 桌面版的视口宽度(CSS 像素)。 */
+    /** Desktop viewport width in CSS pixels. */
     const val WIDTH = 1280
     const val FALLBACK_HEIGHT = 800
-    /** 桌面版标签的宿主显示:按 1 CSS 像素对 1 像素画桌面视口。 */
+    /** Host display for desktop tabs: Draw the desktop viewport 1 CSS pixel by 1 pixel. */
     const val HOST_WIDTH = WIDTH
     const val HOST_HEIGHT = 800
     const val HOST_DPI = 160
     const val NAVIGATOR_PLATFORM = "Linux x86_64"
     const val PLATFORM = "Linux"
-    /** 桌面浏览器窗口里网页之外的部分(标签栏、地址栏)的高度:窗口外框比网页视口高这么多。 */
+    /** The height of the parts outside the web page (tab bar, address bar) in the desktop browser window: the window frame is this much higher than the web page viewport. */
     const val WINDOW_CHROME_PX = 85
     private const val WEBVIEW_BRAND = "Android WebView"
     private val CHROME = Regex("""Chrome/(\d+)((?:\.\d+)*)""")
 
-    /** 从内核默认 UA 里取版本:(主版本, 完整版本)。 */
+    /** Get the version from the kernel default UA: (major version, full version). */
     fun version(defaultUa: String): Pair<String, String>? =
         CHROME.find(defaultUa)?.let { m -> m.groupValues[1] to (m.groupValues[1] + m.groupValues[2]) }
 
-    /** UA 里的版本按惯例只写主版本(其余为 0)。 */
+    /** By convention, the version in UA only writes the main version (the rest are 0). */
     fun userAgent(major: String): String =
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
 
-    /** 内核给的品牌去掉 Android WebView;拿不到时用 Chromium 加一个占位品牌。 */
+    /** Remove Android WebView from the brand given by the kernel; use Chromium to add a placeholder brand if it is not available. */
     fun brands(engine: List<Brand>?, major: String, full: String): List<Brand> =
         engine?.filter { it.brand != WEBVIEW_BRAND }?.takeIf { l -> l.any { it.brand == "Chromium" } }
             ?: listOf(Brand("Chromium", major, full), Brand("Not_A Brand", "24", "24.0.0.0"))
 
     /**
-     * `Emulation.setUserAgentOverride` 的参数。这里不带 acceptLanguage:跟随系统时语言保持用户的;
-     * 用户在 Mina 里选定了语言时由 [PageLanguage.withLanguage] 加上。
+     * Parameters of `Emulation.setUserAgentOverride`. There is no acceptLanguage here: the language
+     * remains the user's when following the system; it is added by [PageLanguage.withLanguage] when the
+     * user selects the language in Mina.
      */
     fun userAgentOverride(major: String, full: String, brands: List<Brand>): JsonObject = buildJsonObject {
         put("userAgent", userAgent(major))
@@ -55,7 +61,7 @@ object DesktopProfile {
         put("userAgentMetadata", metadata(brands, full, PLATFORM, "", "x86", "", mobile = false, bitness = "64", wow64 = false))
     }
 
-    /** CDP 的 `Emulation.UserAgentMetadata`(UA-CH);桌面身份与手机版的默认身份([PageLanguage.mobileOverride])共用。 */
+    /** CDP's `Emulation.UserAgentMetadata`(UA-CH); desktop identity is shared with the mobile version's default identity ([PageLanguage.mobileOverride]). */
     fun metadata(
         brands: List<Brand>, fullVersion: String, platform: String, platformVersion: String,
         architecture: String, model: String, mobile: Boolean, bitness: String, wow64: Boolean,
@@ -72,21 +78,26 @@ object DesktopProfile {
         put("wow64", wow64)
     }
 
-    /** 视口高度按宿主的宽高比放大到桌面宽度,整页正好铺满宿主;宿主尺寸未知时用 800。 */
+    /** The viewport height is enlarged to the desktop width according to the aspect ratio of the host, and the entire page just fills the host; use 800 when the host size is unknown. */
     fun height(viewW: Int, viewH: Int): Int =
         if (viewW > 0 && viewH > 0) (WIDTH.toDouble() * viewH / viewW).roundToInt() else FALLBACK_HEIGHT
 
     /**
-     * 仿真画面的缩放:不缩时 1 CSS 像素占 [density](不加仿真时页面的 devicePixelRatio)个视图像素,
-     * 桌面宽度的页面可能只露出左边一截;缩到整页 [WIDTH] 正好铺满视图宽度,视图像素与 CSS 像素之比就是 viewW / WIDTH
-     * (读屏换算按它)。桌面宿主上视图宽就是 [WIDTH],一比一。
+     * Scaling of the simulated screen: without time reduction, 1 CSS pixel occupies [density]
+     * (devicePixelRatio of the page without simulation) view pixels, and the desktop-width page may only
+     * reveal the left section; when zoomed to the full page, [WIDTH] just covers the view width, and the
+     * ratio of view pixels to CSS pixels is viewW / WIDTH (press it for screen reading conversion). The
+     * view width on the desktop host is [WIDTH], one to one.
      */
     fun fitScale(viewW: Int, density: Float): Double? =
         if (viewW > 0 && density > 0f) viewW / (WIDTH * density.toDouble()) else null
 
     /**
-     * `Emulation.setDeviceMetricsOverride` 的参数:桌面宽度、像素比 1、非移动端;[scale] 把整页缩到宿主宽度里显示。
-     * 屏幕按「窗口铺满整个屏幕」算:宽同视口,高是视口加上浏览器窗口的外框([WINDOW_CHROME_PX]),和脚本给的 outerHeight 一致。
+     * Parameters of `Emulation.setDeviceMetricsOverride`: desktop width, pixel ratio 1. Non-mobile
+     * terminal; [scale] shrinks the entire page to the host width for display. The screen is calculated
+     * as "the window covers the entire screen": the width is the same as the viewport, and the height is
+     * the viewport plus the outer frame of the browser window ([WINDOW_CHROME_PX]), which is consistent
+     * with the outerHeight given by the script.
      */
     fun metricsOverride(viewW: Int, viewH: Int, scale: Double?): JsonObject = buildJsonObject {
         val h = height(viewW, viewH)
@@ -105,9 +116,11 @@ object DesktopProfile {
     }
 
     /**
-     * 桌面版在 UA 与视口之外还要发的仿真命令(方法, 参数):不开触摸仿真、鼠标不派生触摸事件、
-     * 指针与悬停按鼠标报(内核不认这几项媒体特性时这一条不起作用,由 [identityScript] 兜底)。
-     * 每条单独发,哪条被拒都不影响别的。
+     * The desktop version also sends simulation commands (methods, parameters) in addition to the UA and
+     * viewport: touch simulation is not enabled, the mouse does not derive touch events, and the pointer
+     * and mouse hover are reported (this does not work when the kernel does not recognize these media
+     * features, which is covered by [identityScript]). Each entry is sent separately, and any rejection
+     * will not affect the others.
      */
     fun emulationCalls(): List<Pair<String, JsonObject>> = listOf(
         "Emulation.setTouchEmulationEnabled" to buildJsonObject { put("enabled", false) },
@@ -118,33 +131,46 @@ object DesktopProfile {
     )
 
     /**
-     * 桌面版的视口用哪一条:Agent 的标签用仿真把整页 [WIDTH] 缩进视图([metricsOverride],读屏和输入坐标按 [scale] 换算);
-     * 用户亲手看、亲手点的标签([handOperated])不加视口仿真(撤销那一条),交给 WebView 自己的宽视口与总览模式——
-     * 打开时整页缩进屏幕,双指能放大;仿真定死了缩放,放大不了。UA、UA-CH、身份补丁两种标签一样。
+     * Which one should be used for the viewport of the desktop version: The Agent's label uses
+     * simulation to indent the full page [WIDTH] view ([metricsOverride], screen reading and input
+     * coordinates are converted according to [scale]); the label ([handOperated]) that the user sees and
+     * clicks by hand does not add viewport simulation (cancel that one), and leaves it to WebView's own
+     * wide viewport and overview mode—— When it is opened, the entire page is indented on the screen,
+     * and you can zoom in with two fingers; the simulation locks the zoom, and you cannot zoom in. UA,
+     * UA-CH, and identity patch labels are the same.
      */
     fun viewportCall(handOperated: Boolean, viewW: Int, viewH: Int, scale: Double?): Pair<String, JsonObject> =
         if (handOperated) "Emulation.clearDeviceMetricsOverride" to JsonObject(emptyMap())
         else "Emulation.setDeviceMetricsOverride" to metricsOverride(viewW, viewH, scale)
 
-    /** 手机版换回时撤销 [emulationCalls] 里改过的媒体特性(空列表即撤销)。 */
+    /** When switching back to the mobile version, the media properties changed in [emulationCalls] will be revoked (the empty list will be revoked). */
     fun clearMediaCall(): Pair<String, JsonObject> =
         "Emulation.setEmulatedMedia" to buildJsonObject { put("features", JsonArray(emptyList())) }
 
     private val DESKTOP_MEDIA = listOf("pointer" to "fine", "any-pointer" to "fine", "hover" to "hover", "any-hover" to "hover")
 
     /**
-     * 桌面版在每个文档(含框架)开始时注入的补丁,只补仿真设不了的:
-     * - 触摸:navigator.maxTouchPoints 为 0,去掉 ontouch* 处理器属性,`document.createEvent('TouchEvent')` 像桌面一样报不支持;
-     * - 指针与悬停:matchMedia 里的 pointer / any-pointer / hover / any-hover 按鼠标回答(其余照原样交给内核),
-     *   返回对象的 media 仍是页面给的原文(改在原型的 getter 上,对象上不多出自有属性);
-     * - 窗口外框:outerWidth = innerWidth,outerHeight = innerHeight + [WINDOW_CHROME_PX];
-     * - navigator.platform 为 [NAVIGATOR_PLATFORM](没有 DevTools 时也对得上 UA);navigator.webdriver 为假;
-     *   navigator.connection 去掉只有手机才有的 type;没有 window.chrome 时补一个空对象(桌面浏览器上它总在)。
-     * 换过的 getter 先调原来的(接收者不对时照样报 Illegal invocation)再给新值;换过的方法保留原来的 length;
-     * 它们的源码按内置函数的样子显示,别的窗口里的 toString 看也一样(各窗口的补丁源码相同,按源码认)。
-     * 页面脚本新建的同源框架(about:blank、srcdoc)不一定经过文档开始注入:第一次经 contentWindow / contentDocument
-     * 取到时在框架自己的环境里补上同一份(框架禁止 eval 时退回在本环境里补)。已经报 0 个触点的窗口不再补。
-     * 不碰 UA、语言、时区、硬件参数。
+     * The patches injected by the desktop version at the beginning of each document (including frames)
+     * only make up for things that cannot be set by the simulation:
+     * - - Touch: navigator.maxTouchPoints is 0, remove the ontouch* processor attribute, and
+     * `document.createEvent('TouchEvent')` will be reported as unsupported like the desktop;
+     * - - Pointer and hover: pointer / any-pointer / hover / any-hover in matchMedia. Press the mouse to
+     * answer (the rest is left to the kernel as is), The media of the returned object is still the
+     * original text given by the page (changed to the getter of the prototype, there are few attributes
+     * on the object);
+     * - - Window outer frame: outerWidth = innerWidth, outerHeight = innerHeight + [WINDOW_CHROME_PX];
+     * - - navigator.platform is [NAVIGATOR_PLATFORM](matches UA even without DevTools); navigator.webdriver is
+     * false; navigator.connection removes the type that is only available on mobile phones; if there is
+     * no window.chrome, add an empty object (it is always there on desktop browsers). The changed getter
+     * first adjusts the original one (it will still report Illegal invocation when the receiver is
+     * wrong) and then gives the new value; the changed method retains the original length; their source
+     * code is displayed as a built-in function, and toString in other windows looks the same (the patch
+     * source code of each window is the same, so identify it according to the source code). The same
+     * source framework (about:blank, srcdoc) created by the page script does not necessarily start to be
+     * injected through the document: when it is first retrieved through contentWindow / contentDocument,
+     * the same copy is added in the framework's own environment (when the framework prohibits eval, it
+     * returns to be added in this environment). The windows that have reported 0 contact points will no
+     * longer be filled. Do not touch UA, language, time zone, hardware parameters.
      */
     fun identityScript(): String = IDENTITY_SCRIPT
         .replace("__PLATFORM__", NAVIGATOR_PLATFORM)
@@ -227,7 +253,8 @@ object DesktopProfile {
 
   if (!('chrome' in W)) Object.defineProperty(W, 'chrome', { value: {}, writable: true, enumerable: true, configurable: true });
 
-  // 脚本里新建的 about:blank / srcdoc 框架不一定经过文档开始注入:第一次被取到时补上同一份
+  // The about:blank / srcdoc frame newly created in the script does not necessarily start to be injected
+  // through the document: the same copy is added when it is retrieved for the first time.
   var self = desktopIdentity, source = readSource.call(self);
   function adopt(child) {
     try { if (!child || child === W || child.navigator.maxTouchPoints === 0) return; } catch (e) { return; }

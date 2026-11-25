@@ -2,5 +2,5 @@ package com.meenai.mina.sandbox
 
 import com.meenai.mina.cap.sandbox.SandboxForeground
 
-/** 运行环境准备期间的前台服务的入口:清单里登记的是这个全名;实现在沙箱能力里。 */
+/** The entrance to the front-end service during the preparation of the running environment: the full name is registered in the list; it is implemented in the sandbox capability. */
 class SandboxService : SandboxForeground()

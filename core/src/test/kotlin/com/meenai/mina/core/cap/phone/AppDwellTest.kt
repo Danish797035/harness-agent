@@ -28,11 +28,14 @@ import org.junit.Test
 import kotlin.random.Random
 
 /**
- * App 里的节奏接在执行入口上:单步和一批里的每一步都在动作之前补足停留,停了多久记成这次调用的等待;
- * 「快」不停;限制浏览快慢的 App 换屏到了上限就不做、报 page_limit,打字照常,用户答话后接着做;停留里轻轻滚过只进运行记录。
+ * The rhythm in the app is connected to the execution entrance: each step in a single step and a batch
+ * is paused before the action, and the duration of the pause is recorded as the wait for this call;
+ * "fast" does not stop; Apps that limit the browsing speed will not change the screen when it reaches
+ * the upper limit, report page_limit, type as usual, and continue after the user answers; scroll lightly
+ * in the pause and only enter the running record.
  */
 class AppDwellTest {
-    /** 一个 App:每点一下换一整屏(六条不同的内容);记下点、打字、轻轻滚了几下。 */
+    /** An App: Each click changes a whole screen (six different pieces of content); jot down points, type, and scroll a few times. */
     private class Pages(private val pkg: String = "com.slow") : ScreenPort by FakeScreen() {
         var page = 0
         val calls = mutableListOf<String>()
@@ -65,7 +68,7 @@ class AppDwellTest {
         val ex = executor(t)
         val start = currentTime
         repeat(5) { assertEquals(0L, ex.tap(t).waitMs) }
-        // 屏数也不设上限
+        // There is no upper limit on the number of screens
         assertEquals(5, screen.page)
         assertEquals(0L, currentTime - start)
     }
@@ -76,10 +79,10 @@ class AppDwellTest {
         assertEquals(0L, ex.tap(t).waitMs)
         val before = currentTime
         val second = ex.tap(t)
-        // 上一下换了一屏:新的一屏的范围(标准)
+        // Changed the previous screen: the range of the new screen (standard)
         assertTrue("${second.waitMs}", second.waitMs in AppPacing.Limits().newScreenMs.first..AppPacing.Limits().maxDwellMs)
         assertTrue(currentTime - before >= second.waitMs)
-        // 一批里的每一步同样经执行入口停
+        // Each step in a batch is also stopped by the execution entry
         val sid = t.execute(Part.ToolCall("o", "phone_observe", "{}")).content["snapshotId"]!!.jsonPrimitive.content
         val typed = ex.run(Part.ToolCall("b1", "phone_type_text", """{"ref":"@e1","snapshotId":"$sid","text":"你好"}"""), Origin.Batch(2)).execution()
         assertTrue("${typed.waitMs}", typed.waitMs > 0)
@@ -90,15 +93,16 @@ class AppDwellTest {
         val t = tools(screen, AppPacing(Random(1), screenCap = 3))
         val ex = executor(t)
         repeat(3) { assertEquals(JsonPrimitive(true), ex.tap(t).content["ok"]) }
-        // 已换了三屏:换屏的动作不做,说明为什么停
+        // Three screens have been changed: If the screen change action is not performed, explain why it
+        // is stopped.
         val stopped = ex.tap(t)
         assertEquals("page_limit", stopped.error())
         assertTrue(stopped.content["message"].toString(), stopped.content["message"].toString().contains("ask_user"))
         assertEquals(3, screen.page)
-        // 打字照常
+        // Typing as usual
         val sid = t.execute(Part.ToolCall("o", "phone_observe", "{}")).content["snapshotId"]!!.jsonPrimitive.content
         assertEquals(JsonPrimitive(true), ex.run(Part.ToolCall("y", "phone_type_text", """{"ref":"@e1","snapshotId":"$sid","text":"a"}"""), Origin.Model(1)).execution().content["ok"])
-        // 用户答过话:接着做
+        // The user replied: Go ahead and do it
         t.noteUserAnswer("还要接着看吗?", "继续")
         assertEquals(JsonPrimitive(true), ex.tap(t).content["ok"])
         assertEquals(4, screen.page)
@@ -116,10 +120,11 @@ class AppDwellTest {
         val t = tools(screen, AppPacing.human(Random(5)), IdleScroll(Random(6)))
         val ex = executor(t)
         ex.tap(t)
-        // 点按坐标或编号的动作之前不滚
+        // Do not scroll before clicking on coordinates or numbers
         ex.tap(t)
         assertTrue(screen.calls.none { it == "idle" })
-        // 返回不按屏上的位置:新的一屏上停得够久,停留里轻轻滚几下,只进运行记录
+        // Return to the position on the screen without pressing: Stop on the new screen long enough,
+        // scroll a few times while staying, and only enter the running record
         val back = ex.run(Part.ToolCall("k", "phone_back", "{}"), Origin.Model(1)).execution()
         val idled = screen.calls.count { it == "idle" }
         assertTrue("$idled", idled > 0)

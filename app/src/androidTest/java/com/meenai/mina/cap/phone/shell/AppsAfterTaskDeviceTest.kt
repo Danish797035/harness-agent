@@ -21,9 +21,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 任务结束时 Mina 屏上的 App 怎么办(IHarnessShell.finishDisplay):没出声的留下,挪到主屏最后面、不到用户眼前;
- * 下次经启动入口打开时同一个任务挪回 Mina 的屏;正在出声的、标了 close 的随屏关掉;标了 keep 的出声也留下。
- * 需要外壳已连上。用户的主屏不该有任何变化(焦点、焦点窗口都不变,留下的任务看不见)。
+ * What to do with the apps on Mina's screen when the task ends (IHarnessShell.finishDisplay): The ones
+ * that make no sound are left behind and moved to the back of the home screen, out of sight of the user;
+ * the same task is moved back to Mina's screen the next time it is opened through the startup portal;
+ * the ones that are making sounds and are marked with close are turned off on the screen; the ones that
+ * are making sounds that are marked with keep are also left. Requires the shell to be connected. There
+ * should not be any changes to the user's home screen (the focus and focus window remain unchanged, and
+ * the remaining tasks cannot be seen).
  */
 @RunWith(AndroidJUnit4::class)
 class AppsAfterTaskDeviceTest {
@@ -36,14 +40,15 @@ class AppsAfterTaskDeviceTest {
 
     @After fun tearDown() {
         screens.forEach { runCatching { it.close() } }
-        // 留在主屏后面的探针任务:挪回一块新屏再随屏关掉(就是下次打开的那条路)
+        // The probe task left behind the main screen: move it to a new screen and then close it with the
+        // screen (that is, the path that will be opened next time)
         runCatching { ParityScreen(shell, 720, 1600, 320).use { s -> shell.startApp(s.id, TEST_PACKAGE); Thread.sleep(500) } }
         runCatching { probe.close() }
     }
 
     private fun newScreen() = ParityScreen(shell, 720, 1600, 320).also { screens += it }
 
-    /** 主屏此刻的焦点(最上层焦点屏、焦点窗口、焦点 Activity),不含「最上面的任务」:有的系统按最近使用排任务。 */
+    /** The focus of the main screen at the moment (top focus screen, focus window, focus Activity), does not include the "top task": some systems arrange tasks according to recent use. */
     private fun mainFocus(): String = DeviceSupport.mainScreenState(shell).substringBefore(" topTask=")
 
     private fun Bundle.kept() = getStringArray(AppsAfterTask.KEY_KEPT)?.toList().orEmpty()
@@ -65,21 +70,21 @@ class AppsAfterTaskDeviceTest {
         assertNotNull(result)
         val note = result!!.getString(AppsAfterTask.KEY_NOTE)
         if (note?.contains(AppsAfterTask.NOTE_MOVE_UNSUPPORTED) == true) {
-            // 这台系统挪不了:照旧随屏关掉
+            // This system cannot be moved: it should be turned off with the screen
             assertEquals(listOf("$TEST_PACKAGE:${AppsAfterTask.Why.MoveUnsupported.wire}"), result.closed())
             assertNotNull(pollUntil(5_000) { true.takeIf { shell.displayOfTask(task) == -1 } })
             return
         }
         assertEquals("note=$note closed=${result.closed()}", listOf(TEST_PACKAGE), result.kept())
         assertEquals(Display.DEFAULT_DISPLAY, pollUntil(5_000) { shell.displayOfTask(task).takeIf { it == Display.DEFAULT_DISPLAY } })
-        // 不到用户眼前:看不见、焦点没变
+        // Not in front of the user’s eyes: invisible, focus remains unchanged
         assertFalse("kept task is visible on the main screen", shell.visibleOnMainScreen(TEST_PACKAGE, AppCopyReader.myUser))
         assertEquals("main screen focus changed", before, mainFocus())
-        // 在最近任务里:系统的任务列表里还有它
-        // 最近任务的记录里每个任务写成 Task{… #<编号> …}
+        // In recent tasks: There is also it in the system’s task list. In the recent task records, each
+        // task is written as Task{... #<number>...}
         assertTrue("kept task is gone from recents", Regex("#$task\\b").containsMatchIn(sh("dumpsys activity recents")))
 
-        // 下次打开:同一个任务挪回 Mina 的新屏
+        // Open next time: Move the same task back to Mina's new screen
         val s2 = newScreen()
         probe.clear()
         assertEquals(ShellService.START_OK, shell.startApp(s2.id, TEST_PACKAGE))
@@ -92,7 +97,7 @@ class AppsAfterTaskDeviceTest {
     @Test fun playingAppIsClosedByDefault() {
         val s = newScreen()
         val task = probeOn(s.id, AUDIO_PROBE)
-        // 播放器报到音频服务要一会儿
+        // It will take a while for the player to report to the audio service.
         Thread.sleep(PLAYER_SETTLE_MS)
         val result = shell.finishDisplay(s.id, emptyArray(), emptyArray())!!
         assertEquals("kept=${result.kept()}", listOf("$TEST_PACKAGE:${AppsAfterTask.Why.Playing.wire}"), result.closed())

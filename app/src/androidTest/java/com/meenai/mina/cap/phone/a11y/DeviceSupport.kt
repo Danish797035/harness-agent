@@ -14,7 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import com.meenai.mina.a11y.HarnessAccessibilityService
 
-/** 真机测试共用:shell 连接、无障碍服务、虚拟屏上的 AndroidScreen。需要内置助手在运行(已配对、无线调试开着)且 Mina 无障碍服务已开启。 */
+/** Commonly used for real machine testing: shell connection, accessibility service, and AndroidScreen on the virtual screen. Requires built-in assistant running (paired, wireless debugging on) and Mina accessibility service turned on. */
 object DeviceSupport {
     const val SETTINGS = "com.android.settings"
     const val TEST_PACKAGE = "com.meenai.mina.test"
@@ -22,8 +22,9 @@ object DeviceSupport {
     private val phone get() = PhoneServices.of(InstrumentationRegistry.getInstrumentation().targetContext)
 
     /**
-     * 与 App 共用进程内的那条 shell 连接并一直占着:各自绑定再各自解绑会让先解绑的一方结束 shell 服务,
-     * 另一方手里的 binder 随之失效。
+     * The shell connection in the shared process with the App is always occupied: binding and unbinding
+     * each other will cause the party that unbinds first to end the shell service, and the binder in the
+     * other party's hand will become invalid.
      */
     @Synchronized
     fun shell(): IHarnessShell {
@@ -34,7 +35,7 @@ object DeviceSupport {
         return awaitShell(c)
     }
 
-    /** 等连接拿到活着的助手;等不到就带着当前状态失败,提示先配对。助手被杀后看门狗重起要一会儿,断开回调到达前也可能还拿着已死的 binder。 */
+    /** Wait for the connection to get the live assistant; if it cannot wait, it will fail with the current status and prompt to pair first. It takes a while for the watchdog to restart after the assistant is killed, and the dead binder may still be held before the disconnect callback arrives. */
     fun awaitShell(c: ShellBinding, timeoutMs: Long = 30_000): IHarnessShell = runBlocking {
         withTimeoutOrNull(timeoutMs) { c.shell.filterNotNull().first { it.asBinder().pingBinder() } }
     } ?: error(
@@ -42,7 +43,7 @@ object DeviceSupport {
             "pair it once in Mina (设置手机操作) with Wireless debugging on, keep Wireless debugging on, then rerun",
     )
 
-    /** 服务掉线(前面的测试结束了本进程的绑定等)时先促使系统重绑,再等它连上。 */
+    /** When the service goes offline (the previous test ended the binding of this process, etc.), first prompt the system to rebind, and then wait for it to connect. */
     fun service(): ScreenAccessibility {
         if (ScreenAccessibility.instance.value == null) rebindAccessibility()
         return runBlocking {
@@ -60,12 +61,14 @@ object DeviceSupport {
         return Agent(d, AndroidScreen(service(), shell, ready(d)))
     }
 
-    /** 已经建好的屏:测试自己先建屏(还可能先往上放 App),读屏不必等 phone_launch_app。 */
+    /** Already built screen: To test, build the screen yourself first (you may also put an app on it first), and you don’t have to wait for phone_launch_app to read the screen. */
     fun ready(d: AgentDisplay): LazyAgentDisplay = LazyAgentDisplay(d.width, d.height) { d }.also { runBlocking { it.get() } }
 
     /**
-     * 启动测试时系统会强停本 App,无障碍服务随之被记为已崩溃、不再自动重绑。
-     * 已开启时把它从开启列表里摘下再放回,促使系统重新绑定;没开启就不动。
+     * When starting the test, the system will forcefully stop the app, and the accessibility service
+     * will be recorded as crashed and will no longer be automatically reconnected. When it is enabled,
+     * take it off the open list and then put it back to prompt the system to rebind; if it is not
+     * enabled, it will not move.
      */
     private fun rebindAccessibility() {
         if (ScreenAccessibility.instance.value != null) return
@@ -82,21 +85,23 @@ object DeviceSupport {
     }
 
     fun sh(cmd: String): String {
-        // 不压制其他无障碍服务,否则 Mina 的服务会在测试期间被暂停
+        // Do not suppress other accessibility services, otherwise Mina's services will be suspended
+        // during testing
         val ua = InstrumentationRegistry.getInstrumentation()
             .getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         val pfd = ua.executeShellCommand(cmd)
         return ParcelFileDescriptor.AutoCloseInputStream(pfd).bufferedReader().use { it.readText() }
     }
 
-    /** 在虚拟屏上打开测试包里的页面(按类给,类名和清单里登记的一致)。 */
+    /** Open the page in the test package on the virtual screen (given by category, the category name is consistent with the one registered in the list). */
     fun startTestActivity(displayId: Int, activity: Class<out android.app.Activity>) {
         sh("am start --display $displayId -n $TEST_PACKAGE/${activity.name}")
     }
 
     /**
-     * 主屏状态:系统的最上层焦点屏、0 号屏的焦点窗口与焦点 Activity、主屏最上面的任务。
-     * Agent 在虚拟屏上做任何事,这些都不应该变。
+     * Home screen status: the top focus screen of the system, the focus window and focus activity of
+     * screen 0, and the top task of the home screen. Whatever the Agent does on the virtual screen,
+     * these should not change.
      */
     fun mainScreenState(shell: IHarnessShell): String {
         val topDisplay = sh("dumpsys window").lines().map { it.trim() }

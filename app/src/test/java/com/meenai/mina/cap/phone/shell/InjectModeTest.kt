@@ -6,8 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 注入方式:按键等系统定下投给谁,没投出去就报失败(调用方才会退回);触摸照旧不等。
- * 一对按下/抬起:按下没成才退回,按下成了只补抬起。
+ * Injection method: Press the button and wait for the system to decide who to vote to. If it is not
+ * voted out, it will report failure (the caller will return); the touch still does not wait. A pair of
+ * press/lift: it will return when the press is not successful, and it will only be lifted when the press
+ * is successful.
  */
 class InjectModeTest {
     // InputManager.INJECT_INPUT_EVENT_MODE_*

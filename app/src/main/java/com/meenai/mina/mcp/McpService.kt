@@ -14,14 +14,20 @@ import com.meenai.mina.i18n.tr
 import com.meenai.mina.task.TaskService
 
 /**
- * 电脑连接打开期间的前台服务:只为让进程在后台活着、端口一直开着;收到的任务照旧交给 [TaskService] 去跑。
- * 任务服务没任务时会自己退出,所以监听不放在它里面。常驻通知上能直接关掉电脑连接(两种都关)。
- * 被系统回收后会重建(START_STICKY);开关都关了就当场退出。
+ * Foreground service while the computer connection is open: just to keep the process alive in the
+ * background and the port always open; the received tasks are still handed over to [TaskService] for
+ * running. The task service will exit by itself when it has no tasks, so the monitoring is not placed in
+ * it. You can directly turn off the computer connection on the permanent notification (both types are
+ * turned off). It will be rebuilt (START_STICKY) after being recycled by the system; exit on the spot if
+ * the switches are turned off.
  *
- * 电脑经 USB 调试打开、关掉 USB 方式也是起这个服务:清单里它对外开放,但要求调用方持有
- * INTERACT_ACROSS_USERS_FULL。这个权限 shell 有,普通 App 拿不到(只给系统签名和安装器,adb 也授不了),
- * 所以只有 `adb shell am start-foreground-service` 这样以 shell 身份发起的才起得了;Mina 自己起不受限。
- * 以前台服务的方式起:安卓 12 起后台的 App 一般不能自己开前台服务,但由 shell 发起的启动不在此限。
+ * The computer also uses this service when turning on and off USB through USB debugging: it is open to
+ * the outside world in the list, but the caller is required to hold INTERACT_ACROSS_USERS_FULL. The
+ * shell has this permission, but ordinary apps cannot get it (it only gives system signatures and
+ * installers, and adb cannot grant it), so only `adb shell am start-foreground-service` initiated as a
+ * shell can afford it; Mina herself is not restricted. Starting from the foreground service method: Apps
+ * in the background starting from Android 12 generally cannot open foreground services by themselves,
+ * but startup initiated by shell is not limited to this.
  */
 class McpService : Service() {
     private val runtime get() = (application as HarnessApp).mcp
@@ -32,7 +38,9 @@ class McpService : Service() {
         TaskService.ensureChannels(this)
         val applied = runCatching { McpModes.apply(intent?.action, runtime.settings, runtime.usb, runtime.relaySettings) }
             .onFailure { Log.w("MinaMcp", "could not update computer access settings", it) }.isSuccess
-        // startForegroundService 之后必须尽快进前台,哪怕马上就要退出;系统不让进前台时就此退出,不让进程崩
+        // After startForegroundService, you must enter the foreground as soon as possible, even if you
+        // are about to exit; if the system does not allow you to enter the foreground, exit to prevent
+        // the process from crashing.
         val foreground = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -80,7 +88,7 @@ class McpService : Service() {
     }
 
     companion object {
-        /** 和任务通知(槽位编号、结果编号段)错开。 */
+        /** Staggered with task notification (slot number, result number section). */
         private const val NOTIFICATION_ID = 30_001
     }
 }

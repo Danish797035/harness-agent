@@ -57,7 +57,7 @@ class ToolDispatcherInteractTest {
         assertEquals("true", t.interact("""{"action":"key","key":"Control+A"}""").s("ok"))
         assertEquals(listOf(
             "hover Ref(ref=@e1, snapshotId=$sid)",
-            // 0–999 按最近一屏(1080×2400)换成 view 像素
+            // 0–999 Change to view pixels according to the latest screen (1080×2400)
             "hover Xy(x=540, y=0)",
             "drag Ref(ref=@e1, snapshotId=$sid) Xy(x=1079, y=2399) 5",
             "drag Xy(x=0, y=0) Ref(ref=@e2, snapshotId=$sid) 10",
@@ -100,7 +100,8 @@ class ToolDispatcherInteractTest {
     @Test fun phoneSnapshotsAreRefusedOnTheWeb() = runTest {
         val web = FakeWebPort()
         val t = toolDispatcher(FakeScreen(), web = web)
-        // 手机的编号交给网页的工具:不交给端口,说明它是手机的
+        // Give the mobile phone number to the web tool: If you don’t give it to the port, it means it
+        // belongs to the mobile phone.
         val phoneSid = t.execute(call("phone_observe")).content.s("snapshotId")
         t.execute(call("web_navigate", """{"url":"https://shop.example.com/cart"}"""))
         val r = t.interact("""{"action":"hover","ref":"@e1","snapshotId":"$phoneSid"}""")
@@ -132,7 +133,7 @@ class ToolDispatcherInteractTest {
         val (t, sid) = onWeb(web, stableRefs = true)
         assertEquals("true", t.interact("""{"action":"drag","ref":"@e1","snapshotId":"$sid","toRef":"@e2"}""").s("ok"))
         assertEquals("drag Ref(ref=@e1, snapshotId=wt1-1) Ref(ref=@e2, snapshotId=wt1-1) 10", web.calls.last())
-        // 退役的编号不交给端口
+        // Retired numbers are not handed over to the port
         assertEquals("ref_expired", t.interact("""{"action":"drag","ref":"@e1","snapshotId":"$sid","toRef":"@e9"}""").s("error"))
         assertEquals("ref_expired", t.interact("""{"action":"select","ref":"@e9","snapshotId":"$sid","option":"x"}""").s("error"))
         assertTrue(web.calls.last().startsWith("drag"))
@@ -147,9 +148,9 @@ class ToolDispatcherInteractTest {
         assertTrue(log.toString(), log.any { "web_interact(select 「上海」 选择文件) 生效" in it })
     }
 
-    // ---------- 不可逆确认 ----------
+    // ---------- Irreversible Confirmation ----------
 
-    /** 购物车页,屏上有应付金额:这里命中不可逆判定的动作都要花钱,询问时要先同意(只有花钱才问)。 */
+    /** On the shopping cart page, there is the amount payable on the screen: any action that hits the irreversible judgment here will cost money. You must agree first when asking (only ask after spending money). */
     private fun shop(vararg e: UiElement) = FakeWebPort().apply { elements = e.toList() + total }
     private val total = UiElement("@e9", "text", "合计 ¥25", 300, 1700, listOf(0, 800, 600, 860), null, false, false, false)
     private val field = UiElement("@e1", "edit", "留言", 500, 500, listOf(0, 400, 999, 600), null, true, true, false, focused = true)
@@ -166,7 +167,8 @@ class ToolDispatcherInteractTest {
         return m.result(3)
     }
 
-    // 在留言框里回车是发送:发消息不花钱,屏上有金额也直接做
+    // Press Enter in the message box to send: it costs nothing to send a message, and you can do it
+    // directly if there is an amount on the screen.
     @Test fun enterInAFieldSendsWithoutAsking() = runTest {
         for (key in listOf("Enter", "Control+Enter")) {
             val web = shop(field)
@@ -215,13 +217,14 @@ class ToolDispatcherInteractTest {
     }
 
     @Test fun commandKeysNeedConfirmation() = runTest {
-        // 焦点在「删除」上按删除键;页面本身(没有焦点元素)上按退格
+        // Press the delete key when the focus is on "Delete"; press backspace on the page itself (no
+        // focused element)
         for ((elements, key) in listOf(listOf(focusedTrash) to "Delete", listOf(trash) to "Backspace", listOf(focusedTrash) to "d")) {
             val web = shop(*elements.toTypedArray())
             assertEquals(key, "confirmation_required", gated(web, """{"action":"key","key":"$key"}""").s("error"))
             assertTrue(web.calls.none { it.startsWith("combo") })
         }
-        // 输入框里是编辑;页面本身上没声明的字母放行
+        // The input box is for editing; letters not declared on the page itself are allowed.
         assertEquals("true", gated(shop(field, trash), """{"action":"key","key":"Delete"}""").s("ok"))
         assertEquals("true", gated(shop(trash), """{"action":"key","key":"d"}""").s("ok"))
     }

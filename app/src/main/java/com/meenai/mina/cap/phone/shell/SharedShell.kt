@@ -4,8 +4,10 @@ import android.os.Handler
 import android.os.Looper
 
 /**
- * 进程内共用一条 shell 连接,按引用计数绑定/解绑;由 [com.meenai.mina.cap.phone.PhoneServices] 建一份。
- * 解绑会撤掉 shell 一侧的虚拟屏等改动,所以任务和启动恢复不能各自绑一条再各自解绑。[create] 第一次要用时建连接。
+ * A shell connection is shared within the process and is bound/unbound based on reference counting; one
+ * copy is created by [com.meenai.mina.cap.phone.PhoneServices]. Unbinding will remove changes such as
+ * the virtual screen on the shell side, so tasks and startup recovery cannot be bound to one and then
+ * unbundled. [create] is used to establish a connection for the first time.
  */
 class SharedShell(private val create: () -> ShellBinding) {
     private var connection: ShellBinding? = null
@@ -28,13 +30,13 @@ class SharedShell(private val create: () -> ShellBinding) {
         }
     }
 
-    /** 「重新连接」:已绑定却没有助手时请看门狗马上再起一次;没人绑着就什么也不做。 */
+    /** "Reconnect": If it is bound but there is no assistant, please start the watchdog again immediately; if no one is bound, do nothing. */
     @Synchronized
     fun reconnect() {
         connection?.takeIf { users > 0 }?.reconnect()
     }
 
-    // 绑定/解绑统一放到主线程,避免与连接回调交错
+    // Binding/unbinding is unified into the main thread to avoid interleaving with connection callbacks.
     private fun onMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else main.post(block)
     }

@@ -48,11 +48,11 @@ class McpAccessTest {
     @Test fun repeatedFailuresLockThatAddressForAWhile() {
         repeat(4) { assertEquals(401, status(access.check(req(mapOf("Authorization" to "Bearer guess$it"))))) }
         assertEquals(401, status(access.check(req(mapOf("Authorization" to "Bearer guess5")))))
-        // 锁住之后连对的令牌也先不看
+        // After locking it, I don’t even look at the correct token.
         val locked = access.check(req(mapOf("Authorization" to "Bearer $TOKEN")))
         assertEquals(429, status(locked))
         assertEquals("60", (locked as RemoteAccess.Verdict.Reject).headers["Retry-After"])
-        // 别的地址不受影响
+        // Other addresses are not affected
         assertEquals(RemoteAccess.Verdict.Pass, access.check(req(mapOf("Authorization" to "Bearer $TOKEN"), from = "192.168.1.21")))
         now += 61_000
         assertEquals(RemoteAccess.Verdict.Pass, access.check(req(mapOf("Authorization" to "Bearer $TOKEN"))))
@@ -62,7 +62,8 @@ class McpAccessTest {
         val relay = RemoteAccess({ TOKEN }, { now })
         val guesser = "relay|203.0.113.9"; val owner = "relay|198.51.100.7"
         repeat(5) { assertEquals(401, status(relay.check(req(from = "0.0.0.0", source = guesser)))) }
-        // 冷却中连正确令牌也是 429:放行就会把「猜对了」告诉猜的人
+        // Even the correct token is during cooldown. 429: If you let go, you will tell the person who
+        // guessed "you guessed it correctly".
         assertEquals(429, status(relay.check(req(mapOf("Authorization" to "Bearer $TOKEN"), from = "0.0.0.0", source = guesser))))
         assertEquals(RemoteAccess.Verdict.Pass, relay.check(req(mapOf("Authorization" to "Bearer $TOKEN"), from = "0.0.0.0", source = owner)))
         assertEquals(403, status(relay.check(req(mapOf("Authorization" to "Bearer $TOKEN", "Origin" to "https://example.test"), from = "0.0.0.0", source = owner))))

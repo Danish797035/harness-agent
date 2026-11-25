@@ -38,7 +38,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.rules.TemporaryFolder
 
-/** 欢迎页、配置模型一页(上手和设置共用)、选用途页、服务商详情、全部模型和「用作」面板(只用假数据,不联网)。 */
+/** Welcome page, configure model page (shared with getting started and setting up), select usage page, service provider details, all models and "Use" panel (only fake data, not connected to the Internet). */
 @RunWith(AndroidJUnit4::class)
 class ModelSetupScreenTest {
 
@@ -79,22 +79,23 @@ class ModelSetupScreenTest {
     @Test fun firstVisitShowsFormAndNextIsDisabled() {
         show(ModelSetupUi(form))
         compose.onNodeWithTag("setup-next").assertIsNotEnabled()
-        // 上面多了「用账号登录」一组,按钮可能在屏幕外:先滚到再点
+        // There is an additional "Log in with account" group above. The button may be off the screen:
+        // scroll to it first and then click it.
         compose.onNodeWithTag("setup-test").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithTag("preset-Kimi").performScrollTo().performClick()
         assertEquals(listOf("test", "preset Kimi"), calls)
     }
 
-    /** 「不测试,直接保存」先问一次:说清后果,取消了就什么都不做,确认了才存。 */
+    /** "Don't test, save directly." Ask first: explain clearly the consequences. If you cancel, do nothing. Confirm before saving. */
     @Test fun saveWithoutTestAsksBeforeSaving() {
         show(ModelSetupUi(form))
         compose.onNodeWithTag("setup-save-untested").performScrollTo().performClick()
         compose.onNodeWithText(ModelSetupCopy.SAVE_UNTESTED_TITLE).assertIsDisplayed()
         compose.onNodeWithText(ModelSetupCopy.SAVE_UNTESTED_BODY).assertIsDisplayed()
-        // 取消:什么都没存
+        // Cancel: Nothing saved
         compose.onNodeWithText("取消").performClick()
         assertTrue(calls.isEmpty())
-        // 确认:存
+        // Confirm: save
         compose.onNodeWithTag("setup-save-untested").performScrollTo().performClick()
         compose.onNodeWithText(ModelSetupCopy.SAVE_UNTESTED_CONFIRM).performClick()
         assertEquals(listOf("save untested"), calls)
@@ -106,9 +107,10 @@ class ModelSetupScreenTest {
         compose.onNodeWithTag("switch-notice-toggle").assertDoesNotExist()
         compose.onNodeWithText(ModelsCopy.PROVIDERS).assertIsDisplayed()
         compose.onNodeWithText("已连接 · 2 个模型 · 主模型、轻量模型在用").assertIsDisplayed()
-        // 轻量卡「用主模型」下面也写着主模型名,所以只在主模型卡里找
+        // The name of the main model is also written under the "Use Main Model" light card, so you can
+        // only find it in the main model card.
         compose.onNodeWithTag("role-main").assertTextContains("deepseek-chat", substring = true)
-        // 表单收起,留一个入口
+        // Close the form and leave an entrance
         compose.onNodeWithText(ModelsCopy.ADD_PROVIDER).performClick()
         compose.onNodeWithTag("provider-通义千问").performClick()
         compose.onNodeWithTag("role-vision").performScrollTo().performClick()
@@ -119,7 +121,7 @@ class ModelSetupScreenTest {
     @Test fun settingsPageShowsAllThreeRolesWithoutBottomButton() {
         show(connected(RoleChoices(main = "c1", vision = RoleChoice.Off, light = RoleChoice.SameAsMain)), onboarding = false)
         compose.onNodeWithText(ModelsCopy.TITLE).assertIsDisplayed()
-        // 改动当场生效,左上角返回就行
+        // Changes will take effect immediately, just return to the upper left corner
         compose.onNodeWithTag("setup-next").assertDoesNotExist()
         ModelRole.entries.forEach { compose.onNodeWithText(ModelsCopy.roleLabel(it)).assertIsDisplayed() }
         compose.onNodeWithText(ModelsCopy.OFF).assertIsDisplayed()
@@ -205,7 +207,7 @@ class ModelSetupScreenTest {
         compose.onNodeWithText(ModelsCopy.SAME_AS_MAIN).performClick()
         compose.onNodeWithText(ModelsCopy.OFF).performClick()
         compose.onNodeWithText("DeepSeek").assertIsDisplayed()
-        // 不按能力置灰
+        // Not grayed out according to ability
         compose.onNodeWithText("deepseek-coder").assertIsEnabled().performClick()
         compose.onNodeWithText("qwen-long").performScrollTo().performClick()
         assertEquals(listOf("${RoleChoice.SameAsMain}", "${RoleChoice.Off}", "p1 deepseek-coder", "p2 qwen-long"), picked)
@@ -223,7 +225,8 @@ class ModelSetupScreenTest {
         val ui = ModelSetupUi(form, providers = listOf(deepseek, many), configs = listOf(main), roles = RoleChoices(main = "c1"))
         compose.setContent { MinaTheme { RolePickerContent(ui, ModelRole.Main, RolePickerActions(), onBack = {}) } }
         compose.onNodeWithTag("model-filter").performTextInput("qwen-9")
-        // 筛选框里也有这几个字,只看不是输入框的那一行
+        // There are also these words in the filter box, just look at the line that is not in the input
+        // box
         compose.onNode(hasText("qwen-9") and !hasSetTextAction()).assertIsDisplayed()
         compose.onNodeWithText("qwen-1").assertDoesNotExist()
         compose.onNodeWithText("DeepSeek").assertDoesNotExist()
@@ -241,7 +244,7 @@ class ModelSetupScreenTest {
         }
         compose.onNodeWithText(ModelsCopy.CONNECTED).assertIsDisplayed()
         compose.onNodeWithText(ModelsCopy.KEY_SAVED).assertIsDisplayed()
-        // 在用的排最前,只放 3 个
+        // Put the used ones first and only put 3
         compose.onNodeWithTag("model-qwen-vl-max").assertIsDisplayed()
         compose.onNodeWithText(ModelsCopy.roleName(ModelRole.Vision)).assertIsDisplayed()
         compose.onNodeWithTag("model-qwen-max").assertIsDisplayed()
@@ -249,7 +252,7 @@ class ModelSetupScreenTest {
         compose.onNodeWithTag("model-qwen-turbo").assertDoesNotExist()
         compose.onNodeWithText(ModelsCopy.viewAll(5)).performScrollTo().performClick()
         assertEquals(listOf("all"), got)
-        // 删除前说清会影响哪个用途
+        // Before deleting, please explain which purpose it will affect.
         compose.onNodeWithText(ModelsCopy.DELETE).performScrollTo().performClick()
         compose.awaitOne(ModelsCopy.deleteBody(listOf(ModelRole.Vision)), inDialog = true).assertIsDisplayed()
     }
@@ -303,7 +306,7 @@ class ModelSetupScreenTest {
         compose.onNodeWithContentDescription(ModelsCopy.REFRESH).assertIsNotEnabled()
     }
 
-    // ---------- 用账号登录 ----------
+    // ---------- Log in with your account ----------
 
     private val grok = Provider("p3", "xAI / Grok", ProviderConfig.Kind.Xai, "https://api.x.ai/v1", listOf(ListedModel("grok-4"), ListedModel("grok-4-fast")))
 

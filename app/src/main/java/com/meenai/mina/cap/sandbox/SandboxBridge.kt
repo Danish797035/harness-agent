@@ -25,16 +25,19 @@ import kotlin.concurrent.thread
 
 private const val NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 private const val MAX_CONNECTIONS = 4
-/** 连上来不说话、或说一半就停的客户端,30 秒后断开。 */
+/** Clients that do not speak when connected, or stop mid-sentence, will be disconnected after 30 seconds. */
 private const val CLIENT_TIMEOUT_MS = 30_000
 private const val WAKE_DEADLINE_MS = 1_000L
 private const val WAKE_RETRY_MS = 50L
 private const val TAG = "SandboxBridge"
 
 /**
- * 沙箱命令回调 Mina 的桥:每次运行开一个抽象命名空间的 Unix 套接字(名字随机)和一次性令牌,经环境变量交给命令,
- * 命令结束(含超时、被杀、取消)即关闭。断网过滤只拦 AF_INET/AF_INET6,所以断网时桥照样能用。
- * 只接受与 Mina 同一身份(uid)的连接;协议见 [BridgeProtocol]。
+ * Sandbox command callback Mina's bridge: Each time it runs, a Unix socket (with a random name) in the
+ * abstract namespace is opened and a one-time token is given to the command via environment variables.
+ * It is closed when the command ends (including timeout, killing, and cancellation). The network
+ * disconnection filter only blocks AF_INET/AF_INET6, so the bridge can still be used when the network is
+ * disconnected. Only accept connections with the same identity (uid) as Mina; see [BridgeProtocol] for
+ * the protocol.
  */
 class SandboxBridge(
     private val onProgress: (String) -> Unit,
@@ -60,9 +63,9 @@ class SandboxBridge(
         @Volatile private var closed = false
         private val clients = Collections.synchronizedSet(mutableSetOf<LocalSocket>())
         private val gate = ProgressGate()
-        /** 进行中的导出都在这里;会话关闭时一起取消,不再往下写。 */
+        /** All exports in progress are here; when the session is closed, they will be canceled together and will not be written further. */
         private val work = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        /** 工具上下文属于同一个任务,来自多个 CLI 连接的手机请求顺序执行。 */
+        /** The tool context belongs to the same task, and mobile requests from multiple CLI connections are executed sequentially. */
         private val phoneLock = Mutex()
         private val acceptor = thread(isDaemon = true, name = "mina-bridge-accept") { acceptLoop() }
 
@@ -70,7 +73,8 @@ class SandboxBridge(
             while (!closed) {
                 val s = try { server.accept() } catch (e: IOException) { break }
                 if (closed) { runCatching { s.close() }; break }
-                // 同一身份才接;连接太多就拒(一条命令用不着很多)
+                // Only accept connections with the same identity; reject if there are too many
+                // connections (one command does not require many)
                 val uid = runCatching { s.peerCredentials.uid }.getOrNull()
                 if (uid != Process.myUid() || clients.size >= MAX_CONNECTIONS) { runCatching { s.close() }; continue }
                 runCatching { s.soTimeout = CLIENT_TIMEOUT_MS }
@@ -96,9 +100,9 @@ class SandboxBridge(
                     if (reply.close) break
                 }
             } catch (_: IOException) {
-                // 对端断开或会话关闭
+                // Peer disconnected or session closed
             } catch (_: CancellationException) {
-                // 会话关闭时取消了进行中的导出
+                // Export in progress canceled when session closed
             } finally {
                 clients -= s
                 runCatching { s.close() }
@@ -128,7 +132,8 @@ class SandboxBridge(
             if (closed) return
             closed = true
             work.cancel()
-            // accept() 不一定因 close 返回:自己连上去把它叫醒(连不上就重试),到期限为止;再关
+            // accept() does not necessarily return due to close: connect yourself and wake it up (if you
+            // can't connect, try again) until the expiration date; close it again
             val deadline = System.currentTimeMillis() + WAKE_DEADLINE_MS
             while (acceptor.isAlive && System.currentTimeMillis() < deadline) {
                 runCatching { LocalSocket().use { it.connect(LocalSocketAddress(name)) } }

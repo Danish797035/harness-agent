@@ -15,9 +15,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 自动更新的后半段:检查发现新版本后,不等用户点,自己把 APK 下到应用专属目录,
- * 下好了发一条通知,点通知直接进安装。同一版本最多提醒一次;系统安装器仍会请用户确认。
- * 关于页的手动下载、安装不受影响。
+ * The second half of the automatic update: After checking and discovering a new version, download the
+ * APK to the application-specific directory without waiting for the user to click on it. After
+ * downloading, a notification will be sent, and you can click on the notification to proceed directly to
+ * the installation. The same version will be reminded at most once; the system installer will still ask
+ * the user for confirmation. Manual download and installation of the About page are not affected.
  */
 object UpdateAutomation {
     private const val CHANNEL = "update-ready"
@@ -26,7 +28,7 @@ object UpdateAutomation {
     private val running = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** App 每次打开时调:后台查一次版本,查到新版就接着自动下载、下好提醒。 */
+    /** Every time the App is opened, it will check the version in the background. If a new version is found, it will automatically download and send a reminder. */
     fun onAppOpened(context: Context, checker: UpdateChecker) {
         if (!running.compareAndSet(false, true)) return
         val appContext = context.applicationContext
@@ -77,7 +79,9 @@ object UpdateAutomation {
             DownloadPhase.Downloading, DownloadPhase.Paused -> {}
             else -> runCatching { updater.download(release) }
         }
-        // 这次自己下的、或上一轮还挂着的下载,等它出结果:下好了提醒,失败或被清了就收手。
+        // The downloads you downloaded this time, or those that were still pending in the previous
+        // round, wait for the results to come out: you will be reminded when the download is completed,
+        // and you will stop if it fails or is cleared.
         val deadline = System.currentTimeMillis() + 45 * 60_000L
         while (System.currentTimeMillis() < deadline) {
             delay(5000)

@@ -37,8 +37,9 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * 二级页的骨架:页面底 + 顶栏(左上角返回)+ 下面可滚动的内容(左右各 16)。
- * 内容很长、要懒加载的页面不用它,自己在 [TopBar] 下面放 LazyColumn。
+ * The skeleton of the second-level page: bottom of the page + top bar (return to the upper left corner)
+ * + scrollable content below (16 on the left and right). If the content is very long and the page needs
+ * to be loaded lazily, do not use it. Put LazyColumn under [TopBar] yourself.
  */
 @Composable
 fun SubPage(
@@ -60,7 +61,7 @@ fun SubPage(
     }
 }
 
-/** 行下面的一排操作按钮(小号胶囊),和行的文字对齐。 */
+/** A row of action buttons (small capsules) below the row, aligned with the text of the row. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RowActions(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -71,7 +72,7 @@ fun RowActions(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** 搜索框:浅填充底、圆角 14、高 40,左边放大镜。给了 [onSubmit] 时键盘上是「前往」,按下交给它。 */
+/** Search box: shallow filled bottom, rounded corners 14, height 40, magnifying glass on the left. When [onSubmit] is given, the keyboard says "Go", press it to hand it over. */
 @Composable
 fun SearchField(
     value: String,
@@ -99,7 +100,7 @@ fun SearchField(
     }
 }
 
-/** 空状态:一两句居中的说明。 */
+/** Empty state: One or two sentences of centered instructions. */
 @Composable
 fun EmptyNote(text: String, modifier: Modifier = Modifier) {
     Text(

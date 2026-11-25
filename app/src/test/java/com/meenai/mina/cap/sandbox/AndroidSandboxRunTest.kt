@@ -29,12 +29,12 @@ class AndroidSandboxRunTest {
         }
     }
 
-    /** 技能目录还没同步也先建好再绑:源目录缺了 PRoot 会往命令输出里写警告。 */
+    /** Even if the skill directory has not yet been synchronized, create it first and then bind it: if the source directory is missing, PRoot will write a warning in the command output. */
     @Test fun bindSourcesExistBeforeLaunch() = runBlocking {
         val dirs = SandboxDirs(File(tmp, "s3/files/sandbox"), File(tmp, "s3/cache"), File(tmp, "s3/lib"), JVM_GATE, SandboxTree())
         val sb = AndroidSandbox(dirs, { SandboxStatus.Ready(false) }, { emptyList() })
         assertFalse(dirs.skills.exists())
-        runCatching { sb.run("c1", listOf("true"), null, 1_000) {} } // JVM 上没有启动器,启动本身会失败
+        runCatching { sb.run("c1", listOf("true"), null, 1_000) {} } // Without a launcher on the JVM, the launch itself will fail
         assertTrue(dirs.skills.isDirectory)
         assertTrue(dirs.workspace("c1").isDirectory)
         assertTrue(dirs.tmp.isDirectory)
@@ -47,12 +47,12 @@ class AndroidSandboxRunTest {
         client.writeText("old bridge")
         val sb = AndroidSandbox(dirs, { SandboxStatus.Ready(false) }, { emptyList() },
             clientScript = { "new bridge".toByteArray() })
-        runCatching { sb.run("c1", listOf("true"), null, 1_000) {} } // JVM 上不启动 PRoot
+        runCatching { sb.run("c1", listOf("true"), null, 1_000) {} } // PRoot does not start on JVM
         assertEquals("new bridge", client.readText())
         assertTrue(client.canExecute())
     }
 
-    /** 工具调用时运行环境还没好:开始准备并等它;准备完成就就绪,超时返回当时的状态,不支持不等。 */
+    /** The running environment is not ready when the tool is called: start preparation and wait for it; it will be ready when the preparation is completed, and timeout will return to the current state. Waiting is not supported. */
     @Test fun awaitReadyStartsPreparationAndWaits() = runBlocking {
         var status: SandboxStatus = SandboxStatus.NotInstalled
         var starts = 0
@@ -64,7 +64,7 @@ class AndroidSandboxRunTest {
         assertEquals(SandboxStatus.Ready(false), sb.awaitReady(5_000))
         assertEquals(1, starts)
         assertEquals(SandboxStatus.Ready(false), sb.awaitReady(5_000))
-        assertEquals(1, starts) // 已就绪不再准备
+        assertEquals(1, starts) // Ready, no longer ready
 
         status = SandboxStatus.Installing(10, "解包")
         val slow = AndroidSandbox(dirs, { status }, { emptyList() }, startPreparing = { kotlinx.coroutines.GlobalScope.launch { kotlinx.coroutines.delay(60_000) } })
@@ -78,7 +78,7 @@ class AndroidSandboxRunTest {
 
     @Test fun preparerNeedsWork() {
         assertTrue(RuntimePreparer.needsWork(SandboxStatus.NotInstalled, null, "v2", skipBroken = false))
-        assertTrue(RuntimePreparer.needsWork(SandboxStatus.Ready(false), "v1", "v2", skipBroken = false)) // Mina 升级了
+        assertTrue(RuntimePreparer.needsWork(SandboxStatus.Ready(false), "v1", "v2", skipBroken = false)) // Mina upgraded
         assertFalse(RuntimePreparer.needsWork(SandboxStatus.Ready(true), "v2", "v2", skipBroken = false))
         assertTrue(RuntimePreparer.needsWork(SandboxStatus.Broken("x"), "v2", "v2", skipBroken = false))
         assertFalse(RuntimePreparer.needsWork(SandboxStatus.Broken("x"), "v2", "v2", skipBroken = true))
@@ -97,13 +97,14 @@ class AndroidSandboxRunTest {
         val calls = mutableListOf<Pair<String, String>>()
         var fail: Exception? = null
         val sb = AndroidSandbox(dirs, { SandboxStatus.Ready(false) }, { emptyList() }, exporter = { g, n ->
-            // 交给导出的是过了关口的句柄:内容从它读
+            // What is given to the export is the handle that has passed the checkpoint: the content is
+            // read from it
             calls += String(g.read(0, 100)) to n; fail?.let { throw it }; com.meenai.mina.chat.SharedFile(n, g.size, "Download/Harness/$n", "content://x")
         })
         val f = sb.hostPath("c1", "out/a.txt", forWrite = true)!!.apply { parentFile?.mkdirs(); writeText("a") }
         assertEquals("Download/Harness/a.txt", sb.share(f, "a.txt"))
         assertEquals("a" to "a.txt", calls.single())
-        // 工作区里的硬链接(可能链着 Mina 的私有文件)不导出
+        // Hard links in the workspace (which may link to Mina's private files) are not exported
         val private = File(tmp, "s2/private.db").apply { writeText("secret") }
         val linked = File(f.parentFile, "linked.db")
         Files.createLink(linked.toPath(), private.toPath())
@@ -117,7 +118,8 @@ class AndroidSandboxRunTest {
         assertEquals("share_unavailable", runCatching { none.share(f, "a.txt") }.exceptionOrNull().let { (it as SandboxError).code })
     }
 
-    // 网页上传与沙箱同一套路径规则:只认本对话工作区里的普通文件
+    // The same set of path rules for web page upload and sandbox: only recognize ordinary files in the
+    // dialog workspace
     @Test fun uploadCheckUsesWorkspaceRules() {
         val ok = sb.hostPath("c1", "in/a.pdf", forWrite = true)!!.apply { parentFile?.mkdirs(); writeText("a") }
         assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.Ok, sb.uploadCheck("c1", "/workspace/in/a.pdf"))
@@ -125,8 +127,8 @@ class AndroidSandboxRunTest {
         assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.NotFound, sb.uploadCheck("c1", "/workspace/in"))
         assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.Outside, sb.uploadCheck("c1", "/opt/mina/skills/skills/x/SKILL.md"))
         assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.Outside, sb.uploadCheck("c1", "/workspace/../etc/passwd"))
-        assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.NotFound, sb.uploadCheck("c2", "/workspace/in/a.pdf")) // 别的对话看不到
-        // 指向工作区外的链接不跟过去
+        assertEquals(com.meenai.mina.core.workspace.WorkspacePathCheck.NotFound, sb.uploadCheck("c2", "/workspace/in/a.pdf")) // Can't see other conversations
+        // Links pointing outside the workspace are not followed
         val outside = File(tmp, "secret.txt").apply { writeText("s") }
         Files.createSymbolicLink(File(ok.parentFile, "link.txt").toPath(), outside.toPath())
         assertTrue(sb.uploadCheck("c1", "/workspace/in/link.txt") != com.meenai.mina.core.workspace.WorkspacePathCheck.Ok)

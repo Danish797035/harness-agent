@@ -21,22 +21,23 @@ class AdbConnectionException(val reason: Reason, message: String, cause: Throwab
     enum class Reason {
         CONNECT_FAILED,
         TLS_FAILED,
-        /** 设备不认这把钥匙(没配对、被撤销或授权过期),要重新配对。 */
+        /** The device does not recognize this key (not paired, revoked or authorized expired) and needs to be paired again. */
         UNAUTHORIZED,
         PROTOCOL,
     }
 }
 
 /**
- * 到 adbd 的一条连接。握手:发 CNXN → 设备回 STLS → 回 STLS 并以已配对的证书做 TLS 1.3 →
- * 设备在 TLS 上发 CNXN(横幅)。之后在其上多路复用流:OPEN → OKAY,WRTE 每包都要等对方 OKAY。
- * 不声明任何 feature(不用 delayed ack),OPEN 的 arg1 因此为 0。
+ * A connection to adbd. Handshake: Send CNXN → device responds to STLS → responds to STLS and uses the
+ * paired certificate to do TLS 1.3 → device sends CNXN (banner) over TLS. Then multiplex the stream on
+ * it: OPEN → OKAY, WRTE. Each packet must wait for the other party's OKAY. No feature is declared (no
+ * delayed ack is used), OPEN's arg1 is therefore 0.
  */
 class AdbConnection private constructor(
     private val socket: Socket,
     private val input: DataInputStream,
     private val output: OutputStream,
-    /** 设备横幅,如 `device::ro.product.name=…;features=…`。 */
+    /** Device banner, such as `device::ro.product.name=…;features=…`. */
     val banner: String,
     private val peerVersion: Int,
     private val peerMaxData: Int,
@@ -50,7 +51,7 @@ class AdbConnection private constructor(
 
     val isClosed: Boolean get() = closed
 
-    /** 运行 `exec:` 服务:命令的原始标准输出(不经 pty),写入的数据进它的标准输入。 */
+    /** Run the `exec:` service: the raw standard output of the command (without pty), and the written data goes to its standard input. */
     fun exec(command: String): AdbStream = open("exec:$command")
 
     fun open(destination: String): AdbStream {
@@ -109,7 +110,7 @@ class AdbConnection private constructor(
                         s.opened.complete(false)
                         s.remoteClosed()
                     }
-                    else -> Unit // 连接建立后的 CNXN/AUTH 等不处理
+                    else -> Unit // CNXN/AUTH etc. after the connection is established are not processed.
                 }
             }
         } catch (_: IOException) {
@@ -118,7 +119,7 @@ class AdbConnection private constructor(
         }
     }
 
-    /** 一条流。[read] 阻塞到有数据,流结束返回 null。 */
+    /** a stream. [read] blocks until there is data, and returns null when the stream ends. */
     inner class AdbStream internal constructor(val localId: Int) : Closeable {
         @Volatile internal var remoteId = 0
         internal val opened = CompletableFuture<Boolean>()
@@ -136,7 +137,7 @@ class AdbConnection private constructor(
             return b
         }
 
-        /** 读到对方关闭为止。 */
+        /** Read until the other party closes. */
         fun readAll(): ByteArray {
             val out = ByteArrayOutputStream()
             while (true) out.write(read() ?: return out.toByteArray())
@@ -196,7 +197,7 @@ class AdbConnection private constructor(
         private val EOF = ByteArray(0)
         private val HOST_BANNER = "host::\u0000".toByteArray(Charsets.US_ASCII)
 
-        /** 连上 [host]:[port] 的 adbd(通常是 127.0.0.1 + mDNS 找到的无线调试端口)。 */
+        /** Connect to the adbd of [host]:[port] (usually the wireless debugging port found at 127.0.0.1 + mDNS). */
         fun open(host: String, port: Int, tls: AdbTls, timeoutMs: Int = 10_000): AdbConnection {
             val plain = Socket()
             try {
@@ -232,8 +233,11 @@ class AdbConnection private constructor(
                         throw AdbConnectionException(AdbConnectionException.Reason.TLS_FAILED, "TLS handshake failed", e)
                     }
                     val input = DataInputStream(ssl.inputStream)
-                    // TLS 1.3 里设备拒绝客户端证书发生在握手之后,表现为读第一个包时出错或断开。
-                    // 客户端分不清是 adbd 不认这把钥匙,还是另一个服务接住了这次握手,由调用方再试(见 AdbConnectPort)
+                    // In TLS 1.3, the device rejects the client certificate after the handshake,
+                    // manifesting as an error or disconnection while reading the first packet. The
+                    // client cannot tell whether adbd does not recognize the key or whether another
+                    // service has received the handshake. It is up to the caller to try again (see
+                    // AdbConnectPort)
                     val cnxn = try {
                         AdbMessage.read(input)
                     } catch (e: SSLException) {

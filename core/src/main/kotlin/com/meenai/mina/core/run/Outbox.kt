@@ -21,7 +21,7 @@ class MemoryOutboxStore : OutboxStore {
     @Synchronized override fun all(): List<DeliveryRecord> = records.values.toList()
 }
 
-/** 先记账再发送。结果不明的发送不自动重试，以免用户收到两份。 */
+/** Account first and then send. Sends with unknown results are not automatically retried to prevent users from receiving two copies. */
 class Outbox(private val store: OutboxStore = MemoryOutboxStore()) {
     private val lock = Mutex()
 

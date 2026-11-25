@@ -1,9 +1,9 @@
 package com.meenai.mina.core.run
 
-/** 谁启动这次运行；与单个动作的 Invoker 完全分开。 */
+/** Who initiates this run; completely separate from the Invoker of the individual actions. */
 enum class RunOrigin { Ui, Channel, Trigger, Mcp, Child }
 
-/** 用户能否在本次运行中及时处理提问或确认。 */
+/** Whether the user can handle questions or confirmations in a timely manner during this run. */
 enum class Attendance { Present, Reachable, Unattended }
 
 data class RunProvenance(

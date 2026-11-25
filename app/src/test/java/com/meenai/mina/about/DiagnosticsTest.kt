@@ -86,7 +86,7 @@ class DiagnosticsTest {
         assertTrue(t.contains("update available: 0.1.8"))
     }
 
-    /** 语音转文字一段:选择、自带识别的情况、手机上登记的识别服务(组件名、开不开放、要的权限);在模型之后。 */
+    /** Speech to text section: selection, built-in recognition status, recognition service registered on the mobile phone (component name, whether to open or not, required permissions); after the model. */
     @Test
     fun speechSectionListsRecognitionServices() {
         val speech = DiagnosticsSnapshot.Speech(
@@ -101,7 +101,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("recognition services: 1\n- com.example.voice/.Recognizer (not exported) needs android.permission.BIND_VOICE_INTERACTION"))
     }
 
-    /** 引导页那几项来自同一个状态机:失败在连接一步,用户确认过无线调试。 */
+    /** The items on the boot page come from the same state machine: the failure occurred in the connection step, and the user confirmed the wireless debugging. */
     @Test
     fun phoneControlReadsTheSetupFlow() {
         val t = Diagnostics.render(snapshot())
@@ -119,7 +119,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("last error: AdbConnectionException(CONNECT_FAILED)"))
     }
 
-    /** 扫过本机、用户填过端口:只写个数和有没有填,不写端口号。 */
+    /** Scan the machine and the user has filled in the port: only write the number and whether it has been filled in, but do not enter the port number. */
     @Test
     fun connectServiceShowsScanAndManualWithoutPortNumbers() {
         val c = ConnectCandidates(0, 0, 0, connected = true, scanned = true, scanOpen = 2, scanAdb = 1, manual = true)
@@ -139,7 +139,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("installer: unknown"))
     }
 
-    /** 配对通知频道被关掉:报的是引导页同一份状态,停在配对一步时还写出通知的问题。 */
+    /** The pairing notification channel is turned off: the same status as the boot page is reported, and a notification problem is written when the pairing step is stopped. */
     @Test
     fun pairingChannelOff() {
         val snap = snapshot(shell = BuiltinShellStatus.NotPaired, discovery = PairingDiscovery.Searching, confirmed = emptySet())
@@ -154,7 +154,7 @@ class DiagnosticsTest {
         assertTrue(none, none.contains("pairing channel: Ready (not created)"))
     }
 
-    /** 不带 Key、令牌、邮箱、IP、端口:哪怕它们藏在地址、出错信息里。 */
+    /** No Key, token, email, IP, or port: even if they are hidden in the address or error message. */
     @Test
     fun noSecretsAddressesOrPorts() {
         val t = Diagnostics.render(
@@ -184,7 +184,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("key=***"))
     }
 
-    /** 最近的运行:相对时间、结局、失败类别、步数、模型;没有目标和回答。 */
+    /** Recent runs: relative time, ending, failure category, number of steps, model; no goals and answers. */
     @Test
     fun recentRuns() {
         val t = Diagnostics.render(snapshot())
@@ -209,7 +209,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("last reboot restore: NotRecovered"))
     }
 
-    /** 内置助手拉起 Mina 的记录、启动时无障碍服务的问题:有就写何时、几次,没有写 never / ok。 */
+    /** The built-in assistant pulls up Mina's records and issues with accessibility services at startup: if yes, write when and how many times, if not, write never / ok. */
     @Test
     fun helperRestoresAndAccessibilityLoss() {
         val base = snapshot()
@@ -224,7 +224,7 @@ class DiagnosticsTest {
         assertTrue(t, t.contains("accessibility on start: removed 2h ago"))
     }
 
-    /** 最近一次 ChatGPT 登录失败:写类别、错误代码和说明;说明里像令牌的串遮住。 */
+    /** The latest ChatGPT login failure: write the category, error code and description; cover up the token-like string in the description. */
     @Test
     fun chatGptSignInFailureShowsCodeWithoutTokens() {
         val jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMzQ1Njc4OTAifQ.c2lnbmF0dXJlLWJ5dGVzLWhlcmUtMTIzNDU2Nzg5MA"
@@ -236,7 +236,7 @@ class DiagnosticsTest {
         assertFalse("没有失败就不写这一行", Diagnostics.render(base).contains("last sign-in failure"))
     }
 
-    /** 脱敏不误伤:时间、版本号、型号里的数字照写。 */
+    /** Desensitization and no accidental injury: the numbers in the time, version number, and model are written exactly as they should. */
     @Test
     fun sanitizeKeepsTimesAndVersions() {
         assertEquals("at 12:30:05 v0.1.7 SDK 34 Pixel 8", Diagnostics.sanitize("at 12:30:05 v0.1.7 SDK 34 Pixel 8"))

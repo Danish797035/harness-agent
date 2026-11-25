@@ -23,9 +23,9 @@ class SettlePolicyTest {
 
     private fun TestScope.done(id: String) = ledger.onEvent("Network.loadingFinished", buildJsonObject { put("requestId", id) }, currentTime)
 
-    /** 页面一直在变:等满旧的上限还不安静。 */
+    /** The page keeps changing: waiting for the old limit to be reached and still not quiet. */
     private val restless: suspend (Long) -> Boolean = { cap -> delay(cap); false }
-    /** 页面 500 毫秒后安静。 */
+    /** Page goes quiet after 500 milliseconds. */
     private val calm: suspend (Long) -> Boolean = { cap -> delay(minOf(500, cap)); cap >= 500 }
 
     private suspend fun TestScope.settle(dom: suspend (Long) -> Boolean): Boolean =
@@ -51,7 +51,8 @@ class SettlePolicyTest {
         sent("1")
         launch { delay(2_000); done("1") }
         assertTrue(settle(calm))
-        // 请求 2 秒时结束,再安静 500 毫秒,最后看一眼页面
+        // The request ends after 2 seconds, then is quiet for another 500 milliseconds, and takes one
+        // last look at the page.
         val took = currentTime - start
         assertTrue("$took", took in 2_500..3_200)
     }
@@ -92,9 +93,9 @@ class SettlePolicyTest {
         assertEquals(500, currentTime - start)
     }
 
-    // ---------- 读页前等正文稳定 ----------
+    // ---------- Wait until the text is stable before reading the page ----------
 
-    /** 正文按时间变化:[at] 毫秒以前给前一个样本。 */
+    /** The text changes by time: [at] milliseconds ago given the previous sample. */
     private fun TestScope.content(vararg steps: Pair<Long, Pair<Int, Int>>): suspend () -> Pair<Int, Int>? {
         val start = currentTime
         return { steps.last { (at, _) -> currentTime - start >= at }.second }
@@ -111,7 +112,7 @@ class SettlePolicyTest {
 
     @Test fun growingTextWaitsUntilItStopsGrowing() = runTest {
         val start = currentTime
-        // 分批渲染:0 到 1 秒一直在长,之后不变
+        // Batch rendering: 0 to 1 second is always long, and remains unchanged after that
         assertTrue(stable(content(0L to (100 to 1), 400L to (300 to 2), 900L to (800 to 3))))
         assertEquals(1_500, currentTime - start)
     }

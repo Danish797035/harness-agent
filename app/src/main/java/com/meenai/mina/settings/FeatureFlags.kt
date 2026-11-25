@@ -14,9 +14,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-/** 功能开关。提速开关存成 [SpeedFlags.describe] 的格式,评测跑器可用参数覆盖。 */
+/** Function switch. The speed increase switch is saved in the format of [SpeedFlags.describe], and can be overwritten by parameters on the evaluation runner. */
 class FeatureFlags(private val prefs: SharedPreferences) {
-    /** 还没做过的默认值升级(见 [SPEED_UPGRADES])各做一次;升级之后用户手动关掉就保持关闭。 */
+    /** The default value upgrade that has not been done yet (see [SPEED_UPGRADES]) should be done once; after the upgrade, the user manually turns it off and it will remain closed. */
     fun speedFlags(): SpeedFlags {
         val flags = prefs.getString(SPEED_FLAGS, null)?.let { runCatching { SpeedFlags.parse(it) }.getOrNull() } ?: SpeedFlags.OFF
         val pending = SPEED_UPGRADES.filter { (key, _) -> !prefs.getBoolean(key, false) }
@@ -32,38 +32,38 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         edit.commit()
     }
 
-    /** 并行任务时最多同时跑几个(用户设定,1–3);真正的上限还要看设备,见 ParallelCapability。 */
+    /** The maximum number of parallel tasks can be run at the same time (user setting, 1–3); the real upper limit depends on the device, see ParallelCapability. */
     fun parallelMax(): Int = prefs.getInt(PARALLEL_MAX, ParallelCapability.DEFAULT_MAX)
 
     fun setParallelMax(max: Int) {
         prefs.edit().putInt(PARALLEL_MAX, max).commit()
     }
 
-    /** 干活时屏幕保持常亮;默认开,用户可以关。 */
+    /** The screen remains always on while working; it is on by default and can be turned off by the user. */
     fun keepScreenOn(): Boolean = prefs.getBoolean(KEEP_SCREEN_ON, true)
 
     fun setKeepScreenOn(on: Boolean) {
         prefs.edit().putBoolean(KEEP_SCREEN_ON, on).commit()
     }
 
-    /** 干活时把被操作的 App 静音;默认开,用户可以关。 */
+    /** Mute the operated App while working; it is enabled by default and can be turned off by the user. */
     fun muteTarget(): Boolean = prefs.getBoolean(MUTE_TARGET, true)
 
     fun setMuteTarget(on: Boolean) {
         prefs.edit().putBoolean(MUTE_TARGET, on).commit()
     }
 
-    /** 在 App 里操作的节奏:快、标准(默认)、像人(见 [OperatingPace])。 */
+    /** The rhythm of operating in the App: fast, standard (default), human-like (see [OperatingPace]). */
     fun operatingPace(): OperatingPace = OperatingPace.parse(prefs.getString(OPERATING_PACE, null)) ?: OperatingPace.DEFAULT
 
     fun setOperatingPace(pace: OperatingPace) {
         prefs.edit().putString(OPERATING_PACE, pace.name).commit()
     }
 
-    /** 界面配色:跟随系统、一直浅色、一直深色(见 [ThemeMode])。界面跟着 [themeModeChanges] 当场换,不用重建。 */
+    /** Interface color matching: follow the system, always light color, always dark color (see [ThemeMode]). The interface can be changed on the spot following [themeModeChanges] without rebuilding. */
     fun themeMode(): ThemeMode = ThemeMode.parse(prefs.getString(THEME_MODE, null))
 
-    /** 外观的当前值,之后每次改动再发一次(设置页改的、任务里改的都一样)。 */
+    /** The current value of the appearance will be sent again every time it is changed (the changes on the settings page and the changes in the task are the same). */
     fun themeModeChanges(): Flow<ThemeMode> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == null || key == THEME_MODE) trySend(themeMode())
@@ -78,8 +78,9 @@ class FeatureFlags(private val prefs: SharedPreferences) {
     }
 
     /**
-     * 允许 Mina 改自己的设置(见 core 的 SelfConfig):模型与 Key、删数据不在允许之列。
-     * 默认关;开着的时候任务里才有 settings_list、settings_set 这两件工具。
+     * Allow Mina to change its own settings (see Core's SelfConfig): Models and Keys, and deleting data
+     * are not allowed. It is off by default; when it is on, there are two tools, settings_list and
+     * settings_set, in the task.
      */
     fun selfConfig(): Boolean = prefs.getBoolean(SELF_CONFIG, false)
 
@@ -87,17 +88,17 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(SELF_CONFIG, on).commit()
     }
 
-    /** 悬浮胶囊:关闭、有任务时显示(默认)、一直显示。 */
+    /** Suspended capsule: off, displayed when there is a task (default), always displayed. */
     fun capsuleMode(): CapsuleMode = CapsuleMode.parse(prefs.getString(CAPSULE_MODE, null))
 
     fun setCapsuleMode(mode: CapsuleMode) {
         prefs.edit().putString(CAPSULE_MODE, mode.name).commit()
     }
 
-    /** 胶囊开关的当前值,之后每次改动再发一次。 */
+    /** The current value of the capsule switch, which will be sent again every time it is changed. */
     fun capsuleModeChanges(): Flow<CapsuleMode> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            // 清空全部设置时 key 为 null
+            // key is null when clearing all settings
             if (key == null || key == CAPSULE_MODE) trySend(capsuleMode())
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -105,7 +106,7 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }.distinctUntilChanged()
 
-    /** 胶囊停在哪:左边还是右边、高度占可摆范围的比例;没拖过时在右上角。 */
+    /** Where should the capsule stop: left or right, height as a proportion of the swingable range; when it is not being dragged, it is in the upper right corner. */
     fun capsuleDock(): CapsuleDock = CapsuleDock(
         if (prefs.getString(CAPSULE_SIDE, null) == DockSide.Left.name) DockSide.Left else DockSide.Right,
         prefs.getFloat(CAPSULE_HEIGHT, 0f).coerceIn(0f, 1f),
@@ -116,8 +117,10 @@ class FeatureFlags(private val prefs: SharedPreferences) {
     }
 
     /**
-     * 展开的卡片停在哪:上边在可摆范围里的比例(见 [com.meenai.mina.capsule.CardDocking.release]);没记过时最高的卡片在正中。
-     * 以前按固定高的卡片记的比例正好就是它的上边比例,照样读。
+     * Where does the unfolded card stop: the proportion of the upper part in the range that can be
+     * placed (see [com.meenai.mina.capsule.CardDocking.release]); if you don’t remember, the highest
+     * card is in the center. In the past, the ratio of notes on a card with a fixed height was exactly
+     * the ratio above it, so it was read as usual.
      */
     fun capsuleCardFraction(): Float = prefs.getFloat(CAPSULE_CARD_HEIGHT, CardDocking.DEFAULT_FRACTION).coerceIn(0f, 1f)
 
@@ -125,14 +128,14 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         prefs.edit().putFloat(CAPSULE_CARD_HEIGHT, fraction.coerceIn(0f, 1f)).apply()
     }
 
-    /** 切模型后的提示条;默认开(true),用户可以在设置里关闭。 */
+    /** Prompt bar after cutting the model; it is enabled by default (true), and the user can turn it off in the settings. */
     fun showSwitchNotice(): Boolean = prefs.getBoolean(SHOW_SWITCH_NOTICE, true)
 
     fun setShowSwitchNotice(on: Boolean) {
         prefs.edit().putBoolean(SHOW_SWITCH_NOTICE, on).commit()
     }
 
-    /** 用量上限页自己设的每日预算(请求数);进度条按它算,默认 [DEFAULT_USAGE_BUDGET]。 */
+    /** The daily budget (number of requests) set by yourself on the usage limit page; the progress bar is calculated according to it, and the default is [DEFAULT_USAGE_BUDGET]. */
     fun usageDailyBudget(): Int =
         prefs.getInt(USAGE_DAILY_BUDGET, DEFAULT_USAGE_BUDGET).coerceIn(MIN_USAGE_BUDGET, MAX_USAGE_BUDGET)
 
@@ -145,8 +148,10 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         private const val SHOW_SWITCH_NOTICE = "show_switch_notice"
         private const val SPEED_FLAGS = "speed_flags"
         /**
-         * 提速开关默认值的升级,按先后各做一次(键记下做过没有):v2 打开分级读屏、连续操作、按需看图;
-         * v3 打开经验回放(学习改看结局判定之后路线才记得下来)。
+         * To upgrade the default value of the speed-up switch, do it once each in sequence (key to note
+         * whether you have done it): v2 turns on graded screen reading, continuous operation, and
+         * picture viewing on demand; v3 turns on experience playback (you can only remember the route
+         * after learning to change the ending judgment).
          */
         private val SPEED_UPGRADES: List<Pair<String, (SpeedFlags) -> SpeedFlags>> = listOf(
             "speed_defaults_applied_v2" to { f -> f.copy(inlineScreen = true, batchSteps = true, adaptiveVision = true) },

@@ -21,8 +21,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 真机测试:网页富文本编辑区。无障碍的 SET_TEXT 只改了网页里的文字,编辑器收不到 input 事件,
- * App 会以为没输入(例如「完成」按钮不亮、退出时不保存)。打字必须让编辑器收到真正的输入。
+ * Real machine test: rich text editing area of the web page. Accessible SET_TEXT only changes the text
+ * in the web page, the editor cannot receive input events, and the App will think that there is no input
+ * (for example, the "Finish" button does not light up, and it does not save when exiting). Typing must
+ * allow the editor to receive real input.
  */
 @RunWith(AndroidJUnit4::class)
 class WebEditorInputTest {
@@ -57,7 +59,7 @@ class WebEditorInputTest {
         val after = snapUntil { snap -> status(snap)?.endsWith("text=你好 Mina") == true }
         assertTrue(status(after)!!, !status(after)!!.startsWith("inputs=0"))
 
-        // 再打一次是替换,不是接在后面
+        // Hitting it again is a replacement, not a replacement.
         val again = screen.typeText(after.elements.first { it.editable }.ref, after.snapshotId, "第二次")
         assertEquals(Verification.MATCH, (again as ActionResult.Ok).verification)
         val replaced = snapUntil { snap -> status(snap)?.endsWith("text=第二次") == true }
@@ -68,8 +70,10 @@ class WebEditorInputTest {
     }
 
     /**
-     * 用户原来复制的内容(带自己的标签)在打字后原样还回去。Mina 的界面开在主屏上,这样测试进程读得到剪贴板;
-     * 还原后截一张主屏图(files/shots/clip-restored.png),人工确认没有弹「已复制」浮层。
+     * The content originally copied by the user (with its own tags) is returned as it is after typing.
+     * Mina's interface is opened on the home screen, so that the test process can read the clipboard;
+     * after restoration, take a screenshot of the home screen (files/shots/clip-restored.png), and
+     * manually confirm that the "Copied" floating layer is not popped up.
      */
     @Test
     fun pastingRestoresTheUsersClipboard() = runBlocking<Unit> {
@@ -82,7 +86,8 @@ class WebEditorInputTest {
             DeviceSupport.startTestActivity(agent.display.displayId, WebEditorTestActivity::class.java)
             val s = snapUntil { snap -> snap.elements.any { it.editable } }
             val r = screen.typeText(s.elements.first { it.editable }.ref, s.snapshotId, "粘贴测试")
-            // 还原刚发生:「已复制」浮层若会弹,此刻就在主屏上
+            // The restoration has just happened: If the "Copied" overlay pops up, it will be on the home
+            // screen at the moment.
             val shot = instr.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot()
             File(ctx.getExternalFilesDir(null), "shots").mkdirs()
             File(ctx.getExternalFilesDir(null), "shots/clip-restored.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 80, it) }

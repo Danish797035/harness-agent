@@ -18,24 +18,26 @@ class RecoveryCopyTest {
     fun pendingNoteOnlyForDefaultOnesNotYetApplied() {
         val a11y = RecoveryCapability.Accessibility
         val fresh = RecoveryConsent()
-        // 还没配好手机操作:开关显示打开,下面说要先完成设置
+        // The mobile phone operation has not been configured yet: the switch shows that it is on, and
+        // the following says that the settings must be completed first.
         assertNotNull(RecoveryCopy.pending(a11y, fresh, paired = false, autoFailed = emptySet()))
-        // 配好了、正在补上:不多说;补上没成功:照实说
+        // It’s ready and being supplemented: don’t say much; failed to supplement: tell the truth
         assertNull(RecoveryCopy.pending(a11y, fresh, paired = true, autoFailed = emptySet()))
         assertNotNull(RecoveryCopy.pending(a11y, fresh, paired = true, autoFailed = setOf(a11y)))
-        // 已经生效,或用户亲手关掉:什么都不说
+        // It has taken effect, or the user has turned it off: nothing is said.
         assertNull(RecoveryCopy.pending(a11y, RecoveryConsent(applied = setOf(a11y)), paired = false, autoFailed = setOf(a11y)))
         assertNull(RecoveryCopy.pending(a11y, RecoveryConsent(declined = setOf(a11y)), paired = false, autoFailed = emptySet()))
     }
 
-    /** 助手只用 USB 命令起过:靠无线调试重起助手的两项说清用不上;别的几项照旧。 */
+    /** The assistant has only been started using USB commands: the two items for restarting the assistant through wireless debugging are clearly unavailable; the other items remain the same. */
     @Test
     fun wirelessOnlyCapabilitiesSayTheyNeedPairingWhenStartedOverUsb() {
         val usb = HelperRestart.UsbCommand
         listOf(RecoveryCapability.RestoreAfterReboot, RecoveryCapability.AutoWirelessDebugging).forEach { c ->
             val note = RecoveryCopy.pending(c, RecoveryConsent(applied = setOf(c)), paired = true, autoFailed = emptySet(), restart = usb)
             assertNotNull(c.name, note)
-            // 用户关掉的不多说;配对过的照旧
+            // There is not much to say if the user has turned it off; if the user has paired it, it
+            // remains the same.
             assertNull(RecoveryCopy.pending(c, RecoveryConsent(declined = setOf(c)), paired = true, autoFailed = emptySet(), restart = usb))
             assertNull(RecoveryCopy.pending(c, RecoveryConsent(applied = setOf(c)), paired = true, autoFailed = emptySet(), restart = HelperRestart.Wireless))
         }

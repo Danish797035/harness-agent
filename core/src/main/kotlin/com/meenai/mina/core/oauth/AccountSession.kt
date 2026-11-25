@@ -8,12 +8,14 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * 订阅账号登录没成的原因。界面按它说人话。异常文字里只有类别和错误代码,不放令牌、授权码、设备码。
- * [NoSubscription] 是账号没有这项订阅;[BadIssuer] 是发现到的地址不在允许的主机上,请求不会发出去。
+ * The reason why the subscription account login failed. The interface speaks human language according to
+ * it. The exception text contains only the category and error code, not the token, authorization code,
+ * or device code. [NoSubscription] means that the account does not have this subscription; [BadIssuer]
+ * means that the found address is not on an allowed host, and the request will not be sent.
  */
 enum class AccountSignInFailure { Denied, Expired, TimedOut, Rejected, NoSubscription, Network, BadIssuer }
 
-/** [code] 是服务端的错误代码(不是机密)。 */
+/** [code] is the server-side error code (not confidential). */
 class AccountSignInException(
     val reason: AccountSignInFailure,
     val code: String? = null,
@@ -23,18 +25,18 @@ class AccountSignInException(
     if (!code.isNullOrBlank()) append(": ").append(code)
 }, cause)
 
-/** 换令牌得到的一组令牌。刷新没给的字段保持 null,由调用方沿用旧的。 */
+/** A set of tokens obtained by exchanging tokens. Fields not provided by refresh remain null, and the caller will use the old ones. */
 data class OauthTokens(
     val accessToken: String,
     val refreshToken: String? = null,
     val idToken: String? = null,
     val expiresInSec: Long = 3600,
     val scopes: List<String> = emptyList(),
-    /** 换到的接口根;没给为 null。 */
+    /** The interface root to switch to; if not given, it will be null. */
     val apiBase: String? = null,
 )
 
-/** 换令牌的结果。被拒时 [terminal] 为真表示这份授权不能再用,该清掉重新登录。 */
+/** The result of token exchange. When rejected, [terminal] is true, which means that this authorization can no longer be used, and it is necessary to clear it and log in again. */
 sealed interface OauthTokenResult {
     data class Ok(val tokens: OauthTokens) : OauthTokenResult
     data class Rejected(val code: String, val terminal: Boolean) : OauthTokenResult
@@ -42,9 +44,10 @@ sealed interface OauthTokenResult {
 }
 
 /**
- * 一个账号登录(目前是 xAI),整份按 API Key 的方式加密保存。
- * [accessToken] 是调用模型用的访问令牌,[refreshToken] 用来换新的。
- * 退出登录后令牌清空,账号名字留着给人看。
+ * Log in with an account (currently xAI), and the entire file is encrypted and saved as an API Key.
+ * [accessToken] is the access token used to call the model, and [refreshToken] is used to replace it
+ * with a new one. After logging out, the token is cleared and the account name is left for others to
+ * see.
  */
 @Serializable
 data class AccountSession(
@@ -58,7 +61,7 @@ data class AccountSession(
     val apiBase: String = "",
     val clientId: String = "",
     val issuer: String = "",
-    /** 登录时从发现文档读到、核对过主机的令牌地址;刷新用它。旧版本存下的没有,刷新时按签发方推。 */
+    /** When logging in, read and check the host's token address from the discovery document; use it for refresh. The old version is not saved and will be pushed according to the issuer when refreshing. */
     val tokenUrl: String = "",
 ) {
     val signedIn: Boolean get() = accessToken.isNotEmpty() || refreshToken.isNotEmpty()
@@ -76,11 +79,16 @@ data class AccountSession(
 }
 
 /**
- * 调用时用的访问令牌。快过期或上一个被拒了就经 [refresh] 换新的,同一时刻只有一个在换。
- * 换到的令牌先 [save] 再拿去用;[save] 同时收到换之前的那份,存储据此判断这期间用户有没有退出或重新登录(那样就不该写回)。授权已不能用就清掉令牌、抛 [ModelError.SignInExpired];网络或服务端一时出错照常抛,令牌留着。
+ * The access token used when making the call. If it is about to expire or the previous one was rejected,
+ * please use [refresh] to exchange for a new one. There is only one exchange at the same time. The
+ * exchanged token is first [save] and then used; [save] is received at the same time as the token before
+ * the exchange, and the storage is used to determine whether the user has logged out or logged in again
+ * during this period (in this case, it should not be written back). If the authorization is no longer
+ * available, clear the token and throw [ModelError.SignInExpired]; if there is a network or server
+ * error, throw it away as usual and keep the token.
  */
 class AccountTokens(
-    /** 哪一家的登录(界面上的名字),登录失效时说给用户听。 */
+    /** Which company to log in to (the name on the interface) will be told to the user when the login fails. */
     private val account: String,
     private val refresh: suspend (AccountSession) -> OauthTokenResult,
     private val load: () -> AccountSession?,

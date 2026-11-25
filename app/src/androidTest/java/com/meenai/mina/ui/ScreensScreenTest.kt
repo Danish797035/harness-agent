@@ -16,7 +16,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 「后台屏」那一页:空态、一块屏一行、点开小画面(只用假数据,不建真屏)。 */
+/** The "Background Screen" page: empty, one screen per line, click to open a small screen (only fake data is used, no real screen is created). */
 @RunWith(AndroidJUnit4::class)
 class ScreensScreenTest {
 
@@ -38,7 +38,7 @@ class ScreensScreenTest {
         compose.onNodeWithText(ScreensCopy.EMPTY).assertIsDisplayed()
     }
 
-    /** 一个任务一张卡:在做什么、在用哪个 App、状态都在;点那一行回到它所属的对话。 */
+    /** One card for each task: what you are doing, which app you are using, and the status are all there; click on that row to return to the conversation to which it belongs. */
     @Test fun oneCardPerTaskOpensItsConversation() {
         show(listOf(row(12), row(-1, "queued")))
         compose.onNodeWithText("正在用设置").assertIsDisplayed()
@@ -49,14 +49,14 @@ class ScreensScreenTest {
         assertEquals(listOf("open conv-k12"), calls)
     }
 
-    /** 还没建屏的那块没有「看画面」:没有画面可看,不给一个点了没反应的入口。 */
+    /** There is no "viewing screen" in the area where the screen has not yet been built: there is no screen to see, and there is no entry for no response after clicking on it. */
     @Test fun aScreenThatIsNotBuiltYetHasNoPreview() {
         show(listOf(row(12), row(-1, "queued")))
         compose.onNodeWithTag("screens-preview-queued").assertDoesNotExist()
         compose.onNodeWithTag("screens-preview-k12").performScrollTo().assertIsDisplayed()
     }
 
-    /** 点一下展开、再点收起:按钮上的说法跟着换。 */
+    /** Click once to expand and then click to collapse: the words on the button will change accordingly. */
     @Test fun previewToggles() {
         show(listOf(row(12)))
         compose.onNodeWithTag("screens-preview-k12").performScrollTo().performClick()

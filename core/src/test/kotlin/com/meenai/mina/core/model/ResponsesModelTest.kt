@@ -155,7 +155,7 @@ class ResponsesModelTest {
         assertEquals(503, e.status)
     }
 
-    /** 用账号登录(如 xAI)时 403 是订阅档位不够:说清楚、不当成 Key 不对;不用账号登录的 403 照旧。 */
+    /** When logging in with an account (such as xAI), 403 means that the subscription level is not enough: please make it clear and it should not be used as a Key; if you log in without an account, 403 remains the same. */
     @Test fun accountLogin403MeansThePlanCannotUseThisApi() = runTest {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"permission_denied","message":"tier"}}"""))
         val account = ResponsesModel(server.url("/v1").toString().trimEnd('/'), BearerToken.fixed("k"), "grok-4", caps, OkHttpClient(), accountLogin = "xAI")
@@ -167,7 +167,7 @@ class ResponsesModelTest {
         expect<ModelError.Auth> { model().complete("s", user, emptyList()) }
     }
 
-    /** 找不到模型时带上服务端的原话:按错误代码认出的、只看状态码 404 的都带。 */
+    /** When the model cannot be found, the original words of the server are included: those recognized by the error code and only the status code 404 are included. */
     @Test fun modelNotFoundCarriesTheServerMessage() = runTest {
         server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":{"code":"model_not_found","message":"The model `x` does not exist\n"}}"""))
         assertEquals("The model `x` does not exist", expect<ModelError.ModelNotFound> { model().complete("s", user, emptyList()) }.detail)
@@ -184,7 +184,7 @@ class ResponsesModelTest {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"code":"subscription_sharing_unsupported_capability","param":"tools[0]"}}"""))
         val bad = expect<ModelError.BadResponse> { model(plan = true).complete("s", user, emptyList()) }
         assertTrue(bad.message!!.contains("tools[0]"))
-        // 不用套餐额度的 429 照常是限流(会重试)
+        // 429 without package quota is limited as usual (will try again)
         server.enqueue(MockResponse().setResponseCode(429).setHeader("retry-after", "2").setBody("{}"))
         assertEquals(2000L, expect<ModelError.RateLimited> { model().complete("s", user, emptyList()) }.retryAfterMs)
         assertEquals(4, server.requestCount)
@@ -203,7 +203,7 @@ class ResponsesModelTest {
         assertEquals(listOf(false, true), asked)
         assertEquals("Bearer old", server.takeRequest().getHeader("Authorization"))
         assertEquals("Bearer new", server.takeRequest().getHeader("Authorization"))
-        // 固定 Key 被拒不重试
+        // Fixed Key being rejected from retrying
         server.enqueue(MockResponse().setResponseCode(401).setBody("{}"))
         expect<ModelError.Auth> { model().complete("s", user, emptyList()) }
         assertEquals(3, server.requestCount)
@@ -236,7 +236,8 @@ class ResponsesModelTest {
         throw AssertionError()
     }
 
-    // 插话打断后:半截回复是一条 assistant message(output_text),前面没有 reasoning 项;插话和运行时状态是后面的 user message
+    // After interrupting, the half reply is an assistant message (output_text), with no reasoning item
+    // in front; the interrupt and runtime status is the user message that follows.
     @Test fun interruptedReplyIsAnAssistantMessageWithoutReasoningBeforeTheSteer() = runTest {
         server.enqueue(stream(completed()))
         model().complete("s", InterruptedHistory.messages, emptyList())

@@ -44,7 +44,8 @@ class HelperHandoffTest {
         assertEquals(1, written.size)
         val stale = gate.usbNonce()
         assertTrue(written[0].contains(stale))
-        // 解除配对:助手一直不在,也要重写,新脚本里是新口令,旧的不再认
+        // Unpairing: The assistant is not around anymore and needs to be rewritten. The new password is
+        // in the new script and the old one is no longer recognized.
         gate.clear()
         assertEquals(2, written.size)
         assertFalse(written[1].contains(stale))
@@ -77,9 +78,9 @@ class HelperHandoffTest {
         val next = g.accept(launch)
         assertNotNull(next)
         assertNotEquals(launch, next)
-        // 用过就不认了
+        // Once you have used it, you will no longer recognize it.
         assertNull(g.accept(launch))
-        // 换发的口令也只能用一次
+        // The changed password can only be used once.
         val after = g.accept(next)
         assertNotNull(after)
         assertNull(g.accept(next))
@@ -90,7 +91,8 @@ class HelperHandoffTest {
         val g = nonces()
         val resume = g.accept(g.issueLaunch())!!
         val launch = g.issueLaunch()
-        // 旧助手先交接:新起的那个口令作废,它会被拒绝并自己退出
+        // The old assistant is handed over first: the new password is invalid, it will be rejected and
+        // exit on its own.
         assertNotNull(g.accept(resume))
         assertNull(g.accept(launch))
 
@@ -104,7 +106,7 @@ class HelperHandoffTest {
     fun resumeNonceSurvivesProcessRestart() {
         val store = MemStore()
         val resume = nonces(store).accept(nonces(store).issueLaunch())
-        // 新进程:新对象读同一份存储
+        // New process: new object reads the same storage
         assertNotNull(nonces(store).accept(resume))
     }
 
@@ -136,7 +138,8 @@ class HelperHandoffTest {
 
     @Test
     fun launchNonceFromTheFutureIsNotTrusted() {
-        // 记录的签发时间晚于现在(比如重启后时钟从零开始):当作过期
+        // The issuance time of the record is later than now (for example, the clock starts from zero
+        // after restarting): treated as expired
         val store = MemStore()
         val launch = nonces(store).issueLaunch()
         now -= 1
@@ -179,7 +182,7 @@ class HelperHandoffTest {
         assertNull(HelperHandoff.certPin(null))
     }
 
-    // ---------- 用电脑经 USB 启动 ----------
+    // ---------- Boot from computer via USB ----------
 
     private val apk = "/data/app/~~x/com.meenai.mina-y/base.apk"
     private val scriptPath = "/storage/emulated/0/Android/data/com.meenai.mina/files/usb-start.sh"
@@ -187,7 +190,7 @@ class HelperHandoffTest {
     @Test
     fun usbCommandUsesTheShortSdcardPathForTheMainUser() {
         assertEquals("adb shell sh /sdcard/Android/data/com.meenai.mina/files/usb-start.sh", HelperHandoff.usbCommand(scriptPath))
-        // 别的用户的存储照实际路径写
+        // The storage of other users is written according to the actual path.
         assertEquals(
             "adb shell sh /storage/emulated/10/Android/data/com.meenai.mina/files/usb-start.sh",
             HelperHandoff.usbCommand("/storage/emulated/10/Android/data/com.meenai.mina/files/usb-start.sh"),
@@ -198,7 +201,9 @@ class HelperHandoffTest {
     fun usbScriptStartsTheSameHelperDetachedWithTheNonceOnStdin() {
         val script = HelperHandoff.usbScript(apk, "com.meenai.mina", 10234, "ab'cd", "f00d", scriptPath)
         assertTrue(script.startsWith("#!/system/bin/sh\n"))
-        // 和无线调试同一个入口、同样的参数;指纹里的单引号转义好;忽略挂断信号、另起会话、放到后台、输出丢掉
+        // The same entrance and parameters as wireless debugging; the single quotes in the fingerprint
+        // are escaped well; the hang-up signal is ignored, a new session is started, placed in the
+        // background, and the output is discarded
         assertTrue(
             script,
             script.contains(
@@ -206,13 +211,15 @@ class HelperHandoffTest {
                     "com.meenai.mina.shell.HelperMain 'com.meenai.mina' 10234 'ab'\\''cd' >/dev/null 2>&1 &)",
             ),
         )
-        // 口令只在变量里,经内建 echo 走管道,不进命令行参数
+        // The password is only in the variable and is piped through the built-in echo without any
+        // command line parameters.
         assertTrue(script.contains("\nn='f00d'\n"))
         assertEquals(1, script.split("f00d").size - 1)
-        // 只有 shell 身份才起;APK 不在(更新过)就请用户先打开 Mina
+        // Only the shell identity can be used; if the APK is not there (updated), please open Mina
+        // first.
         assertTrue(script.contains("if [ \"\$(id -u)\" != \"2000\" ]; then"))
         assertTrue(script.contains("if [ ! -f '$apk' ]; then"))
-        // 等 setsid 生效再返回,并说清结果和怎么确认
+        // Wait for setsid to take effect before returning, and explain the result and how to confirm it.
         assertTrue(script.contains("\nsleep 2\n"))
         assertTrue(script.contains("if pidof 'com.meenai.mina:helper' >/dev/null 2>&1; then"))
         assertTrue(script.contains("Mina helper starting... Open Mina to confirm"))
@@ -246,12 +253,13 @@ class HelperHandoffTest {
     fun usbNonceIsReusedWhileFreshAndHandsOffOnce() {
         val g = nonces()
         val usb = g.usbNonce()
-        // 重写脚本时还新:沿用,电脑正在跑的那份不作废
+        // When rewriting the script, it is still new: the one currently running on the computer will not
+        // be invalidated.
         wall += HandoffNonces.USB_TTL_MS / 2
         assertEquals(usb, g.usbNonce())
         assertTrue(g.matches(usb))
         assertNotNull(g.accept(usb))
-        // 用过就作废;下一份脚本是新口令
+        // Once used, it becomes invalid; the next script is the new password
         assertNull(g.accept(usb))
         assertNotEquals(usb, g.usbNonce())
     }
@@ -283,11 +291,13 @@ class HelperHandoffTest {
     fun usbNonceSurvivesARebootButNotAnotherHandoff() {
         val store = MemStore()
         val usb = nonces(store).usbNonce()
-        // 重启后开机计时归零,墙上时钟照走:脚本照样能用
+        // After restarting, the boot timer resets to zero and the clock on the wall keeps running: the
+        // script can still be used.
         now = 0
         val g = nonces(store)
         assertTrue(g.matches(usb))
-        // 无线调试那边起的助手先被收下:脚本里的口令作废
+        // The assistant from the wireless debugging side was accepted first: the password in the script
+        // is invalid
         assertNotNull(g.accept(g.issueLaunch()))
         assertFalse(g.matches(usb))
         assertNull(store.slots.usb)

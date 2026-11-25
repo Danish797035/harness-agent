@@ -18,7 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 每次读屏换一屏:第 n 次的元素叫「第n屏」,截图是 [n]。 */
+/** Each time the screen is read, one screen is changed: the nth element is called "nth screen", and the screenshot is [n]. */
 private class CountingScreen(private val inner: FakeScreen = FakeScreen()) : ScreenPort by inner {
     var n = 0
     var names: (Int) -> String = { "第${it}屏" }
@@ -42,7 +42,7 @@ class ToolDispatcherRecallTest {
         val d = toolDispatcher(CountingScreen())
         val ids = (1..3).map { d.execute(call(if (it == 2) "phone_list_elements" else "phone_observe")).content.s("screenshotId").toInt() }
         assertEquals(listOf(1, 2, 3), ids)
-        // 动作不占编号
+        // Actions do not account for numbers
         d.execute(call("phone_tap", """{"x":1,"y":1}"""))
         assertEquals("4", d.execute(call("phone_observe")).content.s("screenshotId"))
     }
@@ -61,12 +61,14 @@ class ToolDispatcherRecallTest {
         val r = d.recall(1, 9)
         assertEquals("false", r.content.s("ok"))
         assertEquals(listOf(9), r.content["missing"]!!.jsonArray.map { it.jsonPrimitive.int })
-        // 找不到的历史截图不算手机操作失败
+        // Historical screenshots that cannot be found are not counted as mobile phone operation
+        // failures.
         assertEquals("false", r.content.s("counts_as_failure"))
         assertEquals(1, shots(r).size)
         val all = d.recall(1)
         assertEquals("true", all.content.s("ok")); assertNull(all.content["missing"])
-        // 一次都没读过屏(还没开 App):全部找不到,不是异常
+        // I haven’t read the screen once (haven’t opened the app yet): I can’t find them all, it’s not
+        // an abnormality.
         val none = toolDispatcher(CountingScreen()).recall(1)
         assertEquals("false", none.content.s("ok")); assertTrue(shots(none).isEmpty())
     }
@@ -76,12 +78,13 @@ class ToolDispatcherRecallTest {
         d.execute(call("phone_observe"), step = 4); d.execute(call("phone_observe"))
         val r = d.recall(1)
         val s = shots(r).single()
-        // step 是循环给的轮次编号(和折叠摘要的「第 N 步」一致)
+        // step is the round number given by the loop (consistent with the "Nth step" of the folded
+        // summary)
         assertEquals("1", s.s("id")); assertEquals("com.app1", s.s("app")); assertEquals("4", s.s("step"))
         assertFalse(d.keepsRecallImages())
         assertTrue(s.s("elementsText"), "第1屏" in s.s("elementsText"))
         assertTrue(r.images.isEmpty()); assertNull(r.image)
-        // 截到 6000 字
+        // Limit to 6000 words
         val long = CountingScreen().apply { names = { "字".repeat(9000) } }
         val dl = toolDispatcher(long)
         dl.execute(call("phone_list_elements"))
@@ -95,7 +98,7 @@ class ToolDispatcherRecallTest {
         assertEquals(2, r.images.size)
         assertArrayEquals(byteArrayOf(3), r.images[0]); assertArrayEquals(byteArrayOf(1), r.images[1])
         assertTrue(shots(r).all { it.s("imageAttached") == "true" && it["elementsText"] == null })
-        // 只读元素(phone_list_elements)那次没有截图:给文字
+        // Read-only elements (phone_list_elements) did not take screenshots that time: give text
         d.execute(call("phone_list_elements"))
         val t = d.recall(4)
         assertTrue(t.images.isEmpty()); assertTrue("第4屏" in shots(t).single().s("elementsText"))

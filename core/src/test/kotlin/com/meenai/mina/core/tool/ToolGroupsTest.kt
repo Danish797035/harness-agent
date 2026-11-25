@@ -25,8 +25,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 工具分两层:一直都在的通用工具加各组的入口(短说明),第一次用到一组时展开整组(全文)并留到任务结束;
- * 顺序固定,展开只改从那一组起的部分;开局按上一轮用过的组、带着的工作区文件预先展开。
+ * The tools are divided into two layers: the common tools that are always there plus the entrance of
+ * each group (short description). When a group is used for the first time, the entire group (full text)
+ * is expanded and left until the end of the task; the order is fixed, and the expansion only changes the
+ * part starting from that group; at the beginning, the groups used in the previous round and the
+ * workspace files brought are pre-expanded.
  */
 class ToolGroupsTest {
     private var seq = 0
@@ -34,7 +37,7 @@ class ToolGroupsTest {
     private fun all() = toolDispatcher(FakeScreen(), web = FakeWebPort(), sandbox = FakeSandbox(), workspace = { "w" })
     private fun names(specs: List<ToolSpec>) = specs.map { it.name }
 
-    /** 只聊天时发给模型的:通用工具(接管、报障碍、回看画面不在内)加五个入口。 */
+    /** Only sent to the model during chat: general tools (excluding taking over, reporting obstacles, and reviewing the screen) plus five entrances. */
     private val chatOnly = listOf(
         "wait", "ask_user", "request_confirmation", "end_not_done",
         "phone_list_apps", "phone_launch_app", "phone_set_alarm", "phone_set_timer", "phone_add_calendar_event",
@@ -45,7 +48,8 @@ class ToolGroupsTest {
         val d = all()
         assertEquals(chatOnly, names(d.offeredNow()))
         assertEquals(emptySet<String>(), d.expanded)
-        // 入口收着时用短说明,参数和全文一样
+        // Use a short description when closing the entry, and the parameters are the same as the full
+        // text.
         val now = d.offeredNow().associateBy { it.name }
         val full = d.definitions().associateBy { it.name }
         for (e in listOf("phone_launch_app", "phone_list_apps", "phone_set_alarm", "phone_set_timer", "phone_add_calendar_event", "web_navigate", "web_read_page", "run_command")) {
@@ -53,7 +57,7 @@ class ToolGroupsTest {
             assertEquals(full.getValue(e).parametersJsonSchema, now.getValue(e).parametersJsonSchema)
             assertTrue(e, now.getValue(e).description.length < full.getValue(e).description.length)
         }
-        // 全部工具(每组都展开)一个不少
+        // All tools (expand each group) one at a time
         assertTrue(names(d.definitions()).containsAll(listOf("phone_tap", "web_tap", "read_file", "hand_to_user", "handle_obstacle", "view_past_screens")))
     }
 
@@ -63,13 +67,14 @@ class ToolGroupsTest {
         assertTrue("phone" in r["moreTools"]!!.jsonPrimitive.content)
         assertEquals(setOf("phone"), d.expanded)
         val now = d.offeredNow()
-        // 整组和有屏时才有的通用工具都来了,入口换回全文
+        // The entire set of common tools available only with a screen are here, and the entrance is
+        // changed back to the full text
         assertTrue(names(now).containsAll(listOf("phone_observe", "phone_tap", "hand_to_user", "handle_obstacle", "view_past_screens")))
         assertEquals(d.definitions().single { it.name == "phone_launch_app" }, now.single { it.name == "phone_launch_app" })
-        // 网页、沙箱还收着
+        // The web page and sandbox are still stored
         assertFalse("web_tap" in names(now))
         assertEquals(Prompts.entry("web_navigate"), now.single { it.name == "web_navigate" }.description)
-        // 第二次调用不再说
+        // No more words for the second call
         assertNull(d.execute(call("phone_launch_app", """{"package":"com.x"}""")).content["moreTools"])
         assertEquals(setOf("phone"), d.used)
     }
@@ -77,7 +82,7 @@ class ToolGroupsTest {
     @Test fun readersAloneDoNotExpand() = runTest {
         val d = all()
         d.execute(call("phone_list_apps"))
-        // 设闹钟、计时器单用就够:不展开手机一组
+        // Setting an alarm clock and timer alone is enough: do not unfold the mobile phone as a set
         d.execute(call("phone_set_alarm", """{"hour":9,"minute":40}"""))
         d.execute(call("phone_set_timer", """{"seconds":600}"""))
         d.execute(call("web_read_page", """{"url":"https://example.com"}"""))
@@ -88,12 +93,13 @@ class ToolGroupsTest {
 
     @Test fun collapsedToolCalledFromMemoryRunsAndExpands() = runTest {
         val d = all()
-        // 模型没看到 phone_observe(手机一组收着),凭记忆调了:照常执行,手机一组展开
+        // The model did not see phone_observe (one group of mobile phones is closed), so it was adjusted
+        // from memory: execute as usual, one group of mobile phones is expanded
         val r = d.execute(call("phone_observe")).content
         assertEquals("true", r["ok"]!!.jsonPrimitive.content)
         assertTrue(r["moreTools"] != null)
         assertEquals(setOf("phone"), d.expanded)
-        // 参数不对也展开:下一次看得到全文再改
+        // Expand if the parameters are incorrect: change it next time when you can see the full text
         val w = d.execute(call("web_tap", """{"bogus":1}""")).content
         assertEquals("false", w["ok"]!!.jsonPrimitive.content)
         assertTrue(w["moreTools"] != null)
@@ -109,20 +115,24 @@ class ToolGroupsTest {
         val both = d.offeredNow()
         d.execute(call("run_command", """{"command":"ls"}"""))
         val everything = d.offeredNow()
-        // 一直都在的那几个始终在最前面、逐字不变
+        // The ones who have always been there are always at the front and remain unchanged word for
+        // word.
         val base = collapsed.takeWhile { it.name !in setOf("phone_list_apps", "phone_launch_app") }
         for (l in listOf(web, both, everything)) assertEquals(base, l.take(base.size))
-        // 先开网页再开手机,和反过来一样:顺序只看组,不看展开的先后
+        // Open the web page first and then the mobile phone, it's the same as the other way around: the
+        // order only looks at the groups, not the order of expansion.
         assertEquals(both, toolDispatcher(FakeScreen(), web = FakeWebPort(), sandbox = FakeSandbox(), workspace = { "w" }).also {
             it.expand("phone"); it.expand("web")
         }.offeredNow())
-        // 展开沙箱(排在最后)只在末尾改:前面的手机、网页两组逐字不变
+        // Expand the sandbox (ranked last) and only change at the end: the first two groups of mobile
+        // phones and web pages remain unchanged word for word.
         val runCommandAt = both.indexOfFirst { it.name == "run_command" }
         assertEquals(both.take(runCommandAt), everything.take(runCommandAt))
-        // 每组都展开了:就是全部的工具(顺序按组)
+        // Each group is expanded: all the tools (in order by group)
         assertEquals(d.definitions().map { it.name }.toSet(), names(everything).toSet())
         assertEquals(everything, d.offeredNow(all = true))
-        // 有屏的通用工具一组排在一直都在的后面、手机一组前面
+        // The group of general tools with screens is arranged behind the always-on, and the group of
+        // mobile phones is in front.
         val i = names(everything)
         assertTrue(i.indexOf("end_not_done") < i.indexOf("hand_to_user") && i.indexOf("view_past_screens") < i.indexOf("phone_observe"))
     }
@@ -135,23 +145,25 @@ class ToolGroupsTest {
         assertFalse("do_steps" in names(d.offeredNow(listOf(batch))))
         d.expand("web")
         val now = names(d.offeredNow(listOf(batch)))
-        // 排在有屏的通用工具一组的末尾,后面就是手机一组(收着,只有入口)
+        // Ranked at the end of the group of general tools with screens, followed by the group of mobile
+        // phones (closed, only entrance)
         assertEquals(now.indexOf("handle_obstacle") + 1, now.indexOf("do_steps"))
         assertEquals("phone_list_apps", now[now.indexOf("do_steps") + 1])
     }
 
     @Test fun preloadRules() {
-        // 上一轮用过的组
+        // Groups used in the previous round
         assertEquals(listOf("phone", "web"), all().preload("再看一下", listOf("web", "phone")))
-        // 带着工作区里的文件(附件一行写着 /workspace/ 下的路径)
+        // Bring the files in the workspace (the attachment line says the path under /workspace/)
         assertEquals(listOf("sandbox"), all().preload("总结一下\n附件:/workspace/inbox/a.pdf(12 KB)", emptyList()))
-        // 从浏览器页上对着一页问的:那一页已是当前标签
+        // Asked from the browser page to a page: Which page is already the current tab?
         val page = com.meenai.mina.core.cap.web.AttachedPage.compose(com.meenai.mina.core.cap.web.AttachedPage.Page("https://shop.example.com/", "店"), "挑一个")
         assertEquals(listOf("web"), all().preload(page, emptyList()))
-        // 设备不支持沙箱:不展开
+        // Device does not support sandbox: do not expand
         val none = toolDispatcher(FakeScreen(), sandbox = FakeSandbox(SandboxStatus.Unsupported("x86")), workspace = { "w" })
         assertEquals(emptyList<String>(), none.preload("附件:/workspace/inbox/a.pdf", listOf("sandbox")))
-        // 本任务没有的组不展开;什么都没有就都收着
+        // Groups that are not included in this task will not be expanded; if there is nothing, they will
+        // be collected.
         assertEquals(emptyList<String>(), toolDispatcher(FakeScreen()).preload("看看", listOf("web")))
         assertEquals(emptyList<String>(), all().preload("1+1 等于几", emptyList()))
     }
@@ -161,7 +173,8 @@ class ToolGroupsTest {
         val loop = AgentLoop(m, all(), SystemPrompt.identity())
         loop.run("打开看看")
         assertEquals(setOf("phone"), loop.usedGroups)
-        // 下一轮带着「上一轮用过手机」:开局第一次请求就有整组手机工具和手机一段
+        // The next round will bring "Used mobile phone in the previous round": the first request at the
+        // beginning will have a whole set of mobile phone tools and a mobile phone section.
         val m2 = fakeModel("main") { answer("好") }
         AgentLoop(m2, all(), SystemPrompt.identity()).run("再看一下", listOf(Turn("打开看看", "好了", "succeeded", groups = loop.usedGroups.toList())))
         val first = m2.requests.first()
@@ -171,7 +184,9 @@ class ToolGroupsTest {
     }
 
     @Test fun childAndScheduledRunsUseTheSameLayers() = runTest {
-        // 子任务只有网页和(只读的)沙箱:网页一样只给入口,用到才展开;只读的沙箱没有入口(跑命令不给),那一组一开始就展开
+        // The subtasks only have web pages and (read-only) sandboxes: web pages only provide entrances
+        // and will be expanded when used; read-only sandboxes have no entrances (not given when running
+        // commands), and that group will be expanded at the beginning.
         val child = toolDispatcher(FakeScreen(), web = FakeWebPort(), sandbox = FakeSandbox(), workspace = { "w" },
             runSpec = RunSpec(RunId("c"), "查", "t", provenance = RunProvenance(RunOrigin.Child, Attendance.Unattended)))
         val start = names(child.offeredNow())
@@ -181,7 +196,8 @@ class ToolGroupsTest {
         child.execute(call("web_navigate", """{"url":"https://example.com"}"""))
         assertEquals(setOf("sandbox", "web"), child.expanded)
         assertTrue("web_observe" in names(child.offeredNow()))
-        // 定时触发的任务(没人在场):接管不给,其余同样分层
+        // Tasks that are triggered on a scheduled basis (no one is present): no one will be given to
+        // take over, and the rest will be layered in the same way
         val scheduled = toolDispatcher(FakeScreen(), web = FakeWebPort(), runSpec = RunSpec(RunId("s"), "查", "t",
             provenance = RunProvenance(RunOrigin.Trigger, Attendance.Unattended)))
         assertFalse("phone_observe" in names(scheduled.offeredNow()))

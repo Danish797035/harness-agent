@@ -81,7 +81,7 @@ class AboutScreenTest {
             scrollTo(t)
             compose.onNodeWithText(t).assertIsDisplayed()
         }
-        // 许可证只在页脚,不再单独一行
+        // The license is only in the footer, no longer a separate line
         compose.onAllNodesWithText("开源许可").assertCountEquals(0)
     }
 
@@ -114,7 +114,7 @@ class AboutScreenTest {
         assertEquals(listOf("issue://prefilled"), calls.urls)
     }
 
-    /** 「复制诊断信息」先打开预览:整段文字看得见,点「复制」才进剪贴板。 */
+    /** "Copy diagnostic information" first opens the preview: the entire text is visible, click "Copy" to enter the clipboard. */
     @Test
     fun feedbackDiagnosticsPreviewsThenCopies() {
         about()
@@ -241,7 +241,7 @@ class AboutScreenTest {
         assertEquals(listOf(HarnessLinks.RELEASES), calls.urls)
     }
 
-    /** 侧栏最底下一行两个:设置靠左、关于 Mina 靠右(红点在最右边);有新版时关于带红点。 */
+    /** There are two lines in the bottom row of the sidebar: Settings on the left, About Mina on the right (the red dot is on the far right); About has a red dot when there is a new version. */
     @Test
     fun drawerFooterHasSettingsAndAbout() {
         val calls = mutableListOf<String>()
@@ -259,14 +259,16 @@ class AboutScreenTest {
         compose.onNodeWithText("关于 Mina").assertIsDisplayed()
         compose.onNodeWithTag("update-dot", useUnmergedTree = true).assertExists()
         val footer = compose.onNodeWithTag("drawer-footer").getUnclippedBoundsInRoot()
-        // 量文字本身(未合并的树):合并后的可点行节点比文字宽,量它判断不了左右半边
+        // Measuring the text itself (unmerged tree): The merged clickable line node is wider than the
+        // text, and the left and right halves cannot be determined by measuring it.
         val settings = compose.onNodeWithText("设置", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val about = compose.onNodeWithText("关于 Mina", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val dot = compose.onNodeWithTag("update-dot", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val mid = (footer.left + footer.right) / 2
         assertTrue(settings.right < mid)
         assertTrue(about.left > mid)
-        // 关于那一项贴着右边:红点离行的右边只隔两层内边距(行 12dp + 项 12dp)
+        // Regarding which item is on the right side: the red dot is only separated from the right side
+        // of the row by two layers of padding (row 12dp + item 12dp)
         assertTrue(footer.right - dot.right <= 25.dp)
         compose.onNodeWithText("设置").performClick()
         compose.onNodeWithText("关于 Mina").performClick()
@@ -287,7 +289,7 @@ class AboutScreenTest {
         compose.onAllNodesWithTag("update-dot", useUnmergedTree = true).assertCountEquals(0)
     }
 
-    /** 设置首页「关于 Mina」一行:有新版写「x 可更新」带红点。 */
+    /** Set the "About Mina" line on the homepage: If there is a new version, write "x can be updated" with a red dot. */
     @Test
     fun settingsAboutRowShowsUpdate() {
         compose.setContent {

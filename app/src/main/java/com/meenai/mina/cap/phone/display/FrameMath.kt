@@ -3,8 +3,8 @@ package com.meenai.mina.cap.phone.display
 import kotlin.math.abs
 
 /**
- * 画面粗判,只用像素读取函数,不依赖安卓类(可在 JVM 上测)。
- * [pixel] 返回 (x, y) 处的 ARGB 颜色值。
+ * For rough screen judgment, only the pixel reading function is used and does not rely on the Android
+ * class (can be tested on the JVM). [pixel] returns the ARGB color value at (x, y).
  */
 object FrameMath {
     const val GRID_W = 12
@@ -16,7 +16,7 @@ object FrameMath {
     private const val BLACK_SAMPLES = 24
     private const val BLACK_LEVEL = 8
 
-    /** 把画面切成 [GRID_W]×[GRID_H] 格,每格取 4×4 个点的平均亮度。 */
+    /** Cut the picture into [GRID_W]×[GRID_H] grids, and take the average brightness of 4×4 points in each grid. */
     fun lumaGrid(width: Int, height: Int, pixel: (Int, Int) -> Int): IntArray {
         val out = IntArray(GRID_W * GRID_H)
         val cw = width / GRID_W
@@ -32,19 +32,19 @@ object FrameMath {
         return out
     }
 
-    /** 有足够多的格子明显变亮或变暗才算画面变了,光标闪烁这类小变化不算。 */
+    /** The picture has changed only if enough grids have become significantly brighter or darker. Small changes such as cursor flashing do not count. */
     fun differs(a: IntArray?, b: IntArray?): Boolean {
         if (a == null || b == null || a.size != b.size) return false
         return a.indices.count { abs(a[it] - b[it]) > CELL_DELTA } >= MIN_CELLS
     }
 
-    /** 至少 [PAGE_SHARE] 的格子变了:换了一整页(或整屏在动),不是头像动图、光标、进度圈这类局部变化。 */
+    /** At least the [PAGE_SHARE] grid has changed: a whole page has been changed (or the whole screen is moving), not local changes such as avatar animations, cursors, and progress circles. */
     fun pageChanged(a: IntArray?, b: IntArray?): Boolean {
         if (a == null || b == null || a.size != b.size) return false
         return a.indices.count { abs(a[it] - b[it]) > CELL_DELTA } >= a.size * PAGE_SHARE
     }
 
-    /** 均匀取样的点里至少 99.5% 每个通道都 ≤ [BLACK_LEVEL] 才算全黑。 */
+    /** At least 99.5% of the uniformly sampled points for each channel are ≤ [BLACK_LEVEL] to be considered completely black. */
     fun isBlack(width: Int, height: Int, pixel: (Int, Int) -> Int): Boolean {
         if (width <= 1 || height <= 1) return false
         var dark = 0

@@ -1,6 +1,6 @@
 package com.meenai.mina.core.uistate
 
-/** 一个键在协议里的写法;[androidKeyCode] 是没有 DevTools 时走原生按键用的键码。 */
+/** The way a key is written in the protocol; [androidKeyCode] is the key code used for native keys when there is no DevTools. */
 data class CdpKey(val key: String, val code: String, val keyCode: Int, val text: String?, val androidKeyCode: Int)
 
 enum class KeyModifier(val bit: Int, val key: CdpKey, val androidMeta: Int) {
@@ -10,12 +10,12 @@ enum class KeyModifier(val bit: Int, val key: CdpKey, val androidMeta: Int) {
     Shift(8, CdpKey("Shift", "ShiftLeft", 16, null, 59), 0x01 or 0x40),
 }
 
-/** 组合键,如 Control+A:修饰键按 [modifiers] 的顺序按下、倒序抬起。 */
+/** Key combinations, such as Control+A: The modifier keys are pressed in the order of [modifiers] and raised in reverse order. */
 data class KeyCombo(val modifiers: List<KeyModifier>, val key: CdpKey) {
     val bits: Int get() = modifiers.fold(0) { acc, m -> acc or m.bit }
     val androidMeta: Int get() = modifiers.fold(0) { acc, m -> acc or m.androidMeta }
 
-    /** 这次按键实际产生的字:带 Ctrl/Alt/Meta 时不出字(是快捷键),带 Shift 时字母大写。 */
+    /** The actual words produced by this keystroke: no words are produced when Ctrl/Alt/Meta is used (it is a shortcut key), and letters are capitalized when Shift is used. */
     val text: String? get() = when {
         modifiers.any { it != KeyModifier.Shift } -> null
         KeyModifier.Shift in modifiers && key.text != null && key.text.length == 1 && key.text[0].isLetter() -> key.text.uppercase()
@@ -48,10 +48,10 @@ object CdpKeys {
         "alt" to KeyModifier.Alt, "option" to KeyModifier.Alt, "meta" to KeyModifier.Meta, "cmd" to KeyModifier.Meta, "command" to KeyModifier.Meta)
     private val BY_LOWER = NAMED.mapKeys { it.key.lowercase() }
 
-    /** 小键盘回车和回车同义。 */
+    /** Keypad Enter and Enter are synonymous. */
     private const val ANDROID_NUMPAD_ENTER = 160
 
-    /** 键名(不分大小写):Enter、Tab、Escape、方向键、Home/End、翻页、Space、单个字母或数字。 */
+    /** Key name (not case sensitive): Enter, Tab, Escape, direction keys, Home/End, page turning, Space, single letter or number. */
     fun named(name: String): CdpKey? {
         val n = if (name == " ") name else name.trim().takeIf { it.isNotEmpty() } ?: return null
         if (n.length == 1) {
@@ -65,12 +65,12 @@ object CdpKeys {
         return BY_LOWER[(ALIASES[n.lowercase()] ?: n).lowercase()]
     }
 
-    /** press_key 的安卓键码对应的键;没有对应(不该交给网页的键)为 null。 */
+    /** The key corresponding to the Android key code of press_key; if there is no corresponding key (key that should not be given to the web page), it is null. */
     fun forAndroid(keyCode: Int): CdpKey? =
         if (keyCode == ANDROID_NUMPAD_ENTER) NAMED.getValue("Enter").copy(code = "NumpadEnter", androidKeyCode = ANDROID_NUMPAD_ENTER)
         else NAMED.values.firstOrNull { it.androidKeyCode == keyCode }
 
-    /** 「Control+A」「Shift+Tab」「Enter」;修饰键重复、没有主键、主键不认识时为 null。 */
+    /** "Control+A" "Shift+Tab" "Enter"; it is null when the modifier key is repeated, there is no primary key, or the primary key is not recognized. */
     fun parseCombo(spec: String): KeyCombo? {
         val parts = spec.trim().split('+').map(String::trim)
         if (parts.isEmpty() || parts.any { it.isEmpty() }) return null

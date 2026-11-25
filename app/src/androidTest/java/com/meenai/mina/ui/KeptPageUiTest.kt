@@ -21,7 +21,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 留在后台运行的那一页在界面上:对话里那一行、胶囊、展开的卡片(实时画面、剩余时间、来源对话、两个按钮)。 */
+/** The page left running in the background is on the interface: the line in the conversation, the capsule, the expanded cards (live view, remaining time, source conversation, two buttons). */
 @RunWith(AndroidJUnit4::class)
 class KeptPageUiTest {
 

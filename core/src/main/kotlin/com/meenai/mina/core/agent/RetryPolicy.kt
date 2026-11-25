@@ -5,19 +5,25 @@ import com.meenai.mina.core.model.ModelError
 import kotlin.random.Random
 
 /**
- * 模型调用遇到一时的故障要不要再试、等多久。一时的故障:限流(429)、服务端出错(5xx)、连不上 / 连接被断 / 超时、
- * 流式回复没收尾连接就断了(这时回复还没写进历史、也没执行任何工具,重发是安全的)。
- * 其余错误(Key、额度、模型名、内容被拒、其他 4xx、解析不了)再试也一样,不重试;上下文超长另由压缩处理。
- * 限流带了 Retry-After 就照它等(有上限);其余按指数退避加抖动,每次调用最多重试 [maxRetries] 次。
- * 一个任务里花在等重试上的总时间有上限 [taskWaitBudgetMs](默认 5 分钟,只是安全网):用完之后再出错就直接交出,不再等。
- * 纯函数:抖动由 [jitter] 给(0..1),测试里换成定值。
+ * If the model call encounters a temporary failure, should we try again and how long should we wait?
+ * Temporary faults: current limit (429), server error (5xx), failure to connect/connection
+ * disconnected/timeout, streaming reply is disconnected after the end of the connection (at this time,
+ * the reply has not been written into the history, and no tools have been executed, so it is safe to
+ * resend). Other errors (Key, quota, model name, content rejected, other 4xx, cannot be parsed) will be
+ * the same if you try again, and there will be no retry; if the context is too long, it will be
+ * compressed. If the current limit is set with Retry-After, just wait as it is (there is an upper
+ * limit); otherwise, the exponential backoff and jitter will be used, and each call will be retried up
+ * to [maxRetries] times. There is an upper limit on the total time spent waiting for retries in a task.
+ * [taskWaitBudgetMs] (default 5 minutes, just a safety net): If you make an error after using it, just
+ * hand it over without waiting. Pure function: The jitter is given by [jitter] (0..1), and is changed to
+ * a fixed value in the test.
  */
 class RetryPolicy(
     val maxRetries: Int = 3,
     private val baseMs: Long = 1_000,
     private val maxBackoffMs: Long = 8_000,
     private val retryAfterCapMs: Long = 30_000,
-    /** 一个任务里所有重试等待加起来的上限。 */
+    /** The upper limit of the sum of all retry waits in a task. */
     val taskWaitBudgetMs: Long = 5 * 60_000,
     private val jitter: () -> Double = { Random.nextDouble() },
 ) {
@@ -26,33 +32,37 @@ class RetryPolicy(
     }
 
     /**
-     * 这次调用已重试 [retriesSoFar] 次后又遇到 [e],本任务已为重试等了 [waitedInTaskMs]:返回再试前要等的毫秒数;
-     * 不该再试(不是一时的故障、次数到了、等这一次会超出任务的等待上限)为 null。
+     * This call has been retried [retriesSoFar] times and then encountered [e]. The task has been
+     * waiting for retry. [waitedInTaskMs]: Returns the number of milliseconds to wait before trying
+     * again; it should not try again (it is not a temporary failure, the number of times is up, waiting
+     * this time will exceed the waiting limit of the task) is null.
      */
     fun delayFor(e: Throwable, retriesSoFar: Int, waitedInTaskMs: Long = 0): Long? {
         if (retriesSoFar >= maxRetries || !transient(e)) return null
         val wait = (e as? ModelError.RateLimited)?.retryAfterMs?.coerceIn(0, retryAfterCapMs) ?: run {
             val ceiling = minOf(maxBackoffMs, baseMs shl minOf(retriesSoFar, 20))
-            // 一半固定、一半随机:同时出错的几个任务不会在同一刻再撞上去
+            // Half fixed, half random: several tasks that go wrong at the same time will not collide
+            // again at the same moment.
             ceiling / 2 + (ceiling / 2 * jitter().coerceIn(0.0, 1.0)).toLong()
         }
         return wait.takeIf { waitedInTaskMs + it <= taskWaitBudgetMs }
     }
 
     companion object {
-        /** 不重试:出错就交出(轻量模型出错时这一步直接改问主模型)。 */
+        /** No retry: hand it over if there is an error (when the lightweight model makes an error, this step directly changes to the main model). */
         val NONE = RetryPolicy(maxRetries = 0)
 
-        /** 一时的故障,过一会儿再发同一个请求可能就好了。 */
+        /** A temporary failure may be resolved by sending the same request again after a while. */
         fun transient(e: Throwable): Boolean = when (e) {
             is ModelError.RateLimited, is ModelError.Network, is ModelError.StreamCut -> true
             is ModelError.Server -> e.status in 500..599
-            // 代理一时没起来、刚重启:过一会儿可能就通了;账号密码不对重试没用
+            // The agent did not wake up for a while and just restarted: it may be connected after a
+            // while; the account and password are incorrect and it is useless to try again.
             is ModelError.Proxy -> e.failure == ProxyFailure.Unreachable
             else -> false
         }
 
-        /** 运行记录里这次故障的名字。 */
+        /** The name of this fault in the operation record. */
         fun label(e: Throwable): String = when (e) {
             is ModelError.RateLimited -> "rate_limited"
             is ModelError.Network -> "network"

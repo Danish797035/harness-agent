@@ -1,16 +1,16 @@
 package com.meenai.mina.core.knowledge
 
-/** 知识或技能目录里的一个脚本此刻能不能跑;不能跑时 [reason] 写原因。 */
+/** Whether a script in the knowledge or skill directory can be run at this moment; when it cannot run, [reason] writes the reason. */
 data class ScriptState(val file: String, val runnable: Boolean, val reason: String?)
 
-/** 能跑自带脚本的能力交给 knowledge_read、skill_read 与参考资料附注的。 */
+/** The ability to run built-in scripts is left to knowledge_read, skill_read and reference notes. */
 interface BundledScripts {
-    /** 本任务提供跑脚本的工具(运行环境可能还在准备)。 */
+    /** This task provides tools for running scripts (the running environment may still be prepared). */
     fun offered(): Boolean
 
-    /** 运行环境此刻就绪时先把技能目录核对成打包的那份,返回 true;没就绪为 false。 */
+    /** When the running environment is ready at this time, first check the skills directory into the packaged copy and return true; if it is not ready, it will be false. */
     suspend fun ready(): Boolean
 
-    /** [skillDir] 下清单里的脚本与此刻能不能跑。 */
+    /** [skillDir] Check whether the scripts in the list can be run at this time. */
     fun scripts(skillDir: String): List<ScriptState>
 }

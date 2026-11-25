@@ -8,8 +8,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import com.meenai.mina.core.tool.Verb
 
 /**
- * 运行记录的脱敏:密码框里输入的字、形如 API Key 的串一律记为 `***`。
- * 调用方不确定目标是不是密码框时应按是处理(宁可少记)。
+ * Desensitization of running records: The words entered in the password box and the string in the shape
+ * of API Key will be recorded as `***`. When the caller is not sure whether the target is a password
+ * box, it should be treated as yes (it is better to remember less).
  */
 object Redactor {
     const val MASK = "***"
@@ -17,7 +18,7 @@ object Redactor {
     private val SK_KEY = Regex("""\bsk-[A-Za-z0-9_\-]{16,}""")
     private val BEARER = Regex("""\bBearer\s+[A-Za-z0-9._~+/=\-]{8,}""")
     private val GOOGLE_KEY = Regex("""\bAIza[0-9A-Za-z_\-]{30,}""")
-    /** Google 新格式的认证 Key:`AQ.` 开头,后面一长串 base64url 字符。 */
+    /** Google's new format authentication Key starts with: `AQ.`, followed by a long string of base64url characters. */
     private val GOOGLE_AUTH_KEY = Regex("""\bAQ\.[0-9A-Za-z_\-]{20,}""")
     private val GITHUB_TOKEN = Regex("""\bgh[pousr]_[A-Za-z0-9]{20,}""")
     private val GROQ_KEY = Regex("""\bgsk_[A-Za-z0-9_\-]{16,}""")
@@ -28,7 +29,7 @@ object Redactor {
 
     private val dynamicSecrets = java.util.concurrent.CopyOnWriteArraySet<String>()
 
-    /** 注册需要全流程脱敏的敏感字符串(如 Password Vault 中的密码)。长度过短(少于 4 个字符)的不注册，避免误伤。 */
+    /** Register sensitive strings that require desensitization throughout the entire process (such as passwords in Password Vault). If the length is too short (less than 4 characters), it will not be registered to avoid accidental injury. */
     fun registerSecret(secret: String) {
         if (secret.length >= 4) {
             dynamicSecrets.add(secret)
@@ -43,8 +44,8 @@ object Redactor {
         dynamicSecrets.clear()
     }
 
-    /** [secretField]:端口报告这次输入的目标是密码框。 */
-    /** [verb]:调用的工具做的动作(不认识的工具为 null)。 */
+    /** [secretField]: The port reports that the target of this input is the password box. */
+    /** [verb]: The action performed by the called tool (null for unknown tools). */
     fun args(verb: Verb?, argsJson: String, secretField: Boolean): String {
         if (verb == Verb.MemorySave) return maskFields(argsJson, MEMORY_ARGS)
         if (verb == Verb.Script) return script(argsJson)
@@ -56,7 +57,7 @@ object Redactor {
             Json.parseToJsonElement(masked) as? JsonObject
         } catch (e: SerializationException) {
             null
-        } ?: return MASK // 解析不了就整段不记,宁可丢信息
+        } ?: return MASK // If you can't parse it, don't remember the entire paragraph. You'd rather lose the information.
         val withText = if ("text" in o) JsonObject(o + ("text" to JsonPrimitive(MASK))) else o
         return text(withText.toString())
     }
@@ -73,7 +74,7 @@ object Redactor {
         return if (changed) JsonObject(newMap).toString() else argsJson
     }
 
-    /** 条件式手机命令里的输入内容可能是密码,整段按字段打码。 */
+    /** The input content in the conditional mobile command may be a password, and the entire paragraph is coded by field. */
     private fun phoneRun(argsJson: String): String {
         val o = try { Json.parseToJsonElement(argsJson) as? JsonObject } catch (e: SerializationException) { null } ?: return MASK
         val commands = o["commands"] as? JsonArray ?: return text(argsJson)
@@ -86,8 +87,11 @@ object Redactor {
     }
 
     /**
-     * web_script 的源码:脚本里要输入的字可能写成任何形式(交给 mina.type、先存进变量、拼接),
-     * 和 type_text 一样不知道是不是密码框,一律按是处理:源码里每个字符串字面量都打码,只留引号种类(模板字符串留 `${…}` 的位置)。
+     * The source code of web_script: The words to be input in the script may be written in any form
+     * (give it to mina.type, store it in a variable first, and splice it). Like type_text, we don’t know
+     * whether it is a password box or not, so we treat it as such: every string literal in the source
+     * code is coded, leaving only the type of quotation marks (template strings leave the position of
+     * `${…}`).
      */
     private fun script(argsJson: String): String {
         val o = try { Json.parseToJsonElement(argsJson) as? JsonObject } catch (e: SerializationException) { null } ?: return MASK
@@ -102,7 +106,7 @@ object Redactor {
         return text(JsonObject(o + ("code" to JsonPrimitive(masked))).toString())
     }
 
-    /** 工具结果进运行记录前:记忆的内容、用户交回时写的备注不记(编号、种类照记)。 */
+    /** Before the tool results are entered into the running record: the contents of the memory and the notes written by the user when returning are not recorded (the number and type are remembered). */
     fun result(verb: Verb?, content: JsonObject): JsonObject = when (verb) {
         Verb.MemorySearch -> (content["memories"] as? JsonArray)?.let { arr ->
             JsonObject(content + ("memories" to JsonArray(arr.map { m ->
@@ -124,7 +128,7 @@ object Redactor {
     }
 
     private val STRING_LITERAL = Regex("""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`""")
-    /** 模板字符串里的 ${…}:表达式不是字面量,位置留着,前后的字打码。 */
+    /** ${...} in the template string: the expression is not a literal, the position is reserved, and the words before and after are coded. */
     private val TEMPLATE_HOLE = Regex("""\$\{[^}]*\}""")
     private val MEMORY_ARGS = setOf("content", "quote", "keywords")
 
@@ -133,15 +137,18 @@ object Redactor {
     /** 4–8 位数字,中间可以隔单个空格或连字符(「4 8 2 9 1 3」「482-913」)。 */
     private val CODE_DIGITS = Regex(
         """(?<![\d.¥$€£])(?<!\d,)(?<![¥$€£] )\d(?:[ \-]?\d){3,7}(?!\d)(?!\.\d)(?!,\d{3}(?!\d))""" +
-            // 后面跟着单位、年份、货币的是量,不是码
+            // What follows the unit, year, and currency is the quantity, not the code.
             """(?!\s*(?:年|元|块|角|分钟|小时|秒|天|月|日|号|次|个|人|件|条|米|公里|千米|克|公斤|千克|斤|吨|度|℃|°|%|‰|[¥$€£]|(?i:km|kg|mb|gb|kb|ms|cm|mm|mah|rmb|usd|cny)\b))""",
     )
-    /** 码和这类词之间至多隔几个字(哪一边都算)。 */
+    /** There must be at most a few characters between the code and this type of word (whichever side counts). */
     private const val CODE_WINDOW = 24
 
     /**
-     * 证据账本里的材料(读屏、网页、命令输出)进账前经它:[text] 认得的 Key 之外,一次性码也遮住——
-     * 前后 [CODE_WINDOW] 个字以内有「验证」「短信」「code」一类词的 4–8 位数字。密码框的字本来就不进读屏文字。
+     * The materials in the evidence ledger (reading screens, web pages, command output) pass through the
+     * key recognized by [text] before entering the account, and the one-time code is also covered - 4-8
+     * digits containing words such as "verification", "text message" and "code" within the characters
+     * [CODE_WINDOW] before and after. The words in the password box are not included in the screen
+     * reading text.
      */
     fun evidence(s: String): String {
         val t = text(s)
@@ -164,14 +171,17 @@ object Redactor {
         return BEARER.replace(out, "Bearer $MASK")
     }
 
-    // ---------- 网页网络数据 ----------
+    // ---------- Web page network data ----------
 
     data class Network(val url: String?, val body: String?, val headers: Map<String, String>?)
 
     /**
-     * 网页网络数据(地址、响应正文、头)离开网络记录前一律经它:交给模型、进核查证据、进运行记录都是同一份。
-     * 名字像凭据的查询参数、JSON/表单字段、头的值记为 `***`(按词判断:author、keyword 不算);
-     * OAuth 回跳里的 code、state 一并遮住;此外 JWT、又长又杂(大小写字母加数字)的串、[text] 认得的 Key 也遮住。
+     * Web page network data (address, response text, headers) are all passed through it before leaving
+     * the network record: they are all handed over to the model, entered for verification evidence, and
+     * entered into the operation record. Query parameters with names like credentials, JSON/form fields,
+     * and header values are recorded as `***` (judged by words: author and keyword are not counted);
+     * code and state in the OAuth bounce are also covered; in addition, JWT, long and complex strings
+     * (uppercase and lowercase letters plus numbers), and Keys recognized by [text] are also covered.
      */
     fun network(url: String? = null, body: String? = null, headers: Map<String, String>? = null): Network = Network(
         url = url?.let { values(maskUrl(it), slash = false) },
@@ -180,8 +190,10 @@ object Redactor {
     )
 
     /**
-     * 读脚本、站点命令从页面上读出来的数据(JSON):和网络响应正文同一套规则(凭据名字的字段、JWT、又长又杂的串、Key),
-     * 只是长串不跨斜杠认(结果里常有网址,路径各段分开看)。
+     * Read the data (JSON) read from the page by scripts and site commands: the same set of rules as the
+     * network response body (fields based on credential names, JWT, long and complicated strings, Key),
+     * except that long strings are not recognized across slashes (there are often URLs in the results,
+     * and each path segment is viewed separately).
      */
     fun pageData(s: String): String = values(maskBody(s), slash = false)
 
@@ -194,7 +206,7 @@ object Redactor {
     private val CASE_BOUNDARY = Regex("(?<=[a-z0-9])(?=[A-Z])")
     private val WORD_SPLIT = Regex("[^A-Za-z0-9]+")
 
-    /** 名字按词拆开(驼峰、下划线、连字符)后有像凭据的词。 */
+    /** The name is split into words (camel case, underscore, hyphen) followed by words like credentials. */
     internal fun secretName(name: String): Boolean {
         val words = name.split(WORD_SPLIT).flatMap { it.split(CASE_BOUNDARY) }.map { it.lowercase() }.filter { it.isNotEmpty() }
         return words.any { it in SECRET_WORDS } || words.joinToString("") in SECRET_COMPOUNDS
@@ -203,7 +215,7 @@ object Redactor {
     private val OAUTH_MARKERS = setOf("state", "redirect_uri", "client_id", "code_verifier")
     private val OAUTH_RESULTS = setOf("code", "state")
 
-    /** 查询串或片段里的 a=b&c=d:凭据名字的值遮住;像 OAuth 回跳的(有 state 等,且带 code 或凭据)把 code、state 也遮住。[bareKey]:单个 key 也算凭据。 */
+    /** a=b&c=d in the query string or fragment: the value of the credential name is covered; like OAuth bounce (with state, etc., and with code or credentials), the code and state are also covered. [bareKey]: A single key is also considered a credential. */
     private fun maskParams(q: String, bareKey: Boolean): String {
         val parts = q.split('&')
         val names = parts.map { it.substringBefore('=').lowercase() }
@@ -241,7 +253,7 @@ object Redactor {
     private val LONG_WITH_SLASH = Regex("""[A-Za-z0-9_\-+/=]{32,}""")
     private val LONG = Regex("""[A-Za-z0-9_\-+=]{32,}""")
 
-    /** 值里的 JWT、又长又杂的串、已知格式的 Key。地址里不跨斜杠认(路径各段分开看)。 */
+    /** JWT in the value, long and complex string, Key in known format. Slashes are not recognized in the address (each segment of the path is viewed separately). */
     private fun values(s: String, slash: Boolean): String {
         var out = JWT.replace(s, MASK)
         out = (if (slash) LONG_WITH_SLASH else LONG).replace(out) { m ->

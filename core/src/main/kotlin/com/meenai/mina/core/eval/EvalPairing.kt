@@ -1,10 +1,13 @@
 package com.meenai.mina.core.eval
 
-/** 并行评测的分组:同一组的题同时跑。 */
+/** Grouping of parallel assessments: Questions in the same group are run at the same time. */
 object EvalPairing {
     /**
-     * 按题目顺序贪心:每组从第一道还没分出去的题开始,往后找用到的 App 与组里都不相交的题,直到满 [n] 道。
-     * 同一个 App 不能同时在两块屏上,所以 App 有重叠的题不同组;没写 `apps` 的题不知道会用到什么,单独一组。
+     * Greedy in order of questions: Each group starts with the first question that has not yet been
+     * divided, and then looks for questions that are not intertwined with the apps used in the group
+     * until [n] is reached. The same App cannot be used on two screens at the same time, so the App has
+     * overlapping questions in different groups; I don’t know what will be used for the questions that
+     * do not say `apps`, so they are in a separate group.
      */
     fun groups(tasks: List<EvalTask>, n: Int): List<List<EvalTask>> {
         val left = tasks.toMutableList()

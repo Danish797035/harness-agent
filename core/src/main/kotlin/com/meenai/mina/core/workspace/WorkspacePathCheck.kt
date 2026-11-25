@@ -1,4 +1,4 @@
 package com.meenai.mina.core.workspace
 
-/** 工作区路径检查的结果(由 app 侧按工作区的路径规范化实现)。 */
+/** The result of the workspace path check (implemented by the app side by normalizing the path of the workspace). */
 enum class WorkspacePathCheck { Ok, NotFound, Outside }

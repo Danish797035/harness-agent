@@ -5,7 +5,7 @@ import com.meenai.mina.core.record.RunSink
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** 一次 Run 的事件分发器。记录、界面与送达可各订一份,单个接收方故障不影响其他接收方。 */
+/** A Run event dispatcher. You can order one copy each of records, interfaces and delivery, and the failure of a single recipient will not affect other recipients. */
 class RunEventBus : RunSink {
     private val listeners = CopyOnWriteArrayList<RunSink>()
 
@@ -18,7 +18,7 @@ class RunEventBus : RunSink {
         listeners.forEach { listener ->
             try { listener.event(e) }
             catch (e: CancellationException) { throw e }
-            catch (_: Throwable) { /* 运行不能被订阅者的故障打断 */ }
+            catch (_: Throwable) { /* Operation cannot be interrupted by subscriber failure */ }
         }
     }
 
@@ -26,7 +26,7 @@ class RunEventBus : RunSink {
         listeners.forEach { listener ->
             try { listener.media(mediaId, png) }
             catch (e: CancellationException) { throw e }
-            catch (_: Throwable) { /* 同上 */ }
+            catch (_: Throwable) { /* Same as above */ }
         }
     }
 }

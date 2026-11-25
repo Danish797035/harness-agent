@@ -17,10 +17,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 树不够用、屏上文字也读不到时,读屏结果要说为什么(ocr),提示要指向看图找。 */
+/** When there are not enough trees and the text on the screen cannot be read, the screen reading result will say why (ocr), and the prompt will point to the picture to find it. */
 class OcrStatusTest {
     private class Screen(val ocr: suspend () -> List<VisibleTextLine>?, val changing: Boolean = false) : ScreenPort by FakeScreen() {
-        // 一个没名字的节点:App 自己画界面
+        // An unnamed node: App draws its own interface
         override suspend fun snapshot() = ScreenSnapshot("p1", "com.example", emptyList(), 1080, 2400, changedDuringRead = changing)
         override suspend fun peek() = snapshot()
         override suspend fun readVisibleText() = ocr()
@@ -38,7 +38,7 @@ class OcrStatusTest {
         assertEquals("unusable", r.s("treeQuality"))
         assertEquals("empty", r.s("ocr"))
         assertEquals(Feedback.format("tree_poor.no_text.visual", "ocr" to "empty"), r.s("hint"))
-        // 没配看图模型时不提看图工具
+        // Don’t mention the image viewing tools when you don’t have the image viewing model.
         val plain = observe(Screen({ emptyList() }))
         assertEquals(Feedback.format("tree_poor.no_text", "ocr" to "empty"), plain.s("hint"))
     }

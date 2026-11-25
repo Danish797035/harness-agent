@@ -11,13 +11,17 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 读屏与输入核实的测试页:
- * - 「结果」文字被标成对无障碍不重要(像计算器的显示区),按「7」只改它;
- * - 「空输入框」点一下只换输入焦点;
- * - 「热词示例」是只显示提示语的搜索框;
- * - 「会换的框」输入后被换成一个新的输入控件(有些 App 内容一变就重建输入视图);
- * - 「假搜索框」只是一段可点的文字,点了才出现真正的输入框并拿到焦点(很多首页的搜索条就是这样)。
- * 测试 APK 的页面运行在测试包自己的进程里、不带 Kotlin 标准库,所以用 Java 写。
+ * Test page for screen reading and input verification:
+ * - - The "Results" text is marked as not important for accessibility (like the display area of a
+ * calculator), press "7" to only change it;
+ * - - Clicking the "empty input box" only changes the input focus;
+ * - - "Hot word examples" is a search box that only displays prompts;
+ * - - The "changing box" is replaced by a new input control after input (some apps rebuild the input
+ * view as soon as the content changes);
+ * - - The "fake search box" is just a clickable text. When clicked, the real input box appears and gets
+ * focus (this is the case with many homepage search bars).
+ * The test APK page runs in the test package's own process without the Kotlin standard library, so it is
+ * written in Java.
  */
 public class FieldsTestActivity extends Activity {
     private LinearLayout holder;

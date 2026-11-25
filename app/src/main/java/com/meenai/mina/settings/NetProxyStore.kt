@@ -9,26 +9,32 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * 设置 › 网络代理,形如 `http://[用户:密码@]主机:端口`;空串表示不用,直连。
- * 地址里可能带账号密码,所以和服务商的 Key 一样经 [KeyCipher] 加密后单独存一个文件,不进明文的偏好设置,也不写进日志。
+ * Settings › Network proxy, in the shape of `http://[user:password@]host:port`; an empty string means no use, direct
+ * connection. The address may contain the account password, so like the service provider's Key, it is
+ * encrypted by [KeyCipher] and stored in a separate file, without entering clear text preferences or
+ * writing it into the log.
  *
- * 谁用它:Mina 自己的连接(调模型、列模型、账号登录换令牌、下更新、内置浏览器)经 [NetProxy],本机和局域网地址直连;
- * 文件与计算环境里的命令在允许联网时经环境变量拿到它(见 `AndroidSandbox`)。
+ * Who uses it: Mina's own connection (model adjustment, column model, account login for token, download
+ * update, built-in browser) is directly connected to the local machine and LAN address through
+ * [NetProxy]; files and commands in the computing environment can obtain it through environment
+ * variables when networking is allowed (see `AndroidSandbox`).
  *
- * 早先它只给容器用,存在 `container-proxy.bin`(另一把密钥):第一次读时用 [legacyCipher] 解出来、按新的存好,再删掉旧文件。
+ * In the past, it was only used for containers, and there was `container-proxy.bin` (another key): use
+ * [legacyCipher] to solve it when reading it for the first time, save it as a new one, and then delete
+ * the old file.
  */
 class NetProxyStore(
     private val dir: File,
     private val cipher: KeyCipher,
     private val legacyCipher: KeyCipher? = null,
-    /** 存了新值之后调(让已建好的连接按新设置重连)。 */
+    /** Adjust after saving the new value (let the established connection be reconnected according to the new settings). */
     private val onChange: () -> Unit = {},
 ) {
     private val file = File(dir, FILE)
     private val legacy = File(dir, LEGACY_FILE)
     @Volatile private var cached: String? = null
 
-    /** 存着的代理;没有、或解不开(换过机、密钥没了)时为空串。 */
+    /** The existing agent; if it does not exist or cannot be decrypted (the machine has been changed or the key is lost), it will be an empty string. */
     @Synchronized fun get(): String {
         cached?.let { return it }
         migrate()
@@ -36,7 +42,7 @@ class NetProxyStore(
         return stored.also { cached = it }
     }
 
-    /** 存下 [proxy](去掉两头空白);空的就删掉文件。调用方先用 [valid] 核对过。 */
+    /** Save [proxy](remove both ends of the blank); delete the file if it is empty. The caller first checks with [valid]. */
     fun set(proxy: String) {
         synchronized(this) {
             val v = proxy.trim()
@@ -48,7 +54,7 @@ class NetProxyStore(
         onChange()
     }
 
-    /** 旧版只给容器用时存的那一份:解得开就按新的存好;新的已经有了、或解不开就不动它,之后存新值时一并删掉。 */
+    /** The old version is only the one saved when the container is in use: if it can be unlocked, save it as the new one; if the new one already exists, or if it cannot be unlocked, leave it untouched, and delete it when new values are saved later. */
     private fun migrate() {
         val old = legacyCipher ?: return
         if (file.isFile || !legacy.isFile) return
@@ -72,15 +78,15 @@ class NetProxyStore(
         private const val KEY_ALIAS = "mina-net-proxy"
         private const val LEGACY_KEY_ALIAS = "mina-container-proxy"
 
-        /** 空串(不用),或带协议、主机、端口的代理地址(http、https、socks5、socks5h),后面不带路径。 */
+        /** Empty string (not used), or proxy address with protocol, host, and port (http, https, socks5, socks5h), without a path. */
         fun valid(proxy: String): Boolean = ProxyAddress.valid(proxy)
 
-        /** 给人看的写法:不带账号密码(那一行在设置页上随时看得到)。 */
+        /** The way it is written for people to see: without account and password (that line can be seen at any time on the settings page). */
         fun display(proxy: String): String = ProxyAddress.parse(proxy)?.display.orEmpty()
 
         @Volatile private var instance: NetProxyStore? = null
 
-        /** 产品里的那一份;第一次取时把 [NetProxy.shared] 接上它。 */
+        /** The one in the product; connect [NetProxy.shared] to it when you first pick it up. */
         fun get(context: Context): NetProxyStore = instance ?: synchronized(this) {
             instance ?: NetProxyStore(
                 File(context.applicationContext.filesDir, "settings"), KeystoreKeyCipher(KEY_ALIAS), KeystoreKeyCipher(LEGACY_KEY_ALIAS),

@@ -45,9 +45,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * 内置助手的自动恢复和那几项能力。跑 shell 命令用 [runner](经助手或已配对的连接;两样都没有时不给);
- * 能力与开机结果记在 [settings];[control] 是内置助手本身。由 [com.meenai.mina.cap.phone.PhoneServices] 建一份,
- * App 启动时由 [start] 开始看着连接。
+ * Built-in assistant's automatic recovery and several capabilities. To run the shell command, use
+ * [runner](connected via assistant or paired; not given if neither is available); the capabilities and boot results are recorded in [settings]; [control]
+ * is the built-in assistant itself. A copy is created by [com.meenai.mina.cap.phone.PhoneServices], and
+ * [start] starts watching the connection when the App starts.
  */
 class BuiltinShellRecovery(
     context: Context,
@@ -61,13 +62,17 @@ class BuiltinShellRecovery(
     private var started = false
 
     val permissions: RecoveryPermissions by lazy {
-        // 助手在运行(不论怎么起的)或配对过,命令就有路可走
+        // The assistant is running (regardless of how it was started) or paired, and the command is
+        // available.
         RecoveryPermissions({ runner.takeIf { control.status.value == BuiltinShellStatus.Running || control.paired } }, settings, app.packageName)
     }
 
     /**
-     * 无障碍服务没在运行时自动打开它;结果([AccessibilityRepair.last])给设置页说一句。
-     * App 自己有修改系统设置的授权(「重启后自动恢复」给的)就直接写,不必等助手;没有才经助手。
+     * The accessibility service does not automatically turn it on at runtime; the result
+     * ([AccessibilityRepair.last]) is to say something to the settings page. If the App itself has the
+     * authorization to modify the system settings (given by "Automatic recovery after restart"), it can
+     * be written directly without waiting for the assistant; there is no need to go through the
+     * assistant.
      */
     val accessibilityRepair = AccessibilityRepair(
         restart = { gap -> if (canWriteSecure()) restartDirectly(gap) else permissions.restartAccessibility(gap) },
@@ -78,7 +83,7 @@ class BuiltinShellRecovery(
     private fun canWriteSecure() =
         app.checkSelfPermission(PermissionCommands.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
 
-    /** 和 [RecoveryPermissions.restartAccessibility] 同样的步骤,只是由 App 自己写系统设置:没有就加上,有却没绑定就去掉再加回。 */
+    /** The same steps as [RecoveryPermissions.restartAccessibility], except that the app writes the system settings by itself: if it is not available, add it; if it is not bound, remove it and add it back. */
     private suspend fun restartDirectly(gapMs: Long): PermissionResult = withContext(Dispatchers.IO) {
         val cr = app.contentResolver
         val me = PermissionCommands.accessibilityService(app.packageName)
@@ -93,7 +98,9 @@ class BuiltinShellRecovery(
                 write(AccessibilityList.without(current, me))
                 withContext(NonCancellable) {
                     delay(gapMs)
-                    // 加回失败时把原来的列表(连同总开关)写回,不让 Mina 从列表里消失;这次仍按加回失败报
+                    // When the add back fails, write back the original list (together with the main
+                    // switch) to prevent Mina from disappearing from the list; this time, still press
+                    // the add back failure button to report
                     try {
                         write(AccessibilityList.with(read(), me))
                     } catch (e: Exception) {
@@ -113,9 +120,13 @@ class BuiltinShellRecovery(
     }
 
     /**
-     * 助手每次变成运行中(刚配对完、掉线后重起、App 启动时本来就配过对、开机自动恢复连上),就把默认打开、
-     * 用户没关掉、还没生效的几项补上。这几条路最后都落到同一个状态,所以只在这里看,不在各处分别调。
-     * 同时看着无障碍服务:没在运行、又有办法写系统设置(App 自己有授权或助手在运行)时,自动打开它。
+     * Every time the assistant becomes running (just after pairing, restarting after being disconnected,
+     * already paired when the app is started, automatically restored and connected after booting), it
+     * will add several items that are turned on by default, have not been turned off by the user, and
+     * have not yet taken effect. These roads all end up in the same state, so I only look at them here
+     * and don't adjust them separately everywhere. At the same time, look at the accessibility service:
+     * when it is not running and there is a way to write system settings (the App itself has
+     * authorization or the assistant is running), it will be automatically turned on.
      */
     @Synchronized
     fun start() {
@@ -123,7 +134,9 @@ class BuiltinShellRecovery(
         started = true
         scope.launch { permissions.applyWhenRunning(control.status) }
         val service = accessibility
-        // 启动时看一眼:被强行停止后系统会把服务从列表里拿掉,或者在列表里却迟迟不绑定;记下来给诊断信息
+        // Take a look at startup: after being forcibly stopped, the system will remove the service from
+        // the list, or it will be in the list but not bound; write it down to provide diagnostic
+        // information.
         val initial = service.value
         val seen = settings.accessibilitySeen
         scope.launch {
@@ -137,8 +150,10 @@ class BuiltinShellRecovery(
     }
 
     /**
-     * 开机后用户解锁过没有([UserManager.isUserUnlocked]):没解锁时无障碍服务本来就绑不上,自动修复先不动;
-     * 收到 [Intent.ACTION_USER_UNLOCKED] 时重读一次,让自动修复再判断。整个进程一份。
+     * Has the user unlocked it after booting ([UserManager.isUserUnlocked]): When it is not unlocked,
+     * the accessibility service cannot be bound to the original, and the automatic repair will not stop;
+     * when receiving [Intent.ACTION_USER_UNLOCKED], read it again and let the automatic repair make a
+     * judgment. One copy of the entire process.
      */
     private val userUnlocked: StateFlow<Boolean> by lazy {
         fun read() = runCatching { app.getSystemService(UserManager::class.java)?.isUserUnlocked }.getOrNull() != false
@@ -149,12 +164,12 @@ class BuiltinShellRecovery(
             val filter = IntentFilter(Intent.ACTION_USER_UNLOCKED)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else app.registerReceiver(receiver, filter)
-            trySend(read()) // 注册前后之间的变化
+            trySend(read()) // Changes between before and after registration
             awaitClose { runCatching { app.unregisterReceiver(receiver) } }
         }.stateIn(scope, SharingStarted.Eagerly, read())
     }
 
-    /** 系统列表里有没有 Mina(跟着系统设置的变化)和服务实例是否连着(跟着连上、断开)。整个进程一份。 */
+    /** Whether there is Mina in the system list (according to the change of system settings) and whether the service instance is connected (according to the connection and disconnection). One copy of the entire process. */
     val accessibility: StateFlow<A11yObservation> by lazy { serviceObservations() }
 
     private fun serviceObservations(): StateFlow<A11yObservation> {
@@ -173,20 +188,23 @@ class BuiltinShellRecovery(
             .stateIn(scope, SharingStarted.Eagerly, A11yObservation(enabled(), ScreenAccessibility.instance.value != null))
     }
 
-    /** 解除配对:先趁连接还在收回授权,再删配对。 */
+    /** Unpairing: First withdraw authorization while the connection is still there, and then delete the pairing. */
     suspend fun unpair() {
         val a11yApplied = settings.consent.value.isApplied(RecoveryCapability.Accessibility)
         val result = permissions.revokeAll()
-        // 连接已经不在时,无障碍服务至少能自己关掉;电池白名单和修改系统设置的授权只能靠连接收回
+        // Accessibility services can at least turn themselves off when the connection is no longer
+        // available; battery whitelisting and authorization to modify system settings can only be
+        // revoked by the connection
         if (result != PermissionResult.Done && a11yApplied) {
             runCatching { ScreenAccessibility.instance.value?.disableSelf() }
         }
         control.unpair()
     }
 
-    /** 开机后按已生效的「重启后自动恢复」重新打开无线调试并重起助手;不需要动手时返回 null。 */
+    /** After powering on, press the "Automatic recovery after restart" that has taken effect to reopen wireless debugging and restart the assistant; return null if no action is needed. */
     suspend fun restoreAfterBoot(): RestoreOutcome? {
-        // 没配对过(助手是电脑经 USB 起的):Mina 自己起不来助手,不去动无线调试
+        // Not paired (the assistant is started from the computer via USB): Mina cannot get up the
+        // assistant by herself and does not use wireless debugging.
         if (!control.paired) return null
         val holds = app.checkSelfPermission(PermissionCommands.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
         when (BootRestore.gate(Build.VERSION.SDK_INT, settings.consent.value, holds)) {
@@ -195,7 +213,8 @@ class BuiltinShellRecovery(
             BootRestore.Gate.Act -> Unit
         }
         val cr = app.contentResolver
-        // 能力检测:写入被拒(抛异常/返回 false)或写了读回来不是 1,都当这台手机不支持
+        // Capability test: If writing is rejected (throws an exception/returns false) or if the read
+        // value is not 1 after writing, it will be treated as if the phone does not support it.
         val written = DeveloperSettings.turnOnWirelessDebugging(cr) && DeveloperSettings.wirelessDebugging(cr)
         if (!written) return RestoreOutcome.SettingUnavailable.also(settings::recordRestore)
 
@@ -204,7 +223,8 @@ class BuiltinShellRecovery(
                 inputs = {
                     RecoveryInputs(
                         paired = control.paired,
-                        // 不在信任的 Wi-Fi 上时系统会把开关拨回去:每轮重读,拨回去就停
+                        // When not on a trusted Wi-Fi, the system will turn the switch back: reread each
+                        // round, turn it back and stop
                         wirelessDebugging = DeveloperSettings.wirelessDebugging(cr),
                         status = control.status.value,
                     )
@@ -217,7 +237,7 @@ class BuiltinShellRecovery(
     }
 
     private companion object {
-        /** 开机广播 goAsync 之后约有一分钟;留余量。 */
+        /** Start broadcasting goAsync for about one minute; leave a margin. */
         const val BOOT_BUDGET_MS = 50_000L
     }
 }

@@ -47,7 +47,7 @@ class EdPointTest {
         }
     }
 
-    /** 验签等式 [S]B = R + [k]A 同时考验解码、加法和任意点的标量乘。 */
+    /** Verifying the signature equation [S]B = R + [k]A simultaneously tests decoding, addition and scalar multiplication at any point. */
     @Test
     fun signatureEquationHoldsForRfc8032Vectors() {
         for (v in vectors) {
@@ -75,11 +75,11 @@ class EdPointTest {
 
     @Test
     fun decodeRejectsBadEncodings() {
-        // y = p(不规范)
+        // y = p(irregular)
         assertNull(EdPoint.decode(EdPoint.toLe(EdPoint.P, 32)))
-        // y = 2 时 x² 无解
+        // There is no solution for x² when y = 2
         assertNull(EdPoint.decode(EdPoint.toLe(BigInteger.TWO, 32)))
-        // x = 0 却标了负号(y = 1)
+        // x = 0 is marked with a negative sign (y = 1)
         assertNull(EdPoint.decode(ByteArray(32).also { it[0] = 1; it[31] = 0x80.toByte() }))
         assertNull(EdPoint.decode(ByteArray(31)))
     }
@@ -94,7 +94,7 @@ class Spake2ConstantsTest {
         assertEquals("10e3df0ae37d8e7a99b5fe74b44672103dbddcbd06af680d71329a11693bc778", Spake2.derivePoint(Spake2.SEED_N).encode().hexs())
     }
 
-    /** 与参考实现源码里写死的坐标和预计算表首项(x、y 各 32 字节小端)逐一比对。 */
+    /** Compare one by one with the coordinates hard-coded in the reference implementation source code and the first item of the precalculated table (x, y each 32 bytes little endian). */
     @Test
     fun mAndNMatchHardCodedReferenceValues() {
         val (mx, my) = Spake2.M.affine()
@@ -181,7 +181,7 @@ class Spake2RoundTripTest {
         val c = PairingAuth.client(pw)
         val s = PairingAuth.server(pw)
         c.initCipher(s.message); s.initCipher(c.message)
-        c.encrypt(byteArrayOf(1)) // 对方没收到这一条
+        c.encrypt(byteArrayOf(1)) // The other party did not receive this message
         assertThrows(AEADBadTagException::class.java) { s.decrypt(c.encrypt(byteArrayOf(2))) }
     }
 

@@ -25,20 +25,22 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * 设置 › 网络代理 的文案(纯函数,便于测试)。地址只写协议、主机、端口,不带账号密码(这一行随时看得到)。
- * 只在设置首页这一处改;文件与计算环境页那一行只是引过来看。
+ * Copywriting for Settings › Network Proxy (pure function, easy for testing). The address only contains
+ * the protocol, host, and port, without the account and password (this line can be seen at any time).
+ * Only change the setting home page; just refer to the line on the file and computing environment page.
  */
 object NetProxyCopy {
     val TITLE: String get() = tr(R.string.net_proxy)
     val HINT: String get() = tr(R.string.net_proxy_hint)
     val INVALID: String get() = tr(R.string.net_proxy_invalid)
 
-    /** 设置首页那一行右边:没设写「未设置」,设了写地址。 */
+    /** On the right side of the line setting the home page: "Not set" is not set, but the address is set. */
     fun value(proxy: String): String = NetProxyStore.display(proxy).ifEmpty { tr(R.string.settings_not_set) }
 
     /**
-     * 那一行下面的说明:平时说它管哪些连接;只给容器用的写法、浏览器用不上时照实说。
-     * [browser] 为空表示还没查出浏览器这边的情况。
+     * The description below that line: Usually it says which connections it controls; if it is written
+     * only for containers and the browser cannot use it, tell the truth. [browser] is empty, which means
+     * that the situation on the browser side has not been found yet.
      */
     fun subtitle(proxy: String, browser: WebProxy.Mode?): String {
         val address = ProxyAddress.parse(proxy)
@@ -51,7 +53,7 @@ object NetProxyCopy {
     }
 }
 
-/** 改网络代理:一个输入框,空着表示不用;写得不对时就地说怎么写,不存。 */
+/** Change the network proxy: an input box, leaving it empty means not using it; if something is written incorrectly, it will tell you how to write it, and it will not be saved. */
 @Composable
 fun NetProxyDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var text by remember { mutableStateOf(initial) }

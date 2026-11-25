@@ -50,13 +50,19 @@ import com.meenai.mina.core.uistate.PageDialog
 import com.meenai.mina.ui.components.PageBackground
 
 /**
- * 浏览器页(侧栏「浏览器」):没有打开的网页时是起始页([BrowserStart]:搜索框、常用网站、最近打开),
- * 打开了是网页([BrowserPageBar] + 网页 + [BrowserToolbar],「更多」是 [BrowserMoreSheet])。
- * 网页底下是「问问 Mina」([PageAskBar]):对着这一页问,这一页借给那个任务当它的当前网页标签;干活时网页下半截盖一块对话面板
- * ([PagePanel]),页面四周亮一圈光边([PageGlow]);你一摸页面 Mina 就暂停,面板收成小卡片([PageCard]),顶上一条「继续」([PausedBanner])。
- * 选中网页上的文字时,文字选择菜单里多一项「问 Mina」,选中的字带进去。状态在 [PageChat]。
- * 系统返回键先在网页里后退,退不了回到起始页,起始页上再按回到进来的地方。
- * 网页视图放在进程里([UserBrowser]),转屏时接着用;离开这一页(不是转屏、也没有别处的浏览器页)时关掉。
+ * Browser page (sidebar "Browser"): When there is no open web page, it is the start page
+ * ([BrowserStart]: search box, frequently used websites, recently opened), when it is open, it is the
+ * web page ([BrowserPageBar] + web page + [BrowserToolbar], "more" is [BrowserMoreSheet]). At the bottom
+ * of the webpage is "Ask Mina" ([PageAskBar]): ask this page, and this page is lent to the task as its
+ * current webpage label; when working, the lower half of the webpage is covered with a dialogue panel
+ * ([PagePanel]), and a light edge is illuminated around the page ([PageGlow]); Mina pauses as soon as
+ * you touch the page, and the panel closes with a small card ([PageCard]), with a "Continue"
+ * ([PausedBanner]) on top. When selecting text on a web page, there is an additional item "Ask Mina" in
+ * the text selection menu, and the selected words are brought in. The status is [PageChat]. The system
+ * return key first goes back in the web page. If it cannot go back to the start page, press it again on
+ * the start page to go back to where you came in. The web page view is placed in the process
+ * ([UserBrowser]) and continues to be used when the screen is turned; it is closed when leaving this
+ * page (not turning the screen, and there is no browser page elsewhere).
  */
 @Composable
 fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
@@ -77,12 +83,14 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     val toast: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     val scope = rememberCoroutineScope()
     val chat = remember(browser) { PageChat(context.applicationContext, browser, scope) }
-    // 换了一页(还没在这一页上问过时)重新找接着的对话;关了网页回到什么都没有
+    // Changed the page (I haven’t asked on this page yet) and found the next conversation again; closed
+    // the page and returned to nothing.
     val pageUrl = page?.url
     LaunchedEffect(pageUrl) { chat.onPage(pageUrl) }
 
-    // 这一处浏览器页:进来时登记,回到前台时把网页视图要过来(界面有两个实例时挂在看得见的那个上),
-    // 离开时交还;最后一处离开(不是转屏)才关网页
+    // This browser page: register when you come in, ask for the web page view when you return to the
+    // front desk (when there are two instances of the interface, hang it on the visible one), return it
+    // when you leave; close the web page when you leave at the last place (not rotate the screen)
     val place = remember(browser, activity) { browser.newHost(activity ?: context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(browser, place, lifecycle) {
@@ -132,7 +140,9 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
                 if (loginBanner) LoginBanner(desktop = p.desktop, onDone = browser::confirmLogin)
                 val mode = chat.mode
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    // 网页视图由 UserBrowser 放进这个容器(换了标签也放进同一个);手指按下告诉借着页面的任务,选中文字时菜单里有「问 Mina」
+                    // The web view is put into this container by UserBrowser (the same one is put into
+                    // the same one even if the label is changed); the finger press tells the task of
+                    // borrowing the page, and there is "Ask Mina" in the menu when the text is selected.
                     AndroidView(
                         factory = { ctx ->
                             PageFrame(ctx, onTouch = chat::touched, onAsk = { done ->
@@ -187,7 +197,7 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     dialog?.let { d -> PageDialogBox(d, browser::answerDialog) }
 }
 
-/** 系统分享面板:网址,标题作主题。打不开时返回原因。 */
+/** System sharing panel: URL, title as theme. The reason is returned when it cannot be opened. */
 private fun share(context: Context, url: String, title: String): String? {
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
     if (title.isNotBlank()) send.putExtra(Intent.EXTRA_SUBJECT, title).putExtra(Intent.EXTRA_TITLE, title)
@@ -199,7 +209,7 @@ private fun share(context: Context, url: String, title: String): String? {
     }
 }
 
-/** 交给系统默认的浏览器打开。打不开时返回原因。 */
+/** Leave it to the system's default browser to open. The reason is returned when it cannot be opened. */
 private fun openOutside(context: Context, url: String): String? = try {
     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
     null
@@ -207,7 +217,7 @@ private fun openOutside(context: Context, url: String): String? = try {
     tr(R.string.browser_no_other_browser)
 }
 
-/** 页面弹框:提示只有「好」;确认和离开页面有「取消」;输入框弹框带一个输入框。 */
+/** Page pop-up box: prompt only "OK"; confirm and leave the page with "Cancel"; input box pop-up box has an input box. */
 @Composable
 private fun PageDialogBox(d: PageDialog, answer: (Boolean, String?) -> Unit) {
     var input by remember(d) { mutableStateOf(d.defaultText.orEmpty()) }

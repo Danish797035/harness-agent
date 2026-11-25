@@ -6,20 +6,23 @@ data class Capabilities(
     val contextTokens: Int,
     val reasoning: Boolean,
     /**
-     * 看图定位(在截图上框出元素)的准度已经过验证。没验证的模型框出来的点,find_visually 要另有佐证才交出去。
+     * The accuracy of image positioning (boxing elements on screenshots) has been verified. The points
+     * shown in the model frame that have not been verified will be handed over to find_visually only if
+     * there is additional supporting evidence.
      */
     val groundingVerified: Boolean = false,
-    /** 服务端怎样复用相同的提示词开头(省钱、提速);由适配器按它决定请求里带不带缓存标记。 */
+    /** How the server reuses the same prompt word at the beginning (to save money and speed up); it is up to the adapter to decide whether to include a cache mark in the request. */
     val promptCaching: PromptCaching = PromptCaching.Implicit,
-    /** 服务商明确公布的一次请求图片上限;未知时不猜。 */
+    /** The upper limit of images requested at one time is clearly announced by the service provider; do not guess if it is unknown. */
     val maxImages: Int = Int.MAX_VALUE,
-    /** 可选的本地压缩触发点，按整份请求的 token 数计。 */
+    /** Optional local compression trigger point, based on the number of tokens in the entire request. */
     val compactionTriggerTokens: Int? = null,
 )
 
 /**
- * [Implicit]:服务端自动按相同开头复用,请求里不用标。[Explicit]:要在消息上标出缓存到哪里(cache_control),
- * 不标就不复用。[None]:不复用。
+ * [Implicit]: The server automatically reuses the same beginning, no tags are needed in the request.
+ * [Explicit]: Mark the cache location (cache_control) on the message, otherwise it will not be reused.
+ * [None]: Not reused.
  */
 enum class PromptCaching(val wire: String) {
     Implicit("implicit"), Explicit("explicit"), None("none");

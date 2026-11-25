@@ -34,13 +34,16 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-/** 网页上读到的内容(整页正文、脚本结果、网络响应、下载列表):来自网站,不可信。[url] 是哪一页(不知道为 null)。 */
+/** The content read on the web page (full page text, script results, network response, download list): comes from the website and is not trustworthy. Which page is [url] (not known as null). */
 internal fun webRead(text: String, url: String?, title: String? = null) =
     Observation(ObsKind.Read, text, source = WEB, place = url?.let(Place::page), title = title, trust = Trust.Untrusted)
 
 /**
- * 读网页:整页正文(读脚本见 ReadScriptTool.kt)(开着的对话框在最前,导航、页脚、链接列表收起成一行)加质量信号(字数、正文密度、判定、声明的时间)。
- * 给了 url 时在临时后台标签里读,不动当前标签。读到的都作为观察交给核查。
+ * Read web pages: full page text (see ReadScriptTool.kt for reading scripts) (the open dialog box is at
+ * the front, the navigation, footer, and link list are collapsed into one line) plus quality signals
+ * (number of words, text density, judgment, and statement time). When the url is given, it is read in
+ * the temporary background tag and the current tag is not moved. Everything read is submitted for
+ * verification as an observation.
  */
 internal object ReadPage : WebTool {
     override val verb = Verb.ReadPage
@@ -71,7 +74,8 @@ internal object ReadPage : WebTool {
             return fail("background_read_unavailable", Feedback["background_read_unavailable"])
         }
         p.netError?.let { return fail("page_not_loaded", Feedback.format("read_url_not_loaded", "url" to url.orEmpty(), "error" to it)) }
-        // 模型看到的链接和图片说明也是可引用的事实,和正文一起记
+        // The links and picture descriptions seen by the model are also quotable facts and should be
+        // recorded together with the text.
         val links = p.links.take(50).joinToString("\n") { (t, u) -> "链接「$t」$u" }
         val images = p.images.take(20).filter { it.first.isNotBlank() }.joinToString("\n") { (alt, u) -> "图片「$alt」$u" }
         val read = listOf(p.text.take(max), links, images).filter { it.isNotBlank() }.joinToString("\n")
@@ -89,7 +93,8 @@ internal object ReadPage : WebTool {
                 it.updated?.let { v -> put("updated", v) }
                 if (it.dialogs > 0) put("openDialogs", it.dialogs)
                 if (it.folded > 0) put("folded", it.folded)
-                // 后台标签没挂在窗口上,有的页面在那里不渲染完:读到的少就让它在当前标签里打开看
+                // The background tab is not hung on the window, and some pages are not rendered there:
+                // if you don’t read enough, just let it open in the current tab.
                 if (url != null && (it.verdict == ReadVerdict.THIN || it.verdict == ReadVerdict.IMAGE_TEXT)) put("hint", Feedback["read_url_thin"])
             }
             put("text", Untrusted.wrap(p.text.take(max)))
@@ -137,7 +142,7 @@ internal object Downloads : WebTool {
     }
 }
 
-/** 网络响应:列表不带正文;给 id 时取正文。网址和正文先经 [Redactor.network] 脱敏再出去(运行记录在记录处还会再脱敏一次)。 */
+/** Network response: List without text; get the text when id is given. The URL and text are first desensitized by [Redactor.network] before being released (the running records will be desensitized again at the record location). */
 internal object Capture : WebTool {
     override val verb = Verb.Capture
     override val label = "Check page network data"
@@ -170,7 +175,8 @@ internal object Capture : WebTool {
         try {
             if (id != null) {
                 val c = w.capture(id) ?: return fail("capture_not_found", Feedback.format("capture_not_found", "id" to id))
-                // 一次脱敏,交给模型、核查证据、运行记录的都是这一份
+                // Once desensitized, this is the one that is handed over to the model, verification
+                // evidence, and operation records
                 val red = Redactor.network(url = c.url, body = c.body)
                 val body = red.body
                 val seen = body?.let { webRead("网络响应(${red.url},HTTP ${c.status})\n${it.take(max)}", red.url) }
@@ -180,7 +186,8 @@ internal object Capture : WebTool {
                         val cut = body.length > max
                         put("body", Untrusted.wrap(if (cut) body.take(max) + "\n…[truncated: ${body.length - max} more characters]" else body))
                         put("truncated", cut || c.bodyTruncated)
-                        // 网站自己的接口在说这次访问被风控拦下了:照实告诉模型,别接着翻
+                        // The website's own interface is saying that this visit was blocked by risk
+                        // control: tell the model the truth and don't continue to browse.
                         WebBarrier.apiRisk(body)?.let { put("riskControl", it); put("hint", Feedback["capture.risk_control"]) }
                     } else {
                         put("bodyNote", c.bodyNote ?: "unavailable")
@@ -244,3 +251,4 @@ internal object WebWaitFor : WebTool {
         }
     }
 }
+

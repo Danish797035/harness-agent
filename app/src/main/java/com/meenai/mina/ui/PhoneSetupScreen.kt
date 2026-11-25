@@ -92,16 +92,19 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 用户确认做好的几步,转屏、进后台后还在。 */
+/** The user confirms the completed steps and is still there after turning the screen and entering the background. */
 private val StepSetSaver = Saver<Set<SetupStep>, String>(
     save = { set -> set.joinToString(",") { it.name } },
     restore = { s -> s.split(',').mapNotNull { n -> SetupStep.entries.firstOrNull { it.name == n } }.toSet() },
 )
 
 /**
- * 「设置手机操作」引导页:接上实时状态。每一步按系统开关自动打勾,读不到或读不准时用户点「我已经打开了,下一步」;
- * 点清单里前面的某一步可以回去重做。停在配对一步时开始找配对窗口:无障碍开着就由 Mina 自己读配对码,否则发带输入框的通知。
- * [repair] 是从设置页「重新配对」进来的。
+ * "Set up mobile phone operations" guide page: Connect to real-time status. Each step is automatically
+ * checked by pressing the system switch. If it cannot be read or cannot be read on time, the user clicks
+ * "I have opened it, next step"; click on a previous step in the list to go back and redo it. Start
+ * looking for the pairing window when you stop at the pairing step: if accessibility is turned on, Mina
+ * will read the pairing code by herself, otherwise a notification with an input box will be sent.
+ * [repair] came in from the "re-pairing" of the settings page.
  */
 @Composable
 fun PhoneSetupScreen(status: SystemStatus, repair: Boolean, onFix: (Fix) -> Unit, onboarding: Boolean = false, onClose: () -> Unit) {
@@ -125,7 +128,8 @@ fun PhoneSetupScreen(status: SystemStatus, repair: Boolean, onFix: (Fix) -> Unit
 
     val inputs = status.setupInputs(discovery, repairing, accessibilitySkipped, confirmed, revisit, stalledMs, usbAsked)
     val view = PhoneSetupFlow.view(inputs)
-    // 停在同一处没有进展时计时,换了地方从头算;到了时限就不用再数
+    // If you stop at the same place and there is no progress, count the time. If you change the place,
+    // count from the beginning; when the time limit is reached, there is no need to count again.
     val stallPoint = PhoneSetupFlow.stallPoint(view)
     LaunchedEffect(stallPoint) {
         stalledMs = 0L
@@ -136,24 +140,31 @@ fun PhoneSetupScreen(status: SystemStatus, repair: Boolean, onFix: (Fix) -> Unit
             stalledMs = SystemClock.elapsedRealtime() - start
         }
     }
-    // 「改用电脑启动」出现过就留着,不因为又开始连接而收回
+    // If "Start using computer instead" appears, keep it and do not take it back because the connection
+    // starts again.
     LaunchedEffect(view.usbFallback) { if (view.usbFallback) usbAsked = true }
-    // 回去重做的那一步:读到它从关着变成开着,就自动回到原来的步骤,不用再点
+    // Go back and redo the step: when you read that it changes from closed to open, you will
+    // automatically return to the original step without clicking again.
     val revisitDetected = revisit?.let { PhoneSetupFlow.detected(it, inputs) }
     var revisitSawOff by rememberSaveable(revisit) { mutableStateOf(false) }
     LaunchedEffect(revisit, revisitDetected) {
         if (revisitDetected == false) revisitSawOff = true
         else if (revisitDetected == true && revisitSawOff) revisit = null
     }
-    // 开始连接或已经成功:以助手为准,不再停在回头的那一步
+    // The connection is started or has been successful: follow the assistant and no longer stop at the
+    // step of looking back.
     LaunchedEffect(view.phase) { if (view.phase == SetupPhase.Working || view.phase == SetupPhase.Success) revisit = null }
-    // 到了配对一步:开始找配对窗口;通知没允许就在这时请求(配对码要填在通知里)。
-    // 「配对」通知被关掉要去系统设置里开,不自动跳过去,页面上给按钮
+    // When it comes to pairing, start looking for the pairing window; if the notification does not allow
+    // it, then request it at this time (the pairing code must be filled in the notification). If the
+    // "Pairing" notification is turned off, you need to turn it on in the system settings. If it does
+    // not automatically jump to it, there is a button on the page.
     LaunchedEffect(view.current) {
         if (view.current == SetupStep.PairingCode) pairing.begin()
     }
-    // 停在配对一步时离开引导页,多半是自己切去系统设置打开配对窗口(不一定点「去无线调试」):从这时起再看 10 分钟,
-    // 免得引导页放久了,读配对码、弹填码通知都已经停了
+    // When you stop at the pairing step and leave the boot page, you will most likely have to go to the
+    // system settings and open the pairing window (you don’t have to click "Go to Wireless Debugging"):
+    // From this point on, watch for another 10 minutes to avoid the boot page being left for too long,
+    // and the pairing code reading and code filling notifications have stopped.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (view.current == SetupStep.PairingCode) pairing.begin()
     }
@@ -165,7 +176,8 @@ fun PhoneSetupScreen(status: SystemStatus, repair: Boolean, onFix: (Fix) -> Unit
         }
     }
     LaunchedEffect(view.phase) { if (view.phase == SetupPhase.Success) phone.setupPrompt.clear() }
-    // 打开引导页时把「用电脑启动」的脚本备好(助手不在时带新口令)
+    // Prepare the "Start with Computer" script when opening the boot page (bring a new password when the
+    // assistant is not available)
     LaunchedEffect(Unit) { phone.shellManager.usbScript.refresh() }
     val usbCommand = remember { phone.shellManager.usbScript.command() }
 
@@ -219,23 +231,33 @@ fun PhoneSetupScreen(status: SystemStatus, repair: Boolean, onFix: (Fix) -> Unit
         onAskUsb = { usbAsked = true },
         onCopyUsbCommand = copyUsbCommand,
     )
-    // 卡在哪一步都能把诊断信息发给作者:用的是引导页此刻的输入,用户确认过的步骤也在里面
+    // Diagnostic information can be sent to the author at any step: the input on the guide page is used,
+    // and the steps confirmed by the user are also included.
     if (diagnosticsOpen) {
         DiagnosticsSheet(load = { Diagnostics.render(DiagnosticsCollector.collect(context, status, inputs)) }, onDismiss = { diagnosticsOpen = false })
     }
 }
 
 /**
- * 不带状态的引导页,便于测试。步骤是一张编号清单:做完的打勾,当前一步亮起并带按钮,后面的变灰。
- * 读开关的几步都有 [onConfirmStep](「我已经打开了,下一步」);做完的步骤可以点,[onRevisit] 回去重做,传 null 是回到原来的步骤。
- * [onboarding] 为真时是首次上手的最后一步,底部多一排分页点。[onSubmit] 收到的码已经校验过是 6 位数字。
- * 配对一步通知发不出来时([SetupView.needsNotifications]),先修通知是主按钮:[onAllowNotifications] 或 [onOpenPairingChannel]。
- * [onDiagnostics] 不为空时底部总有「复制诊断信息」,失败时出错的那一步里也有一个。
- * 除了成功,哪个阶段底部都有「稍后再说」,返回也总能离开:不把用户困在这一页。
- * [scanning] 为真时连接一步说明正在本机找端口;连不上时 [onConnectPort] 收用户填的无线调试端口(已校验 1–65535)。
- * [usbCommand] 不为空时才有「改用电脑启动」:平时不出现,只在无线调试一步有一行「找不到无线调试?」([onAskUsb]);
- * [SetupView.usbFallback] 为真时,在当前这一步里给一张卡片,是一句说明、命令和复制按钮([onCopyUsbCommand])。
- * [SetupPhase.Unavailable] 时这个环境设置不了手机操作:只有一张说明卡片和「知道了」,不列步骤。
+ * A stateless boot page for easy testing. The steps are a numbered list: those that are completed are
+ * ticked, the current step lights up with a button, and those that follow are grayed out. Several steps
+ * of reading the switch include [onConfirmStep] ("I've turned it on, next step"); you can click
+ * [onRevisit] to go back and redo the completed steps, and pass null to return to the original steps.
+ * When [onboarding] is true, it is the last step to get started for the first time, and there will be an
+ * extra row of pagination points at the bottom. [onSubmit] The received code has been verified to be a
+ * 6-digit number. When the one-step pairing notification cannot be sent
+ * ([SetupView.needsNotifications]), the first notification is the main button: [onAllowNotifications] or
+ * [onOpenPairingChannel]. There is always "Copy Diagnostic Information" at the bottom when
+ * [onDiagnostics] is not empty, and there is also one in the error step when it fails. In addition to
+ * success, there is "I'll talk about it later" at the bottom of every stage, and you can always leave
+ * when you return: the user is not trapped on this page. When [scanning] is true, the connection step
+ * indicates that the machine is looking for a port; when it cannot be connected, [onConnectPort]
+ * receives the wireless debugging port filled in by the user (verified 1–65535). [usbCommand] is not
+ * empty, "Start using computer instead" will appear: it does not usually appear, but only in the
+ * wireless debugging step there is a line "Cannot find wireless debugging?" ([onAskUsb]); when
+ * [SetupView.usbFallback] is true, a card is given in the current step, which is a description, command
+ * and copy button ([onCopyUsbCommand]). For [SetupPhase.Unavailable], this environment cannot be set up
+ * for mobile phone operation: there is only an instruction card and "Got it", without any steps.
  */
 @Composable
 fun PhoneSetupContent(
@@ -269,7 +291,8 @@ fun PhoneSetupContent(
             TopBar(PhoneSetupCopy.BAR_TITLE, MinaIcons.Back, onClose, stringResource(R.string.back))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                 if (view.phase == SetupPhase.Unavailable) {
-                    // 这个环境没有能起助手的路:只说明,不列走不通的步骤
+                    // There is no way to become an assistant in this environment: only explanations, not
+                    // steps that lead to failure.
                     GroupCard {
                         Column(Modifier.padding(16.dp).testTag("setup-unavailable")) {
                             Text(PhoneSetupCopy.UNAVAILABLE, style = MinaType.Body, fontWeight = FontWeight.SemiBold, color = c.ink)
@@ -328,7 +351,8 @@ fun PhoneSetupContent(
                         Modifier.fillMaxWidth().testTag("setup-done"),
                     )
                     SetupPhase.Unavailable -> MinaButton(stringResource(R.string.ok_got_it), onClose, Modifier.fillMaxWidth().testTag("setup-got-it"))
-                    // 正在连接、连不上时也能先离开,之后在设置里接着弄
+                    // When connecting or unable to connect, you can leave first and then continue in the
+                    // settings.
                     SetupPhase.Guide, SetupPhase.Working, SetupPhase.Failed -> MinaButton(
                         PhoneSetupCopy.LATER, onClose, Modifier.fillMaxWidth().testTag("setup-later"),
                         kind = ButtonKind.Text, size = ButtonSize.Medium,
@@ -346,8 +370,10 @@ fun PhoneSetupContent(
 }
 
 /**
- * 另一条路:用电脑经 USB 数据线起助手。放在当前这一步里,和这一步的其他提示一样是一块浅色底:标题、一句说明、命令和复制按钮。
- * 助手本来就是这样起的([HelperRestart.UsbCommand])时,标题说「再运行一次」。
+ * Another way: Use a computer to start the assistant via a USB data cable. Placed in the current step,
+ * it has the same light-colored background as the other prompts in this step: the title, a description,
+ * the command and the copy button. When the assistant originally started like this
+ * ([HelperRestart.UsbCommand]), the title said "Run it again".
  */
 @Composable
 private fun UsbStartCard(restart: HelperRestart, command: String, onCopy: () -> Unit) {
@@ -435,15 +461,17 @@ private fun CurrentStepBody(
             Text(fc.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MinaTheme.colors.bad)
             Text(fc.body, Modifier.padding(top = 2.dp), fontSize = 13.sp, lineHeight = 18.sp, color = MinaTheme.colors.ink2)
         }
-        // 要再运行 USB 命令时,下面的卡片里就有命令和复制按钮,不再重复一个
+        // When you want to run USB commands again, there are commands and copy buttons in the card
+        // below, so you don’t need to repeat one.
         if (f.fix != BuiltinShellFix.RunUsbCommand || !view.usbFallback) {
             PillButton(PhoneSetupCopy.fixLabel(f.fix), primary = true, tag = "setup-fix") { onFailureFix(f.fix) }
         }
-        // 自动找不到端口:让用户照着「无线调试」页面填
+        // Port not found automatically: Ask the user to fill in the information according to the
+        // "Wireless Debugging" page
         if (step == SetupStep.Connect && f.reason == BuiltinShellFailure.ConnectFailed) onConnectPort?.let { ConnectPort(it) }
         if (view.phase == SetupPhase.Failed) onDiagnostics?.let { LinkText(PhoneSetupCopy.DIAGNOSTICS, "setup-diagnostics-failed", it) }
     }
-    // 没成功时最可能的原因在前面哪一步:说清楚,给回去的按钮
+    // Which step is the most likely reason for failure: Make it clear and give the go back button
     view.suspect?.let { s ->
         Text(
             PhoneSetupCopy.suspect(s),
@@ -453,7 +481,8 @@ private fun CurrentStepBody(
         )
         PillButton(PhoneSetupCopy.goBackTo(s.step), primary = view.failure == null, tag = "setup-suspect-back") { onRevisit(s.step) }
     }
-    // 没有无障碍时配对码只能填在通知里:通知发不出来就先修它,这是这一步的主按钮
+    // When there is no accessibility, the pairing code can only be filled in the notification: if the
+    // notification cannot be sent, fix it first. This is the main button for this step.
     val fixNotificationsFirst = step == SetupStep.PairingCode && view.needsNotifications && !view.autoRead
     if (step == SetupStep.PairingCode) {
         when (view.notifyIssue) {
@@ -465,7 +494,9 @@ private fun CurrentStepBody(
                 Text(PhoneSetupCopy.PAIRING_CHANNEL_OFF, Modifier.padding(top = 8.dp), fontSize = 13.sp, lineHeight = 18.sp, color = MinaTheme.colors.warn)
                 PillButton(PhoneSetupCopy.OPEN_PAIRING_CHANNEL, primary = fixNotificationsFirst, tag = "setup-notify-fix") { onOpenPairingChannel() }
             }
-            // 不弹出也能下拉去填:只提醒,不抢主按钮;无障碍开着时用不上通知,不提
+            // You can also pull down to fill in the text without popping up: only reminding, not
+            // grabbing the main button; when accessibility is on, notifications are not needed and no
+            // mention is made.
             PairingNotifyIssue.NotHeadsUp -> if (!view.autoRead) {
                 Text(
                     PhoneSetupCopy.PAIRING_LOWERED,
@@ -489,14 +520,16 @@ private fun CurrentStepBody(
         if (view.autoRead) AutoReadHint() else NotifyGuide()
         if (view.portFound && !view.autoRead) Text(PhoneSetupCopy.PORT_FOUND, Modifier.padding(top = 8.dp), fontSize = 13.sp, color = MinaTheme.colors.ok)
     }
-    // 无障碍一步推荐跳过:配对后 Mina 自己打开,也不会被「受限制的设置」拦住
+    // Recommended skip step for accessibility: Mina can open it by itself after pairing, and will not be
+    // blocked by "restricted settings"
     val a11y = step == SetupStep.Accessibility
     if (a11y) PillButton(PhoneSetupCopy.ACCESSIBILITY_SKIP, primary = true, tag = "setup-skip-a11y", onClick = onSkipAccessibility)
     if (view.failure == null && copy.action != null) {
         PillButton(copy.action, primary = !a11y && !fixNotificationsFirst, tag = "setup-action") { onStepAction(step) }
     }
     if (a11y && view.showAppInfo) PillButton(PhoneSetupCopy.APP_INFO, primary = false, tag = "setup-app-info", onClick = onAppInfo)
-    // 读到的开关只是参考:用户说打开了就往下走,哪一步都不会卡死
+    // The switch I read is just for reference: the user said that once it is turned on, it will go down
+    // and it will not get stuck at any step.
     if (step in PhoneSetupFlow.CONFIRMABLE) PillButton(PhoneSetupCopy.TURNED_ON_NEXT, primary = false, tag = "setup-confirm") { onConfirmStep(step) }
     if (step == SetupStep.PairingCode) ManualCode(askPort = !view.portFound, onSubmit = onSubmit)
     if (view.revisiting) LinkText(PhoneSetupCopy.REVISIT_BACK, "setup-revisit-back") { onRevisit(null) }
@@ -510,7 +543,7 @@ private fun LinkText(text: String, tag: String?, onClick: () -> Unit) {
     )
 }
 
-/** 无障碍开着:去系统设置前说一句,Mina 会自己读配对码。 */
+/** Turn on accessibility: Before going to system settings, Mina will read the pairing code by itself. */
 @Composable
 private fun AutoReadHint() {
     val c = MinaTheme.colors
@@ -524,7 +557,7 @@ private fun AutoReadHint() {
     }
 }
 
-/** 无障碍没开:用三行编号小图示说清楚配对码怎么填进通知,不用离开配对窗口。 */
+/** Accessibility is not turned on: Use a small three-line numbered icon to explain how to fill in the pairing code in the notification without leaving the pairing window. */
 @Composable
 private fun NotifyGuide() {
     val c = MinaTheme.colors
@@ -546,7 +579,7 @@ private fun NotifyGuide() {
     }
 }
 
-/** 通知没弹出来时的兜底:在 App 里直接填码(找不到配对窗口时连带填端口)。 */
+/** What to do when the notification does not pop up: fill in the code directly in the App (and fill in the port when the pairing window cannot be found). */
 @Composable
 private fun ManualCode(askPort: Boolean, onSubmit: (String, Int?) -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
@@ -584,7 +617,7 @@ private fun ManualCode(askPort: Boolean, onSubmit: (String, Int?) -> Unit) {
     }
 }
 
-/** 用户填的无线调试端口:可能整段粘了「IP 地址和端口」(取最后一个冒号后面)、带空格或全角数字;不在 1–65535 为 null。 */
+/** Wireless debugging port filled in by the user: "IP address and port" may be pasted in the entire paragraph (taken after the last colon), with spaces or full-width numbers; if it is not 1-65535, it will be null. */
 internal object ConnectPortInput {
     fun parse(text: String): Int? {
         val tail = text.substringAfterLast(':').substringAfterLast('：')
@@ -593,7 +626,7 @@ internal object ConnectPortInput {
     }
 }
 
-/** 连不上时的兜底:填「无线调试」页面上的端口,点「连接」。 */
+/** What to do when you can't connect: Fill in the port on the "Wireless Debugging" page and click "Connect". */
 @Composable
 private fun ConnectPort(onConnect: (Int) -> Unit) {
     var port by rememberSaveable { mutableStateOf("") }
@@ -631,9 +664,9 @@ private fun PillButton(text: String, primary: Boolean, tag: String? = null, onCl
     )
 }
 
-// ---------- 设置页「高级」 ----------
+// ---------- Setting page "Advanced" ----------
 
-/** 「高级」分组里内置助手的三行:状态、重新配对、解除配对(要确认)。没配对过时不能解除。 */
+/** There are three lines of built-in assistant in the "Advanced" group: status, re-pairing, and unpairing (confirmation required). It cannot be canceled if it is not paired. */
 @Composable
 fun PhoneHelperSection(status: BuiltinShellStatus, onRepair: () -> Unit, onUnpair: () -> Unit, usbDebugging: Boolean = true) {
     var confirming by remember { mutableStateOf(false) }
@@ -662,9 +695,9 @@ fun PhoneHelperSection(status: BuiltinShellStatus, onRepair: () -> Unit, onUnpai
     }
 }
 
-// ---------- 对话页 ----------
+// ---------- Conversation page ----------
 
-/** 任务要用手机而手机操作没准备好时,任务卡片下面的一行。 */
+/** When the task requires the use of a mobile phone and the mobile phone operation is not ready, the line below the task card. */
 @Composable
 fun PhoneSetupLine(onOpen: () -> Unit) {
     val shape = MinaShapes.Card

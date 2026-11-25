@@ -23,7 +23,7 @@ import java.io.File
 import java.security.KeyStore
 import java.util.UUID
 
-/** 一次运行结束后结果卡片下的提示;按运行编号挂到那一问一答上。 */
+/** The prompt under the result card after a run is completed; press the run number to link to that question and answer. */
 data class RunNotes(
     val conversationId: String,
     val runId: String,
@@ -32,12 +32,14 @@ data class RunNotes(
     val skillNotes: List<SkillNote> = emptyList(),
 )
 
-/** 打开「记忆与技能」的请求(结果卡片上点「看看」):[draftId] 是要看的技能草稿。 */
+/** Open the request for "Memory and Skills" (click "Look" on the result card): [draftId] is the skill draft you want to see. */
 data class MemoryOpen(val draftId: String? = null)
 
 /**
- * 记忆存储、个人技能、开关与结果卡片提示。由 App 建一份、经 [Owner] 给出:并行的几个任务共用同一个 [MemoryStore],
- * 写入由它自己的锁串行。第一次取用会读盘解密,别在主线程上调。
+ * Memory storage, personal skills, switch and outcome card prompts. Created by App and given by [Owner]:
+ * Several parallel tasks share the same [MemoryStore], and writes are serialized by its own lock. The
+ * first time it is accessed, the disk will be read and decrypted, so do not adjust it on the main
+ * thread.
  */
 class MemoryRuntime(context: Context) {
     private val app = context.applicationContext
@@ -49,11 +51,11 @@ class MemoryRuntime(context: Context) {
     private var profile: ProfileStore? = null
     private var appKnowledge: AppKnowledgeFiles? = null
 
-    /** 任务收尾后的学习在这里跑:不随服务退出而取消。 */
+    /** The learning after the task ends is run here: it is not canceled when the service exits. */
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _notes = MutableStateFlow<Map<String, RunNotes>>(emptyMap())
-    /** 运行编号 → 提示;界面据此在结果卡片下显示。 */
+    /** Run number → Prompt; the interface is displayed under the results card accordingly. */
     val notes: StateFlow<Map<String, RunNotes>> = _notes.asStateFlow()
 
     private val _open = MutableStateFlow<MemoryOpen?>(null)
@@ -64,8 +66,9 @@ class MemoryRuntime(context: Context) {
     fun publish(n: RunNotes) = _notes.update { it + (n.runId to n) }
 
     /**
-     * 记忆条目,给结果卡片现取提示文字。第一次取用时在后台读盘解密,读出之前是空的;
-     * 之后跟着存储变。
+     * Memorize the items and give the prompt text to the result card. When accessing for the first time,
+     * the disk is read and decrypted in the background. It is empty before reading; after that, the
+     * storage changes.
      */
     fun items(): StateFlow<List<MemoryItem>> {
         val out = MutableStateFlow<List<MemoryItem>>(emptyList())
@@ -91,7 +94,7 @@ class MemoryRuntime(context: Context) {
     @Synchronized fun settings(): MemorySettings =
         settings ?: MemorySettings(File(app.filesDir, "memory_settings.json")).also { settings = it }
 
-    /** 「全部清除」:记忆、另存的坏文件、个人技能与草稿都删掉,并重建记忆密钥;对话里的记忆提示也去掉。 */
+    /** "Clear All": Memories, bad saved files, personal skills and drafts are all deleted, and the memory key is rebuilt; memory prompts in conversations are also removed. */
     @Synchronized fun wipeAll() {
         store().clearAll()
         file().wipe()
@@ -102,14 +105,14 @@ class MemoryRuntime(context: Context) {
         _notes.update { m -> m.mapValues { (_, n) -> n.copy(skillNotes = emptyList()) } }
     }
 
-    /** 删掉了这些记忆([ids] 为 null = 全部):结果卡片和对话文件里不再提它们。 */
+    /** These memories are deleted (null = all for [ids]): they are no longer mentioned in the result cards and conversation files. */
     fun stripMemory(ids: Set<String>?) {
         fun keep(id: String) = ids != null && id !in ids
         _notes.update { m -> m.mapValues { (_, n) -> n.copy(memoryNotes = n.memoryNotes.filter { keep(it.memoryId) }, usedMemory = n.usedMemory.filter(::keep)) } }
         runCatching { ConversationStore.shared(app).stripMemory(ids) }
     }
 
-    /** 给出进程里那一份的 Application。 */
+    /** Give the application in the process. */
     interface Owner {
         val memory: MemoryRuntime
     }

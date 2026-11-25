@@ -1,4 +1,4 @@
 package com.meenai.mina.chat
 
-/** 导出到「下载/Mina」的一个文件,在对话里显示成文件卡片。[uri] 是 MediaStore 的内容 URI,用来打开。 */
+/** A file exported to "Download/Mina" is displayed as a file card in the dialog. [uri] is the content URI of MediaStore, used to open it. */
 data class SharedFile(val name: String, val size: Long, val savedAs: String, val uri: String)

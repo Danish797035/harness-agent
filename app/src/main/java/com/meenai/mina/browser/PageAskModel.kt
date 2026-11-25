@@ -4,15 +4,19 @@ import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.task.TaskGate
 import com.meenai.mina.task.TaskService.Companion.isActive
 
-/** 浏览器页底部此刻是什么:平时的输入条、半屏对话面板、收起来的小卡片。 */
+/** What is at the bottom of the browser page at the moment: the usual input bar, a half-screen dialogue panel, and a small folded card. */
 enum class PageAskMode { Bar, Panel, Card }
 
 /**
- * 在浏览器页上问 Mina 那一块怎么显示(纯逻辑)。[state] 是这一页的对话里此刻那件事的状态(没有为 null),
- * [open] 是面板开着(用户问了、点开了小卡片、Mina 要你回话时打开;用户收起、你在页面上动手时收起)。
- * - 面板开着就是面板;
- * - 收着、那件事还没结束:底部一张小卡片(说它此刻在做什么);你在页面上动手而暂停时卡片写「已暂停」,顶上一条「你在操作，Mina 已暂停 · 继续」;
- * - 其余(没有任务、已经结束又收起来了):平时的输入条。
+ * Ask Mina how to display the panel on the browser page (pure logic). [state] is the current status
+ * of the task in this page's conversation (null if none); [open] is whether the panel is open
+ * (opened when the user asks, taps the small card, or Mina needs a reply; closed when the user
+ * collapses it or interacts with the page).
+ * - - When the panel is open, it is the panel;
+ * - - Collect it, that thing is not over yet: a small card at the bottom (saying what it is doing at the
+ * moment); when you are working on the page and pause it, the card says "Paused", and the top one says
+ * "You are operating, Mina has been paused·Continue";
+ * - - The rest (no tasks, completed and put away): the usual input bar.
  */
 object PageAskModel {
     fun mode(state: TaskState?, open: Boolean): PageAskMode = when {
@@ -21,14 +25,14 @@ object PageAskModel {
         else -> PageAskMode.Bar
     }
 
-    /** 你在页面上亲手操作,Mina 停着等你点「继续」。 */
+    /** You work on the page yourself, and Mina waits for you to click "Continue". */
     fun pausedForUser(state: TaskState?): Boolean =
         state is TaskState.Held && state.reason.code == "paused" && state.reason.why == TaskGate.USER_ON_PAGE
 
-    /** 页面四周亮一圈光边:Mina 正在干活(不是在等你、不是暂停)。 */
+    /** A light border lights up around the page: Mina is working (not waiting for you, not pausing). */
     fun glow(state: TaskState?): Boolean = state is TaskState.Running
 
-    /** Mina 要你回话(回答、同意、接手、动一下手):从别的状态进到这里时面板自己打开。 */
+    /** Mina wants you to reply (answer, agree, take over, move your hands): The panel opens by itself when entering here from other states. */
     fun needsYou(state: TaskState?): Boolean = when (state) {
         is TaskState.WaitingInput, is TaskState.WaitingConfirmation, is TaskState.WaitingTakeover -> true
         is TaskState.Held -> state.reason.needsYou
@@ -36,8 +40,10 @@ object PageAskModel {
     }
 
     /**
-     * 状态从 [before] 变成 [after] 时面板该怎么变:true 打开、false 收起、null 不动。
-     * 你在页面上动手而暂停时收起成小卡片(让开页面);Mina 新要你回话时打开。
+     * How should the panel change when the status changes from [before] to [after]: true to open, false
+     * to close, and null to remain unchanged. When you are doing something on the page and paused, it is
+     * folded into a small card (getting out of the way of the page); when Mina wants you to reply, it is
+     * opened.
      */
     fun follow(before: TaskState?, after: TaskState?): Boolean? = when {
         pausedForUser(after) && !pausedForUser(before) -> false

@@ -9,29 +9,33 @@ import kotlinx.coroutines.CancellationException
 import java.time.ZoneId
 
 /**
- * 一个任务里用户发来的屏幕:读出说明和截图,把带屏幕的那句话换成给模型的样子(见 [UserScreenPrompt])。
- * 这一句(开局原话、插话)里的屏幕给全:那句话、截图([seesImages] 时)、详情;之前几轮里的只剩一行。
- * 没有 [source](这个入口没有用户屏幕)时那一行原样留着。
+ * Screens sent by users in a task: read out the instructions and screenshots, and replace the sentence
+ * with the screen with the one for the model (see [UserScreenPrompt]). The screen in this sentence
+ * (original words at the beginning, interjection) is full: that sentence, screenshot (at the time of
+ * [seesImages]), and details; only one line from the previous rounds is left. When there is no
+ * [source](This entrance does not have a user screen), the row is left as it is.
  */
 internal class UserScreenTurns(
     private val source: UserScreenSource?,
     private val zone: ZoneId,
     private val seesImages: Boolean,
-    /** 能问看图模型(有 view_user_screen 又有看图模型、主模型看不到图)时详情里说一声。 */
+    /** Can you please tell me the details about the view model (there is view_user_screen and there is a view model, but the main model cannot see the image). */
     private val canAskVision: Boolean,
     private val image: (ByteArray) -> Part.Image,
-    /** 这一句里给全的一屏(记进证据账本)。 */
+    /** This sentence gives Quan a full screen (recorded in the evidence ledger). */
     private val seen: (UserScreen) -> Unit = {},
 ) {
     /**
-     * 换好的一句:[said] 是用户这句话(给模型的原话),[images] 接在它里面,[details] 是紧跟着的详情(来源 → 正文);
-     * [words] 是用户自己打的字(记忆引文、意图判断、语言提示和回答的语言检查只看它)。
+     * Change the sentence: [said] is the user’s sentence (the original words given to the model),
+     * [images] is connected to it, [details] is the following details (source → text); [words] is the
+     * words typed by the user (only look at it for memory citations, intention judgment, language
+     * prompts and language checks of answers).
      */
     class Rendered(val said: String, val images: List<Part>, val details: List<Pair<String, String>>, val words: String)
 
     private val cache = HashMap<String, UserScreen?>()
 
-    /** 这句话带着屏幕时换成给模型的样子;不带时为 null。 */
+    /** When this sentence is accompanied by the screen, it is replaced by the appearance given to the model; when it is not provided, it is null. */
     suspend fun render(raw: String): Rendered? {
         val p = UserScreenMessage.parse(raw)
         if (!p.hasScreen) return null
@@ -48,7 +52,7 @@ internal class UserScreenTurns(
         return Rendered(said, images, details, p.words)
     }
 
-    /** 之前几轮里用户说的话(原话和插话):屏幕那一行收成一行说明。 */
+    /** What the user said in previous rounds (original words and interjections): Each line on the screen receives a line of explanation. */
     suspend fun collapse(turns: List<Turn>): List<Turn> {
         if (turns.none { t -> UserScreenMessage.has(t.userText) || t.steers.any(UserScreenMessage::has) }) return turns
         turns.flatMap { listOf(it.userText) + it.steers }.flatMap { UserScreenMessage.parse(it).screens }.distinct().forEach { load(it) }
@@ -56,7 +60,7 @@ internal class UserScreenTurns(
         return turns.map { t -> t.copy(userText = one(t.userText), steers = t.steers.map(::one)) }
     }
 
-    /** 回答里带着屏幕时(Mina 问你时双击了胶囊):换成一段文字,截图要看用回看工具。 */
+    /** When answering with the screen (Mina double-clicked the capsule when asking you): Change it to a paragraph of text, and use the review tool to view the screenshot. */
     suspend fun asText(raw: String): String {
         val r = render(raw) ?: return raw
         return (listOf(r.said) + r.details.map { it.second }).joinToString("\n\n")

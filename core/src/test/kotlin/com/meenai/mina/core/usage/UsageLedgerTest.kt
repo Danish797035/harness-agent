@@ -17,7 +17,7 @@ class UsageLedgerTest {
     private val hour = UsageLedger.HOUR_MS
     private var clock = 1_000 * hour + 123
     private val file get() = File(tmp.root, "usage/usage.json")
-    // 写出不靠后台定时:测试里直接调 flush
+    // Write the timing without relying on the background: call flush directly in the test
     private fun ledger() = UsageLedger(file, now = { clock }, flushDelayMs = 60_000)
 
     private val main = UsageSource("p1", "服务商甲", "m1", UsagePurpose.Main)

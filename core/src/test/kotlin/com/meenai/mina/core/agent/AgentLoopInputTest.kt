@@ -41,7 +41,7 @@ class AgentLoopInputTest {
     private fun loop(m: FakeModel, timeoutMs: Long = 15 * 60_000L, sink: RunSink = RunSink.NONE) =
         AgentLoop(m, toolDispatcher(FakeScreen()), "BASE", sink = sink, inputTimeoutMs = timeoutMs)
 
-    /** 第 [i] 次请求里配对 [c] 的工具结果,并断言后面没有另起的用户消息。 */
+    /** The tool result of [c] is matched in the [i] request, and it is asserted that there is no subsequent user message. */
     private fun FakeModel.resultFor(c: Part.ToolCall, i: Int = 1): JsonObject {
         val h = requests[i].withoutRuntime()
         val at = h.indexOfFirst { m -> m.parts.any { it is Part.ToolCall && it.id == c.id } }
@@ -58,11 +58,12 @@ class AgentLoopInputTest {
         val m = FakeModel(tools(c), finish(), finish())
         val l = loop(m)
         val run = async { l.run("t") }
-        runCurrent() // advanceUntilIdle 会把虚拟时间推过追问时限
+        runCurrent() // advanceUntilIdle will push the virtual time past the query time limit
         assertEquals(TaskState.WaitingInput("发给哪个张伟?", listOf("同事张伟", "同学张伟")), l.state.value)
         assertTrue(l.answerInput("就第一个吧"))
         com.meenai.mina.core.testing.assertAnswered(DONE, run.await())
-        // 用户答了、模型什么也没做就要交回答:提醒一次照做(或说明为什么不做),第二次照常收下
+        // If the user answers and the model does nothing, then the answer must be handed in: prompt once
+        // to do it (or explain why not to do it), and accept it as usual the second time.
         val nudge = com.meenai.mina.core.agent.ContextBuilder.bodyOf(m.requests[2].last()).orEmpty()
         assertTrue(nudge, "发给哪个张伟?" in nudge && "Carry it out" in nudge)
         assertEquals(3, m.requests.size)
@@ -76,7 +77,7 @@ class AgentLoopInputTest {
         val m = FakeModel(tools(c), finish())
         val l = loop(m)
         val run = async { l.run("t") }
-        runCurrent() // advanceUntilIdle 会把虚拟时间推过追问时限
+        runCurrent() // advanceUntilIdle will push the virtual time past the query time limit
         l.answerInput("同学张伟")
         run.await()
         assertEquals("同学张伟", m.resultFor(c).s("answer"))
@@ -97,7 +98,8 @@ class AgentLoopInputTest {
         assertEquals("No answer came within the time limit.", r.s("message")); assertEquals("true", r.s("recoverable"))
         assertEquals("false", r.s("counts_as_failure"))
         assertNull(r["answer"])
-        // 超时后才到的回答不算数,界面据此告诉用户来晚了
+        // Answers that arrive after the timeout will not count, and the interface will accordingly tell
+        // the user that they are late.
         assertFalse(l.answerInput("晚了"))
     }
 
@@ -131,7 +133,7 @@ class AgentLoopInputTest {
         val m = FakeModel(tools(ask(options = "")), finish())
         val l = loop(m, sink = sink)
         val run = async { l.run("t") }
-        runCurrent() // advanceUntilIdle 会把虚拟时间推过追问时限
+        runCurrent() // advanceUntilIdle will push the virtual time past the query time limit
         l.answerInput("验证码 834921")
         run.await()
         assertFalse(sink.events.toString(), "834921" in sink.events.toString())

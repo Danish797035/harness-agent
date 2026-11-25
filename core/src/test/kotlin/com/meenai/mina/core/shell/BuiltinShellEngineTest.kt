@@ -26,7 +26,7 @@ class BuiltinShellEngineTest {
         var wifi = true
         var pairingPort: Int? = 37000
         var pairError: AdbPairingException.Reason? = null
-        /** 每次起助手的结果:null = 成功并交接,其余抛对应异常;用完后一直成功。 */
+        /** The result of each start of the assistant: null = success and handover, the rest will throw corresponding exceptions; it will always be successful after use. */
         val launchResults = ArrayDeque<AdbConnectionException.Reason?>()
         var deliverOnLaunch = true
         var keyUnreadable = false
@@ -36,7 +36,7 @@ class BuiltinShellEngineTest {
         override fun setPaired(paired: Boolean) { pairedFlag = paired; calls += "paired=$paired" }
         override fun wirelessDebugging() = wireless
         override fun wifiConnected() = wifi
-        /** 配对窗口没开([pairingPort] 为 null)时找满时限才说没找到。 */
+        /** When the pairing window is not open ([pairingPort] is null), the search time limit will be exceeded before it is not found. */
         override suspend fun findPairingPort(timeoutMs: Long) = pairingPort ?: run { delay(timeoutMs); null }
         override fun pair(port: Int, code: String) {
             calls += "pair $port $code"
@@ -62,13 +62,14 @@ class BuiltinShellEngineTest {
         autoOn: WirelessDebuggingAutoOn? = null,
     ) =
         BuiltinShellEngine(
-            // 不用 backgroundScope:advanceUntilIdle 不等后台任务,看门狗的重试会被跳过
+            // Without backgroundScope:advanceUntilIdle, the watchdog retry will be skipped without
+            // waiting for background tasks.
             platform, helper, CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler)),
             StandardTestDispatcher(testScheduler), backoff,
             graceMs = 3_000, handoffTimeoutMs = 10_000, autoOn = autoOn,
         )
 
-    /** 替用户打开无线调试:写的是假平台的开关;[revert] 为 true 时像不允许的 Wi-Fi 那样,写完马上被系统拨回。 */
+    /** Turn on wireless debugging for the user: What is written is the switch of the fake platform; when [revert] is true, it will be called back by the system as soon as the Wi-Fi is not allowed. */
     private var wants = true
     private var revert = false
     private var switchWrites = 0
@@ -130,7 +131,7 @@ class BuiltinShellEngineTest {
         assertEquals(BuiltinShellStatus.Failed(BuiltinShellFailure.PairingWindowClosed), e.status.value)
     }
 
-    /** 诊断信息用的最近一次出错:异常类别、原因和说明;连上后清空。 */
+    /** The latest error used for diagnostic information: exception category, reason and description; cleared after connection. */
     @Test
     fun lastErrorRecordedAndClearedOnSuccess() = runTest {
         val e = engine()
@@ -154,7 +155,8 @@ class BuiltinShellEngineTest {
         runCurrent()
         assertEquals(BuiltinShellStatus.Connecting, e.status.value)
         advanceTimeBy(2_000)
-        // 还活着的助手在宽限期内交接了:不用再经 adbd 起
+        // The still-living assistant was handed over within the grace period: no need to go through adbd
+        // anymore
         helper.value = "old"
         advanceUntilIdle()
         assertEquals(BuiltinShellStatus.Running, e.status.value)
@@ -188,7 +190,7 @@ class BuiltinShellEngineTest {
         advanceTimeBy(1_001)
         assertEquals(1, launches())
         assertEquals(BuiltinShellStatus.Failed(BuiltinShellFailure.ConnectFailed), e.status.value)
-        // 第 1 次失败后等 1 s,第 2 次失败后等 2 s
+        // Wait 1 s after the first failure and wait 2 s after the second failure.
         advanceTimeBy(1_001)
         assertEquals(2, launches())
         advanceTimeBy(1_000)
@@ -311,14 +313,15 @@ class BuiltinShellEngineTest {
         assertEquals(1, switchWrites)
         assertEquals(0, launches())
 
-        // 要用助手、开关又变了:不再写(每写一次系统就弹一次框)
+        // To use the assistant, the switch has changed again: no longer write (the system will pop up a
+        // box every time you write)
         e.need()
         e.wirelessDebuggingChanged()
         advanceUntilIdle()
         assertEquals(1, switchWrites)
         assertEquals(BuiltinShellStatus.Failed(BuiltinShellFailure.WifiNotAllowed), e.status.value)
 
-        // 换到了允许过的 Wi-Fi:再写一次,这次开着
+        // Switched to allowed Wi-Fi: write again, this time on
         revert = false
         e.wifiAvailable()
         advanceUntilIdle()
@@ -334,7 +337,7 @@ class BuiltinShellEngineTest {
         val e = engine(autoOn = autoOn())
         e.retry()
         assertEquals(1, switchWrites)
-        // 用户在系统弹框里允许了、再点重试
+        // The user allows it in the system pop-up box and clicks Retry.
         revert = false
         e.retry()
         assertEquals(2, switchWrites)
@@ -407,7 +410,7 @@ class BuiltinShellEngineTest {
         assertEquals(0, launches())
     }
 
-    /** 电脑经 USB 起的助手没配对也收下:状态是运行中,并记下「是电脑起的」;手机操作和配对过的一样可用。 */
+    /** Even if the USB assistant from the computer is not paired, accept it: the status is running, and note "it is from the computer"; the mobile phone operation is the same as the paired one. */
     @Test
     fun usbStartedHelperRunsWithoutPairing() = runTest {
         val e = engine()
@@ -422,7 +425,7 @@ class BuiltinShellEngineTest {
         assertEquals(0, launches())
     }
 
-    /** 没配对时电脑起的助手停了:不当作从没设置过,说它停了;Mina 自己不去起(起不来)。 */
+    /** When the assistant is not paired, the assistant on the computer stops: it is not considered to have been set up before, and it is said to be stopped; Mina does not start on its own (cannot get up). */
     @Test
     fun usbHelperStoppingSaysSoAndDoesNotLaunch() = runTest {
         val e = engine()
@@ -437,12 +440,12 @@ class BuiltinShellEngineTest {
         advanceUntilIdle()
         assertEquals(BuiltinShellStatus.Failed(BuiltinShellFailure.UsbHelperStopped), e.status.value)
         assertEquals(0, launches())
-        // 再运行一次命令,不是去配对无线调试
+        // Run the command again, not for pairing wireless debugging
         assertEquals(BuiltinShellFix.RunUsbCommand, (e.status.value as BuiltinShellStatus.Failed).fix)
         assertEquals(HelperRestart.UsbCommand, e.restart)
     }
 
-    /** 用着用着断了(比如助手正在换一个新的来交接):先显示正在连接,等一会儿还没回来才说停了。 */
+    /** It was disconnected after being used (for example, the assistant was replacing a new one to hand over): it first showed that it was connecting, and after a while it didn't come back before it said it was stopped. */
     @Test
     fun usbHelperDropMidRunGetsAGraceBeforeStopped() = runTest {
         val e = engine()
@@ -454,7 +457,8 @@ class BuiltinShellEngineTest {
         assertEquals(BuiltinShellStatus.Connecting, e.status.value)
         advanceTimeBy(2_000)
         assertEquals(BuiltinShellStatus.Connecting, e.status.value)
-        // 换手完成:新的助手来交接,一直没有闪成「已停止」
+        // The change of hands is completed: the new assistant comes to take over, but it never flashes
+        // "stopped"
         helper.value = "usb2"
         runCurrent()
         assertEquals(BuiltinShellStatus.Running, e.status.value)
@@ -463,7 +467,7 @@ class BuiltinShellEngineTest {
         assertEquals(0, launches())
     }
 
-    /** 助手停了以后靠什么再起来:没设置、只用 USB 命令起过、配对过无线调试(配对过优先,哪怕上次是用命令起的)。 */
+    /** What to rely on to start the assistant again after it is stopped: no settings, only using USB commands to start it, and pairing and wireless debugging (pairing is given priority, even if it was started with a command last time). */
     @Test
     fun restartRouteFollowsHowTheHelperCameUp() = runTest {
         val e = engine()
@@ -477,7 +481,7 @@ class BuiltinShellEngineTest {
         assertEquals(HelperRestart.Wireless, e.restart)
     }
 
-    /** 重启后(新进程)助手没来交接:先等一会儿(还活着的会自己来),等不到才说它停了。 */
+    /** After restarting (new process), the assistant did not come to hand over: wait for a while (the one that is still alive will come by itself), and then it will say that it has stopped when it cannot wait. */
     @Test
     fun afterRestartUsbHelperGetsAGraceThenStopped() = runTest {
         platform.usb = true
@@ -502,7 +506,7 @@ class BuiltinShellEngineTest {
         assertEquals(BuiltinShellStatus.Running, e.status.value)
     }
 
-    /** 配对过就照旧由看门狗经无线调试重起,不提示跑命令。 */
+    /** After pairing, it will still be restarted by the watchdog through wireless debugging, without prompting to run commands. */
     @Test
     fun pairedUsbHelperIsRestartedWireless() = runTest {
         platform.usb = true
@@ -514,7 +518,7 @@ class BuiltinShellEngineTest {
         assertEquals(1, launches())
     }
 
-    /** 解除配对把「电脑起过」也忘掉:之后是没设置,不是「停了」。 */
+    /** Unpair and forget about "starting the computer": there is no setting after that, it is not "stopped". */
     @Test
     fun unpairForgetsUsbStart() = runTest {
         val e = engine()
@@ -538,7 +542,7 @@ class BuiltinShellEngineTest {
         assertEquals(PairingDiscovery.Idle, e.pairingDiscovery.value)
     }
 
-    /** 还在找时再开始一次(用户又回到配对这件事上),找的时限从这时重新算,不按第一次开始的时候收工。 */
+    /** If you start again while still searching (the user returns to the matter of pairing), the search time will be recalculated from this point on and the work will not end at the first start. */
     @Test
     fun startingDiscoveryAgainRestartsTheSearchTime() = runTest {
         val e = engine()

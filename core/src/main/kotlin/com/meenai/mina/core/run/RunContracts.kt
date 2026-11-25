@@ -8,16 +8,16 @@ import com.meenai.mina.core.agent.Turn
     override fun toString(): String = value
 }
 
-/** 一次运行的不可变开局信息。后续步骤会补能力、资源预算与审批快照。 */
+/** Immutable opening information for one run. Subsequent steps will include capabilities, resource budgets, and approval snapshots. */
 data class RunSpec(
     val id: RunId,
     val goal: String,
     val threadId: String,
     val priorTurns: List<Turn> = emptyList(),
     val provenance: RunProvenance = RunProvenance(),
-    /** null 表示默认能力；子 Run 可给严格子集。 */
+    /** null indicates default capabilities; sub-Run can give strict subsets. */
     val capabilities: Set<String>? = null,
-    /** 条件检查 Run 只允许读取；网页导航作为取得读取对象的准备动作例外。 */
+    /** Conditional check Run only allows reading; the exception is web navigation as a preparatory action to obtain the read object. */
     val readOnly: Boolean = false,
     val parent: RunId? = null,
     val stepBudget: Int? = null,
@@ -25,14 +25,16 @@ data class RunSpec(
     init { require(goal.isNotBlank() && threadId.isNotBlank()) }
 }
 
-/** 从本次对话送给运行的输入。取消走控制通道,不会等在插话队列里。 */
+/** Input is given to the run from this session. If you cancel the control channel, you will not wait in the interrupt queue. */
 sealed interface RunInput {
     /**
-     * 插话是补充:撤掉还在等的模型请求,接在已有历史后面重问(做过的一概保留);正在执行的工具照常做完、结果照记,
-     * 撤掉也不丢东西的等待提前结束(见 [waitOrSteer])。
+     * The interjection is a supplement: Cancel the model request that is still waiting, and ask again
+     * after the existing history (retain all the ones that have been done); the tool being executed is
+     * completed as usual, the results are remembered, and the waiting ends early without losing anything
+     * (see [waitOrSteer]).
      */
     data class Steer(val messageId: String, val text: String) : RunInput
-    /** 和 [Steer] 走同一条路(旧入口的名字)。 */
+    /** Take the same road as [Steer] (the name of the old entrance). */
     data class Redirect(val messageId: String, val text: String) : RunInput
     data class Answer(val text: String, val askId: String? = null) : RunInput
     data class Confirm(val choice: ConfirmChoice, val askId: String? = null) : RunInput

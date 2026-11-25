@@ -60,9 +60,12 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.withContext
 
 /**
- * 这一页列的一个任务和它的虚拟屏:[displayId] 为 -1 是还没建屏(排队中,或者纯对话、还没打开过 App)。
- * [foreground] 是那块屏最上面那个 App 的显示名;还没查到、或手机操作没连着时为 null。[web] 为 true 时在用内置浏览器。
- * 屏号只用来排序和取画面,不给用户看。
+ * A task and its virtual screen are listed on this page: [displayId] is -1, which means the screen has
+ * not been created yet (it is in the queue, or it is a pure conversation, and the app has not been
+ * opened yet). [foreground] is the display name of the App at the top of the screen; it is null when it
+ * has not been found or the mobile phone operation is not connected. When [web] is true, the built-in
+ * browser is used. The screen number is only used for sorting and taking pictures, and is not shown to
+ * the user.
  */
 data class ScreenRow(
     val key: String,
@@ -72,20 +75,23 @@ data class ScreenRow(
     val state: TaskState,
     val foreground: String? = null,
     val web: Boolean = false,
-    /** 这个任务到此刻做过几件事;变了就重查一次最上面的 App。 */
+    /** This task has been done several times so far; if it changes, recheck the top App. */
     val acted: Int = 0,
 )
 
-/** 列表的顺序:建了屏的在前(按建屏先后),还没建屏的排在后面(保持原来的先后)。 */
+/** The order of the list: Those with screens built are at the front (according to the order of screen creation), and those with screens not yet built are at the back (keep the original order). */
 fun orderedScreens(rows: List<ScreenRow>): List<ScreenRow> =
     rows.filter { it.displayId >= 0 }.sortedBy { it.displayId } + rows.filter { it.displayId < 0 }
 
 /**
- * 侧栏「进行中」旁边进来的「后台屏」页:每个在跑的任务一张卡,写它在做什么、正在用哪个 App、状态,能展开看实时画面。
- * 只读——停任务、回对话还是在对话页和胶囊里做;点卡片回到任务所在的对话。
+ * The "Backstage Screen" page that comes in next to "In Progress" in the sidebar: Each running task has
+ * a card, writing what it is doing, which App it is using, and its status. You can expand it to see the
+ * real-time screen. Read-only - stop the task, return to the dialogue, or do it in the dialogue page and
+ * capsule; click the card to return to the dialogue where the task is located.
  *
- * 数据取自各任务自己的流(状态、屏、画面、做过的事),不是服务对外的「显示中的任务」那一份:
- * 并行时没在显示的那几块屏照样是实的。最上面的 App 只在任务又做了一件事时重查,不轮询。
+ * The data is taken from each task's own stream (status, screen, picture, and done things), not from the
+ * "displayed tasks" that serve the outside world: the screens that are not displayed in parallel are
+ * still real. The top App only rechecks when the task does another thing, without polling.
  */
 @Composable
 fun ScreensScreen(taskState: TaskCenterState, onBack: () -> Unit, onOpenConversation: (String) -> Unit) {
@@ -98,7 +104,8 @@ fun ScreensScreen(taskState: TaskCenterState, onBack: () -> Unit, onOpenConversa
             rows = emptyList()
             return@LaunchedEffect
         }
-        // 每个任务的状态、屏、浏览器、做过的事各有自己的流:合起来,哪一个变了都跟着重排
+        // Each task's status, screen, browser, and things done have their own flows: together, any
+        // changes will be rearranged.
         combine(list.map { run ->
             combine(run.state, run.displayId, run.webOpen, run.activities) { s, id, web, acts ->
                 ScreenRow(run.key, run.conversationId, run.goal, id, s, web = web, acted = acts.size)
@@ -106,7 +113,8 @@ fun ScreensScreen(taskState: TaskCenterState, onBack: () -> Unit, onOpenConversa
         }) { it.toList() }.collect { rows = it }
     }
 
-    // 有屏的任务和它们做过几件事:任何一个又做了一件事,才重问一次各块屏最上面的 App
+    // Tasks with screens and how many things they have done: If any one of them does something again,
+    // the app on the top of each screen will be asked again.
     val probe = remember(rows) { rows.filter { it.displayId >= 0 }.map { it.displayId to it.acted } }
     var foreground by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
     LaunchedEffect(probe) { foreground = foregroundOf(context, probe.map { it.first }) }
@@ -120,8 +128,9 @@ fun ScreensScreen(taskState: TaskCenterState, onBack: () -> Unit, onOpenConversa
 }
 
 /**
- * 不带状态的那一页,便于测试:[rows] 已经排好序、已经填好最上面的 App。
- * [frames] 按任务编号给出那块屏的画面;给了才在展开时订阅。
+ * The page without status is convenient for testing: [rows] has been sorted and the top App has been
+ * filled in. [frames] gives the picture of that screen according to the task number; it will be
+ * subscribed when it is expanded.
  */
 @Composable
 fun ScreensContent(
@@ -140,7 +149,7 @@ fun ScreensContent(
     }
 }
 
-/** 一个任务:在做什么、正在用哪个 App、状态;点这一行回到它的对话,点「看画面」展开实时画面。 */
+/** A task: what you are doing, which app you are using, and status; click this line to return to its dialogue, and click "View Screen" to expand the real-time screen. */
 @Composable
 private fun ScreenCard(row: ScreenRow, frames: StateFlow<Bitmap?>?, onOpenConversation: (String) -> Unit) {
     val c = MinaTheme.colors
@@ -163,8 +172,9 @@ private fun ScreenCard(row: ScreenRow, frames: StateFlow<Bitmap?>?, onOpenConver
 }
 
 /**
- * 这块屏的实时画面:每秒最多 5 张,和上一张一样就不换(见 [previewFrames])。收起时不订阅。
- * 点一下放大到整屏,可以捏合缩放、拖动——字小的界面在这一小块里看不清。
+ * Real-time pictures of this screen: up to 5 pictures per second, the same as the previous picture (see
+ * [previewFrames]). Collapse without subscribing. Click to enlarge to the full screen, and you can pinch
+ * to zoom and drag - the interface with small fonts cannot be seen clearly in this small area.
  */
 @Composable
 private fun LiveFrame(source: StateFlow<Bitmap?>) {
@@ -182,7 +192,7 @@ private fun LiveFrame(source: StateFlow<Bitmap?>) {
     if (zoom) FrameZoom(bmp) { zoom = false }
 }
 
-/** 放大的那块屏:整屏、捏合缩放(1–6 倍)、拖动看边角;点外面或按返回关掉。 */
+/** Magnified screen: full screen, pinch to zoom (1-6 times), drag to look at corners; click outside or press Return to close. */
 @Composable
 private fun FrameZoom(frame: Bitmap, onDismiss: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -207,7 +217,7 @@ private fun FrameZoom(frame: Bitmap, onDismiss: () -> Unit) {
     }
 }
 
-/** 问内置助手每块屏最上面是哪个 App,再换成显示名。助手没连着就都不查(这只影响前景那一行)。 */
+/** Ask the built-in assistant which app is on top of each screen, and then change it to the display name. The assistant will not check if it is not connected (this only affects the foreground row). */
 private suspend fun foregroundOf(context: Context, ids: List<Int>): Map<Int, String> {
     if (ids.isEmpty()) return emptyMap()
     val hub = runCatching { PhoneServices.of(context).hub }.getOrNull() ?: return emptyMap()
@@ -223,10 +233,10 @@ private suspend fun foregroundOf(context: Context, ids: List<Int>): Map<Int, Str
     }
 }
 
-/** 目标在列表里只占一行:换行和连续空白并成一个空格。 */
+/** The target occupies only one line in the list: newlines and consecutive whitespace are combined into one space. */
 private fun String.oneLine(): String = replace(Regex("\\s+"), " ").trim()
 
-/** 页面上的全部文字:不写屏号、像素、密度这些开发用的东西,只说任务在做什么、在用什么、到哪一步了。 */
+/** All the text on the page: do not write things such as screen number, pixels, density, etc. for development, just talk about what the task is doing, what is being used, and what step it has reached. */
 object ScreensCopy {
     val TITLE: String get() = tr(R.string.screens_title)
     val EMPTY: String get() = tr(R.string.screens_empty)
@@ -234,7 +244,7 @@ object ScreensCopy {
     val PREVIEW: String get() = tr(R.string.screens_preview)
     val HIDE_PREVIEW: String get() = tr(R.string.screens_hide_preview)
 
-    /** 卡片第二行:正在用哪个 App(或浏览器);还没打开 App、或暂时看不到时各有一句。 */
+    /** The second line of the card: Which App (or browser) you are using; there is a sentence for each app when it has not been opened or cannot be seen temporarily. */
     fun place(row: ScreenRow): String = when {
         row.web -> tr(R.string.screens_using_browser)
         row.displayId < 0 -> tr(R.string.screens_no_app)
@@ -245,7 +255,8 @@ object ScreensCopy {
     fun state(state: TaskState): String = when (state) {
         TaskState.Idle -> tr(R.string.screens_waiting)
         is TaskState.Running -> tr(R.string.task_running)
-        // 只是等条件(锁屏、助手重连)的不算要你处理;要你在手机上动一下手的才算
+        // Just waiting for conditions (lock screen, assistant reconnection) does not require you to deal
+        // with it; it does require you to move your hands on the phone.
         is TaskState.Held -> if (state.reason.needsYou) tr(R.string.screens_needs_you) else tr(R.string.screens_waiting)
         is TaskState.WaitingTakeover, is TaskState.WaitingInput, is TaskState.WaitingConfirmation -> tr(R.string.screens_needs_you)
         is TaskState.Succeeded -> tr(R.string.task_done)

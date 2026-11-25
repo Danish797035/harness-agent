@@ -25,43 +25,48 @@ import kotlinx.serialization.Serializable
 enum class AppKnowledgeStage { Draft, Trial, Verified, Archived }
 
 /**
- * 一个 App 的自学知识补充(只写事实的短清单,附在这个 App 的说明后面)的一个版本。
- * [lesson]:从没办成或磕磕绊绊的运行里学的;[revises]:起草时这个 App 在用的那份补充,这份是它的修订(第一次补充为 null)。
+ * A version of the App's Self-Study Knowledge Supplement (a short list of just facts, attached to the
+ * App's description). [lesson]: Learned from unfinished or stumbling operations; [revises]: The
+ * supplement used by this App when drafting, this is its revision (the first supplement is null).
  */
 @Serializable
 data class AppKnowledgeDraft(val id: String, val appName: String, val packageName: String,
     val markdown: String, val sourceRun: String, val stage: AppKnowledgeStage, val createdAt: Long,
     val trialOutcomes: List<Boolean> = emptyList(), val lesson: Boolean = false, val revises: String? = null,
-    /** 给用户看的 App 名字(如「设置」);旧记录没有,界面退回 [appName]。 */
+    /** App name shown to the user (such as "Settings"); there is no old record, and the interface returns to [appName]. */
     val display: String = "")
 
-/** 注入时附在 App 说明后面的自学补充;[trial] 为 true 时还在试用,没被办成的任务用过。 */
+/** The self-study supplement attached to the App description when injected; when [trial] is true, it is still on trial and has not been used for completed tasks. */
 data class LearnedNote(val text: String, val trial: Boolean)
 
 
 /**
- * 自学的 App 知识。每个 App 至多一份待确认的([AppKnowledgeStage.Draft])、只注入一份([inUse])。
- * 收下的修订试用期间暂时顶替它修订的那份(那份不注入、也不删);修订转正式才把旧的归档,修订被归档就换回旧的。
+ * Self-taught app knowledge. Each App has at most one to be confirmed ([AppKnowledgeStage.Draft]) and
+ * only one injected ([inUse]). The accepted revision temporarily replaces the revised copy (that copy is
+ * not injected or deleted) during the trial period; the old revision is archived when the revision is
+ * made official, and the old revision is replaced when the revision is archived.
  */
 interface AppKnowledgeDraftStore {
     fun all(): List<AppKnowledgeDraft>
-    /** 同一个 App 已有待确认的,或 [AppKnowledgeDraft.revises] 不是现在注入的那份(过时的修订),就不收,返回 false。 */
+    /** If the same App already needs to be confirmed, or [AppKnowledgeDraft.revises] is not the one injected now (outdated revision), it will not be accepted and false will be returned. */
     fun putPending(draft: AppKnowledgeDraft): Boolean
     /**
-     * 修订的不是现在注入的那份(过时了)就不收,当场归档,返回 false。收下、归档和试用改了在用的那份之后,
-     * 同一个 App 过时的待确认修订一并归档,不让它挡住往后的草稿。
+     * If the revised copy is not the one injected now (outdated), it will be archived on the spot and
+     * false will be returned. After accepting, archiving, and trial changes to the one you are currently
+     * using, the outdated and pending revisions of the same app are archived together to prevent them
+     * from blocking future drafts.
      */
     fun approve(id: String): Boolean
     fun reject(id: String): Boolean
-    /** 用过试用中那份的运行结束了:[good] 是这次算办成([LearnGate]);按 [AppKnowledgeTrial.next] 转正式、留着或归档。 */
+    /** The run of the trial copy is over: [good] is calculated this time ([LearnGate]); press [AppKnowledgeTrial.next] to convert to official, keep or archive. */
     fun recordTrial(appName: String, good: Boolean): AppKnowledgeDraft?
     fun notes(): Map<String, LearnedNote>
 
-    /** 这个 App 现在注入的那份补充。 */
+    /** That complement that this app now injects. */
     fun inUse(appName: String): AppKnowledgeDraft? = AppKnowledgeTrial.inUse(all(), appName)
 }
 
-/** 试用结果怎么改阶段;和个人技能一样:顺利办成的转正式,从教训学来的要连着两次不好才归档,别的一次不好就归档。 */
+/** How to change the stage of the trial results; it is the same as personal skills: if it is successfully completed, it will be transferred to the formal level. If it is learned from experience, it should be filed if it fails twice in a row, and if it fails once, it will be filed. */
 object AppKnowledgeTrial {
     const val LESSON_BAD_STREAK = 2
 
@@ -76,7 +81,7 @@ object AppKnowledgeTrial {
         return d.copy(stage = stage, trialOutcomes = outcomes)
     }
 
-    /** [rows] 里 [appName] 注入的那份:试用或已核实,且没被一份试用中的修订暂时顶替。 */
+    /** The copy injected by [appName] in [rows]: Trial or verified, and has not been temporarily replaced by a revision in trial. */
     fun inUse(rows: List<AppKnowledgeDraft>, appName: String): AppKnowledgeDraft? {
         val app = rows.filter { it.appName == appName }
         val shadowed = app.filter { it.stage == AppKnowledgeStage.Trial }.mapNotNull { it.revises }.toSet()
@@ -84,22 +89,27 @@ object AppKnowledgeTrial {
     }
 }
 
-/** 起草要看的一次运行:[end] 和 [outcome] 是它的结局与交出回答后判的结局。 */
+/** A run to watch for drafting: [end] and [outcome] are its endings with handoffs answering the call. */
 data class AppRunInput(
     val runId: String, val goal: String, val end: TaskState, val outcome: RunOutcome, val events: List<RunEvent>, val tools: ToolIndex,
 )
 
 /**
- * 一次运行在某个 App 里的经过属于哪种:[Done] 顺利办成;[Bumpy] 办成了但途中出错、界面没变或来回返回;
- * [NotDone] 没办成或只办成一部分。后两种是「下次能少走弯路」的教训。[wire] 是请求里写给模型的结局。
+ * What kind of process does a run in an App belong to: [Done] was successfully completed; [Bumpy] was
+ * completed but errors occurred on the way, the interface did not change, or it returned back and forth;
+ * [NotDone] was not completed or only partially completed. The latter two are lessons for "taking less
+ * detours next time". [wire] is the ending written to the model in the request.
  */
 enum class AppRunKind(val wire: String) { Done("done"), Bumpy("bumpy"), NotDone("not_done") }
 
 /**
- * 把一次运行在某个 App 里的经过,写成对这个 App 知识补充的修订:请一次模型(不带工具),交给它这个 App 的内置说明、
- * 在用的补充、结局和精简的动作清单(带出错码、界面变没变),要回补充改完以后的全文;没有值得补的(最常见)什么也不产出。
+ * Write the process of running an app once as a revision of the app's knowledge supplement: ask for a
+ * model (without tools), give it the built-in description of the app, the supplements in use, the
+ * ending, and a streamlined action list (with error codes, interface changes), and ask for the full text
+ * after the modification; if there is nothing worth adding (the most common), nothing will be produced.
  *
- * 交回的补充照原样收;写了密码、验证码这类东西的整份不收。
+ * The returned supplements will be accepted as they are; the complete copies with passwords and
+ * verification codes will not be accepted.
  */
 class AppKnowledgeDrafter(private val model: ChatModel) {
     suspend fun draft(run: AppRunInput, app: KnowledgeEntry, builtIn: String?, current: AppKnowledgeDraft?, id: String, atMs: Long): AppKnowledgeDraft? {
@@ -107,7 +117,9 @@ class AppKnowledgeDrafter(private val model: ChatModel) {
         if (Eligibility.interrupted(run.events) != null || run.events.any { it is RunEvent.Replay && it.matched }) return null
         val lines = ActionDigest.of(run.events, run.tools).filter { it.where in app.packages }
         val kind = kind(run.end, run.outcome, lines, run.tools) ?: return null
-        // 已经核实过的补充,一次顺利办成多半说明不了新东西(模型也只会回 NONE):不请
+        // For supplements that have been verified, if it is successfully completed at one time, it
+        // probably does not mean that there is something new (the model will only return NONE): No
+        // please
         if (kind == AppRunKind.Done && current?.stage == AppKnowledgeStage.Verified) return null
         val said = when (val end = run.end) {
             is TaskState.Succeeded -> end.answer
@@ -138,18 +150,18 @@ class AppKnowledgeDrafter(private val model: ChatModel) {
     }
 
     companion object {
-        /** 顺利办成时,这个 App 里至少这么多步生效的动作才值得写(和个人技能起草同一个门槛)。 */
+        /** When it is successfully completed, at least this many steps of effective actions in this app are worth writing (the same threshold as personal skill drafting). */
         const val MIN_DONE_ACTIONS = Eligibility.MIN_ACTIONS
-        /** 教训至少要在这个 App 里动过这么多步:一两步就停下的多半卡在开头(没登录、打不开),说明不了界面。 */
+        /** The lesson is that you have to go through at least this many steps in this app: those that stop after one or two steps are mostly stuck at the beginning (not logged in, unable to open), and the interface cannot be explained. */
         const val MIN_LESSON_ACTIONS = 3
-        /** 出错或界面没变的动作到这么多就算磕绊:一次没点中常有,两次说明入口或界面和预想的不一样。 */
+        /** If there are so many actions that make errors or the interface does not change, it is considered to be a stumbling block: once there is no click, it is common, and twice it means that the entrance or interface is different from expected. */
         const val BUMPY_MISSES = 2
-        /** 返回到这么多次就算绕了路:看完详情退回一次是常事,两次多半是走错了入口又退回来。 */
+        /** Returning so many times means you have taken a detour: it is common to return once after reading the details, but twice it is probably because you went to the wrong entrance and returned. */
         const val BUMPY_BACKS = 2
-        /** 补充至多这么多条、这么多字:注入时附在说明后面,不该比说明本身还长。 */
+        /** Supplement no more than this many items and this many words: When injecting, it should be appended to the description and should not be longer than the description itself. */
         const val MAX_FACTS = 12
         const val MAX_CHARS = 1500
-        /** 模型说「没有值得补的」时只回这个词。 */
+        /** The model only responds with this word when it says "nothing worth fixing". */
         const val NOTHING = "NONE"
 
         val PROMPT: String by lazy { Prompts.role("app_knowledge") }
@@ -157,14 +169,15 @@ class AppKnowledgeDrafter(private val model: ChatModel) {
 
         private val TOOL_MENTION = Regex("`([a-z][a-z0-9_]*)`")
         /**
-         * 一份补充的事实行:去掉头部、标题和空行,不是「- 」开头的补上。旧版本起草的是整份 APP.md,
-         * 这样也能接着修订、比较改了哪些行。
+         * A supplementary fact line: remove the header, title and blank lines, not add the ones starting
+         * with "-". The old version drafted the entire APP.md, so that you can continue to revise and
+         * compare which lines have been changed.
          */
         fun facts(markdown: String): String = FrontMatter.parse(markdown).second.lines().map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("#") }
             .joinToString("\n") { if (it.startsWith("- ")) it else "- " + it.removePrefix("-").removePrefix("*").trim() }
 
-        /** 这次运行在 [app] 里的经过算哪种;不值得学的为 null(取消的、判不成的、核查没过的、动作太少的)。 */
+        /** What kind of process does this run in [app] count? What is not worth learning is null (cancelled, failed to be judged, failed to be verified, and has too few actions). */
         fun kind(end: TaskState, outcome: RunOutcome, lines: List<ActionLine>, tools: ToolIndex): AppRunKind? {
             val misses = lines.count { it.error != null || it.changed == false }
             val backs = lines.count { tools.verb(it.tool) == Verb.Back }
@@ -182,12 +195,12 @@ class AppKnowledgeDrafter(private val model: ChatModel) {
             }
         }
 
-        /** 这次在手机上动过手的 App 里,有知识条目的那几个(按先后,每个一次)。没有条目的 App 没处附补充,不学。 */
+        /** Among the apps I have used on my mobile phone this time, there are only a few that have knowledge items (in order, one for each). Apps without entries have no place to add supplements and no learning. */
         fun touched(events: List<RunEvent>, tools: ToolIndex, knowledge: KnowledgeStore): List<KnowledgeEntry> =
             ActionDigest.of(events, tools).mapNotNull { it.where }.distinct()
                 .mapNotNull { knowledge.byPackage(it)?.takeIf { e -> e.surface == Surface.Android } }.distinctBy { it.name }
 
-        /** 只有以「- 」开头的事实行,条数、字数在上限内,不提没登记的工具名,敏感过滤不命中。 */
+        /** There are only fact lines starting with "-". The number of entries and words is within the upper limit. Unregistered tool names are not mentioned. Sensitive filtering fails. */
         private fun valid(facts: String, tools: ToolIndex): Boolean {
             val lines = facts.lines().filter { it.isNotBlank() }
             return lines.isNotEmpty() && lines.size <= MAX_FACTS && facts.length <= MAX_CHARS &&

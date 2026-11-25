@@ -1,19 +1,22 @@
 package com.meenai.mina.core.observation
 
 /**
- * 不可信的内容(网页的正文与脚本结果、网络响应、别的 AI 的回答、渠道里的话)交给模型时套的固定标记。
- * 只在能力造这条观察、写工具结果的地方套一次,之后的裁剪、压缩都不再套;标记的意思在系统提示词里说一次。
- * 正文里的结束标记转义掉,正文提前合不上这一层。账本里记的是没套标记的原文。
+ * Untrustworthy content (webpage text and script results, network responses, other AI answers, words in
+ * the platform) is a fixed mark when it is passed to the model. Only apply it once to the place where
+ * you can make this observation and write the tool results. It will not be applied for subsequent
+ * cropping and compression. The meaning of the mark will be stated once in the system prompt word. The
+ * closing tag in the text is escaped, and the text cannot be closed at this level in advance. What is
+ * recorded in the ledger is the original text without markings.
  */
 object Untrusted {
     const val OPEN = "<untrusted>"
     const val CLOSE = "</untrusted>"
     const val OVERHEAD = 2 + OPEN.length + CLOSE.length
 
-    /** 套上标记;空的原样返回。 */
+    /** Set the tag; return the empty one as is. */
     fun wrap(text: String): String = if (text.isEmpty()) text else "$OPEN\n" + text.replace(CLOSE, "<\\/untrusted>") + "\n$CLOSE"
 
-    /** 包裹后的整个字段仍须满足工具声明的长度上限。 */
+    /** The entire field after wrapping must still meet the maximum length declared by the tool. */
     fun wrapWithin(text: String, maxChars: Int): String {
         require(maxChars >= OVERHEAD)
         val escaped = text.replace(CLOSE, "<\\/untrusted>")

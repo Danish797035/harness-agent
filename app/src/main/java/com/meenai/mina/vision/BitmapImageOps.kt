@@ -11,12 +11,12 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** 用系统 Bitmap 实现的图像处理;改过的图按 PNG 输出(不丢细节),只有 [toJpeg] 出 JPEG。 */
+/** Image processing implemented using system Bitmap; the modified image is output as PNG (without losing details), and only [toJpeg] is output as JPEG. */
 object BitmapImageOps : ImageOps {
-    /** 亮度低于它的像素算黑。 */
+    /** Pixels with a brightness lower than it are considered black. */
     private const val BLACK_LUMA = 16
     private const val BLACK_SHARE = 0.98
-    /** 判全黑时最多抽这么多个点,整屏逐点看太慢。 */
+    /** When judging all black, the maximum number of points can be drawn, and it is too slow to view the entire screen point by point. */
     private const val SAMPLE_SIDE = 64
 
     private fun decode(img: ByteArray): Bitmap =
@@ -30,7 +30,7 @@ object BitmapImageOps : ImageOps {
     private fun Bitmap.encode(format: Bitmap.CompressFormat, quality: Int): ByteArray =
         ByteArrayOutputStream().also { compress(format, quality, it) }.toByteArray()
 
-    /** 编码后回收;结果可能就是原图(尺寸没变时系统直接返回原图),重复回收无害。 */
+    /** Recycle after encoding; the result may be the original image (the system will directly return to the original image if the size has not changed), and repeated recycling is harmless. */
     private fun Bitmap.png(): ByteArray = try { encode(Bitmap.CompressFormat.PNG, 100) } finally { recycle() }
 
     private fun toPx(n: Int, size: Int) = (n * (size - 1) / 999.0).roundToInt().coerceIn(0, size - 1)
@@ -44,7 +44,7 @@ object BitmapImageOps : ImageOps {
         return o.outWidth to o.outHeight
     }
 
-    /** 每块取真平均:一步缩到 8×8 只是抽点,同一画面两次结果可能不同。逐行读,不一次拿整屏像素。 */
+    /** Taking the true average of each block: shrinking to 8×8 in one step is just a sampling point, and the results of the same picture twice may be different. Read line by line, not the entire screen pixels at once. */
     override fun aHash(img: ByteArray): Long = use(img) { bmp ->
         val w = bmp.width; val h = bmp.height
         val sum = LongArray(64); val count = IntArray(64)
@@ -74,7 +74,9 @@ object BitmapImageOps : ImageOps {
         require(box.size == 4) { "box must be [l, t, r, b]" }
         val out = bmp.copy(Bitmap.Config.ARGB_8888, true)
         val half = strokePx / 2f
-        // 描边以线为中心;右、下边的像素格是 [r, r+1),所以线要落在 r+1 上,四条边才一样宽且都在框内
+        // The stroke is centered on the line; the pixel grids on the right and bottom are [r, r+1), so
+        // the line must fall on r+1, so that the four sides have the same width and are all within the
+        // frame
         val rect = RectF(
             toPx(box[0], out.width) - expandPx + half, toPx(box[1], out.height) - expandPx + half,
             toPx(box[2], out.width) + 1 + expandPx - half, toPx(box[3], out.height) + 1 + expandPx - half,

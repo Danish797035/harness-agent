@@ -6,13 +6,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
-/** 对话页上的引用:和附件一起时各归各,标题里不带引用;回答复制成纯文字。写进话里的样子见 core 的 QuoteMessageTest。 */
+/** Quotations on the conversation page: Keep separate when included with attachments, without citations in the title; responses are copied as plain text. See core's QuoteMessageTest for how it is written into words. */
 class QuoteMessageTest {
     @get:Rule val texts = ChineseTexts()
 
     private val mina = QuoteMessage.Quote(QuoteMessage.From.Mina, "明天上午有小雨\n下午转晴")
 
-    // 引用加附件:附件行接在话后面,拆的时候各归各
+    // Quote and add attachments: Attachments are added after the words, and they go to their own places
+    // when they are separated.
     @Test fun quotesAndAttachmentsTogether() {
         val goal = ChatViewModel.withAttachments(QuoteMessage.compose(mina, "照这个改"), listOf("/workspace/inbox/a.pdf" to 2048L))
         val q = QuoteMessage.parse(goal)
@@ -20,13 +21,13 @@ class QuoteMessageTest {
         val a = AttachmentMessage.parse(q.words)
         assertEquals("照这个改", a.words)
         assertEquals(listOf("a.pdf"), a.files.map { it.name })
-        // 只有引用和附件、没写话
+        // Only quotes and attachments, no words
         val only = QuoteMessage.parse(ChatViewModel.withAttachments(QuoteMessage.compose(mina, ""), listOf("/workspace/inbox/a.pdf" to 2048L)))
         assertEquals(mina, only.quote)
         assertEquals("a.pdf", AttachmentMessage.plain(only.words))
     }
 
-    // 标题、通知里称呼这句话时不带引用
+    // Do not refer to this sentence in titles and notifications.
     @Test fun titlesSkipTheQuote() {
         val goal = QuoteMessage.compose(mina, "那要带伞吗")
         assertEquals("那要带伞吗", ChatCopy.plainTitle(goal))

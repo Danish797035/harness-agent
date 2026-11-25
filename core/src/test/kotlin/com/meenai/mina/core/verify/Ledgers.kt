@@ -5,7 +5,7 @@ import com.meenai.mina.core.observation.ObsKind
 import com.meenai.mina.core.observation.Observation
 import com.meenai.mina.core.observation.Place
 
-/** 测试用:按给的读屏、命令输出、工具事实依次记进一份账本(第几步按先后编号)。 */
+/** For testing: press the given screen reading, command output, and tool facts in order to record them in a ledger (the steps are numbered in sequence). */
 fun ledgerOf(screens: List<String> = emptyList(), outputs: List<String> = emptyList(), facts: List<String> = emptyList()): EvidenceLedger =
     EvidenceLedger().also { l ->
         var step = 0
@@ -14,20 +14,20 @@ fun ledgerOf(screens: List<String> = emptyList(), outputs: List<String> = emptyL
         facts.forEach { l.add(++step, ObsKind.Fact, null, 0, it) }
     }
 
-/** 测试里写网址或包名当地方:http 开头的是网页,其余是 App。 */
+/** Write the URL or package name in the test: the one starting with http is the web page, and the rest is the App. */
 fun placeOf(where: String?): Place? = where?.let { if (it.startsWith("http")) Place.page(it) else Place.app(it) }
 
-/** 测试用的简写:第 [step] 步在 [where] 读到 [text]。 */
+/** Abbreviation for testing: Step [step] reads [text] from [where]. */
 fun EvidenceLedger.add(
     step: Int, kind: ObsKind, where: String?, atMs: Long, text: String,
     inputs: List<String>? = null, focused: String? = null, authored: String? = null, title: String? = null,
 ): Observation? = add(obs(step, kind, where, text, inputs, focused, authored, title), step, atMs)
 
-/** 测试用:一条观察。 */
+/** For testing: an observation. */
 fun obs(
     step: Int, kind: ObsKind, where: String?, text: String,
     inputs: List<String>? = null, focused: String? = null, authored: String? = null, title: String? = null,
 ) = Observation(kind, text, place = placeOf(where), title = title, authored = authored, inputs = inputs?.let { InputHints(it, focused) }, step = step)
 
-/** 测试用:再看一眼读到的文字(空串为什么也没读到)。 */
+/** For testing: Take another look at the text you read (why the empty string was not read). */
 fun freshOf(text: String): List<Observation> = if (text.isEmpty()) emptyList() else listOf(Observation(ObsKind.Read, text, inputs = InputHints(emptyList())))

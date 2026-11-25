@@ -3,32 +3,34 @@ package com.meenai.mina.core.agent
 import com.meenai.mina.core.model.ChatModel
 import com.meenai.mina.core.tool.Verb
 
-/** 决定下一步用哪个模型时看的上一步情况。 */
+/** Look at the previous step when deciding which model to use next. */
 data class StepContext(
     val step: Int,
     val lastOk: Boolean,
     val lastHadGuard: Boolean,
-    /** 上一步之后画面变没变;读屏一类不报时为 null。 */
+    /** The screen has not changed after the previous step; if the screen reading type does not report the time, it is null. */
     val lastChanged: Boolean?,
-    /** 回放交还、批量停止、核查退回、接管或追问恢复。 */
+    /** Playback return, batch stop, verification return, takeover or recovery after questioning. */
     val lastWasRecovery: Boolean,
     val sameAppAsLast: Boolean,
-    /** 要发出的上下文里有截图;不看图的轻量模型不能接。 */
+    /** There are screenshots in the context to be sent; lightweight models without pictures cannot be accepted. */
     val hasImages: Boolean = false,
 )
 
 /**
- * 实验开关 lightSteps 的分工:简单步给轻量模型,其余给主模型。
- * 轻量模型没配、不支持工具调用时恒用主模型。一步出了错误、守卫提示或画面没变,接下来 [TROUBLE_STEPS] 步强制主模型。
+ * Experimental switch lightSteps division of labor: simple steps are given to the lightweight model, and
+ * the rest are given to the main model. When the lightweight model is not configured and does not
+ * support tool calls, the main model is always used. If there is an error in one step, the guard prompts
+ * or the screen does not change, the next [TROUBLE_STEPS] step forces the main model.
  */
 class ModelRouter(private val main: ChatModel, private val light: ChatModel?) {
     private var forcedMain = 0
     private var disabled = false
 
-    /** 轻量模型能不能接手机步;不能时 lightSteps 不生效。 */
+    /** Whether the lightweight model can receive mobile phone steps; if not, lightSteps will not take effect. */
     val active: Boolean get() = !disabled && light != null && light.capabilities.toolCalls
 
-    /** 轻量模型出了重试也没用的错(Key、额度、模型名、请求不对):余下都用主模型。一个 router 只服务一次任务。 */
+    /** There is an error in the lightweight model that makes retry useless (the Key, quota, model name, and request are incorrect): the main model is used for the rest. A router only serves one task. */
     fun disable() { disabled = true }
 
     fun pick(ctx: StepContext): ChatModel {
@@ -42,29 +44,30 @@ class ModelRouter(private val main: ChatModel, private val light: ChatModel?) {
         return if (simple) l else main
     }
 
-    /** 出了状况(含轻量模型调用失败、回复被改派给主模型):之后 [TROUBLE_STEPS] 步用主模型。 */
+    /** Something went wrong (including the lightweight model call failed and the reply was redirected to the main model): The main model is then used in the [TROUBLE_STEPS] step. */
     fun noteTrouble() { forcedMain = TROUBLE_STEPS }
 
     fun isLight(m: ChatModel): Boolean = light != null && m === light
 
     companion object {
         const val TROUBLE_STEPS = 2
-        /** 轻量模型给出这些调用(还有 do_steps)时不执行,这一步改问主模型:放弃、确认、接管、追问、沙箱命令都由主模型决定。 */
+        /** These calls (and do_steps) are not executed when the lightweight model is given. This step is changed to the main model: abandon, confirm, take over, challenge, and sandbox commands are all determined by the main model. */
         private val MAIN_ONLY_VERBS = setOf(Verb.EndNotDone, Verb.RequestConfirmation, Verb.HandToUser, Verb.AskUser, Verb.HandleObstacle,
             Verb.PhoneRun, Verb.Collect, Verb.PhoneFind, Verb.PhoneDialog, Verb.PhoneGesture, Verb.PhoneCommand) +
-            // 沙箱里跑的是模型写的命令:只让主模型写
+            // The commands written by the model are run in the sandbox: only the main model is allowed
+            // to write
             setOf(Verb.RunCommand, Verb.RunBundledScript, Verb.ReadFile, Verb.WriteFile, Verb.SearchFiles, Verb.ShareFile)
-        /** 只能由主模型给出的调用([name] 是工具名,[verb] 是它做的动作)。 */
+        /** Can only be called by the main model ([name] is the tool name, [verb] is the action it does). */
         fun mainOnly(name: String, verb: Verb?): Boolean = name == DO_STEPS_TOOL || verb in MAIN_ONLY_VERBS
 
-        /** 这些动作之后的一步算恢复(等过用户)。 */
+        /** The step after these actions counts as recovery (waiting for the user). */
         internal val RECOVERY_VERBS = setOf(Verb.HandToUser, Verb.AskUser, Verb.RequestConfirmation)
-        /** 这些动作会换前台 App 或网页(打开网址、换标签);之后的一步不算同一个地方。 */
+        /** These actions will change the front-end App or web page (open the URL, change the tab); the subsequent steps are not considered the same place. */
         internal val APP_SWITCH_VERBS = setOf(Verb.LaunchApp, Verb.OpenLink, Verb.ShareText, Verb.ShowAlarms, Verb.AddCalendarEvent, Verb.Navigate, Verb.Tabs)
     }
 }
 
-/** AgentLoop 用:记下每一步的情况,拼出下一步的 [StepContext]。 */
+/** AgentLoop usage: write down the situation of each step and spell out [StepContext] for the next step. */
 internal class StepTrack {
     private var ok = true
     private var guard = false
@@ -77,8 +80,8 @@ internal class StepTrack {
     fun context(step: Int, hasImages: Boolean) =
         StepContext(step, ok, guard, changed, recovery, !switched && app != null && app == appBefore, hasImages)
 
-    /** [app] 为 null 表示这一步的结果没报前台 App,沿用之前的。 */
-    /** 刚从回放交还、批量停止这类状况里恢复:下一步按恢复步算。在 [after] 之后调用。 */
+    /** [app] is null, which means that the result of this step is not reported to the front-end App, and the previous one is used. */
+    /** Just recovered from the situation of playback return and batch stop: the next step is to follow the recovery steps. Called after [after]. */
     fun markRecovery() { recovery = true }
 
     fun after(verb: Verb?, ok: Boolean, guard: Boolean, changed: Boolean?, recovery: Boolean, app: String?) {

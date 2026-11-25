@@ -19,7 +19,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 一屏只有一个按钮(名字由用例给)和一个普通按钮;记下真的点了什么。 */
+/** A screen has only one button (named by the use case) and a normal button; note what was actually clicked. */
 private class OneButton(label: String) : ScreenPort by FakeScreen() {
     val taps = mutableListOf<String>()
     private val shown = listOf(
@@ -32,8 +32,11 @@ private class OneButton(label: String) : ScreenPort by FakeScreen() {
 }
 
 /**
- * 同一个花钱的动作,无论从哪条路径来(模型单步、一次多步、页面脚本、经验回放),执行入口给出同样的结论、
- * 同样不执行,运行记录里的确认事件也一样;不花钱的动作(发送、删除、提交和普通点击)照常执行,记录形状只差来源字段。
+ * The same action that costs money, no matter which path it comes from (model single step, multiple
+ * steps at a time, page script, experience playback), the execution entrance gives the same conclusion
+ * and is not executed, and the confirmation events in the running record are the same; actions that do
+ * not cost money (send, delete, submit and ordinary clicks) are executed as usual, and the record shape
+ * only differs from the source field.
  */
 @RunWith(Parameterized::class)
 class ActionExecutorOriginsTest(private val label: String, private val action: IrrevAction, private val origin: Origin) {
@@ -57,7 +60,8 @@ class ActionExecutorOriginsTest(private val label: String, private val action: I
         assertTrue("没有执行", screen.taps.isEmpty())
         val confirmations = events.filterIsInstance<RunEvent.Confirmation>().map { it.copy(atMs = 0) }
         assertEquals(listOf(RunEvent.Confirmation(0, action.name, label, null, null, "required")), confirmations)
-        // 没执行的动作不记成执行结果;模型单步的拦下说明本身就是交给模型的结果,照常记一条
+        // Actions that are not executed are not recorded as execution results; the model's single-step
+        // interception statement itself is the result given to the model, and is recorded as usual.
         val results = events.filterIsInstance<RunEvent.ToolResult>()
         assertTrue(results.all { it.changed == null && it.callId == "c1" && "confirmation_required" in it.resultJson })
         assertEquals(if (origin.policy.recordsRefusal) 1 else 0, results.size)

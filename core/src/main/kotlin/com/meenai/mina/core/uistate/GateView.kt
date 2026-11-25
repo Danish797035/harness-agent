@@ -14,13 +14,17 @@ import kotlinx.serialization.json.put
 import kotlin.math.roundToInt
 
 /**
- * 给执行入口(不可逆判定、运行记录、路线)看的一次调用的目标:按哪一屏判、@vN 换成什么坐标、端口编号是什么、
- * 写操作前的目标元素与锚点。都按调用所属那块屏的读屏状态([session])看;只读,不执行任何动作。
+ * The target of a call for the execution entry (irreversible judgment, running record, route): which
+ * screen to judge, what coordinates @vN is changed to, what is the port number, and the target element
+ * and anchor point before the write operation. All are viewed according to the screen reading status
+ * ([session]) of the screen to which the call belongs; it is read-only and does not perform any action.
  */
 internal class GateView {
     fun snapshotFor(session: ScreenSession, args: JsonObject): ScreenSnapshot? {
         val id = args.argStr("snapshotId")
-        // 旧一屏的编号仍在最新一屏:动作落在最新一屏里的它,按最新一屏判(编号相同,snapshotId 照模型给的)
+        // The number of the old screen is still in the latest screen: if the action falls on the latest
+        // screen, it will be judged according to the latest screen (the number is the same, the
+        // snapshotId is given by the model)
         val ref = args.argStr("ref")
         val stabilizer = session.stabilizer
         if (stabilizer != null && id != null && ref != null && !LOCATED_REF.matches(ref)) {
@@ -41,9 +45,11 @@ internal class GateView {
     }
 
     /**
-     * 点 @vN 时换成它登记的坐标,连同找的是什么(target)、原文(text)、视觉模型看到的字(seen),按坐标点击来判;
-     * 往 @vN 上打字、清空时同样换成坐标,其余参数(回车)照留。
-     * 其余原样返回(不认识的 @vN 执行时会是 ref_expired,不会点下去)。
+     * When clicking @vN, change it to its registered coordinates, together with what you are looking for
+     * (target), the original text (text), and the word seen by the visual model (seen), and click on the
+     * coordinates to judge; when typing on @vN and clearing it, change it to the coordinates, and leave
+     * the other parameters (Enter) as they are. The rest will be returned as is (unknown @vN will be
+     * ref_expired when executed and will not be clicked).
      */
     fun gateArgs(session: ScreenSession, verb: Verb?, args: JsonObject): JsonObject {
         val ref = locatedRef(verb, args) ?: return args
@@ -59,8 +65,10 @@ internal class GateView {
     }
 
     /**
-     * 登记过的 @vN,或看过 describe 之后带 target 的坐标点击(不带 target 的会被参数校验退回)。
-     * 这类点击由大小模型分工交主模型做(见 [com.meenai.mina.core.action.ConfirmDecision.mayBeIrreversible])。
+     * Registered @vN, or click on the coordinates with target after viewing describe (those without
+     * target will be returned by parameter verification). This type of click is done by the division of
+     * labor between the large and small models and the main model (see
+     * [com.meenai.mina.core.action.ConfirmDecision.mayBeIrreversible]).
      */
     fun visionSourced(session: ScreenSession, verb: Verb?, args: JsonObject): Boolean {
         if (verb != Verb.Tap) return false
@@ -75,7 +83,7 @@ internal class GateView {
         return session.locatedInfo[ref.first]?.seen?.takeIf { it.isNotBlank() }
     }
 
-    /** 点击,和往一点上打字、清空接受 @vN。 */
+    /** Click, type and clear to accept @vN. */
     private fun locatedRef(verb: Verb?, args: JsonObject): Pair<String, String>? {
         if (verb != Verb.Tap && verb != Verb.TypeText && verb != Verb.ClearText) return null
         val ref = args.argStr("ref")?.takeIf(LOCATED_REF::matches) ?: return null
@@ -83,14 +91,14 @@ internal class GateView {
         return ref to sid
     }
 
-    /** 路线用:写操作执行前从当时的读屏取的目标元素、锚点和那一屏。 */
+    /** The route uses: the target element, anchor point and that screen taken from the current read screen before the write operation is executed. */
     class Capture(val target: Selector?, val before: Anchors, val snapshot: ScreenSnapshot?)
     var capture: Capture? = null
 
     fun anchorsAfter(after: ScreenSnapshot): Anchors? = capture?.let { RouteAnchors.after(it.snapshot, after) }
 
     fun captureTarget(session: ScreenSession, verb: Verb, o: JsonObject): Capture {
-        // @vN 按登记的坐标认
+        // @vN According to the registered coordinates
         val checked = gateArgs(session, verb, o)
         val ref = checked.argStr("ref")
         val own = snapshotFor(session, checked)
@@ -104,7 +112,7 @@ internal class GateView {
         val el = when {
             ref != null -> own?.elements?.firstOrNull { it.ref == ref }
             verb == Verb.Tap && x != null && y != null -> s?.let { RouteAnchors.elementAt(it, x, y) }
-            // 输入、清空作用在有焦点的输入框
+            // Input and clear functions on the focused input box
             verb == Verb.TypeText || verb == Verb.ClearText -> s?.elements?.firstOrNull { it.focused && it.editable }
             else -> null
         }

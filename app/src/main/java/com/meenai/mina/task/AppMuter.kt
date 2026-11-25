@@ -3,32 +3,42 @@ package com.meenai.mina.task
 import com.meenai.mina.cap.phone.shell.AppAudioKey
 
 /**
- * 任务期间让 Mina 屏上的 App 不出声。PLAY_AUDIO 按「包 + 用户」设([AppAudioKey]),本来那份和另一份(分身、工作资料)分开静。
+ * Silence apps on Mina's screen during missions. PLAY_AUDIO Press "Package + User" settings
+ * ([AppAudioKey]), and the original copy will be separated from the other copy (clone, work data).
  *
- * - [beforeOpen]:Mina 要启动某个 App 时,发出启动之前先静上,开头几秒就没声;这一步失败先不报,等它真开出来再试。
- * - [opened]:Mina 屏上冒出一个 App(启动的目标,或从别的 App 里点开、另一份顶上来的):没静过就静,静不了记成「可能出声」。
- * - [notOpened]:启动被拒(没装、用户正用着…),提前静上又没开出来的那个马上还原,不让它在任务期间白白没声。
- * - [release]:用户接管时把这个 App 的声音还回去;之后再 [opened] 又会静上。
+ * - - [beforeOpen]: When Mina wants to launch an App, it must wait for a while before launching the app.
+ * There will be no sound for the first few seconds. If this step fails, the app will not be reported
+ * until it is actually launched and then try again.
+ * - - [opened]: An App pops up on Mina's screen (the target of activation, or clicked from another App,
+ * and another copy on top): If it is not silent, it will be silent. If it is not silent, it will be
+ * recorded as "may make noise".
+ * - - [notOpened]: The startup is refused (not installed, the user is using it...). The one that was
+ * silenced in advance and not started is restored immediately to prevent it from being silent during the
+ * task.
+ * - - [release]: Return the sound of this App when the user takes over; after that, [opened] will
+ * silence it again.
  *
- * 不碰的:Mina 自己;没有桌面入口的系统包(系统界面、选择框、权限框这一类,静了会连带系统的声音);
- * 用户此刻在主屏上看得见的(静音按包作用,静了用户手上的也没声)。设置里关掉静音时一个也不静。
- * 收尾时由 [AudioMute.restoreAll] 一起还原,包括任务中途静上的。
+ * Not to touch: Mina itself; system packages without desktop access (system interface, selection box,
+ * permission box, etc., if muted, the system sound will be associated); the user can see on the home
+ * screen at the moment (mute the package function, if muted, there will be no sound on the user's hand).
+ * When mute is turned off in settings, no one is silent. At the end, [AudioMute.restoreAll] restored
+ * them together, including those that were silently uploaded in the middle of the mission.
  */
 class AppMuter(
     private val audio: AudioMute,
-    /** 设置 › 干活时的「打开的 App 静音」;每次现读,任务中途关掉也算数。 */
+    /** Settings › "Mute open apps" while working; every time you read it now, closing it in the middle of the task also counts. */
     private val enabled: () -> Boolean,
-    /** 这个包能不能静(见类说明的「不碰的」前两条)。 */
+    /** Whether this package can be static (see the first two items of "Untouchable" in the class description). */
     private val mutable: (packageName: String) -> Boolean,
-    /** 这个包([user] 那份,null 为本来那份)此刻在主屏上看得见。 */
+    /** This package (the [user] copy, null is the original copy) is now visible on the home screen. */
     private val onMainScreen: (packageName: String, user: Int?) -> Boolean,
-    /** 应该静却没静成:任务进度上提示「该 App 可能会出声」。 */
+    /** It should be quiet but it is not: the task progress prompts "This app may make noise". */
     private val failed: (packageName: String) -> Unit,
 ) {
-    /** 这次任务里已静上(还没还原)的键。 */
+    /** The keys that have been silenced (not yet restored) in this mission. */
     private val muted = HashSet<String>()
 
-    /** 启动前静上、还没见它开出来的键:启动被拒时据此还原。 */
+    /** Quiet before starting, and you haven't seen the key that comes out yet: restore accordingly when the startup is refused. */
     private val early = HashSet<String>()
 
     @Synchronized
@@ -46,7 +56,7 @@ class AppMuter(
         val key = AppAudioKey.of(packageName, user)
         early -= key
         if (key in muted || !wanted(packageName)) return
-        // 用户在主屏上正用着它:不静,照实说它可能出声
+        // The user is using it on the home screen: it is not silent, to be honest it may make a sound
         if (onMainScreen(packageName, user) || !audio.mute(key)) {
             failed(packageName)
             return
@@ -61,7 +71,7 @@ class AppMuter(
         if (audio.restore(key)) muted -= key
     }
 
-    /** 还原一个 App 的声音(用户接管);还原不了返回 false,留在记录里收尾时再试。 */
+    /** Restore the sound of an App (user takes over); if it cannot be restored, return false, leave it in the record and try again at the end. */
     @Synchronized
     fun release(packageName: String, user: Int?): Boolean {
         val key = AppAudioKey.of(packageName, user)

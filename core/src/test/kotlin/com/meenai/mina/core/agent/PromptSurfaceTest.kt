@@ -23,9 +23,10 @@ import com.meenai.mina.core.assembly.toolDispatcher
 import com.meenai.mina.core.knowledge.KnowledgeStore
 
 /**
- * 模型能看到的全部提示词表面:每种能力组合的完整系统提示词、每个工具的定义(名字、说明、参数 schema)、
- * 内部角色的提示词。金样在 core/src/test/resources/prompt-surface/;重构前后必须一字不差。
- * 重新生成:./gradlew :core:test --tests '*PromptSurface*' -PupdateSnapshots
+ * All hint surfaces that the model can see: complete system hints for each capability combination,
+ * definitions of each tool (name, description, parameter schema), hints for internal roles. The golden
+ * sample is in core/src/test/resources/prompt-surface/; it must be verbatim before and after
+ * reconstruction. Regenerate:./gradlew:core:test --tests '*PromptSurface*' -PupdateSnapshots
  */
 class PromptSurfaceTest {
     private class Mem : MemoryPersistence {
@@ -53,7 +54,8 @@ class PromptSurfaceTest {
                     web = FakeWebPort(), inlineScreen = true, deepLinks = true,
                     memory = mem, utterances = UserUtterances(), sandbox = FakeSandbox(SandboxStatus.Ready(network = false)), workspace = { "w" },
                     personalSkills = com.meenai.mina.core.skills.InMemoryPersonalSkills(),
-                    // 子任务和之前几轮的记录:之前有记过运行的一轮时才有 history_read
+                    // Records of subtasks and previous rounds: history_read is available only when there
+                    // has been a previous run.
                     runSpec = com.meenai.mina.core.run.RunSpec(com.meenai.mina.core.run.RunId("t"), "t", "thread",
                         priorTurns = listOf(Turn("之前", "好", "succeeded", runId = "r1"))),
                     childHost = com.meenai.mina.core.child.ChildRunHost { spec, _ ->
@@ -64,7 +66,7 @@ class PromptSurfaceTest {
         },
     )
 
-    /** [open] 时上一轮用过三组:开局都展开(本任务提供了的);否则都收着,只有入口。 */
+    /** When [open], three groups were used in the previous round: they were all unfolded at the beginning (provided by this task); otherwise, they were all closed, with only the entrance. */
     private fun offered(c: Combo, open: Boolean = true): FakeRequestCapture = runBlocking {
         val m = FakeRequestCapture()
         AgentLoop(m, c.tools(), SystemPrompt.identity(), flags = c.flags, memory = c.memory)
@@ -72,7 +74,7 @@ class PromptSurfaceTest {
         m
     }
 
-    /** 每种组合各组都展开时的系统提示词(收着时的样子见 layeredSurfaces)。 */
+    /** The system prompts when each group of each combination is expanded (see layeredSurfaces for the collapsed state). */
     @Test fun systemPromptPerCombination() {
         for ((name, c) in combos) {
             val m = offered(c)
@@ -81,15 +83,20 @@ class PromptSurfaceTest {
     }
 
     @Test fun toolDefinitions() {
-        // 同名工具按本任务有几块屏可能有几种定义(多一个 surface 参数),入口工具收着时另有短说明:每种都列出
+        // The tool with the same name has several screens and may have several definitions (one more
+        // surface parameter) according to this task. There is a short description when the entry tool is
+        // closed: each type is listed.
         val all = combos.values.flatMap { offered(it).tools + offered(it, open = false).tools }
             .distinctBy { it.name + it.description + it.parametersJsonSchema }.sortedBy { it.name }
         PromptSurface.check("tools", PromptSurface.tools(all))
     }
 
     /**
-     * 分层之后各情形下第一次请求的全貌(系统提示词 + 每个工具的定义全文),组合同 everything、按产品路径不给确认工具:
-     * chat 只聊天(都收着)、phone / web 上一轮用过那一组(开局展开)、all 三组都展开。大小另写进 layers/sizes。
+     * The full picture of the first request in each situation after layering (system prompt word + the
+     * full text of each tool's definition), the combination is everything, and no confirmation tools are
+     * given according to the product path: chat only chats (all are collected), phone / web which group
+     * was used in the previous round (expanded at the start), and all three groups are expanded. Sizes
+     * are written separately in layers/sizes.
      */
     @Test fun layeredSurfaces() {
         val c = combos.getValue("everything")
@@ -126,7 +133,7 @@ class PromptSurfaceTest {
         override suspend fun events(runId: String) = emptyList<com.meenai.mina.core.record.RunEvent>()
     }
 
-    /** 只回一个 finish:记下开工那次请求的系统提示词和工具。 */
+    /** Only one finish: write down the system prompt words and tools for the request to start work. */
     private class FakeRequestCapture : com.meenai.mina.core.model.ChatModel {
         override val capabilities = com.meenai.mina.core.model.Capabilities(toolCalls = true, vision = false, contextTokens = 128_000, reasoning = false)
         var system: String? = null

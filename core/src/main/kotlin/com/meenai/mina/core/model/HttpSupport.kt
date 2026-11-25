@@ -24,17 +24,17 @@ internal data class RawResponse(val status: Int, val retryAfter: String?, val bo
     }
 }
 
-/** 各适配器共用的 HTTP 执行(enqueue + 协程取消)与 Retry-After 解析。 */
+/** HTTP execution (enqueue + coroutine cancellation) and Retry-After resolution shared by each adapter. */
 internal object HttpSupport {
     suspend fun execute(http: OkHttpClient, req: Request): RawResponse =
         observe(req) { attempt -> executeRaw(http, req, attempt) }.also(::requireProxyAccepted)
 
-    /** HTTP 407 只会是途中的代理要账号密码(或拒了给的),不是服务商的回复。 */
+    /** HTTP 407 will only mean that the agent on the way asks for the account password (or refuses to give it), not a reply from the service provider. */
     private fun requireProxyAccepted(raw: RawResponse) {
         if (raw.status == 407) throw ModelError.Proxy(ProxyFailure.AuthFailed)
     }
 
-    /** 连接失败:走了代理且错在代理那一段的说成代理的问题,别的照旧算网络失败。 */
+    /** Connection failure: If the proxy is gone and the error is in the proxy section, it is said to be a proxy problem. Otherwise, it is still considered a network failure. */
     fun networkError(http: OkHttpClient, req: Request, e: IOException): ModelError =
         NetProxy.failure(http, req.url, e)?.let { ModelError.Proxy(it, e) } ?: ModelError.Network(e)
 
@@ -75,8 +75,11 @@ internal object HttpSupport {
     }
 
     /**
-     * SSE 按事件交付；取消协程会同时取消 HTTP 请求。流读到头时由调用者按各自协议判断有没有正常收尾，
-     * 没收尾算 [ModelError.StreamCut]。一个事件都没有、又不是事件流格式的成功响应(比如地址指到了网页)算 [ModelError.BadResponse]。
+     * SSE is delivered on an event basis; canceling a coroutine also cancels the HTTP request. When the
+     * stream is read to the end, the caller will judge whether there is a normal ending according to the
+     * respective protocol, and the ending calculation will be [ModelError.StreamCut]. A successful
+     * response that does not have an event and is not in event stream format (for example, the address
+     * points to a web page) counts as [ModelError.BadResponse].
      */
     suspend fun stream(http: OkHttpClient, req: Request, onEvent: (String) -> Unit): RawResponse =
         observe(req) { attempt -> streamRaw(http, req, attempt, onEvent) }.also(::requireProxyAccepted)

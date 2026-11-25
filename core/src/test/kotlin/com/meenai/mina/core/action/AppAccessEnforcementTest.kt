@@ -35,7 +35,8 @@ class AppAccessEnforcementTest {
         assertTrue(blocked is ActionOutcome.Refused)
         assertEquals("app_blocked", (blocked as ActionOutcome.Refused).code)
         assertEquals(0, reads)
-        // 无人值守时问不到人:shell 不做,而不是直接执行
+        // No one can be asked when unattended: the shell does not do it, instead of executing it
+        // directly
         val shell = executor.run(Part.ToolCall("shell", "phone_system_command", """{"command":"id"}"""), Origin.Model(2))
         assertTrue("$shell", shell is ActionOutcome.Refused)
         assertEquals("approval_unavailable", (shell as ActionOutcome.Refused).code)
@@ -97,7 +98,7 @@ class AppAccessEnforcementTest {
         assertEquals("app_blocked", (outcome as ActionOutcome.Refused).code)
     }
 
-    /** 单步被应用权限挡住时,结果要交给模型继续判断,不能把整次任务当成异常结束。 */
+    /** When a single step is blocked by application permissions, the results must be handed over to the model for continued judgment, and the entire task cannot be regarded as ending abnormally. */
     @Test fun blockedToolResultReachesModelInsteadOfFailingTask() = runTest {
         var reads = 0
         val screen = object : ScreenPort by FakeScreen() {

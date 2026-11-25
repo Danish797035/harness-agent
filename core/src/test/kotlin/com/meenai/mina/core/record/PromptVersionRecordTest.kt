@@ -14,8 +14,10 @@ import org.junit.Test
 import com.meenai.mina.core.assembly.toolDispatcher
 
 /**
- * 运行记录里记下本任务提示词的版本:每组都展开时发给模型的系统提示词加工具定义的摘要,
- * 和这次实际展开了哪几组无关(只有手机时,展开了手机一组后看到的就是它)。
+ * Write down the version of the prompt word for this task in the running record: the system prompt word
+ * plus a summary of the tool definition sent to the model when each group is expanded, has nothing to do
+ * with which groups are actually expanded this time (when there is only a mobile phone, this is what you
+ * see after expanding a group of mobile phones).
  */
 class PromptVersionRecordTest {
     private suspend fun run(tools: ToolDispatcher): Pair<String, String> {

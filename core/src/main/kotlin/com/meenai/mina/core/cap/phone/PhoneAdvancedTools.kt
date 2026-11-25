@@ -29,7 +29,7 @@ import com.meenai.mina.core.uistate.lastOrSnapshot
 import com.meenai.mina.core.uistate.screen
 import com.meenai.mina.core.uistate.session
 
-/** 按界面实际内容推进，直到找到目标或内容停止变化。 */
+/** Advance according to the actual content of the interface until the target is found or the content stops changing. */
 internal object PhoneFind : PhoneTool {
     override val verb = Verb.PhoneFind
     override val risk = Risk.Write
@@ -90,7 +90,7 @@ internal object PhoneFind : PhoneTool {
     }
 }
 
-/** 按无障碍事件醒来，避免固定间隔反复读屏。 */
+/** Wake up according to accessibility events to avoid reading the screen repeatedly at fixed intervals. */
 internal object PhoneWait : PhoneTool {
     override val verb = Verb.WaitFor
     override val risk = Risk.Read
@@ -151,7 +151,7 @@ internal object PhoneEventTool : PhoneTool {
     }
 }
 
-/** 结构化读取当前可见窗口，保留列表行和表单字段的父子关系。 */
+/** Structured reading of the currently visible window preserves the parent-child relationship between list rows and form fields. */
 internal object PhoneExtract : PhoneTool {
     override val verb = Verb.PhoneExtract
     override val risk = Risk.Read
@@ -213,7 +213,7 @@ internal object PhoneExtract : PhoneTool {
     }
 }
 
-/** 查顶层弹窗；指定按钮文字时才点击，避免猜测弹窗用途。 */
+/** Check the top-level pop-up window; click only when the button text is specified to avoid guessing the purpose of the pop-up window. */
 internal object PhoneDialog : PhoneTool {
     override val verb = Verb.PhoneDialog
     override val risk = Risk.Write
@@ -273,7 +273,7 @@ internal object PhoneDialog : PhoneTool {
     private fun containsDialog(node: UiTreeNode): Boolean = node.role.contains("Dialog", true) || node.children.any(::containsDialog)
 }
 
-/** 单指路径或双指缩放，所有坐标均为 0-999。 */
+/** One-finger path or two-finger zoom, all coordinates 0-999. */
 internal object PhoneGesture : PhoneTool {
     override val verb = Verb.PhoneGesture
     override val risk = Risk.Write
@@ -309,9 +309,9 @@ internal object PhoneGesture : PhoneTool {
     }
 }
 
-/** Android shell 身份命令；与沙箱进程的命令入口分开。 */
+/** Android shell identity command; separate from the command entry of the sandbox process. */
 internal object PhoneCommand : PhoneTool {
-    /** 连着失败这么多次就提醒别再换着写法试。 */
+    /** After failing so many times in a row, I am reminded not to try another writing method. */
     private const val REPEATED_FAILURES = 2
     override val verb = Verb.PhoneCommand
     override val risk = Risk.External
@@ -329,7 +329,9 @@ internal object PhoneCommand : PhoneTool {
         val command = a.str("command", max = 4_000)!!
         val phone = ctx.phone
         val purpose = CommandSteer.purpose(command)
-        // 已提醒过还在用 shell 点、打字、按键、启动,或用 shell 分享文字:不执行,只说该用哪个工具
+        // I have been reminded that if you are still using the shell to click, type, press keys, start,
+        // or use the shell to share text: it will not be executed, but it will only tell you which tool
+        // to use.
         if (CommandSteer.refuses(purpose, phone.commandSteered)) return ToolExecution(buildJsonObject {
             put("ok", false); put("error", "use_phone_tool")
             put("hint", Feedback.format("system_command.refused", "use" to Feedback[purpose!!.feedbackKey]))
@@ -337,7 +339,8 @@ internal object PhoneCommand : PhoneTool {
         val result = ctx.screen.systemCommand(command) ?: return fail("no_app_open")
         phone.commandFailures = if (result.exitCode == 0) 0 else phone.commandFailures + 1
         if (purpose != null) phone.commandSteered = true
-        // 模仿专门工具的命令、连着失败的命令:第一次提醒换回专门工具,照样执行
+        // Imitate the commands of special tools, and follow the failed commands: the first prompt is to
+        // switch back to the special tools and execute them as usual
         val hints = listOfNotNull(
             purpose?.let { Feedback[it.feedbackKey] },
             Feedback["system_command.failed_again"].takeIf { phone.commandFailures >= REPEATED_FAILURES },

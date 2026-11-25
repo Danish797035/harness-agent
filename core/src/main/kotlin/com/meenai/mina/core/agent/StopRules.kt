@@ -6,17 +6,19 @@ import com.meenai.mina.core.model.ModelError
 import com.meenai.mina.core.tool.Outcome
 
 /**
- * 停止规则:任务什么时候、以什么结局结束(放弃、守卫叫停、模型出错、没给出回答、步数用完)。办完不在这里:
- * 不带工具调用的回复就是回答,由循环核对后交出。纯函数;结局里给用户看的说明不发给模型。
+ * Stopping rules: When does the task end and with what outcome (abandonment, guard calls to stop, model
+ * error, no answer given, run out of steps). Don’t finish it here: The reply without tool call is the
+ * answer, which will be handed over after checking by the loop. Pure function; the instructions shown to
+ * the user in the ending are not sent to the model.
  */
 internal object StopRules {
-    /** 一个动作执行完之后:放弃了就按它结束;否则守卫([stop],屏幕守卫或不动屏幕的工具的守卫)叫停了就停。都没有为 null,接着做。 */
+    /** After an action is executed: if you give up, press it to end; otherwise, stop when the guard ([stop], screen guard or guard of a tool that does not move the screen) calls to stop. None are null, continue to do it. */
     fun afterAction(outcome: Outcome?, stop: GuardVerdict?): TaskState? = when (outcome) {
         is Outcome.Failure -> TaskState.Failed(outcome.message, FailKind.GaveUp)
         else -> stop?.let(::guard)
     }
 
-    /** 步数用完后的最后一轮调了工具(只给了 end_not_done):放弃按它结束,否则算步数用完。 */
+    /** The tool is adjusted in the last round after the number of steps is used up (only end_not_done is given): give up and press it to end, otherwise the number of steps is used up. */
     fun afterFinalTurn(outcome: Outcome?, maxSteps: Int): TaskState = when (outcome) {
         is Outcome.Failure -> TaskState.Failed(outcome.message, FailKind.GaveUp)
         else -> stepLimit(maxSteps)
@@ -24,13 +26,13 @@ internal object StopRules {
 
     fun stepLimit(maxSteps: Int) = TaskState.Failed("Reached the $maxSteps-step limit; the task is not finished.", FailKind.StepLimit)
 
-    /** 提醒过一次,模型仍然回了空话(或又被输出上限截断)。 */
+    /** After being reminded once, the model still responded with empty words (or was truncated by the output upper limit). */
     fun noAnswer() = TaskState.Failed("The model stopped without giving an answer.", FailKind.Model)
 
-    /** 退回过一次,模型的工具调用又以文字形式回来了(见 [LeakedToolCall]):不把原样的标记当回答交出。 */
+    /** After being returned once, the tool call of the model comes back in text form (see [LeakedToolCall]): the original markup is not handed over as an answer. */
     fun toolCallAsText() = TaskState.Failed("The model's tool call was not recognized by the server and came back as plain text, so it was not executed.", FailKind.Model)
 
-    /** 模型调用失败(重试过仍不行,或重试也没用)。 */
+    /** The model call failed (it still doesn't work after trying again, or it doesn't work even if you try again). */
     fun modelFailed(e: Throwable): TaskState.Failed =
         if (e is ModelError) TaskState.Failed(userReason(e), FailKind.Model)
         else TaskState.Failed("Model call error: ${e.message ?: e::class.simpleName}", FailKind.Model)
@@ -52,7 +54,9 @@ internal fun userReason(e: ModelError): String = when (e) {
     is ModelError.Auth -> "The model service rejected the request: the API key is invalid or lacks permission. Check the API key in Settings and that the account can use this model."
     is ModelError.QuotaExceeded -> "The model account's quota is used up. Check the provider account's balance or plan."
     is ModelError.ModelNotFound -> {
-        // 404 不一定是模型名不对(地址不对,或网关、中转服务说的别的情况):有原话时照原话说,不断定模型不存在
+        // 404 does not necessarily mean that the model name is wrong (the address is wrong, or the
+        // gateway or transfer service says otherwise): if there are original words, follow the original
+        // words, and it is not determined that the model does not exist.
         val check = if (e.model.isEmpty()) "Check the model name and Base URL in Settings › Models."
             else "Open Settings › Models and check the model name (use the full model ID, e.g. Gemini model names look like gemini-flash-latest) or switch to the matching preset."
         when {
@@ -91,7 +95,7 @@ internal fun userReason(e: ModelError): String = when (e) {
     is ModelError.AllLimitsExhausted -> e.message ?: "All free limits exhausted, please try again later."
 }
 
-/** 引在句中的服务端原话:去掉末尾一个句号(原话自带的),由引它的句子补上自己的「。」;省略号(截短的「…」、「...」)不动。 */
+/** Quoting the original words of the server in the sentence: remove the period at the end (which comes with the original words), and add its own "." from the sentence that quoted it; the ellipsis (truncated "...", "...") does not change. */
 private fun quoted(detail: String): String =
     when {
         detail.endsWith("..") -> detail

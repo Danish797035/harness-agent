@@ -63,7 +63,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/** 兼容性自检页的文字(纯函数,便于测试):每项的名字、状态、下面那一句大白话。 */
+/** The text of the compatibility self-test page (pure function, easy for testing): the name of each item, the status, and the following sentence. */
 object SelfCheckCopy {
     fun name(c: SelfCheck): String = tr(
         when (c) {
@@ -93,7 +93,7 @@ object SelfCheckCopy {
         },
     )
 
-    /** 一项下面的那一句:没通过时说原因和下一步,因为前一项没过而跳过时说缺哪一项。 */
+    /** The sentence below an item: when you failed, tell the reason and the next step; when you skipped because you didn't pass the previous item, tell which item is missing. */
     fun line(r: CheckResult): String {
         r.blockedBy?.let { return tr(R.string.selfcheck_line_needs, name(it)) }
         r.advice?.let { return advice(it) }
@@ -141,8 +141,10 @@ object SelfCheckCopy {
 }
 
 /**
- * 设置 › 恢复与修复 › 兼容性自检:接上真实的自检。离开这一页就取消,取消时虚拟屏、自检页、网页标签当场放掉。
- * 有任务在跑时不让开始(两边会抢同一块主屏的注意)。[status] 是此刻的系统状态。
+ * Settings › Recovery & Repair › Compatibility Self-Test: Connect to the actual self-test. Cancel when
+ * you leave this page. When canceling, the virtual screen, self-test page, and web page tags will be
+ * released on the spot. Do not allow tasks to start while running (both sides will grab the attention of
+ * the same home screen). [status] is the system status at this moment.
  */
 @Composable
 fun SelfCheckScreen(status: SystemStatus, onBack: () -> Unit) {
@@ -161,7 +163,8 @@ fun SelfCheckScreen(status: SystemStatus, onBack: () -> Unit) {
         onStart = {
             val r = SelfCheckRunner(AndroidSelfCheck(context) { current.value })
             runner = r
-            // 读屏、调助手都是阻塞调用:不放在主线程上跑
+            // Reading the screen and calling the assistant are all blocking calls: they are not run on
+            // the main thread.
             job = scope.launch(Dispatchers.Default) { r.run() }
         },
         onCancel = { job?.cancel() },
@@ -181,7 +184,7 @@ private fun copyReport(context: Context, text: String, toast: String) {
     Toast.makeText(context, toast, Toast.LENGTH_LONG).show()
 }
 
-/** 不带状态的自检页,便于测试:顶上一段说明和开始 / 取消,下面每项一行;跑完后给出报告全文和复制、去 GitHub 两个按钮。 */
+/** The self-test page without status is convenient for testing: a description and start/cancel at the top, and one line for each item below; after the run is completed, the full text of the report and two buttons for copying and going to GitHub are given. */
 @Composable
 fun SelfCheckContent(
     state: SelfCheckState,

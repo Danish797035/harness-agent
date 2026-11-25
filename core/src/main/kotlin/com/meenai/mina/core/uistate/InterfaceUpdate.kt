@@ -7,17 +7,22 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 差异文字超过全量的这个比例就发全量:差异省不了多少,还更难读。 */
+/** If the difference in text exceeds the full amount, the full amount will be issued: the difference will not save much, and it will be more difficult to read. */
 private const val MAX_DIFF_RATIO = 0.5
 private const val DEFAULT_MAX_ELEMENTS = 200
 
 /**
- * 两屏之间的差异(按稳定编号对齐),给写操作结果的 `screen` 字段:
- * `{"snapshotId","base","currentApp","full":false,"added":[元素],"removed":[{ref,name,role}],"changed":[元素+"was"],"unchanged":N}`。
- * 没有 base、[baseVisible] 为假(模型已看不到差异要依赖的读屏)、前台 App 变了、或差异文字超过全量的一半时发全量:
- * `{"snapshotId","currentApp","full":true,"elements":[…],"truncated"}`。
- * 差异按两屏的完整元素列表算,输出时 added/changed 合计不超过 [maxElements] 个,超出的标 truncated。
- * 手机快照有窗口树时,全量结果带 tree,差异结果带 treeChanges;调用方给手机传完整元素数。
+ * The difference between the two screens (aligned by stable number), gives the `screen` field of the
+ * write operation result:
+ * `{"snapshotId","base","currentApp","full":false,"added":[element],"removed":[{ref,name,role}],"changed":[element+"was"],"unchanged":N}`.
+ * If there is no base, [baseVisible] is false (the model can no longer see the screen reading that the
+ * difference depends on), the front-end App has changed, or the difference text exceeds half of the full
+ * amount, the full amount is sent: `{"snapshotId","currentApp","full":true,"elements":[…],"truncated"}`.
+ * The difference is calculated based on the complete element list of the two screens. The total number
+ * of added/changed elements during output does not exceed [maxElements], and the excess is marked
+ * truncated. When the mobile phone snapshot has a window tree, the full result will have tree, and the
+ * difference result will have treeChanges; the caller passes the complete number of elements to the
+ * mobile phone.
  */
 object InterfaceUpdate {
     fun between(base: ModelSnapshot?, current: ModelSnapshot, baseVisible: Boolean, maxElements: Int = DEFAULT_MAX_ELEMENTS): JsonObject {

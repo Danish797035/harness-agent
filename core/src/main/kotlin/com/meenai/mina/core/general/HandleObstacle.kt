@@ -14,7 +14,7 @@ import com.meenai.mina.core.tool.ok
 import com.meenai.mina.core.tool.str
 import kotlinx.serialization.json.put
 
-/** 说出挡住当前 App 或网页的是什么,拿到该怎么处理的下一步。 */
+/** Tell what is blocking the current app or web page and get the next step on what to do. */
 internal object HandleObstacle : SurfaceAware {
     override val verb = Verb.HandleObstacle
     override val label = "Hit an obstacle"

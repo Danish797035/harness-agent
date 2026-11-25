@@ -7,8 +7,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * adb 传输层的一个包:24 字节小端头(命令、arg0、arg1、数据长度、数据校验和、命令按位取反)+ 数据。
- * 校验和是数据所有字节(无符号)之和;协议版本 ≥ [VERSION_SKIP_CHECKSUM] 时接收方不再核对。
+ * A packet of adb transport layer: 24-byte little endian (command, arg0, arg1, data length, data
+ * checksum, command bitwise inversion) + data. The checksum is the sum of all bytes (unsigned) of the
+ * data; when the protocol version is ≥ [VERSION_SKIP_CHECKSUM], the receiver no longer checks.
  */
 class AdbMessage(val command: Int, val arg0: Int, val arg1: Int, val data: ByteArray = EMPTY) {
     fun encode(): ByteArray {
@@ -45,7 +46,7 @@ class AdbMessage(val command: Int, val arg0: Int, val arg1: Int, val data: ByteA
         fun name(cmd: Int): String =
             ByteArray(4) { (cmd ushr (8 * it)).toByte() }.toString(Charsets.US_ASCII).takeIf { s -> s.all { it in 'A'..'Z' } } ?: "0x%08x".format(cmd)
 
-        /** 读一个包;在包头之前遇到流结束返回 null,格式不对抛 [IOException]。 */
+        /** Read a packet; if the stream ends before the packet header is encountered, null will be returned. If the format is incorrect, [IOException] will be thrown. */
         fun read(input: DataInputStream, maxData: Int = MAX_PAYLOAD, verifyChecksum: Boolean = false): AdbMessage? {
             val header = ByteArray(HEADER_SIZE)
             try {

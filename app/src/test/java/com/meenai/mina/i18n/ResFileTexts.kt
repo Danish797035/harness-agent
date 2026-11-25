@@ -8,8 +8,10 @@ import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * JVM 单测里的界面文字:直接读 `src/main/res/<folder>/` 下的资源文件,按安卓的规则去掉转义,
- * 免得为了取文字起一个安卓环境。[folder] 是 `values`(英文)或 `values-zh`(简体中文)或 `values-b+zh+Hant`(繁体中文)。
+ * Interface text in JVM single test: directly read the resource file under `src/main/res/<folder>/`, and
+ * remove escaping according to Android rules, so as not to create an Android environment in order to get
+ * the text. [folder] is `values` (English) or `values-zh` (Simplified Chinese) or `values-b+zh+Hant`
+ * (Traditional Chinese).
  */
 class ResFileTexts(folder: String, private val locale: Locale) : UiTexts {
     val strings: Map<String, String>
@@ -49,12 +51,12 @@ class ResFileTexts(folder: String, private val locale: Locale) : UiTexts {
     override fun plural(id: Int, count: Int, args: Array<out Any?>): String {
         val name = pluralNames[id] ?: error("no R.plurals with id $id")
         val forms = plurals[name] ?: error("no plurals $name")
-        // 英文:1 用 one;中文只有 other
+        // English: 1 uses one; Chinese only uses other
         val raw = (if (count == 1) forms["one"] else null) ?: forms.getValue("other")
         return String.format(locale, raw, *(if (args.isEmpty()) arrayOf(count) else args))
     }
 
-    /** 不翻译的字(translatable="false")只在默认文件里。 */
+    /** Words that are not translated (translatable="false") are only in the default file. */
     private val fallback: ResFileTexts? = if (folder == "values") null else english
 
     companion object {
@@ -70,7 +72,7 @@ class ResFileTexts(folder: String, private val locale: Locale) : UiTexts {
         private val stringNames by lazy { names(R.string::class.java) }
         private val pluralNames by lazy { names(R.plurals::class.java) }
 
-        /** 安卓资源文字的转义:引号里原样保留空白,引号外连续空白并成一个;反斜杠转义。 */
+        /** Escape of Android resource text: keep the blanks inside the quotation marks as they are, merge the continuous blanks outside the quotation marks into one; escape the backslash. */
         fun unescape(raw: String): String {
             val out = StringBuilder()
             var quoted = false
@@ -110,7 +112,7 @@ class ResFileTexts(folder: String, private val locale: Locale) : UiTexts {
     }
 }
 
-/** 测试里把界面文字固定成中文(断言写的是中文)。 */
+/** In the test, the interface text is fixed to Chinese (assert that it is written in Chinese). */
 class ChineseTexts : ExternalResource() {
     private var previous: UiTexts? = null
     override fun before() {
@@ -123,7 +125,7 @@ class ChineseTexts : ExternalResource() {
     }
 }
 
-/** 测试里把界面文字换成英文。 */
+/** During the test, the interface text was changed to English. */
 class EnglishTexts : ExternalResource() {
     private var previous: UiTexts? = null
     override fun before() {
@@ -136,7 +138,7 @@ class EnglishTexts : ExternalResource() {
     }
 }
 
-/** 测试里把界面文字换成印地语。 */
+/** During the test, the interface text was changed to Hindi. */
 class HindiTexts : ExternalResource() {
     private var previous: UiTexts? = null
     override fun before() {

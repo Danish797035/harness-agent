@@ -12,7 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 设置页「网站登录」:列表、单站退出(带「可能仍在」提示)、全部退出要二次确认。 */
+/** Settings page "Website login": list, single site exit (with "may still be there" prompt), all exit requires a second confirmation. */
 @RunWith(AndroidJUnit4::class)
 class WebSitesSectionTest {
 

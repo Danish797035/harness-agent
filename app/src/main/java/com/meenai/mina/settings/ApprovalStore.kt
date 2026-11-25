@@ -14,8 +14,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * 询问 / 自主(新任务开工时取它),存成一个小 JSON 文件;读不懂按询问。
- * 先写临时文件再改名,写一半断电不会留下坏文件。
+ * Query / Autonomous (get it when a new task starts), save it as a small JSON file; if you don’t
+ * understand, press Query. Write the temporary file first and then rename it. If the power is turned off
+ * during writing, no bad files will be left behind.
  */
 class ApprovalStore(private val file: File) {
     private val _autonomous: MutableStateFlow<Boolean>
@@ -25,7 +26,7 @@ class ApprovalStore(private val file: File) {
         _autonomous = MutableStateFlow((o?.get("autonomous") as? JsonPrimitive)?.booleanOrNull ?: false)
     }
 
-    /** 自主模式:打开时连付款也不先问你(询问时只有付款先问)。换它请走 [ApprovalControl.setAutonomous],正在跑的任务才会跟着换。 */
+    /** Autonomous mode: You are not even asked for payment when opening it (only payment is asked first when asking). Please go to [ApprovalControl.setAutonomous] to change it, and the running task will be changed accordingly. */
     val autonomous: StateFlow<Boolean> = _autonomous.asStateFlow()
 
     @Synchronized fun setAutonomous(on: Boolean) {

@@ -32,7 +32,7 @@ import java.io.ByteArrayInputStream
 import java.util.Collections
 import kotlin.coroutines.resume
 
-/** 真机测试:标签池的导航、弹窗、外跳、权限、崩溃、Cookie 保留、内存回收与任务隔离。不需要内置助手,不碰主屏。 */
+/** Real machine test: tag pool navigation, pop-up windows, external jumps, permissions, crashes, cookie retention, memory recycling and task isolation. No built-in assistant required, no touching the home screen. */
 @RunWith(AndroidJUnit4::class)
 class WebTabPoolTest {
     private val instr = InstrumentationRegistry.getInstrumentation()
@@ -50,14 +50,15 @@ class WebTabPoolTest {
         instr.runOnMainSync {
             host = WebHost(ctx, bounds.width(), bounds.height(), ctx.resources.displayMetrics.densityDpi)
             val assets = WebViewAssetLoader.AssetsPathHandler(instr.context)
-            // /status/403:返回 403 的页面,测主文档状态
+            // /status/403: Return to the 403 page to test the main document status
             val status = WebViewAssetLoader.PathHandler { path ->
                 WebResourceResponse("text/html", "utf-8", ByteArrayInputStream("<title>forbidden</title>访问受限".toByteArray()))
                     .apply { setStatusCodeAndReasonPhrase(path.toIntOrNull() ?: 200, "Status") }
             }
             val main = WebViewAssetLoader.Builder().addPathHandler("/assets/", assets).addPathHandler("/status/", status).build()
             val other = WebViewAssetLoader.Builder().setDomain("fixtures2.androidplatform.net").addPathHandler("/assets/", assets).build()
-            // 另一个可注册域名:androidplatform.net 下的子域与 appassets 同站
+            // Another registrable domain name: The subdomain under androidplatform.net is on the same
+            // site as appassets
             val foreign = WebViewAssetLoader.Builder().setDomain("fixtures.mina-other.test").addPathHandler("/assets/", assets).build()
             pool = WebTabPool(ctx, host, assetLoaders = listOf(main, other, foreign))
         }
@@ -119,7 +120,7 @@ class WebTabPoolTest {
         val s = screen("A")
         s.navigate(fixture("popup.html"), newTab = false)
         val snap = s.snapshot()
-        // 每次手势只放行一个 window.open:连点六次而不是一次开六个
+        // Each gesture only releases one window.open: connect six times instead of opening six at once
         repeat(6) {
             val again = s.snapshot()
             s.tapRef(again.elements.first { it.resourceId == "#one" }.ref, again.snapshotId)
@@ -220,7 +221,8 @@ class WebTabPoolTest {
         val popup = awaitEvent<PoolEvent.NewTab> { it.fromPopup }
         DeviceSupport.pollUntil(5_000) { current("A")?.view?.let { v -> runBlocking(Dispatchers.Main) { v.url } }?.takeIf { it.endsWith("host.html") } }
         val tab = current("A")!!
-        // 另一个可注册域名(androidplatform.net 下的子域彼此同站)
+        // Another registrable domain name (subdomains under androidplatform.net are on the same site as
+        // each other)
         js(tab, "location.href = 'https://fixtures.mina-other.test/assets/web-fixtures/host.html'")
         delay(1_500)
         assertTrue(runBlocking(Dispatchers.Main) { tab.view.url }!!.startsWith("https://appassets.androidplatform.net/"))
@@ -281,7 +283,7 @@ class WebTabPoolTest {
         assertTrue(s.tabs().isEmpty())
     }
 
-    /** 两个任务各一个标签池,共用一份全局上限:合起来不超过上限,关的是最久没用的那个(哪怕在别的任务里)。 */
+    /** Each of the two tasks has a tag pool, sharing a global upper limit: the total does not exceed the upper limit, and the one that has not been used for the longest time (even in other tasks) is closed. */
     @Test
     fun globalCapIsSharedAcrossRuns() = runBlocking<Unit> {
         val budget = TabBudget(3)
@@ -296,13 +298,15 @@ class WebTabPoolTest {
             withContext(Dispatchers.Main) { a.open("A", null) }
             withContext(Dispatchers.Main) { b.open("B", null) }
             assertEquals(3, budget.total())
-            // 满了:先关本任务(B)自己最久没用的;B 只有一个,换下的是它,A 的两个都留着(makeRoom 的顺序)
+            // Full: Close this task first (B), the one you haven’t used for the longest time; there is
+            // only one of B, so replace it, and keep both of A (the order of makeRoom)
             withContext(Dispatchers.Main) { b.open("B", null) }
             assertEquals(3, budget.total())
             assertTrue(runBlocking(Dispatchers.Main) { a.isLive(first) })
             assertEquals(1, runBlocking(Dispatchers.Main) { b.list("B").size })
             assertEquals(2, runBlocking(Dispatchers.Main) { a.list("A").size })
-            // 本任务没有可关的(新任务 C 的第一个标签):才关别处最久没用的,即 A 的第一个
+            // There is nothing to close in this task (the first label of new task C): only the one that
+            // has been unused for a long time is closed, that is, the first label of A
             lateinit var c: WebTabPool
             instr.runOnMainSync { c = WebTabPool(ctx, host, budget = budget) }
             try {

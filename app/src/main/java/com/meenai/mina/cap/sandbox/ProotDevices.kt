@@ -4,12 +4,14 @@ import com.meenai.mina.core.workspace.WorkspaceFileGate
 import java.io.File
 
 /**
- * PRoot 里能看到的 /dev。不绑整个 /dev:`/dev/socket/`(比如 dnsproxyd,经它能让系统替沙箱做域名解析)
- * 和 binder 设备(`/dev/binder`、`/dev/hwbinder`、`/dev/vndbinder`,经系统服务能把数据带出去)
- * 都能绕过断网,所以只绑下面这些字符设备;`/dev/fd`、`/dev/stdin` 等在根文件系统里建成指向 /proc 的符号链接。
+ * /dev visible in PRoot. Not binding the entire /dev:`/dev/socket/` (such as dnsproxyd, which allows the
+ * system to do domain name resolution for the sandbox) and binder devices (`/dev/binder`,
+ * `/dev/hwbinder`, `/dev/vndbinder`, which can take data out through system services) can bypass the
+ * network disconnection, so only the following character devices are bound; `/dev/fd`, `/dev/stdin`,
+ * etc. create symbolic links pointing to /proc in the root file system.
  */
 object ProotDevices {
-    /** 宿主上存在才绑;同一路径绑到沙箱里同一位置。 */
+    /** Only bind if it exists on the host; bind the same path to the same location in the sandbox. */
     val DEVICE_BINDS = listOf(
         "/dev/null",
         "/dev/zero",
@@ -20,7 +22,7 @@ object ProotDevices {
         "/dev/pts",
     )
 
-    /** 根文件系统 /dev 里的符号链接:名字 → 目标。 */
+    /** Symbolic link in the root file system /dev: name → target. */
     val DEV_SYMLINKS = linkedMapOf(
         "fd" to "/proc/self/fd",
         "stdin" to "/proc/self/fd/0",
@@ -28,11 +30,11 @@ object ProotDevices {
         "stderr" to "/proc/self/fd/2",
     )
 
-    /** PRoot 的 `-b` 参数(只含宿主上存在的设备)。 */
+    /** `-b` parameters of PRoot (only devices that exist on the host). */
     fun bindArgs(exists: (String) -> Boolean = { File(it).exists() }): List<String> =
         DEVICE_BINDS.filter(exists).flatMap { listOf("-b", it) }
 
-    /** 在根文件系统里建 /dev 目录和 [DEV_SYMLINKS];已是对的不动。经关口:dev 被换成链接时不会建到外面去。 */
+    /** It is correct to create the /dev directory and [DEV_SYMLINKS]; in the root file system. When the link: dev is replaced, it will not be built outside. */
     fun prepareRootfsDev(rootfs: File, gate: WorkspaceFileGate) {
         for ((name, target) in DEV_SYMLINKS) gate.symlink(rootfs, "dev/$name", target)
     }

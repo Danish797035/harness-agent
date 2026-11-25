@@ -5,10 +5,12 @@ import com.meenai.mina.core.capability.PromptSections
 import com.meenai.mina.core.prompt.Prompts
 
 /**
- * 系统提示词:P0 身份(prompts/system/identity.md)、P1 通用准则(system/principles.md,不点名工具),
- * 接通用工具的总规则(capabilities/general.md,通用工具一直都在),再接核心自己与各能力给的段落。
- * 段落只在那组工具出现在本任务发给模型的工具列表里时才有:说明和工具出自同一个判断。
- * 任务开始时拼一次,任务内一字不变。
+ * System prompt words: P0 identity (prompts/system/identity.md), P1 general criteria
+ * (system/principles.md, not naming tools), connect to the general rules of general tools
+ * (capabilities/general.md, general tools are always there), and then connect the paragraphs given by
+ * the core self and each ability. The paragraph only exists if that set of tools appears in the tool
+ * list sent to the model for this task: the instructions and tools come from the same judgment. Spell it
+ * once at the beginning of the task, and keep every word in the task unchanged.
  */
 object SystemPrompt {
     fun identity(): String = listOf(Prompts.system("identity"), Prompts.system("principles"), read(GENERAL)).joinToString("\n\n")
@@ -17,14 +19,17 @@ object SystemPrompt {
 
     private const val GENERAL = "general"
 
-    /** 一段能力说明。 */
+    /** A description of your abilities. */
     internal fun read(name: String): String = Prompts.capability(name)
 }
 
 /**
- * 核心自己的段落,排在各能力之前:用到才展开的几组从哪个入口进(groups,只列本任务给了入口的;展开后照旧留着,系统提示词少变);
- * 有两块以上的屏时怎么选、怎么在两块屏之间配合(channels);有屏展开后交给用户、下单发送前的核对(handover);
- * 动作结果自带屏幕时怎么读它(inline-screen);一次多步(batch)。
+ * The core paragraphs are arranged before each ability: which entrance should be used to expand the
+ * groups (groups, only the entrances given by this task are listed; keep them after expansion, and the
+ * system prompt words will change less); how to choose when there are more than two screens, and how to
+ * cooperate between the two screens (channels); after the screen is expanded, it is given to the user
+ * and checked before the order is sent (handover); how to read the action result when it has its own
+ * screen (inline-screen); multiple steps at a time (batch).
  */
 internal object CoreSections : PromptSections {
     override fun sections(env: PromptEnv): List<String> = listOfNotNull(

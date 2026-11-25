@@ -26,24 +26,34 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 网页下载:文件落在本对话工作区的 downloads/ 下(沙箱里看到的是 /workspace/downloads/<名字>)。
- * 工作区只是 App 私有目录里的一个文件夹,下载不依赖沙箱。下载的文件只保存,不打开、不安装(APK 也一样)。
+ * Web page download: The file falls under downloads/ in the workspace of this conversation (what you see
+ * in the sandbox is /workspace/downloads/<name>). The workspace is just a folder in the App's private
+ * directory, and downloading does not rely on the sandbox. The downloaded file is only saved, not opened
+ * or installed (the same goes for APK).
  *
- * - 名字取 Content-Disposition(优先 filename*),否则取页面在链接上给的名字(`<a download>`,由页面脚本问来),再否则取网址最后一段
- *   (blob:/data: 的网址不算);去掉路径、控制字符与双向控制符、开头的点,
- *   至多 80 字、按字节截短(保留扩展名),空名用 download,重名加「 (2)」。名字是网页给的,交给模型时标明是网页数据。
- * - 落盘经 [gate]:在 downloads/ 里新建(从不覆盖已有的名字),按句柄核实后在同一个句柄上写;失败只删这个文件本身。
- *   downloads/ 被换成链接(沙箱里的命令做得到)时拒绝,标 unsafe_path。
- * - 请求带上该网址的 Cookie(每次跳转都按跳转后的地址取)、UA 与来源页;只取 http/https。
- *   每一跳都过 [addressRefusal](与 web_navigate 同一条规则,另外不许本机与局域网),跳到不许的地址标 blocked_redirect;
- *   域名解析到内网也拒绝([dns])。
- * - 单文件上限 [maxBytes],超出中止、删掉半截文件、标 too_large;blob:/data: 的内容上限 [maxBlobBytes]。
- * - 一个任务至多 [maxFiles] 个文件、共 [maxTotalBytes](download_limit);一次下载(含所有跳转)至多 [timeoutMs](timed_out)。
+ * - - The name takes Content-Disposition (priority filename*), otherwise takes the name given by the
+ * page on the link (`<a download>`, asked by the page script), otherwise takes the last paragraph of the
+ * URL (The URL of blob:/data: is not counted); remove the path, control characters and bidirectional
+ * control characters, and the leading dot, up to 80 characters, truncate by bytes (retain the
+ * extension), use download for empty names, and add "(2)" for repeated names. The name is given by the
+ * web page, and it is marked as web page data when handed to the model.
+ * - - Download instructions [gate]: Create a new file in downloads/ (never overwrite the existing name),
+ * verify by handle and write on the same handle; if it fails, just delete the file itself. When
+ * downloads/ is replaced with a link (commands in the sandbox can do this), it is rejected and marked as
+ * unsafe_path.
+ * - - Request the cookie with the URL (each jump is taken according to the address after the jump), UA
+ * and source page; only http/https are taken. Each hop passes through [addressRefusal] (same rule as
+ * web_navigate, except local and LAN are not allowed) and jumps to an address marked blocked_redirect;
+ * domain name resolution to the intranet is also rejected ([dns]).
+ * - - The upper limit of a single file is [maxBytes], and the content limit of [maxBlobBytes] is
+ * exceeded by aborting, deleting half of the file, and marking too_large;blob:/data:.
+ * - - One task can contain at most [maxFiles] files, totaling [maxTotalBytes] (download_limit); one
+ * download (including all jumps) can contain at most [timeoutMs] (timed_out).
  */
 class WebDownloads(
     private val workspaceDir: File,
     private val gate: WorkspaceFileGate,
-    /** 工作区所在那棵树的锁:下载落盘在它的许可里写。 */
+    /** The lock of the tree where the workspace is located: the download disk is written in its permission. */
     private val tree: SandboxTree,
     http: OkHttpClient,
     private val cookies: (String) -> String?,
@@ -53,7 +63,7 @@ class WebDownloads(
     private val maxFiles: Int = 50,
     private val maxTotalBytes: Long = 1L shl 30,
     private val timeoutMs: Long = 10 * 60_000L,
-    /** 不能取的原因(null = 能取);测试里放行本机的测试服务器。 */
+    /** The reason why it cannot be obtained (null = can be obtained); the local test server is allowed in the test. */
     private val addressRefusal: (String) -> String? = DownloadAddressPolicy::refusal,
     dns: Dns = DownloadAddressPolicy.guardedDns(),
 ) {
@@ -61,24 +71,24 @@ class WebDownloads(
         @Volatile var bytes = 0L
         @Volatile var status = RUNNING
         @Volatile var error: String? = null
-        /** 写入用的句柄(已过关口核实);结束(完成或失败)时关掉。 */
+        /** The handle used for writing (passed the gate verification); closed when completed (completion or failure). */
         var gated: GatedFile? = null
-        /** 占着任务额度(一个文件 + [charged] 个已写的字节)。 */
+        /** Occupies task quota (one file + [charged] written bytes). */
         var counted = false
         var charged = 0L
     }
 
     private val entries = mutableListOf<Entry>()
-    /** 额度:占着的文件数与已写字节数,都在 synchronized(entries) 里改。 */
+    /** Quota: The number of files occupied and the number of bytes written are both changed in synchronized(entries). */
     private var files = 0
     private var totalBytes = 0L
 
     private val client = http.newBuilder()
-        // 跳转自己一跳一跳走,每一跳都查地址
+        // Jump one by one and check the address at each jump.
         .followRedirects(false)
         .followSslRedirects(false)
         .dns(dns)
-        // 跳转后的每一次请求都按它自己的地址带 Cookie
+        // Each request after the jump carries a cookie according to its own address.
         .addNetworkInterceptor { chain ->
             val req = chain.request()
             val c = cookies(req.url.toString())
@@ -86,12 +96,15 @@ class WebDownloads(
         }
         .build()
 
-    /** 正在问页面要名字、还没登记的下载。 */
+    /** The page is asking for a name and has not yet been registered for download. */
     private val naming = AtomicInteger()
 
     /**
-     * 页面给下载起的名字(`<a download>`)只在页面里,下载监听拿不到:先用 [pageName] 问页面,问到(或问不到)后交给 [then] 登记。
-     * 问名字的这一会儿也算下载已开始,[awaitNamed] 等它们登记完。[then] 在写 `files/sandbox/` 的许可里跑(见 SandboxTree)。
+     * The name given to the download by the page (`<a download>`) is only in the page and cannot be
+     * obtained by the download monitor: first use [pageName] to ask the page, and after asking (or not
+     * being able to ask), hand it over to [then] for registration. The moment when the name is asked,
+     * the download has started. [awaitNamed] waits for them to be registered. [then] runs with the
+     * permission written for `files/sandbox/` (see SandboxTree).
      */
     fun withPageName(pageName: suspend () -> String?, then: (String?) -> Unit) {
         naming.incrementAndGet()
@@ -105,16 +118,19 @@ class WebDownloads(
         }
     }
 
-    /** 等正在问名字的下载都登记上,至多 [capMs]。 */
+    /** The downloads whose names are being asked are all registered, at least [capMs]. */
     suspend fun awaitNamed(capMs: Long) {
         withTimeoutOrNull(capMs) { while (naming.get() > 0) delay(NAMING_POLL_MS) }
     }
 
     /**
-     * 开始下载 [url];立即返回沙箱路径,状态先是 running。[suggested] 是页面给的名字。
-     * [viaPage]:自己因 TLS / 握手一类的错误连不上时(还没写进任何字节)改由页面用浏览器自己的网络栈去取(至多给的字节数);
-     * 取到为 (内容, 类型),取不到为 null。不给就不换。调用方只在网址和页面同源时给它(页面那边也只取同源、不跟随跳转);
-     * 换路前再过一遍地址规则。
+     * Start downloading [url]; immediately return to the sandbox path, the status is running first.
+     * [suggested] is the name given by the page. [viaPage]: When you cannot connect due to TLS/handshake
+     * errors (no bytes have been written yet), the page uses the browser's own network stack to retrieve
+     * it (up to the given number of bytes); if it is retrieved, it is (content, type), if it is not
+     * retrieved, it is null. If you don't give it, it won't be replaced. The caller only gives it when
+     * the URL and the page have the same origin (the page only takes the origin and does not follow the
+     * jump); it goes through the address rules again before changing the path.
      */
     fun start(
         url: String, ua: String, contentDisposition: String?, mime: String?, referer: String?, suggested: String? = null,
@@ -143,8 +159,9 @@ class WebDownloads(
     }
 
     /**
-     * 自己没连上([reason] 带着真实的出错类型):是 TLS / 握手一类、给了 [viaPage]、地址仍过得了规则时改由页面去取,
-     * 取到就存下;否则照原因记失败。
+     * Not connected by itself ([reason] with real error type): It is a TLS/handshake type. If [viaPage]
+     * is given and the address still passes the rules, it is fetched from the page. If fetched, it will
+     * be saved; otherwise, it will be recorded as failed according to the reason.
      */
     private suspend fun fallBack(entry: Entry, url: String, reason: String, viaPage: (suspend (Long) -> Pair<ByteArray, String?>?)?) {
         val usable = viaPage?.takeIf { reason.startsWith(TLS_ERROR) && addressRefusal(url) == null }
@@ -156,7 +173,7 @@ class WebDownloads(
         tree.shared { write(entry, got.first) }
     }
 
-    /** 页面脚本读出来的 blob: 内容,或解出来的 data: 内容,直接存下。 */
+    /** The blob: content read out by the page script, or the data: content decoded, is saved directly. */
     fun save(sourceUrl: String, contentDisposition: String?, mime: String?, bytes: ByteArray, suggested: String? = null): String {
         val name = localName(sourceUrl, contentDisposition, mime, suggested)
         if (bytes.size > maxBlobBytes) return failed(name, mime, TOO_LARGE)
@@ -167,8 +184,9 @@ class WebDownloads(
     }
 
     /**
-     * blob: 下载:先登记(running),再由 [read] 让页面把内容读出来(至多 [maxBlobBytes]);读不出给原因。
-     * [read] 返回 (内容, 页面报的类型) 或失败原因。
+     * blob: Download: first register (running), and then use [read] to let the page read the content (at
+     * most [maxBlobBytes]); if it cannot be read, give the reason. [read] returns (content, type of page
+     * report) or failure reason.
      */
     fun startFrom(
         sourceUrl: String, contentDisposition: String?, mime: String?, suggested: String? = null,
@@ -195,7 +213,7 @@ class WebDownloads(
         return entry.file
     }
 
-    /** [startFrom] 的读取方报的明确原因(如 too_large)。 */
+    /** The reader of [startFrom] reported a clear reason (such as too_large). */
     class BlobRefused(val reason: String) : Exception(reason)
 
     private fun localName(sourceUrl: String, contentDisposition: String?, mime: String?, suggested: String?) =
@@ -213,8 +231,10 @@ class WebDownloads(
     }
 
     /**
-     * data: 网址:按 base64 或百分号编码解出来存下;解不出来记失败。
-     * 解码前先按长度判断:base64 每 4 个字是 3 个字节,百分号编码每个字节至少 1 个字,超出上限的不解。
+     * data: URL: decode it using base64 or percent encoding and save it; if it cannot be decoded, it
+     * will be recorded as failed. Before decoding, judge according to the length: every 4 words in
+     * base64 is 3 bytes, and each byte in percent encoding is at least 1 word. If it exceeds the upper
+     * limit, it is puzzling.
      */
     fun dataUrl(url: String, contentDisposition: String?, suggested: String? = null): String {
         val comma = url.indexOf(',')
@@ -235,14 +255,16 @@ class WebDownloads(
         entries.map { DownloadInfo(it.file, it.bytes, it.mime, it.status, it.error) }
     }
 
-    /** 这次之后新开始的下载;用来在触发下载的那次动作结果里提一句。 */
+    /** Newly started downloads after this time; used to mention a sentence in the result of the action that triggered the download. */
     fun count(): Int = synchronized(entries) { entries.size }
 
     fun since(count: Int): List<DownloadInfo> = list().drop(count)
 
     /**
-     * 一跳一跳地取:每一跳先查地址;整个下载(含跳转与读正文)不超过 [timeoutMs]。
-     * 连不上(还没写进任何字节)时不记失败,返回原因交给调用方换路;其余情况自己记完,返回 null。
+     * Fetch hop by hop: Check the address first for each hop; the entire download (including jumps and
+     * text reading) does not exceed [timeoutMs]. If the connection cannot be made (no bytes have been
+     * written yet), the failure will not be recorded, and the return reason will be left to the caller
+     * to change the path; in other cases, it will be recorded by itself and null will be returned.
      */
     private fun fetch(url: String, ua: String, referer: String?, entry: Entry): String? {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000
@@ -258,7 +280,9 @@ class WebDownloads(
                 call.execute()
             } catch (e: IOException) {
                 val reason = failureOf(e, hops, deadline)
-                // TLS / 握手一类的错误、而且还在第一跳:交给调用方决定要不要改由页面去取;地址被拒、超时、跳转后的错误照实记
+                // TLS / handshake type errors, and they are still on the first hop: leave it to the
+                // caller to decide whether to fetch from the page instead; errors such as address
+                // rejection, timeout, and jump after the jump are recorded as they are
                 if (reason.startsWith(TLS_ERROR) && hops == 0) return reason
                 return fail(entry, reason).let { null }
             }
@@ -301,8 +325,9 @@ class WebDownloads(
     }
 
     /**
-     * 网络错误带上真实的出错类型(最里层的原因),例如 tls_error (SSLHandshakeException: …)、network_error (UnknownHostException: …);
-     * 证书、握手一类(SSLException)单独叫 tls_error。
+     * Network errors bring the real error type (the innermost cause), such as tls_error
+     * (SSLHandshakeException:...), network_error (UnknownHostException:...); Certificates and handshakes
+     * (SSLException) are individually called tls_error.
      */
     private fun networkError(e: Throwable): String {
         val chain = generateSequence(e) { it.cause }.toList()
@@ -313,12 +338,14 @@ class WebDownloads(
     }
 
     /**
-     * 占一个名字和一份额度:经关口在 downloads/ 里新建空文件(不跟随链接、不覆盖已有的),句柄留着写。
-     * 额度不够或目录不安全时返回一条已失败的记录。
+     * Account for a name and a share: Create a new empty file in downloads/ via the gateway (do not
+     * follow the link or overwrite the existing one), and leave the handle for writing. If the quota is
+     * insufficient or the directory is not secure, a failed record will be returned.
      */
     private fun reserve(name: String, mime: String?): Entry = synchronized(entries) {
         if (files >= maxFiles) return failedEntry(name, mime, DOWNLOAD_LIMIT)
-        // 关口拒绝(downloads/ 被换成链接等)或建不了:记 unsafe_path
+        // The gateway is rejected (downloads/ is replaced by a link, etc.) or cannot be built: remember
+        // unsafe_path
         val opened = try {
             workspaceDir.mkdirs()
             gate.createNumbered(workspaceDir, DIR, name, MAX_SAME_NAME)
@@ -335,7 +362,7 @@ class WebDownloads(
         }
     }
 
-    /** 记下 [n] 个刚写的字节;任务总量超了为 false。 */
+    /** Record the [n] bytes just written; the total number of tasks exceeded is false. */
     private fun charge(entry: Entry, n: Long): Boolean = synchronized(entries) {
         if (totalBytes + n > maxTotalBytes) return false
         totalBytes += n
@@ -355,7 +382,7 @@ class WebDownloads(
     private fun failedEntry(name: String, mime: String?, error: String): Entry =
         Entry("$SANDBOX_DIR/$name", mime).also { it.status = FAILED; it.error = error; synchronized(entries) { entries += it } }
 
-    /** 失败:删掉这个下载自己建的文件(句柄核实过的那个,名字被换成别的就不动),退回额度。 */
+    /** Failure: Delete the file you created by downloading it (the one whose handle has been verified will not change if the name is changed to something else), and the credit will be refunded. */
     private fun fail(entry: Entry, error: String) {
         synchronized(entry) {
             if (entry.status != RUNNING) return
@@ -387,7 +414,7 @@ class WebDownloads(
         const val TLS_ERROR = "tls_error"
         private const val MAX_ERROR_DETAIL = 120
         private const val MAX_REDIRECTS = 10
-        /** 名字是网页给的,交给模型前限长。 */
+        /** The name is given by the web page, and the length is limited before it is handed over to the model. */
         const val MAX_NAME_CHARS = 80
         private const val TAG = "MinaDownloads"
         private const val DIR = "downloads"
@@ -402,7 +429,7 @@ class WebDownloads(
         private val FILENAME_STAR = Regex("""filename\*\s*=\s*([^']*)'[^']*'([^;]+)""", RegexOption.IGNORE_CASE)
         private val FILENAME_QUOTED = Regex("""filename\s*=\s*"((?:[^"\\]|\\.)*)"""", RegexOption.IGNORE_CASE)
         private val FILENAME_TOKEN = Regex("""filename\s*=\s*([^;\s]+)""", RegexOption.IGNORE_CASE)
-        /** 控制字符、双向控制符与零宽字符:能把「exe」显示成「pdf」之类。 */
+        /** Control characters, bidirectional control characters and zero-width characters: can display "exe" as "pdf" or the like. */
         private val UNSAFE_CHARS = Regex("[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]")
         private val MIME_EXT = mapOf(
             "application/pdf" to "pdf", "text/csv" to "csv", "text/plain" to "txt", "application/json" to "json",
@@ -412,7 +439,7 @@ class WebDownloads(
             "application/vnd.ms-excel" to "xls", "application/msword" to "doc", "text/html" to "html",
         )
 
-        /** 下载的文件名:见类说明。[suggested] 是页面给的名字(`<a download>`),排在响应头之后、网址之前。 */
+        /** Downloaded file name: See class description. [suggested] is the name given by the page (`<a download>`), ranked after the response header and before the URL. */
         fun fileName(contentDisposition: String?, url: String, mime: String?, suggested: String? = null): String {
             val fromHeader = contentDisposition?.let { cd ->
                 FILENAME_STAR.find(cd)?.let { m ->
@@ -429,7 +456,7 @@ class WebDownloads(
         }
 
         private fun clean(raw: String): String {
-            // 只留最后一段:正斜杠、反斜杠都算分隔符
+            // Only the last paragraph is left: forward slash and backslash are considered separators.
             val last = raw.substringAfterLast('/').substringAfterLast('\\')
             return last.replace(UNSAFE_CHARS, "").trim().trimStart('.').trim().takeUnless { it == "." || it == ".." }.orEmpty()
         }
@@ -439,7 +466,7 @@ class WebDownloads(
             if (name.toByteArray().size <= MAX_NAME_BYTES && chars(name) <= MAX_NAME_CHARS) return name
             val ext = name.substringAfterLast('.', "").takeIf { it.isNotEmpty() && it.toByteArray().size <= MAX_EXT_BYTES }?.let { ".$it" }.orEmpty()
             var base = name.removeSuffix(ext)
-            // 按码点截,不劈开代理对
+            // Truncate by code point, do not split proxy pairs
             while (((base + ext).toByteArray().size > MAX_NAME_BYTES || chars(base + ext) > MAX_NAME_CHARS) && base.isNotEmpty()) {
                 base = base.substring(0, base.offsetByCodePoints(base.length, -1))
             }

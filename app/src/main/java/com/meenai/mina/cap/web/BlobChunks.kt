@@ -1,9 +1,11 @@
 package com.meenai.mina.cap.web
 
 /**
- * 页面分段交回的 blob 内容(base64)。页面报的长度、每段长度、累计长度都不信:
- * 报的长度超过 [maxBytes] 换算成 base64 的上限(每 3 字节 4 个字,另加填充余量)就在分配之前拒掉;
- * 不按报的长度预先分配;每段至多 [chunk] 个字,累计不超过报的长度。
+ * The blob content (base64) returned by the page segments. The page's reported length, each segment
+ * length, and cumulative length are not believed: if the reported length exceeds the upper limit of
+ * [maxBytes] converted to base64 (4 words per 3 bytes, plus padding margin), it will be rejected before
+ * allocation; it is not pre-allocated according to the reported length; each segment can be up to
+ * [chunk] words, and the cumulative length does not exceed the reported length.
  */
 internal class BlobChunks(private val declared: Int, private val maxBytes: Long, private val chunk: Int = CHUNK) {
     sealed interface Outcome {
@@ -13,7 +15,7 @@ internal class BlobChunks(private val declared: Int, private val maxBytes: Long,
 
     private val sb = StringBuilder()
 
-    /** 报的长度能不能收;不能时给原因。 */
+    /** Can the reported length be accepted? If not, give the reason. */
     fun refusal(): String? = when {
         declared < 0 -> UNREADABLE
         declared > maxBase64(maxBytes) -> WebDownloads.TOO_LARGE
@@ -23,7 +25,7 @@ internal class BlobChunks(private val declared: Int, private val maxBytes: Long,
     val received: Int get() = sb.length
     val complete: Boolean get() = sb.length >= declared
 
-    /** 收下一段;超长、超出报的长度时为失败原因。 */
+    /** Accept the next paragraph; if it is too long or exceeds the reported length, it will be a failure reason. */
     fun add(part: String): String? {
         if (part.length > chunk) return UNREADABLE
         if (sb.length.toLong() + part.length > declared) return UNREADABLE
@@ -38,7 +40,7 @@ internal class BlobChunks(private val declared: Int, private val maxBytes: Long,
     }
 
     companion object {
-        /** 与 page.js 的 BLOB_CHUNK 一致。 */
+        /** Consistent with BLOB_CHUNK of page.js. */
         const val CHUNK = 1 shl 20
         const val UNREADABLE = "unreadable"
 

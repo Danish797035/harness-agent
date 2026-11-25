@@ -3,9 +3,12 @@ package com.meenai.mina.cap.phone.a11y
 import com.meenai.mina.settings.AppAccessStore
 
 /**
- * 用户主动分享被禁用应用的屏幕时,浮层上的三个选择对应什么:
- * 1 = 允许仅分享屏幕(以后可以主动分享,自动读取和操作仍禁止),2 = 允许此应用(恢复正常调用),0/其他 = 取消分享。
- * 返回是否继续这次分享;取消时不动权限。选「允许仅分享」不会解除禁用,选「允许此应用」会清掉独立分享许可。
+ * When the user actively shares the screen of a disabled application, what do the three options on the
+ * floating layer correspond to: 1 = Allow only screen sharing (active sharing will be possible in the
+ * future, automatic reading and operation are still prohibited), 2 = Allow this application (restore
+ * normal calls), 0/Other = Cancel sharing. Return whether to continue this sharing; the permissions will
+ * not be changed when canceling. Selecting "Allow sharing only" will not undisable it, and selecting
+ * "Allow this app" will clear the independent sharing permission.
  */
 internal fun applyShareChoice(choice: Int, pkg: String, store: AppAccessStore): Boolean = when (choice) {
     1 -> { store.setShareAllowed(pkg, true); true }

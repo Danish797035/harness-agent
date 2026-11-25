@@ -69,7 +69,7 @@ class MarkdownModelTest {
         assertEquals(listOf(listOf("苹果", "5"), listOf("梨", "")), t.rows.map { r -> r.map { it.text } })
     }
 
-    /** 流式输出写到一半、或格式写坏了,都照常出结果,不抛异常。 */
+    /** Even if the streaming output is written halfway, or the format is broken, the result will be output as usual without throwing an exception. */
     @Test
     fun partialAndMalformedInputNeverThrows() {
         val code = MarkdownModel.parse("看这里:\n```py\nprint(1)").last() as MdBlock.Code

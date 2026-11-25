@@ -5,12 +5,17 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * adb 无线配对用的 SPAKE2 变体(edwards25519 + SHA-512)。必须和设备上的实现逐字节一致:
- * - 私钥 = (64 字节随机数 mod L) × 8,乘以余因子;
- * - 口令标量 = SHA-512(口令) mod L,再按低三位依次加 L、2L、4L,使它成为 8 的倍数(与设备端的历史修正一致);
- * - 发送 P* = 私钥·B + 口令标量·(甲方用 M,乙方用 N);
- * - 共享密钥 = SHA-512(每段带 8 字节小端长度前缀:甲名、乙名、甲消息、乙消息、私钥·(Q* − 口令标量·对方常量)、SHA-512(口令))。
- * M、N 由公开种子串推导,见 [SEED_M]/[SEED_N];测试里重新推导并核对。
+ * SPAKE2 variant (edwards25519 + SHA-512) for adb wireless pairing. Must be byte-for-byte consistent
+ * with the implementation on the device:
+ * - - Private key = (64-byte random number mod L) × 8, multiplied by the cofactor;
+ * - - Password scalar = SHA-512 (password) mod L, then add L, 2L, and 4L to the lower three digits to
+ * make it a multiple of 8 (consistent with the historical correction on the device side);
+ * - - Send P* = private key·B + password scalar·(Party A uses M, Party B uses N);
+ * - - Shared key = SHA-512 (each segment has an 8-byte little-endian length prefix: A’s name, B’s name,
+ * A’s message, B’s message, private key·(Q* − password scalar·other party’s constant), SHA-512
+ * (password)).
+ * M and N are deduced from the public seed string, see [SEED_M]/[SEED_N]; re-derive and check in the
+ * test.
  */
 class Spake2(
     private val role: Role,
@@ -28,7 +33,7 @@ class Spake2(
     fun generateMessage(password: ByteArray, random: SecureRandom = SecureRandom()): ByteArray =
         generateMessage(password, ByteArray(64).also { random.nextBytes(it) })
 
-    /** [seed] 是 64 字节随机数;只有测试传入固定值。 */
+    /** [seed] is a 64-byte random number; only tests pass in fixed values. */
     internal fun generateMessage(password: ByteArray, seed: ByteArray): ByteArray {
         check(myMsg == null) { "message already generated" }
         require(seed.size == 64)
@@ -47,7 +52,7 @@ class Spake2(
         return msg.copyOf()
     }
 
-    /** 返回 64 字节共享密钥;对方的点不在曲线上时抛 [IllegalArgumentException]。 */
+    /** Returns a 64-byte shared key; throws [IllegalArgumentException] when the other party's point is not on the curve. */
     fun processMessage(theirMsg: ByteArray): ByteArray {
         val msg = checkNotNull(myMsg) { "generateMessage first" }
         check(!done) { "already processed" }
@@ -80,7 +85,7 @@ class Spake2(
         internal val M = requireNotNull(EdPoint.decode(EdPoint.hex("5ada7e4bf6ddd9adb6626d32131c6b5c51a1e347a3478f53cfcf441b88eed12e")))
         internal val N = requireNotNull(EdPoint.decode(EdPoint.hex("10e3df0ae37d8e7a99b5fe74b44672103dbddcbd06af680d71329a11693bc778")))
 
-        /** 由种子串推导常量点:SHA-256(种子),解不出点就对摘要再取 SHA-256,直到落在曲线上。 */
+        /** The constant point is deduced from the seed string: SHA-256 (seed). If the point cannot be solved, then SHA-256 is added to the summary until it falls on the curve. */
         internal fun derivePoint(seed: String): EdPoint {
             var v = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray(Charsets.US_ASCII))
             while (true) {

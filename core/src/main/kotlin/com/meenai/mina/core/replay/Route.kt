@@ -11,9 +11,11 @@ import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.tool.Verb
 
 /**
- * 路线里认元素的办法:编号只在一次读屏内有效,换成角色、名字、资源 ID、位置(0–999)和同类中的序号。
- * [name] 为空表示不按名字认;形如 `{1}` 表示名字取自本次原话的槽。
- * [uniqueAtRecord]:记录时按这些特征在那一屏里只找到它一个。
+ * How to identify elements in the route: The number is only valid within one screen reading, and is
+ * replaced by the character, name, resource ID, position (0-999) and the serial number of the same type.
+ * If [name] is empty, it means not to recognize it by name; if it is in the form of `{1}`, it means that
+ * the name is taken from the slot of this original speech. [uniqueAtRecord]: When recording, only one of
+ * these features can be found on that screen.
  */
 @Serializable
 data class Selector(
@@ -25,15 +27,15 @@ data class Selector(
     val uniqueAtRecord: Boolean = false,
 )
 
-/** 一屏的锚点:前台包名 + 最多 [RouteAnchors.MAX] 段稳定文字。 */
+/** Anchor point of one screen: frontend package name + up to [RouteAnchors.MAX] stable text. */
 @Serializable
 data class Anchors(val packageName: String?, val texts: List<String>)
 
-/** [argsJson] 已去掉编号,输入文字里的槽写成 `{1}`。 */
+/** [argsJson] has the number removed, and the slot in the input text is written as `{1}`. */
 @Serializable
 data class RouteStep(val tool: String, val argsJson: String, val target: Selector?, val before: Anchors, val after: Anchors)
 
-/** 一条办成过的做法。[template] 是把原话里的槽值换成 `{n}` 之后的句子。 */
+/** A proven practice. [template] is the sentence after replacing the slot value in the original sentence with `{n}`. */
 @Serializable
 data class Route(
     val id: String,
@@ -49,13 +51,15 @@ data class Route(
     val lastUsedMs: Long,
 )
 
-/** 路线的大小上限:步数和落盘字节数。 */
+/** The maximum size of the route: number of steps and number of bytes dropped. */
 const val MAX_ROUTE_STEPS = 60
 const val MAX_ROUTE_BYTES = 64 * 1024
 
 /**
- * 改名前记下的路线:步骤里的旧工具名换成现在能记进路线的那个工具(几块屏都有的动词,取能回放的那一套)。
- * 现在的名字不动;认不出的留着,回放时按「不是可回放的动作」停下。
+ * The route that was written down before the name was changed: the old tool name in the steps is
+ * replaced by the tool that can be recorded in the route now (for verbs that are available on several
+ * screens, use the set that can be played back). The current name does not change; the unrecognizable
+ * ones remain. During playback, press "Not a replayable action" to stop it.
  */
 fun Route.withCurrentToolNames(legacy: LegacyNames, tools: ToolIndex): Route {
     if (steps.all { tools[it.tool] != null }) return this
@@ -70,11 +74,11 @@ object RouteCodec {
     fun decode(s: String): Route = json.decodeFromString(Route.serializer(), s)
 }
 
-/** 从读屏里取选择器和锚点。 */
+/** Take the selector and anchor point from Reading Screen. */
 object RouteAnchors {
     const val MAX = 3
     private const val MAX_LEN = 12
-    /** 数字、时间、金额一类每次都可能变,不当锚点。 */
+    /** Numbers, time, amounts, etc. may change every time and should not be used as anchor points. */
     private val VOLATILE = Regex("[0-9０-９¥￥$€£%]")
     private val LIST_ROLES = setOf("list", "grid", "recycler", "scroll")
 
@@ -89,8 +93,10 @@ object RouteAnchors {
         e.bounds[0] >= c.bounds[0] && e.bounds[1] >= c.bounds[1] && e.bounds[2] <= c.bounds[2] && e.bounds[3] <= c.bounds[3]
 
     /**
-     * 可当锚点的文字,按屏上顺序去重,有资源 ID 的排前面。列表、可滚动区里的条目是内容(联系人、消息、商品),
-     * 输入框里的字是用户写的,都不算——只取页面的固定框架(标题栏、标签、按钮)。
+     * The text that can be used as an anchor point is deduplicated in the order on the screen, and the
+     * text with the resource ID is ranked first. The items in the list and scrollable area are content
+     * (contacts, messages, products), and the words in the input box are written by the user, so they
+     * are not counted - only the fixed frame of the page (title bar, label, button) is taken.
      */
     fun texts(s: ScreenSnapshot): List<String> {
         val boxes = s.elements.filter(::container)
@@ -106,15 +112,17 @@ object RouteAnchors {
         return Anchors(s.packageName, texts(s).filter { it != self }.take(MAX))
     }
 
-    /** 动作后新出现的文字(动作前那一屏没有的)。 */
+    /** New text that appears after the action (that is not available on the screen before the action). */
     fun after(before: ScreenSnapshot?, after: ScreenSnapshot): Anchors {
         val old = before?.let(::texts)?.toSet().orEmpty()
         return Anchors(after.packageName, texts(after).filter { it !in old }.take(MAX))
     }
 
     /**
-     * 选择器里的名字:输入框只留提示语(没有就空),那是界面不是用户写的字;
-     * 其余元素的名字要像锚点一样稳定(短、无数字),否则不存名字,只靠角色、资源 ID 和序号认。
+     * Name in the selector: Only prompts are left in the input box (if not, it is empty), which means
+     * that the interface is not written by the user; the names of other elements must be as stable as
+     * anchors (short, without numbers), otherwise the names will not be saved and will only be
+     * identified by roles, resource IDs and serial numbers.
      */
     fun storedName(e: UiElement): String = when {
         e.editable -> if (e.hint && stable(e.name)) e.name.trim() else ""
@@ -124,24 +132,25 @@ object RouteAnchors {
 
     fun selector(s: ScreenSnapshot, e: UiElement): Selector {
         val name = storedName(e)
-        // 按存下来的特征认:名字没存就只比角色和资源 ID
+        // Recognize by the saved characteristics: if the name is not saved, it will only be the
+        // character and resource ID.
         fun same(x: UiElement) = x.role == e.role && x.resourceId == e.resourceId && (name.isEmpty() || x.name.trim() == e.name.trim())
         val ordinal = s.elements.takeWhile { it !== e }.count(::same)
         return Selector(e.role, name, e.resourceId, e.bounds, ordinal, uniqueAtRecord = s.elements.count(::same) == 1)
     }
 
-    /** 包含该点(0–999)的最小元素;同样小时先取能点的。 */
+    /** The smallest element containing the point (0–999); the energy point is taken first for the same hour. */
     fun elementAt(s: ScreenSnapshot, x: Int, y: Int): UiElement? = s.elements
         .filter { it.bounds.size == 4 && x in it.bounds[0]..it.bounds[2] && y in it.bounds[1]..it.bounds[3] }
         .minWithOrNull(compareBy<UiElement> { (it.bounds[2] - it.bounds[0]).toLong() * (it.bounds[3] - it.bounds[1]) }.thenBy { !it.clickable })
 }
 
-/** 生效的写操作:ok 且界面变了,或输入回读一致;启动 App、打开链接成功即算(端口已等到目标在前台)。 */
+/** Effective write operation: ok and the interface has changed, or the input readback is consistent; starting the App and opening the link will be considered successful (the port has waited until the target is in the foreground). */
 fun effectiveWrite(verb: Verb?, result: JsonObject): Boolean {
     if (result["ok"] != JsonPrimitive(true)) return false
     return result["changed"] == JsonPrimitive(true) || result["verification"] == JsonPrimitive("match") ||
         (verb in OPENS && result["changed"] != JsonPrimitive(false))
 }
 
-/** 打开 App、打开链接:成功就是到了目标那里。 */
+/** Open the app, open the link: success means reaching the goal. */
 internal val OPENS = setOf(Verb.LaunchApp, Verb.OpenLink)

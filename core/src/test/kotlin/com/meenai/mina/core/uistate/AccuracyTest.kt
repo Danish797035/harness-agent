@@ -40,7 +40,8 @@ class AccuracyTest {
         assertEquals(Relocation.Found(0), relocate(prev, listOf(prev), listOf(prev.copy(centerY = 100 + 108)), 720))
     }
 
-    // 页面其余部分不动(底栏三项),只有目标自己在变:倒计时、轮播的预置词、轮播导致的上下文变化
+    // The rest of the page remains unchanged (three items in the bottom column), only the target itself
+    // changes: countdown, preset words for carousel, and context changes caused by carousel
     private val tabs = listOf(loc("首页", 100, 1500, null), loc("消息", 360, 1500, "首页"), loc("我的", 620, 1500, "消息"))
 
     @Test fun sameSpotFoundWhenOnlyItsTextChangedOnAStillPage() {
@@ -50,7 +51,7 @@ class AccuracyTest {
     }
 
     @Test fun countdownOnASparseSplashPageIsFound() {
-        // 开屏广告页只有寥寥几个有名元素
+        // The opening ad page only has a few famous elements
         val prev = loc("跳过 3", 600, 50, ctx = null, role = "TextView", rid = "com.x:id/skip")
         val rest = listOf(loc("广告", 600, 1500, "跳过 3"), loc("浏览器", 360, 1550, "广告"))
         assertEquals(Relocation.Found(0), relocate(prev, listOf(prev) + rest, listOf(prev.copy(name = "跳过 2")) + rest, 720))
@@ -63,18 +64,20 @@ class AccuracyTest {
     }
 
     @Test fun differentControlInTheSameSpotIsNeverTaken() {
-        // 名字变了、去掉数字和空白后也对不上:是另一个控件(或同一控件换了含义),不能替模型点
+        // The name has changed and the numbers and blanks have been removed and it still doesn’t match:
+        // it is another control (or the same control has changed its meaning) and cannot be clicked for
+        // the model.
         val follow = loc("关注", 600, 300, role = "Button", rid = "com.x:id/follow")
         assertEquals(Relocation.Gone, relocate(follow, tabs + follow, tabs + follow.copy(name = "已关注"), 720))
         val next = loc("下一步", 360, 1300, role = "Button", rid = "com.x:id/primary")
         assertEquals(Relocation.Gone, relocate(next, tabs + next, tabs + next.copy(name = "确认支付"), 720))
-        // 没有资源 ID 时连倒计时也不放宽
+        // Even the countdown is not relaxed when there is no resource ID.
         val skip = loc("跳过 3", 600, 50, role = "Button")
         assertEquals(Relocation.Gone, relocate(skip, tabs + skip, tabs + skip.copy(name = "跳过 2"), 720))
-        // 新旧任一方没有资源 ID 也不放宽
+        // Neither the old nor new parties have resource IDs and will not be relaxed.
         val skipRid = skip.copy(resourceId = "com.x:id/skip")
         assertEquals(Relocation.Gone, relocate(skipRid, tabs + skipRid, tabs + skip.copy(name = "跳过 2"), 720))
-        // 不是提示语的普通文字换了也不算
+        // Ordinary text that is not a prompt does not count if it is changed.
         val plain = loc("宝安租房", 360, 200, role = "TextView", rid = "com.x:id/title")
         assertEquals(Relocation.Gone, relocate(plain, tabs + plain, tabs + plain.copy(name = "平板电脑"), 720))
     }
@@ -93,15 +96,16 @@ class AccuracyTest {
     @Test fun sameSpotNotTrustedWhenThePageScrolledOrChanged() {
         val prev = loc("加入购物车", 360, 400, ctx = "商品 A", role = "Button")
         val rows = listOf(loc("商品 A", 100, 300, null), loc("商品 B", 100, 500, "商品 A"), loc("商品 C", 100, 700, "商品 B"))
-        // 列表上移一行:别的商品的按钮刚好挪到原位置
+        // Move the list up one line: the buttons for other products just move to their original
+        // positions
         val scrolled = rows.map { it.copy(centerY = it.centerY - 200) } + prev.copy(context = "商品 B")
         assertEquals(Relocation.Moved, relocate(prev, rows + prev, scrolled, 720))
-        // 换了一页:同位置的按钮名字也变了
+        // Changed the page: the names of the buttons at the same location have also changed.
         val otherPage = listOf(loc("设置", 100, 300, null), loc("关于", 100, 500, "设置"), prev.copy(name = "退出登录"))
         assertEquals(Relocation.Gone, relocate(prev, rows + prev, otherPage, 720))
     }
 
-    /** 模拟输入框:[accepts] 为 false 时写入被忽略;[clearable] 为 false 时清空被忽略;[format] 模拟输入框自己改写文字。 */
+    /** Simulate input box: When [accepts] is false, writing is ignored; when [clearable] is false, clearing is ignored; [format] simulates the input box to rewrite the text by itself. */
     private class FakeField(
         var text: String?,
         val accepts: Boolean = true,
@@ -124,7 +128,7 @@ class AccuracyTest {
     @Test fun matchWhenTextLands() {
         assertEquals(Verification.MATCH, type(FakeField(""), "WLAN"))
         assertEquals(Verification.MATCH, type(FakeField("旧内容"), "WLAN"))
-        // 号码分组加的空格不影响
+        // The spaces added to the number grouping do not affect
         assertEquals(Verification.MATCH, type(FakeField("", format = { "138 0013 8000" }), "13800138000"))
     }
 
@@ -142,7 +146,8 @@ class AccuracyTest {
     }
 
     @Test fun passwordFieldIsWrittenOnceAndNeverRetried() {
-        // 密码框哪怕读得出东西(圆点)、对不上,也只写一次
+        // Even if you can read something (dot) in the password box or it doesn't match, you can only
+        // write it once.
         val f = FakeField("", accepts = false)
         assertEquals(Verification.UNKNOWN, runBlocking { typeAndVerify(f, "pw123456", secret = true) })
         assertEquals(1, f.writes)
@@ -151,11 +156,12 @@ class AccuracyTest {
     @Test fun ignoredWriteIsNotMatch() {
         val f = FakeField("", accepts = false)
         assertEquals(Verification.MISMATCH, type(f, "WLAN"))
-        assertEquals(2, f.writes) // 重试了一次
+        assertEquals(2, f.writes) // Tried again
     }
 
     @Test fun writeReportedFailedIsAFailedAttempt() {
-        // 框里文字变了但动作报失败:不算成功,重试后仍按失败处理
+        // The text in the box has changed but the action failed: it is not considered a success and will
+        // still be treated as a failure after retrying.
         assertEquals(Verification.MISMATCH, type(FakeField("", accepts = false, writeResult = false), "WLAN"))
     }
 
@@ -164,22 +170,25 @@ class AccuracyTest {
     }
 
     @Test fun baselineAlreadyTargetAndWriteIgnoredIsNotMatch() {
-        // 清不掉也写不进:前后一样,无从判断
+        // Can't clear or write in: same as before and after, no way to judge
         assertEquals(Verification.UNKNOWN, type(FakeField("WLAN", accepts = false, clearable = false), "WLAN"))
-        // 能清空但写不进:清空后读回为空,写入后仍为空
+        // Can be cleared but cannot be written: after clearing, it is read back as empty, and after
+        // writing, it is still empty.
         assertEquals(Verification.MISMATCH, type(FakeField("WLAN", accepts = false), "WLAN"))
-        // 能清空也能写:真的写进去了
+        // Can be cleared and written: really written in
         assertEquals(Verification.MATCH, type(FakeField("WLAN"), "WLAN"))
     }
 
     @Test fun fieldStuckOnSameTextButAppReactedIsUnknown() {
-        // 框对无障碍一直报同一段文字(如提示语),但界面上出现了联想词:App 收到了字,只是读不回
+        // The accessibility box keeps reporting the same text (such as a prompt), but an associated word
+        // appears on the interface: The App has received the word, but cannot read it back.
         fun run(f: FakeField, reacted: Boolean) = runBlocking { typeAndVerify(f, "天气", reacted = { reacted }) }
         assertEquals(Verification.UNKNOWN, run(FakeField("请输入关键词", accepts = false), reacted = true))
         assertEquals(Verification.MISMATCH, run(FakeField("请输入关键词", accepts = false), reacted = false))
-        // 每次写入都失败:界面再怎么变也不是我们打进去的
+        // Every write fails: no matter how the interface changes, it is not done by us.
         assertEquals(Verification.MISMATCH, run(FakeField("请输入关键词", accepts = false, writeResult = false), reacted = true))
-        // 框里的字变了但不对:不是「读不回」,仍是没打对
+        // The words in the box have changed but are wrong: it’s not “can’t read back”, it’s still not
+        // typed correctly.
         assertEquals(Verification.MISMATCH, run(FakeField("", format = { "${it}设置" }), reacted = true))
     }
 

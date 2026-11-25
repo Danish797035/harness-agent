@@ -24,8 +24,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * 设备状态:主屏是否不可操作(熄屏或锁屏),以及 Agent 的 App 任务是否被用户挪到了主屏。
- * 熄屏后系统会丢弃注入的触摸,所以熄屏也按「锁屏」处理。
+ * Device status: whether the home screen is inoperable (screen off or locked), and whether the Agent's
+ * App task has been moved to the home screen by the user. The system will discard the injected touches
+ * after the screen is turned off, so the screen is also treated as "lock screen" when the screen is
+ * turned off.
  */
 class DeviceStateWatcher(
     context: Context,
@@ -39,7 +41,8 @@ class DeviceStateWatcher(
     private val lock = LockState({ LockState.Reading(power.isInteractive, keyguard.isKeyguardLocked) }, scope)
     val locked: StateFlow<Boolean> = lock.locked
 
-    // 只用广播当作「该重新看一眼」的信号,状态本身每次都从系统读,不靠广播顺序推断
+    // Only broadcast is used as a signal "it's time to take another look". The status itself is read
+    // from the system every time and does not rely on broadcast order inference.
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             lock.refresh()
@@ -57,12 +60,14 @@ class DeviceStateWatcher(
         } else {
             appContext.registerReceiver(receiver, filter)
         }
-        lock.refresh() // 注册前后之间的变化
+        lock.refresh() // Changes between before and after registration
     }
 
     /**
-     * 轮询两块屏最上面的任务:[taskId] 不在虚拟屏最上面、却在主屏最上面,就是被用户挪走了。
-     * 每次「挪走」只发一次,挪回来后再被挪走会再发。查询失败(shell 断开)时跳过这一轮。
+     * Poll the top task of the two screens: [taskId] is not at the top of the virtual screen, but is at
+     * the top of the main screen, that is, it was moved by the user. Each "move" is only sent once, and
+     * it will be sent again after it is moved back. This round is skipped if the query fails (the shell
+     * is disconnected).
      */
     fun taskMovedAway(displayId: Int, taskId: Int): Flow<Unit> = flow {
         var away = false
@@ -92,10 +97,13 @@ class DeviceStateWatcher(
 }
 
 /**
- * 主屏是否不可操作(熄屏或锁屏)。广播来了重读一次;但解锁时系统先发 USER_PRESENT,
- * [android.app.KeyguardManager.isKeyguardLocked] 要等锁屏界面真的退下去才变,这一刻读到的还是「锁着」,
- * 之后不会再有广播。所以读到「亮着但锁着」时,只要有人在看这份状态,就每 [DeviceStateWatcher.POLL_MS] 再读一次,
- * 直到读到解锁或熄屏;熄屏时不读,等 SCREEN_ON。
+ * Whether the home screen is inoperable (screen off or locked). When the broadcast comes, it is read
+ * again; but when unlocking, the system first sends USER_PRESENT,
+ * [android.app.KeyguardManager.isKeyguardLocked]. It will not change until the lock screen interface
+ * really retreats. What is read at this moment is still "locked", and there will be no more broadcasts
+ * later. So when it reads "lit but locked", as long as someone is looking at this status, it will be
+ * read again every [DeviceStateWatcher.POLL_MS] until it reads unlocked or the screen is turned off; it
+ * will not be read when the screen is turned off and waits for SCREEN_ON.
  */
 internal class LockState(private val read: () -> Reading, scope: CoroutineScope) {
     data class Reading(val interactive: Boolean, val keyguardLocked: Boolean) {

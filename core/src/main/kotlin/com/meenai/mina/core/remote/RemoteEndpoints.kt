@@ -8,10 +8,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.net.InetAddress
 
 /**
- * 已认证连接共用的协议入口。调用方先完成各自的认证:局域网由 RemoteAccess,出站隧道由已配对的 HTTPS 网关。
- * 不监听、不发网络请求、不判定来源可信度;两种传输共用任务用例与近期活动。
- * 手机屏幕能力(读锁屏状态、唤醒、解锁)由调用方逐个请求决定给不给:不给时这些工具和端点根本不出现,
- * 而不是出现了再拒绝。经网关来的请求默认不给,见 docs/dev/remote-mcp.md。
+ * Protocol entry common to authenticated connections. The callers first complete their respective
+ * authentications: RemoteAccess for the LAN, and the paired HTTPS gateway for the outbound tunnel. No
+ * monitoring, no network requests, no determination of source credibility; both transmissions share task
+ * use cases and recent activities. Mobile phone screen capabilities (reading lock screen status, waking
+ * up, and unlocking) are determined by the caller on a case-by-case basis: if not provided, these tools
+ * and endpoints will not appear at all, instead of being rejected after appearing. Requests coming
+ * through the gateway are not accepted by default, see docs/dev/remote-mcp.md.
  */
 class RemoteEndpoints(tasks: RemoteTasks, private val serverVersion: String, private val clock: () -> Long = System::currentTimeMillis,
     device: DeviceAccess? = null) {
@@ -20,7 +23,7 @@ class RemoteEndpoints(tasks: RemoteTasks, private val serverVersion: String, pri
     private val mutable = MutableStateFlow(RemoteActivity())
     val activity = mutable.asStateFlow()
 
-    /** 一套协议入口:任务 API 加 MCP。两套只差带不带手机屏幕能力,任务服务和近期活动共用。 */
+    /** A set of protocol entrances: task API plus MCP. The only difference between the two sets is the ability to have a mobile phone screen, task services and recent activities are shared. */
     private inner class Surface(device: DeviceAccess?) {
         val api = RemoteTaskApi(service, serverVersion, device)
         val rpc = McpRpc(McpTaskTools(service, device), serverVersion) { remote, name -> seen(remote, name) }
@@ -28,7 +31,7 @@ class RemoteEndpoints(tasks: RemoteTasks, private val serverVersion: String, pri
     private val withDevice = Surface(device)
     private val tasksOnly = if (device == null) withDevice else Surface(null)
 
-    /** [deviceAccess] 为 false 时这次请求看不到唤醒、解锁和锁屏状态。 */
+    /** When [deviceAccess] is false, the wake-up, unlock and lock screen status cannot be seen in this request. */
     fun handle(req: HttpRequest, deviceAccess: Boolean = true): HttpResponse {
         val surface = if (deviceAccess) withDevice else tasksOnly
         if (req.path == McpRpc.PATH) return surface.rpc.handle(req)

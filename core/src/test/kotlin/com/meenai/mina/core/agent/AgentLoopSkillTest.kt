@@ -52,22 +52,24 @@ class AgentLoopSkillTest {
     @Test fun knowledgeIndexStillByTaskWords() {
         val r = run("用闲鱼查手机,再发微信给小王,再在知乎搜一下")
         val idx = r.requests.first().index().single()
-        // 知识和技能各在自己的标题下(标题里写着用哪个工具读全文)
+        // Knowledge and skills are each under their own headings (the title says which tool to use to
+        // read the full text)
         assertTrue(idx.lines().first() == KNOWLEDGE_INDEX_HEADER && idx.lines().any { it.startsWith("- app:xianyu(闲鱼):") })
         assertTrue(SKILL_INDEX_HEADER in idx.lines())
-        // 索引行在任务原文之后
+        // The index line follows the original text of the task
         val texts = r.requests.first().userTexts()
         assertTrue(texts.indexOf(idx) > texts.indexOfFirst { it.startsWith("用闲鱼") })
     }
 
-    // 目标和技能名一个字面也对不上:技能照样全部列出,由模型按描述判断
+    // The target and skill names do not match each other literally: the skills are all listed as usual,
+    // and the model determines based on the description.
     @Test fun allSkillsListedEvenWithoutSharedWords() {
         val r = run("知乎上我一共建了几个收藏夹？哪个收藏夹里的内容最多？", zhihu, personalSkill("a-trip", display = "我的出行"))
         val lines = r.requests.first().skillLines()
         val builtIn = bundled.items.filter { it.kind == "skill" }.map { it.name }.sorted()
         assertEquals(builtIn.map { "skill:$it" } + listOf("personal:a-trip", "personal:zhihu-collections"), lines.map { it.removePrefix("- ").substringBefore('(') })
         assertTrue(lines.contains("- personal:zhihu-collections(查看知乎收藏夹列表):打开知乎我的收藏,数收藏夹和条数"))
-        // 和任务毫不相干的也列出:不按字面挑
+        // Things that have nothing to do with the task are also listed: do not pick them literally
         assertTrue(run("把屏幕亮度调高一点", zhihu).requests.first().skillLines().any { it.startsWith("- personal:zhihu-collections(") })
     }
 
@@ -80,7 +82,8 @@ class AgentLoopSkillTest {
         assertTrue(lines.none { "old-one" in it || "draft-one" in it })
     }
 
-    // 开头只给索引,个人技能的全文要模型自己用 skill_read 读
+    // Only the index is given at the beginning. The full text of personal skills must be read by the
+    // model itself using skill_read.
     @Test fun noPersonalFullTextAtStart() {
         val mine = personalSkill("lao-ma-msg", body = "## 入口\n打开微信找老妈", display = "给老妈发消息")
         val r = run("给老妈发消息说晚点到", mine)
@@ -93,10 +96,10 @@ class AgentLoopSkillTest {
     @Test fun skillReadOfPersonalRecordsSkillUsed() {
         val r = run("知乎上我一共建了几个收藏夹？", zhihu, personalSkill("my-trip", display = "我的出行"), script = listOf(
             reply(call("skill_read", """{"name":"zhihu-collections"}""")),
-            reply(call("knowledge_read", """{"name":"app:wechat"}""")), // 内置的不记
+            reply(call("knowledge_read", """{"name":"app:wechat"}""")), // The built-in ones are not remembered
             finish,
         ))
-        // 全文由 skill_read 的结果给出
+        // The full text is given by the result of skill_read
         assertTrue(r.requests.last().any { m -> m.parts.any { it is Part.ToolResult && "打开 App" in it.content } })
         val used = r.events.filterIsInstance<RunEvent.SkillUsed>().map { it.name to it.how }
         assertEquals(listOf("zhihu-collections" to "viewed"), used)

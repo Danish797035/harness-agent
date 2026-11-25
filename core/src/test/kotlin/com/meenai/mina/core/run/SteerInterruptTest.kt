@@ -48,12 +48,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
 
-/** 插话是补充:撤掉等着的模型请求、提前结束纯等待、收尾前到的话接着做;做过的一概保留,节奏保护不丢。 */
+/** Interjections are supplements: cancel the waiting model request, end the waiting process early, and continue to do it if it comes before the end; keep everything you have done, and the rhythm is not lost. */
 class SteerInterruptTest {
     private fun spec() = RunSpec(RunId("r1"), "看看", "thread-1")
     private fun call(id: String, name: String, args: String = "{}") = ModelReply(listOf(Part.ToolCall(id, name, args)), StopReason.ToolUse, null)
 
-    /** 第 n 次请求(从 1 数)交给 [reply];收到的消息另存一份。 */
+    /** The nth request (counted from 1) is handed over to [reply]; the received message is saved in another copy. */
     private class Scripted(private val reply: suspend (Int) -> ModelReply) : ChatModel {
         override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 128_000, reasoning = false)
         val requests = mutableListOf<List<Message>>()
@@ -104,7 +104,7 @@ class SteerInterruptTest {
         }
         val running = async { AgentLoop(model, toolDispatcher(FakeScreen()), "BASE").run(spec(), inbox) }
         entered.await()
-        // 普通插话(不是 Redirect)也撤掉等着的请求
+        // Ordinary interruption (not Redirect) also cancels the waiting request.
         assertEquals(InputReceipt.Accepted, inbox.send(RunInput.Steer("m1", "顺便看看价格")))
         val end = running.await()
         assertTrue(cancelled)
@@ -112,13 +112,14 @@ class SteerInterruptTest {
         assertEquals(3, model.requests.size)
         val cut = model.requests[1]
         val again = model.requests[2]
-        // 撤掉的那次请求发过的消息原样留在前面(包括第一步的工具结果),插话接在后面
+        // The messages sent by the canceled request are left as they are at the front (including the
+        // tool results of the first step), and the interjections are added at the back.
         assertEquals(cut, again.take(cut.size))
         assertTrue(cut.results().any { it.callId == "c1" })
         assertEquals(cut.size, again.steerIndex("顺便看看价格"))
     }
 
-    /** 后退要等 [release] 才做完。 */
+    /** You have to wait for [release] to complete the retreat. */
     private class SlowBack : ScreenPort by FakeScreen() {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -177,7 +178,8 @@ class SteerInterruptTest {
     @Test fun steerBeforeTheAnswerIsHandedOverContinuesAndOnlyAClosedRunTakesNextTasks() = runTest {
         val inbox = RunInbox()
         var asked = 0
-        // 回答已经写完、正要交出时到的话:不收尾,带着它接着做
+        // If you have finished writing your answer and are about to hand it over: don’t finish it, just
+        // take it and continue working on it.
         val loop = AgentLoop(Scripted { n -> answerReply("第${n}次") }, toolDispatcher(FakeScreen()), "BASE", beforeAccept = {
             if (++asked == 1) inbox.send(RunInput.Steer("m1", "再加一条"))
             com.meenai.mina.core.agent.BeforeAccept.Accept
@@ -197,7 +199,7 @@ class SteerInterruptTest {
         assertEquals(InputReceipt.NextTask, inbox.send(RunInput.Steer("m3", "三")))
     }
 
-    /** 一屏只有一个「立即沟通」;记下点了几次。 */
+    /** There is only one "Communicate now" on one screen; write down how many times you clicked it. */
     private class GreetPage : ScreenPort by FakeScreen() {
         val taps = mutableListOf<String>()
         private val shown = listOf(UiElement("@e1", "button", "立即沟通", 900, 300, listOf(800, 100, 999, 160), null, true, false, false))
@@ -226,7 +228,8 @@ class SteerInterruptTest {
         assertEquals(JsonPrimitive(SKIPPED_FOR_NEW_MESSAGE), cut.exec.content["error"])
         assertEquals(1_000L, currentTime - t0)
         assertEquals(listOf("@e1"), screen.taps)
-        // 模型读到插话之后还要发:余下的间隔照样补上再做
+        // After the model reads the interjection, it still needs to be sent: the remaining intervals
+        // should be filled in before doing it.
         inbox.takeSteers()
         assertEquals(gap - 1_000, pacing.waitBefore("com.jobs", currentTime))
         tap("c3")
@@ -246,7 +249,8 @@ class SteerInterruptTest {
         assertTrue("$stopped", stopped is DwellInterrupted)
         assertEquals(1_000L, currentTime)
         inbox.takeSteers()
-        // 没停够的那部分不算停过:下次换页之前补足
+        // The part that is not stopped enough is not considered stopped: make up before the next page
+        // change.
         assertEquals(owed - 1_000, withContext(inbox.signal) { d.before() })
         assertEquals(owed, currentTime)
         assertEquals(0, d.before())

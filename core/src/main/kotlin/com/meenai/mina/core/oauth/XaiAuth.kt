@@ -13,25 +13,29 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 用 xAI / Grok 订阅登录,再直接调 xAI 自己的 Responses 接口(`https://api.x.ai/v1/responses`)。
+ * Use xAI/Grok to subscribe and log in, and then directly adjust xAI’s own Responses interface
+ * (`https://api.x.ai/v1/responses`).
  *
- * 客户端身份复用 xAI 官方命令行工具的公开登录入口(公开 client_id,不是 xAI 给 Mina 注册的应用)。xAI 可能不支持这种用法,
- * 有账号被限制的风险;界面在登录前写明,不点就不发生。发现文档里的地址必须是 https 且主机是 [HOST],
- * 对不上就拒绝,不去连。刷新令牌走同一家的令牌端点。
+ * Client identity reuse The public login entrance of xAI official command line tool (public client_id,
+ * not the application registered by xAI for Mina). xAI may not support this usage, and there is a risk
+ * that the account will be restricted; the interface states this before logging in, and it will not
+ * happen unless you click on it. I found that the address in the document must be https and the host is
+ * [HOST]. If it doesn’t match, I will reject it and not connect. Refresh tokens go through the same
+ * token endpoint.
  */
 class XaiAuth(
     private val http: OkHttpClient,
     private val issuer: String = ISSUER,
     private val clientId: String = CLIENT_ID,
-    /** 令牌、发现、设备码端点允许的主机。默认只有 auth.x.ai。测试里换成本机。 */
+    /** Allowed hosts for token, discovery, and device code endpoints. The default is only auth.x.ai. During the test, switch to the local machine. */
     private val issuerHosts: Set<String> = setOf(HOST),
-    /** 给用户打开的验证页允许的主机。 */
+    /** Allowed hosts for the verification page opened by the user. */
     private val verifyHosts: Set<String> = setOf(HOST, "accounts.x.ai"),
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 读 OIDC 发现文档,只留下主机核对过的设备码和令牌地址。 */
+    /** Read the OIDC discovery document, leaving only the device code and token address verified by the host. */
     suspend fun discover(): XaiEndpoints {
         val docUrl = OauthUrls.check(issuer.trimEnd('/') + "/.well-known/openid-configuration", issuerHosts)
         val raw = get(docUrl.toString())
@@ -81,7 +85,7 @@ class XaiAuth(
         )
     }
 
-    /** 用刷新令牌换一组新的。地址按登录时记下的签发方,主机仍要在允许名单里。 */
+    /** Exchange the refresh token for a new set. The address is the issuer noted when logging in, and the host must still be in the allowed list. */
     suspend fun refresh(session: AccountSession): OauthTokenResult {
         if (session.refreshToken.isEmpty()) return OauthTokenResult.Rejected("no_refresh_token", terminal = true)
         val issuer = session.issuer.ifBlank { this.issuer }.trimEnd('/')
@@ -130,7 +134,7 @@ class XaiAuth(
         return copy(verificationUri = verify, verificationUriComplete = complete)
     }
 
-    /** 给人看的身份:优先用 userinfo;失败就从 ID 令牌的声明里读(只用于显示,不拿它做授权)。读不到就留空。 */
+    /** The identity shown to others: use userinfo first; if it fails, read it from the declaration of the ID token (only used for display, not used for authorization). Leave it blank if it cannot be read. */
     private suspend fun identity(userinfoUrl: String?, tokens: OauthTokens): Pair<String, String> {
         if (userinfoUrl != null) {
             val raw = try {
@@ -168,16 +172,16 @@ class XaiAuth(
         const val PROVIDER = "xai"
         const val HOST = "auth.x.ai"
         const val ISSUER = "https://auth.x.ai"
-        /** xAI 官方命令行工具的公开客户端。不是给 Mina 注册的,复用有风险,见界面上的说明。 */
+        /** Public client of xAI official command line tool. It is not registered for Mina. There are risks in reusing it. Please see the instructions on the interface. */
         const val CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
         const val SCOPE_CLI = "grok-cli:access"
         const val SCOPE_API = "api:access"
         const val SCOPES = "openid profile email offline_access $SCOPE_CLI $SCOPE_API"
-        /** 订阅登录调用的接口根:xAI 自己的 Responses,不转成别的协议。 */
+        /** The interface root of the subscription login call: xAI's own Responses, which will not be converted to other protocols. */
         const val API_BASE = "https://api.x.ai/v1"
         private const val FALLBACK_VERIFY = "https://accounts.x.ai/oauth2/device"
 
-        /** ID 令牌中间一段的声明,解不开就空。不验签:只用来显示邮箱。 */
+        /** The statement in the middle of the ID token will be empty if it cannot be decoded. No signature verification: only used to display the email address. */
         fun idClaims(idToken: String?): Pair<String, String> {
             val payload = idToken?.split('.')?.getOrNull(1) ?: return "" to ""
             val bytes = runCatching {

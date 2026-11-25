@@ -1,401 +1,3779 @@
-# Mina 架构
+# Mina architecture
 
-这份文档按代码现状描述 Mina 的整体结构,方便找代码。还没做的、做了一半的写在 [`roadmap.md`](roadmap.md)。
+This document describes the overall structure of Mina according to the current status of the code,
+making it easier to find the code. What has not been done yet and what is half-finished is written
+in[`roadmap.md`](roadmap.md)。
 
-路径缩写:`core/…` = `core/src/main/kotlin/com/meenai/mina/core/`,`app/…` = `app/src/main/java/com/meenai/mina/`。
+Path abbreviation: `core/…` = `core/src/main/kotlin/com/meenai/mina/core/`, `app/…` =
+`app/src/main/java/com/meenai/mina/`.
 
-## 1. 模块与分层
+## 1. Modules and layering
 
-仓库有两个 Gradle 模块:
+The repository has two Gradle modules:
 
-- `:core`:纯 Kotlin(JVM),不依赖安卓。主循环、工具、能力的平台无关部分、上下文、核查、记忆、知识、触发器、运行记录都在这里,可以在电脑上用单测和假模型跑。提示词、内置知识与技能是它的资源(`core/src/main/resources/`)。
-- `:app`:安卓宿主。界面、前台服务、虚拟屏、无障碍、内置手机助手、WebView、沙箱、文件存储,以及 `:core` 里各个接口的安卓实现。
+- `:core`: Pure Kotlin (JVM), not dependent on Android. The main loop, tools, platform-independent
+  parts of capabilities, context, verification, memory, knowledge, triggers, and run records are all
+  here, and can be run on a computer with single tests and fake models. Prompt words, built-in
+  knowledge and skills are its resources (`core/src/main/resources/`).
+- `:app`: Android host. Interface, front-end service, virtual screen, accessibility, built-in mobile
+  assistant, WebView, sandbox, file storage, and Android implementation of each interface in
+  `:core`.
 
-另有可选的独立 Go 网关 `tools/relay/`,用于单用户、单设备的公网远程 CLI / MCP。它不进入 APK,手机通过出站 WSS 接入;部署和手机鉴权见 [remote-mcp.md](remote-mcp.md)。
+There is also an optional independent Go gateway `tools/relay/`, which is used for single-user,
+single-device public network remote CLI/MCP. It does not enter the APK, the phone accesses via
+outbound WSS; see [remote-mcp.md](remote-mcp.md) for deployment and phone authentication.
 
 ```
- 来源   对话界面 │ 定时/条件触发 │ 父任务(子任务)│ 电脑(CLI / MCP)
+ Sources   Chat UI │ Scheduled/conditional triggers │ Parent task (subtask) │ Computer (CLI / MCP)
           └──────────┬──────────┘
-          TaskService(前台服务,安卓宿主)
-          TaskCenter(每个对话一个 Run、并行上限、排队)· RunStore · Outbox
+          TaskService (foreground service, Android host)
+          TaskCenter (one Run per conversation, concurrency cap, queue) · RunStore · Outbox
                      │
-          TaskRun ── 一次运行:装能力、建 AgentLoop、收尾
+          TaskRun ── one run: install capabilities, build AgentLoop, wrap up
                      │
-          AgentLoop(只调度)← RunInbox(插话、回答、确认、交回、取消)
+          AgentLoop (scheduling only) ← RunInbox (steer, answer, confirm, hand back, cancel)
             ModelCaller · ContextBuilder/ContextCompressor · TurnPolicy/StopRules
-            ToolDispatcher → ActionExecutor(唯一执行入口)
-                     │  CapabilityProvider(核心不认识具体能力)
-          phone      web       sandbox      (mcp 客户端:骨架)
+            ToolDispatcher → ActionExecutor (the only execution entry point)
+                     │  CapabilityProvider (the core does not know concrete capabilities)
+          phone      web       sandbox      (mcp client: skeleton)
 ```
 
-`:core` 里包之间的依赖方向(`PackageDependencyTest` 检查):
+Dependency direction between packages in `:core` (`PackageDependencyTest` check):
 
-- 能力(`core/cap/<能力>/`)依赖核心,核心不引用任何能力,能力之间也互不引用;只有装配层(`core/assembly/`)同时认识几种能力。App 里 `cap/` 下各能力的目录同样互不引用。
-- 工具引擎(`core/tool/`:`ToolDispatcher`、`ToolContext`、`AgentTool` 等)不引用界面状态(`core/uistate/`)。引擎只经 `SurfaceLayer`(`core/tool/SurfaceLayer.kt`)用到有界面的那一层,接口里只有屏的 id、工具、参数和结果;实现是 `Interfaces`,由装配层开局造好、放进工具上下文,有界面的工具经 `core/uistate/ScreenContext.kt` 里的扩展从上下文取读屏状态。
+- Capabilities (`core/cap/<capability>/`) depend on the core. The core does not reference any capabilities,
+  nor do capabilities reference each other; only the assembly layer (`core/assembly/`) recognizes
+  several capabilities at the same time. The directories of each capability under `cap/` in the App
+  also do not reference each other.
+- The tool engine (`core/tool/`: `ToolDispatcher`, `ToolContext`, `AgentTool`, etc.) does not
+  reference the interface state (`core/uistate/`). The engine only uses the interface layer through
+  `SurfaceLayer` (`core/tool/SurfaceLayer.kt`), and the interface only contains the screen ID, tool,
+  parameters and results; the implementation is `Interfaces`, which is built by the assembly layer
+  and put into the tool context. The interface tool reads the screen status from the context through
+  the extension in `core/uistate/ScreenContext.kt`.
 
-## 2. 任务与运行
+## 2. Tasks and operations
 
 ### Run
 
-一次运行由 `RunSpec`(`core/run/RunContracts.kt`)描述:`id`、`goal`、`threadId`(对话)、`priorTurns`、`provenance`、能力子集 `capabilities`、`readOnly`、`parent`、`stepBudget`。
+A run is described by `RunSpec` (`core/run/RunContracts.kt`): `id`, `goal`, `threadId`
+(conversation), `priorTurns`, `provenance`, capability subset `capabilities`, `readOnly`, `parent`,
+`stepBudget`.
 
-- `RunProvenance`(`core/run/RunProvenance.kt`)记这次运行从哪来、用户在不在:`RunOrigin` = Ui / Channel / Trigger / Mcp / Child;`Attendance` = Present / Reachable / Unattended。
-- 运行阶段 `RunPhase`:Queued、Preparing、Running、WaitingUser、Parked、Paused、Finishing、Aftercare、Ended、Interrupted。
-- 「这一步谁发起」是另一回事,见 §4 的 `Origin`。
+- `RunProvenance` (`core/run/RunProvenance.kt`) Note where this operation comes from and whether the
+  user is present: `RunOrigin` = Ui / Channel / Trigger / Mcp / Child; `Attendance` = Present /
+  Reachable / Unattended.
+- Running phases `RunPhase`: Queued, Preparing, Running, WaitingUser, Parked, Paused, Finishing,
+  Aftercare, Ended, Interrupted.
+- "Who initiates this step" is another matter, see `Origin` in §4.
 
-### 任务中心
+### mission center
 
-`TaskCenter`(`app/task/TaskRegistry.kt`,由 `TaskService` 持有)管运行的启动、排队与收尾:
+`TaskCenter` (`app/task/TaskRegistry.kt`, held by `TaskService`) manages the start, queue and end of
+the operation:
 
-- 每个对话同时只有一个 Run。同一对话里任务进行中用户又发消息,不另开任务,而是作为插话交给正在跑的 Run(`TaskService.begin`)。
-- 不同对话的任务可以并行,上限见 §8;超过上限的进先进先出队列,有 Run 结束时依次补上(跳过对话里已有 Run 的)。并行开关关着(默认)时,任务进行中界面不能切换对话(`ChatViewModel.canSwitch`、侧栏 `ChatDrawer` 里别的对话不可点并有提示),交给服务的另一个对话的任务(对话页、悬浮胶囊、浏览器页、定时、电脑)一律进队列,不丢(`TaskService.begin`)。对话页先等服务空下来再交(这时那条消息下面写「等前一个任务做完再开始」,`ChatViewModel.begin`),防的是同一个对话里上一个任务还在收尾时,新的一句被当成插话;查完到交到之间别处先开始了一个任务,它照样排上,那个任务收尾后开始。这时点停止只停这个对话的任务(`TaskActions.cancelIn`),不碰正在跑的那个。
-- 定时任务到点时,如果原对话正有任务在跑,就在这个对话里排队等它结束(`queueInConversation`),不当成插话,也不丢。
-- 运行状态写进 `runs-v3.json`(`app/task/FileRunStateStore.kt`,原子替换写入)。
-- `app/task/TaskCenterState.kt` 只是界面要显示的状态(运行列表、并行上限、插话状态等)。
+- There is only one Run per conversation at a time. In the same conversation, if the user sends
+  another message while the task is in progress, it will not open another task, but will be given as
+  an interruption to the running Run (`TaskService.begin`).
+- Tasks in different conversations can be run in parallel, and the upper limit is shown in §8; the
+  first-in-first-out queue that exceeds the upper limit will be added in sequence when there is a
+  Run at the end (skip the ones that already have a Run in the conversation). When the parallel
+  switch is turned off (default), conversations cannot be switched on the task-in-progress interface
+  (`ChatViewModel.canSwitch`, other conversations in the sidebar `ChatDrawer` cannot be clicked and
+  there will be a prompt). Tasks assigned to another conversation in the service (conversation page,
+  suspension capsule, browser page, timing, computer) will all be queued and will not be lost
+  (`TaskService.begin`). The conversation page waits for the service to be free before handing it in
+  (at this time, the message says "Wait until the previous task is completed before starting",
+  `ChatViewModel.begin`). This prevents the new sentence from being treated as an interruption when
+  the previous task in the same conversation is still being completed; between the completion of the
+  search and the handover, a task starts somewhere else, and it is still queued, and the task starts
+  after the completion of that task. At this point, stop the task that only stops this conversation
+  (`TaskActions.cancelIn`), and does not touch the running one.
+- When the scheduled task is up, if there is a task running in the original conversation, queue up
+  in this conversation and wait for it to end (`queueInConversation`). It is not regarded as an
+  interruption and is not lost.
+- The running status is written into `runs-v3.json` (`app/task/FileRunStateStore.kt`, atomic
+  replacement writing).
+- `app/task/TaskCenterState.kt` is just the status to be displayed on the interface (running list,
+  parallel upper limit, interrupt status, etc.).
 
-### 收件箱与插话
+### Inbox and interrupts
 
-运行中从外面进来的东西都经 `RunInbox`(`core/run/RunInbox.kt`),种类是 `RunInput`:Steer(插话)、Redirect、Answer、Confirm、HandBack、Cancel。
+During operation, everything coming in from the outside goes through `RunInbox`
+(`core/run/RunInbox.kt`), and the types are `RunInput`: Steer (interjection), Redirect, Answer,
+Confirm, HandBack, and Cancel.
 
-- **插话是补充**:做过的一概保留。每句插话都撤掉此刻还在等的模型请求(`AgentLoop.routedOrRedirect`),接在已有历史后面重问,发过的消息一字不改,请求前缀照样只增不变。已经进了执行入口的工具调用照常做完、结果照记,下一次问模型之前再接上插话(`AgentLoop.appendSteers`)。Steer 和 Redirect 走同一条路。
-- **打断时已经显示的字留下**:撤掉的那次请求如果已经流式显示出一段字(界面上的 `TaskState.Running.preview`),`AgentLoop.keepInterrupted` 把这段字作为一条只有文字的回复记进历史,接在插话前面,模型重问时看到的和用户看到的一样;思考内容和写了一半的工具调用本来就不显示,不记。没显示出字(没开流式显示、还没出字、重试时清空了)或这一批没有插话时什么也不记。界面上的实时文字当场清掉,撤掉之后网络线程迟到的字不再显示。这段字还发一个运行事件 `reply_interrupted`(截断、脱敏后),`TaskRun` 把它挂到紧接着交给模型的那句插话上(`SteerNote.interrupted`),对话页在这句插话上方用淡色显示,下面一行小字「被你的新消息打断」;随这一轮存进对话(`Turn.interruptedReplies`,和 `steers` 一一对应,没打断的是空串),重开对话时照样显示。它只给界面,不进以后几轮给模型的上文。
-- **插话之前已经说完的回复留下**:不带调用的回复已经显示出来、记进了历史,这时才取到插话(回复刚好先说完、插话随后才到,或交出前整理来源时到的插话),`AgentLoop.keepFinished` 把界面上的那段字发成运行事件 `reply_finished_before_steer`(脱敏后,不截短:界面要显示全文),当场清掉实时文字,再接上插话。`TaskRun` 同样挂到这一批的第一句插话上(`SteerNote.finished`),对话页在插话上方照回答的样子显示(不标「打断」),随这一轮存下(`Turn.finishedReplies`,和 `steers` 一一对应);没显示过字时什么也不挂。对话页上还没交给模型的插话排在正在长出来的回答后面(`steersAroundDraft`):那段回答是插话到之前就在写的,写完或被打断时留在原处,不会从插话下面跳到上面。
-- **插话什么时候进上下文**:`AgentLoop.appendSteers` 在每一步调模型之前取收件箱;模型给出不带工具的回答时先看一眼,有新插话就继续干。回答交出之前(核对、整理来源之后)用 `RunInbox.closeUnlessSteered` 在同一把锁里看和关:还有插话就不收尾、带着它接着做,没有才关上收件箱,此后的话才成为下一件事。模型自己调 end_not_done 时刚到的插话同样让它接着做;守卫叫停、出错照样结束。
-- **等待提前结束**:收件箱给出「有插话还没交给模型」的信号(`core/run/SteerSignal.kt`),装在整个运行的协程上下文里。撤掉也什么都不丢的调用经 `waitOrSteer` 包起来,插话一到就提前结束:纯等待和只问看图模型的工具(声明 `AgentTool.yieldsToSteer`:wait、phone_wait、phone_event、web_wait_for、describe、find_visually,由分发器统一包)、`phone_run` 里的等字、`do_steps` 按条件等界面的每一段、网页换页之前的停留(`PageDwell`)、同一网站或 App 里两次对外动作之间的间隔(`ActionExecutor`)。被截断的调用报 `skipped_for_new_message`、这次什么也没做;在 `do_steps` 里这一步和后面的子步一起跳过。动作做完之后等界面安静、判效果的那一下不截断(它给的是动作的结果)。模型调用的重试等待本来就在模型请求里,随它一起撤掉。
-- **节奏保护不丢**:停留和间隔被截断时,动作本身不做(工具结果说明为什么、要的话再调一次)。两者都按时刻算(间隔从上一次对外动作做完算起,停留从这一页来的时刻算起),没停够的部分不算停过,下一次换页或对外动作之前照样补足余下的时间;插话只是让模型现在就能想,不会让下一次动作来得更快。
-- **一次多步途中**:`do_steps` 在两步之间发现有插话,就停在那里,结果写明「为处理新消息而跳过」(`skipped_for_new_message`),不算失败(`core/agent/BatchRunner.kt`)。某一步做完正在按条件等界面时有插话,等待也马上停下(那一步的 `wait.stopped` 是 `new_message`),后面的子步照样跳过。
-- **界面上马上有回音**:`TaskRun.steer` 送进收件箱成功就把这句话标成「已收到，下一步处理」(`SteerState.Received`),交给模型时改成「已加入当前任务」;对话页和悬浮胶囊的对话卡片都在这句话下面写这行小字(`steerLabel`)。
-- **撤回与编辑插话**:默认仍直接插给当前任务。对话页长按尚未交给模型的消息,可以撤回或取回编辑;`RunInbox.withdrawSteer` 与 `takeSteers`、收尾共用一把锁,已交给模型或已收尾时返回失败。成功后标为 `SteerState.Withdrawn`,对话页和胶囊不再显示,也不计入已加入的插话。任务尚未交给服务时从 `ChatViewModel.held` 撤回。编辑恢复正文与引用,输入框已有草稿、引用或附件时不提供编辑;悬浮胶囊带着屏幕、浏览器页带着页面说明插的话不提供编辑(`editableSteer`):取回来时输入框开头是屏幕标记或几行页面说明原文,删掉就丢了屏幕和页面,改坏就认不出页面。电脑追加的插话(`SteerNote.remote`)也显示在对话里,但不提供撤回和编辑,收件箱也拒绝撤回(编辑会把只归当前任务的话变成手机插话、可能转成下一件事;撤不撤由电脑定);`remoteSteers` 把 `Withdrawn` 按 `not_applied` 报,不多出对外状态。
-- **没来得及处理的插话**:运行结束时还没消费的插话,如果用户没按停止,就成为这个对话的下一个任务;按了停止的丢掉(`TaskRun.handoffUnconsumed` 只管收尾时未消费的)。运行已关闭后才到的插话,由 `TaskRun.steer` 收不进收件箱时 `deferMessage`,或 `TaskService.begin` 发现任务已收尾时排成下一个任务。
-- **停止**:Cancel 是控制信号,不在插话后面排队。`TaskRun.cancel` 同时取消子任务;接管中就结束接管;排队中的直接移出队列。
-- **停止后的交代**:界面当场显示已停止,输入框空出来;随后补上几行交代当作这一轮的回答(做过什么、看到了什么、成批的事发出了几次和是哪些、哪些没做完),结局照旧是取消(评测、结果分类、学习都按取消算)。`TaskService` 收尾时先把运行编号登记进 `TaskCenterState.summarizing`(界面据此在「已停止」下面写「正在整理已做的事…」),记下「已取消」那一轮,再在进程级作用域里由 `TaskRun.stopSummary` 写,写好用 `ConversationStore.updateTurn` 改进那一轮,写好或写不成都拿掉登记;不挡着收尾、下一件事和再点停止。写法在 `StopSummary`(`core/agent/StopSummary.kt`):只读这次的运行记录(活动、那一步的用意、最近读到的两段、停下时写了一半的字,有上限,不带画面),请一次模型(轻量模型优先,出错换主模型,不给工具,总共 12 秒),没模型、出错、超时就按记录直接拼(`StopSummary.plain`)。对外动作(发送、提交)按活动上的 `outward`(`ActionExecutor` 照不可逆判定标上)数。什么也没做、也没写出字的只说已停止。下一轮的上文里写成「你中途停止了这次任务,停止前:…」(`Conversation.context`),「继续」知道从哪接着做。之前几轮读到的原文不进上文,要用时模型自己查(`history_read`,见「之前几轮的记录」)。
+- **Interjection is a supplement**: Everything that has been done will be retained. With each
+  comment, the model request (`AgentLoop.routedOrRedirect`) that is still waiting is removed, and
+  the query is repeated after the existing history. The message sent is not changed word by word,
+  and the request prefix is only increased. The tool calls that have entered the execution
+  entrance are completed as usual, the results are recorded, and the next time you ask the model,
+  add an interrupt (`AgentLoop.appendSteers`). Steer and Redirect go the same way.
+- **The words already displayed during the interruption are left behind**: If the withdrawn request
+  has already displayed a paragraph of words (`TaskState.Running.preview` on the interface),
+  `AgentLoop.keepInterrupted` will record this word in the history as a reply with only text, and
+  connect it before the interruption. What the model sees when asking again is the same as what the
+  user sees; the thinking content and the half-written tool call are not displayed or recorded. No
+  words are displayed (streaming display is not turned on, no words have been printed, and the data
+  is cleared during retry) or nothing is recorded when there are no interruptions in this batch. The
+  real-time text on the interface will be cleared on the spot, and the late words from the network
+  thread will no longer be displayed after removal. This text also sends a running event
+  `reply_interrupted` (after truncation and desensitization), `TaskRun` and hooks it to the
+  interruption immediately handed over to the model (`SteerNote.interrupted`). The conversation page
+  is displayed in light color above the interruption, with a line of small text below "Interrupted
+  by your new message"; the conversation is saved with this round (`Turn.interruptedReplies`, and
+  `steers` One-to-one correspondence, the uninterrupted one is an empty string), it will still be
+  displayed when the conversation is reopened. It only gives the interface, not the context of the
+  model in later rounds.
+- **Replies that have been finished before interrupting are left**: Replies without calls have been
+  displayed and recorded in history, and the interrupt is retrieved at this time (the reply happened
+  to be finished first, the interrupt arrived later, or the interrupt arrived when sorting out the
+  source before handing over), `AgentLoop.keepFinished` sends the paragraph of words on the
+  interface as a running event `reply_finished_before_steer` (after desensitization, no truncation:
+  the interface needs to display the full text), clears the real-time text on the spot, and then
+  connects the interrupt. `TaskRun` is also linked to the first interruption of this batch
+  (`SteerNote.finished`). The dialogue page is displayed above the interruption as the answer
+  (without the mark "interruption"), and is saved with this round (`Turn.finishedReplies`,
+  corresponding to `steers`); nothing is linked when no words are displayed. Interruptions that have
+  not yet been handed over to the model on the dialogue page are listed behind the growing answer
+  (`steersAroundDraft`): that answer was written before the interjection arrived. It will stay in
+  place when it is finished or interrupted, and will not jump from below the interjection to the
+  top.
+- **When does the interjection enter the context**: `AgentLoop.appendSteers` Get the inbox before
+  each step of adjusting the model; take a look at the model when it gives an answer without tools,
+  and continue with the new interjection. Before handing over the answer (after checking and sorting
+  out the sources), use `RunInbox.closeUnlessSteered` to read and close it in the same lock: if
+  there is still something to say, don’t finish it, just take it and continue working on it, only
+  close the inbox if there is no more, and the next thing will become the next thing. When the model
+  adjusts end_not_done by itself, the newly arrived interrupt will also be allowed to continue; if
+  the guard calls a stop or an error occurs, it will still end.
+- **Waiting ends early**: The inbox gives a signal (`core/run/SteerSignal.kt`) that "there is an
+  interruption but has not yet been handed to the model", which is installed in the entire running
+  coroutine context. Calls that don't lose anything are wrapped by `waitOrSteer`, and end early as
+  soon as the interruption arrives: pure waiting and tools that only ask to see the graph model
+  (declaration `AgentTool.yieldsToSteer`: wait, phone_wait, phone_event, web_wait_for, describe,
+  find_visually, unified packaged by the distributor), equivalent words in `phone_run`, `do_steps`
+  Each section of the interface according to conditions, the pause before page change (`PageDwell`),
+  and the interval between two external actions on the same website or app (`ActionExecutor`). The
+  truncated call reports `skipped_for_new_message`, which does nothing this time; in `do_steps` this
+  step is skipped along with the following substeps. After the action is completed, wait for the
+  interface to be quiet and do not cut off when judging the effect (it gives the result of the
+  action). The retry wait of the model call is already in the model request and is removed together
+  with it.
+- **Rhythm protection is not lost**: When the dwell and interval are cut off, the action itself is
+  not performed (the tool results will explain why, and adjust it again if necessary). Both are
+  calculated based on time (the interval is calculated from the completion of the last external
+  action, and the stay is calculated from the time from this page). The part that has not been
+  stopped is not counted as stopped. The remaining time will still be made up before the next page
+  change or external action; interrupting only allows the model to think now, and will not make the
+  next action come faster.
+- **Multiple steps at a time**: `do_steps` If there is an interruption between two steps, it will
+  stop there. The result indicates "skipping to process new messages" (`skipped_for_new_message`),
+  which is not considered a failure (`core/agent/BatchRunner.kt`). After completing a certain step,
+  there is an interruption while waiting for the interface according to the conditions, and the
+  waiting stops immediately (`wait.stopped` in that step is `new_message`), and the following
+  sub-steps are still skipped.
+- **There will be an echo immediately on the interface**: `TaskRun.steer`. If it is successfully
+  sent to the inbox, mark this sentence as "Received, next step" (`SteerState.Received`). When it is
+  handed over to the model, it will be changed to "Added to the current task"; both the dialogue
+  page and the floating capsule's dialogue card will have this line of small words (`steerLabel`)
+  written under this sentence.
+- **Withdraw and edit interrupt**: By default, it is still directly inserted into the current task.
+  Long press on the message that has not been handed over to the model on the dialogue page can
+  withdraw or retrieve the edit; `RunInbox.withdrawSteer`, `takeSteers`, and closing share the same
+  lock, and will return failure when it has been handed over to the model or has been closed. After
+  success, it will be marked as `SteerState.Withdrawn`. The conversation page and capsule will no
+  longer be displayed, and the added interruption will not be counted. Withdrawal from
+  `ChatViewModel.held` when the task has not been handed over to the service. Editing restores the
+  text and quotes. Editing is not provided when the input box already has drafts, quotes or
+  attachments; editing is not provided when the floating capsule is inserted with the screen or the
+  browser page with the page description (`editableSteer`): When retrieved, the input box begins
+  with a screen mark or a few lines of the original page description. If you delete it, you will
+  lose the screen and page, and if you modify it, you will not be able to recognize the page.
+  Interruptions added by the computer (`SteerNote.remote`) are also displayed in the conversation,
+  but withdrawal and editing are not provided, and the inbox refuses to withdraw (the editor will
+  turn the words that are only for the current task into mobile phone interruptions, and may be
+  transferred to the next thing; whether to withdraw or not is decided by the computer);
+  `remoteSteers` reports `Withdrawn` by pressing `not_applied`, and there is no external status.
+- **Interruptions that have not been processed in time**: Interruptions that have not been consumed
+  at the end of the run. If the user does not press stop, they will become the next task of this
+  conversation; if the user presses stop, they will be discarded (`TaskRun.handoffUnconsumed`(As
+  long as it is not consumed at the end). The interjection arrives after the run has been closed,
+  by`TaskRun.steer`When it cannot be received in the inbox`deferMessage`,or`TaskService.begin`Queue
+  the next task when you find that the task has been completed.
+- **Stop**: Cancel is a control signal and is not queued after interrupting. `TaskRun.cancel` Cancel
+  subtasks at the same time; end the takeover while it is in progress; and remove the queued tasks
+  directly from the queue.
+- **Explanation after completion**: The interface shows that it has stopped on the spot, and the
+  input box is empty; then add a few lines of explanation as the answer for this round (what has
+  been done, what has been seen, how many batches of things have been sent and which ones have been
+  completed, and which ones have not been completed). The ending is still canceled (evaluation,
+  result classification, and learning are all counted as cancelled). `TaskService` When finishing,
+  first register the run number into `TaskCenterState.summarizing` (the interface will write
+  "organizing what has been done..." under "Stopped" accordingly), write down the "cancelled" round,
+  and then write it with `TaskRun.stopSummary` in the process-level scope. Use
+  `ConversationStore.updateTurn` to improve the round after writing it. Remove the registration if
+  it is written well or cannot be written; do not block the ending, next thing and click stop again.
+  The writing method is `StopSummary` (`core/agent/StopSummary.kt`): only read the running record of
+  this time (activity, intention of that step, the last two paragraphs read, half of the words
+  written when stopping, upper limit, no screen), please model once (lightweight model is given
+  priority, if there is an error, change to the main model, no tools are given, a total of 12
+  seconds), if there is no model, error, or timeout, just press the record to spell directly
+  (`StopSummary.plain`). External actions (send, submit) are numbered according to `outward`
+  (`ActionExecutor` is marked according to irreversibility judgment) on the activity. He didn't do
+  anything, didn't write any words, he just said he had stopped. The text of the next round is
+  written as "You stopped this mission midway, before stopping:..." (`Conversation.context`),
+  "Continue" to know where to continue. The original texts read in previous rounds are not included
+  in the above text. You have to use the time model to check them yourself (`history_read`, see
+  "Records of Previous Rounds").
 
-### 送达
+### service
 
-结果、提问、通知经 `Outbox`(`core/run/Outbox.kt`)送出:先记下要发的,再发。状态 Pending → Attempting → Delivered / Failed / Uncertain;同一个送达编号只送一次;发到一半结果不明的标为 Uncertain,不自动重发。记录在 `outbox-v3.json`(`app/task/FileOutboxStore.kt`)。
+Results, questions, and notifications are sent via `Outbox` (`core/run/Outbox.kt`): write down what
+you want to send first, and then send it. Status Pending → Attempting → Delivered / Failed /
+Uncertain; the same delivery number is only delivered once; if the result is unknown after being
+sent halfway, it is marked as Uncertain and will not be automatically resent. Recorded in
+`outbox-v3.json`(`app/task/FileOutboxStore.kt`).
 
-目前唯一的渠道是 `LocalChannel`(`app/task/LocalChannel.kt`):本机界面加系统通知。渠道接口 `Channel`、`ChannelGateway`(主人身份、提问编号对应、付款确认只能在能确认的渠道上做,`Channel.confirms`)在 `core/run/` 里已定义,还没有别的渠道接入。
+Currently the only channel is `LocalChannel` (`app/task/LocalChannel.kt`): native interface plus
+system notification. Channel interfaces `Channel` and `ChannelGateway` (owner identity, question
+number correspondence, payment confirmation can only be done on the channel that can be confirmed,
+`Channel.confirms`) have been defined in `core/run/`, and there are no other channels connected.
 
-### 进程重启后
+### After the process restarts
 
-- `RunRecovery`(`app/task/RunRecovery.kt`)是运行善后的单一入口,对象是「中断了、还没告知过用户」的运行。两个时机:进程重启后,`MinaApp.onCreate` 一起来就调 `recover`(`TaskService.onCreate` 也调,但进程里只有第一次生效,后到的什么都不做);任务服务被销毁而进程还在时,`TaskService.onDestroy` 标中断后当场调 `settleInterrupted`,不等下次启动(善后用 App 级作用域,服务没了也做完;启动时的扫描再接住当场没做完就被杀的)。标记在调用里同步做完(`RunStore.interruptUnfinished()` 把没结束的运行标为 Interrupted,此刻在跑的运行经 `live` 排除),善后在后台做:回复已存但没送达的补送一次(注明是恢复的);送达状态不明的不重发,只提示「上次结果可能已送达」;没有回复的,发「运行中断,可在对话里重新发起」的系统通知,并往对话记一轮失败状态的记录「任务中断了,可以重新发起」(和其他失败结果同一套,界面上显示为未完成的一轮)。**「已告知」不另设字段,看送达账本**:有 `interrupted:<运行>`、`uncertain:<送达>`、`failed:<送达>` 任一条提示记录就不再处理;回复送达了的运行转为 Ended。所以重复调用、两个时机撞上都只告知一次。**从不从中间续跑**:屏幕状态回不去。
-- `TaskRecovery`(`app/task/TaskRecovery.kt`,App 启动时运行)恢复的是系统状态而不是运行:任务期间静音的 App 恢复声音,任务借用过的剪贴板还给用户。
-- 子任务记录在加载时把 Running 改为 Unknown,不重跑(`app/task/FileChildRunStore.kt`)。
-- 定时任务窗口的处理见 §10。
+- `RunRecovery` (`app/task/RunRecovery.kt`) is a single entry point for operation aftermath, which
+  is targeted at operations that were "interrupted and the user has not been notified". Two
+  opportunities: after the process restarts, `MinaApp.onCreate` is adjusted together with `recover`
+  (`TaskService.onCreate` is also adjusted, but only the first time in the process takes effect, and
+  the later ones do nothing); when the task service is destroyed and the process is still there,
+  `TaskService.onDestroy` is interrupted and `settleInterrupted` is adjusted on the spot without
+  waiting for the next startup (use the App for aftermath) level scope, the service will be
+  completed even if it is gone; the scan at startup will be picked up and killed on the spot before
+  being completed). Marking is completed synchronously in the call (`RunStore.interruptUnfinished()`
+  marks the unfinished run as Interrupted, and the running run at the moment is excluded through
+  `live`), and the aftermath runs in the background: a reply that was saved but not delivered is
+  delivered once more (marked as recovered); if the delivery status is unknown it is not resent, and
+  only "the last result may have been delivered" is shown; if there is no reply, a system
+  notification "the run was interrupted, you can start it again in the conversation" is sent, and a
+  failed round "the task was interrupted, it can be restarted" is recorded in the conversation (the
+  same set as other failure results, shown as an unfinished round in the UI). **"Already told" has
+  no separate field; the delivery ledger decides**: if any of `interrupted:<run>`,
+  `uncertain:<delivery>` or `failed:<delivery>` exists, the run is not processed again; a run whose
+  reply was delivered becomes Ended. So repeated calls and both timings notify only once. **Never
+  resume from the middle**: the screen state cannot be restored.
+- `TaskRecovery` (`app/task/TaskRecovery.kt`, run when the App starts) restores the system state
+  rather than running: the App that was muted during the task restores the sound, and the clipboard
+  borrowed by the task is returned to the user.
+- When loading the subtask record, change Running to Unknown and do not rerun
+  (`app/task/FileChildRunStore.kt`).
+- For the processing of scheduled task windows, see §10.
 
-## 3. 主循环
+## 3. Main loop
 
-`AgentLoop`(`core/agent/AgentLoop.kt`)只做调度,具体判断各在一个类里:
+`AgentLoop` (`core/agent/AgentLoop.kt`) only does scheduling, and the specific judgments are in one
+class:
 
-| 类 | 做什么 |
+| kind | do what |
 |---|---|
-| `ModelCaller` | 组请求、调模型、流式输出;压缩与补回、临时错误重试、上下文超长重试、大小模型分流 |
-| `RetryPolicy` | 429、5xx、断网有限重试(最多 3 次,指数退避,每个任务总等待有上限) |
-| `ToolDispatcher` | 按名找工具、持有证据账本、拼各能力的提示词段落 |
-| `TurnPolicy` | 进度检查(仅有步数上限时)、空回复或被截断时提醒一次、工具调用漏成文字时退回一次、该跟进时提醒一次、回答换了语言时退回一次、最后一轮只给 `end_not_done`(仅有步数上限时) |
-| `StopRules` | 什么时候结束:放弃、守卫叫停(重复同一动作、没有进展、反复读、失败太多、沙箱打转)、模型失败、步数用完(仅有步数上限时) |
-| `BatchRunner` | `do_steps`:一次给 1–20 个已知动作,逐个执行、逐个核对;一步可带等待条件(`expect` 出现、`expect_gone` 消失、`expect_app` 前台 App 或页面地址、`wait_stable: true` 界面稳定,`timeout_s` 默认 8 秒、最多 20 秒),做完由代码读屏等到成立再做下一步,不再为「还在加载」问模型;弹框、别的包的窗口盖上来、换了 App 时提前停,结果里写 `wait`(`met`、`stopped`、`waited_ms`)。等待本身在 `core/uistate/UntilWait.kt`,手机、网页共用,经端口的 `awaitChange`(无障碍事件 / 页面变动)醒来;等的时间在运行小结里算等待,不算操作 |
-| `IntentGate` | 对话界面发起的任务第一次要用非查阅类工具时,判断用户是在聊天、要查信息还是要办事;判为聊天就不带工具重答。判断不出(调用失败,或回复不是三个词之一)时照主模型原来的决定执行;每次运行只判断一次(`AgentLoop.assessIntent`) |
-| `StuckAdvice` | 卡住时在工具结果里加建议;第二次卡住提示可以放弃 |
-| `NoticePolicy` | 看完一个界面后决定要不要补给模型对应 App/网站的知识 |
-| `GuideRecommender` | 开局的索引:按任务文字挑出最多 3 条 App/网站知识,另列出全部技能(内置的和在用、试用的个人技能),全文由模型用 `skill_read` 自己读 |
-| `RouteReplay` | 打开「照着上次的做法做」时,在第一次调模型前回放匹配的成功路线(见 §9) |
-| `UserExchange` | 追问、确认、接管这三种要用户参与的交互 |
-
-正常任务不设步数上限(`TaskRun` 里 `AgentLoop.UNLIMITED_STEPS`),所以进度检查、最后一轮、步数用完这几项只用于评测(`EvalHooks.maxSteps`)和子任务(默认 15 步,模型可要到 40 步,`SpawnAgent`)。
-
-### 结果判定
-
-- **没有「完成」工具**:模型不带任何工具调用的回复就是回答;带工具调用时附带的文字当作过程说明显示。被插话打断时记下的那段字不是回答,只是让模型知道用户已经看到了什么(见「收件箱与插话」)。
-- **`end_not_done`**(`core/general/OutcomeTools.kt`):做不成或只能做一部分时用它结束,`message` 写清已确认做了什么、卡在哪、现在界面上是什么;`subtype` 是 `blocked`、`login_incomplete`、`captcha_incomplete`、`route_failed`、`device_unavailable`、`interaction_failed` 之一。
-- **交回答之前**:空回复或被截断提醒一次;有的推理服务偶尔没把模型的工具调用解析出来,调用原样成了正文(`LeakedToolCall`,`core/agent/LeakedToolCall.kt`:常见的调用标记后面跟着 Mina 的工具名),这不是回答:退回一次让模型经工具接口重新调用,运行记录里记 `tool_call_as_text`;紧接着又漏就以模型出错结束(`StopRules.toolCallAsText`),不把原样的标记交给用户,正常调过工具后重新算;用户刚回答了什么而 Agent 什么也没做,提醒一次;最后一次改变界面的动作没读回结果,提醒一次。回答的正文明显不是用户最近那句话的语言(`ReplyLanguage` 按字母所属的文字数,汉字按字、其余按词,引号括号里的原文和只列名字的行不算;用户那句只算他这次打的字,带的屏幕、浏览器页的页面说明、引的那一段、附件行和插话标记不算(`UserWords.typed`);开局只发了屏幕、只选了字或只带了附件时不查,插话只发了屏幕或只选了字时按上一句),退回一次让模型整段改写成用户的语言,改写后还不对照样交出。
-- **来源由系统生成**:`AnswerSources`(`core/verify/AnswerSources.kt`)从证据账本 `EvidenceLedger` 里挑出支持回答的观察(最多 6 条),作为回答下面的「来源」;不由模型自己写。
-- **后台结果分类**:回答送达后,`TaskRun.settleOutcome` 在后台用 `OutcomeJudge`(`core/agent/OutcomeJudge.kt`,优先用轻量模型,30 秒超时)把这次运行分成 `RunOutcome` 的 Done / Partial / NotPossible / Unknown。它不改回答,结果写进运行记录和对话记录;定时任务据此标记这一次是否失败。学习与回放只认 Done:准入只有一处判断 `LearnGate.done`(`core/agent/LearnGate.kt`):交出了回答、判下来是 Done、没有退回一次后仍没对上的值;核查跑过的还要核实通过(跑过没通过照样挡住,没跑不挡)。个人技能和 App 知识的起草、试用转正式、经验路线的记录和成功计数都只问它(见 §9、§11);记不记路线由 `LearnGate.shouldSaveRoute` 一处判断(开着路线、办成、有运行编号、目标不带用户屏幕)。
-- **独立核查**:`Grounding`(回答里的数字、编号、引文在读过的内容里有没有,算式对不对)和 `Verifier`(独立的核查模型)都在 `core/verify/`,由 `reviewFinalAnswer` 开关控制。产品目前关着(`TaskRun` 里 `reviewFinalAnswer = false`),所以回答都记为「未核实」,见 roadmap「已知问题」;学习看的是结局判定,不受它影响。
-
-## 4. 唯一执行入口与工具
-
-- **唯一入口**:所有改变外部世界的动作都经 `ActionExecutor`(`core/action/ActionExecutor.kt`)。`ToolDispatcher.execute` 要一个 `ActionPass`(`core/tool/ActionPass.kt`),它的构造函数是 internal,只有 `ActionExecutor` 能造,从编译层面杜绝绕过;只读调用走 `executeRead`,不是只读的会被拒绝。执行顺序固定:守卫 → 锁屏检查 → 不可逆动作检查与同意 → 执行 → 动作后核对 → 记录。
-- **对外动作之间的间隔**(`core/action/OutwardPacing.kt` 纯逻辑,`ActionExecutor` 照它等):不可逆判定认出的发送、提交(含一点就联系别人、投申请的按钮,如「立即沟通」「打招呼」「投递」「Say hi」「Easy Apply」)在同一网站(按可注册域名)或 App(按包名)里连着做时,第一次不等,之后和上一次至少隔 8–20 秒随机的一段,最近 30 分钟里做得越多上下限各加 0.5 / 1 秒,至多 30 秒;从上一次做完算起,中间读页面、想下一步的时间算在内,换不换页都算(换页的停留另由网页的节奏管)。手机、网页同一个判定、同一套间隔;自主执行时判定照样跑来认对外动作(按模型手里那一屏,不另读屏),只是不拦。等在判定之后、动作开始之前,任务还能取消;等了多久记进这次调用的 `waitMs`,不算进操作用时。只由 App 的任务装上(`AgentLoop(outwardPacing = …)`),核心测试默认不等。
-- **这一步谁发起**:`Origin`(`core/action/Origin.kt`)= Model / Batch / Script / Replay / McpTool,各有策略(能否用用户的同意放行付款、遇到守卫警告是否停)。复合工具(一次多步、沙箱里的 `mina phone`、网页脚本)内部的每个动作经 `SubActions`(`core/tool/SubActions.kt`)回到同一个入口,和单步工具同一条执行、记录路径。
-- **工具声明**:每个工具一个类,实现 `AgentTool`(`core/tool/AgentTool.kt`),声明自己的动词、风险(Read / Write / External)、所属能力、能否进一次多步、能否进经验路线、并发方式等;代码按这些属性办事,不写死工具名。`ToolRegistry` 按任务筛出可用工具,一个任务内工具定义冻结不变。
-- **工具分两层,用到才展开**(`core/tool/ToolGroups.kt`、`ToolDispatcher.offeredNow`):一直都在的是通用工具(问用户、没办成就结束、等待、知识与技能、记忆、定时、子任务……)和不收的能力(MCP);手机、网页、沙箱各是一组(`Capability.folds`),开局只给入口工具(`AgentTool.entry`),用 `prompts/entries/<工具名>.md` 的短说明:`phone_launch_app`、`web_navigate`、`run_command` 调用后展开它那一组(`Entry.Opens`),`phone_list_apps`、`web_read_page`(读一个网址的正文)单用就够,不展开(`Entry.Alone`)。接管、报障碍、回看画面、一次多步只在有屏的组展开后才给(`AgentTool.withScreens`,算作 `screens` 一组)。展开后下一次请求起给整组全文,入口换回全文,能力那一段说明(`capabilities/<能力>.md`)也拼进系统提示词,本任务里一直留着;结果里的 `moreTools` 说一句。模型凭记忆调了收着的工具照常执行,同样展开它那一组(参数不对也展开,下一次看得到全文再改)。顺序固定:一直都在的 → `screens` → 手机 → 网页 → 沙箱,展开一组只改从它那一组起的部分,请求前缀因展开最多失效一次。开局预先展开:上一轮真的用过的组(`Turn.groups`,`AgentLoop.usedGroups` 记下、会话文件里存着;单用就够的入口不算用过),和能力按这次的话认定一定用得上的(带着工作区里的文件时的沙箱,`Capability.preload`)。只读的任务里跑命令不给,沙箱一组没有入口,就一开始展开。子任务、定时触发和别的来源都一样。运行记录里展开记 `tools_opened`、预先展开记 `tools_preloaded`;`PromptVersion` 按每组都展开的样子算,同一版提示词不因这次展开了哪几组而不同。
-- **审批**:`ApprovalPolicy`(`core/action/Approval.kt`)只问一种动作:花钱的那一步(`Risk.payment`:不可逆判定认出的付款、下单,或屏上有带币种(¥、元、$)的应付金额时命中判定的对外、不可逆动作,见 `ClassifiedRisk`;繁体界面的字先换成简体,按同一套词表判,`core/uistate/Hant.kt`)。别的一律直接做:发送、发帖、提交、删除、联系别人、改账号或安全设置、往密码框里打字、看图找到却看不出是什么的点、读不出目标的点击,都不问。花钱的一步只有手机上发起、用户在场时问(`Ask`);渠道、定时、MCP 发起的运行、子任务和无人在场的运行问不到人,一律拒绝(`approval_unavailable`)。同意只有一种:只放行紧接着的那一个匹配操作(`ConfirmationGate`:同一 App、同类动作、对象在屏上、申报的金额在屏上,3 步内、中间没做别的写操作)。付款本身(判定是 pay)不经同意,交给用户亲手付(`hand_to_user`,reason=payment)。审批结论都记进运行记录(`RunEvent.Approval`,对外的、花钱的和没放行的),核查据此知道任务做过对外的事。没有审批档位,也没有任务内、长期授权。
-- **询问 / 自主**:全局一个开关,在设置 › 开发者选项最前面的「做事方式」一组(「自主模式」,测试标签 `dev-autonomous`),默认关即询问;值存在 `ApprovalStore` 的 JSON 里(`autonomous`)。`ApprovalControl`(`settings/ApprovalControl.kt`)在每个任务开工时给一份 `RunApproval`(自主与否取全局的),`TaskRun` 据此装:询问时 `confirmations = ConfirmationGate()`、`autonomous = false`,花钱的一步被拦成 `confirmation_required`,下单一类由模型调 `request_confirmation`(必须写出屏上的金额,写不出金额的申请直接退回、不交给用户),用户在对话页的卡片、悬浮胶囊的卡片或通知上回答(只同意这一次 / 不同意),回答经 `TaskService` → `TaskRun.confirm` → `RunInbox` 交给循环;自主时 `confirmations = null`、`autonomous = true`、不提供 `request_confirmation`,判定照跑(对外动作的间隔照样认)但连付款也不拦。换开关(`ApprovalControl.setAutonomous`)存下来管之后的任务,正在跑的任务都跟着换:开工时是询问的任务中途换成自主,下一步起不再拦(已经弹出的确认照常等回答);开工时是自主的任务中途换成询问,留给下一个任务(工具和提示词一个任务内不变)。悬浮胶囊里发起、接着聊的任务、子任务、定时触发都按这个开关;电脑经 CLI / MCP 交来的任务例外:`ApprovalControl.start(remote = true)` 一律按询问开工、不跟开关变,付款这一步在这类任务里永远不做(见「电脑连接」一节);子任务本来就只读,询问时它过关卡、花钱的一步一律拒绝。定时任务这类无人在场的运行在询问模式下遇到花钱的一步不暂停等人:执行入口直接拒绝(`approval_unavailable`),模型照实说没做成哪一步,别的照常做完,结果照常通知。自主模式下 `ConfirmationGate` 不存在,`ConfirmDecision.judge` 里自主的提前返回排在「不对 Mina 自己动手」(`ownApp`)检查之前,所以这层保护在自主模式下不生效;询问时 Mina 不操作自己。
-- **改名后的旧工具名**:`LegacyNames`(`core/tool/LegacyNames.kt`)把旧名对应到现在的工具,只用来读旧的路线、运行记录和个人技能;模型调用旧名时只提示新名,不替它执行。
-
-## 5. 观察、动作、地方
-
-- **观察**是核心消费的唯一单位:`Observation`(`core/observation/Observation.kt`)带种类 `ObsKind`(Read / Output / Reply / UserSaid / Attachment / Fact)、出处(能力 id)、地方、标题、文字、画面、可信度、步数、时间和编号。证据账本、来源、核查、运行记录都读它。
-- **不可信内容**(网页、子任务结果等)在构建观察时一次性包进 `<untrusted>…</untrusted>`(`core/observation/Untrusted.kt`)。
-- **地方** `Place`(同一文件):App、Site、Page、Command、File。知识按地方补给模型(§11)。
-- **界面状态**(`core/uistate/`):控件树、元素编号与过期检测、等界面稳定、动作效果(`ActionEffect`,每个改变界面的动作报回实际效果、输入读回核对;手机上点、手势看不出变化而这一屏的树读不出那一处——树不能用,或缺了一块而点不在任何元素上——种类照旧是 `no_effect`,另标 `treeBlind`,提示改说「看不出变化不等于没点上」,不说多半没点上;按种类做的事(连着没效果的提醒、多步提前停、统计)不变;动作之后的界面里新出现「到上限了」的短文字——次数已用完、已达上限、明天再来、操作过于频繁、limit reached 一类,提示条、弹窗、页面弹框的话,动作前就在屏上的不算(`LimitNotice`)——结果里写 `limitReached` 和停下的提示,一次多步停在这一步)。手机和网页共用这一套。分发器每次调用前后经 `SurfaceLayer` 让它做界面上的准备与收尾(动作前看一眼、比出效果、附上动作之后的界面),工具引擎本身不认识它(见 §1)。执行入口的不可逆判定与审批、回放按读屏判定时直接用它(`ActionTarget`、按描述找目标)。
-- **可视化**(`core/visual/`):画面帧编号、`view_past_screens` 回看、画面差异。画面只是让用户看到 Mina 在做什么、以及文字读不出时的补充观察;办事靠的是界面状态。
-
-## 6. 能力模块
-
-能力由 `CapabilityProvider` 按 `RunSpec` 装配(`core/assembly/RunAssembler.kt`、`TaskTools.kt`),每个 Run 开局装一次:
-
-- 按 `spec.capabilities` 选能力;无人在场的运行去掉追问、确认、接管、建定时、改画像这几个工具;只读运行只留只读工具(外加网页打开地址)。
-- 通用工具(`core/general/`)一直都在:`ask_user`、`hand_to_user`、`handle_obstacle`、`end_not_done`、`wait`、`view_past_screens` 等。条件满足才提供的:`request_confirmation`(花钱前请用户同意;有确认关卡才有:询问模式、有人在场时)、记忆工具(「使用记忆」打开才有)、知识与技能查阅(有知识目录才有,`LookupTools`)、`schedule_task`、`spawn_agent`、`history_read`(有运行记录、之前有记过运行的轮次才有)。
-
-### phone:手机 App
-
-- **虚拟屏**:任务在一块单独的虚拟屏上操作 App,用户照常用手机。虚拟屏由内置手机助手建(`app/cap/phone/display/AgentDisplay.kt`、`app/cap/phone/shell/ShellService.kt`),尺寸与主屏相同;安卓 14 起有自己的焦点,不影响主屏输入(安卓 12、13 上主屏焦点可能短暂丢失,设置里会提示;安卓 12 以下不能操作手机 App,聊天、网页和沙箱照常可用)。第一次需要打开 App、链接,或用到系统命令、事件监听时才连接和建屏;只用网页、沙箱的任务不碰它。目标 App 在虚拟屏上静音,接管时恢复声音。静音靠把该 App 的 `PLAY_AUDIO` 设为 ignore,规则在 `app/task/AppMuter.kt`:Mina 发出启动之前就静上(打开 App、打开另一份、分享、打开指定了 App 或只有一个 App 接的链接、开界面的系统动作;悄悄设好的闹钟、计时器不静),开头几秒也没声;启动被拒就把提前静的还原;之后 Mina 屏上冒出来的每个新 App(从目标 App 里点开的、另一份顶上来的,按无障碍的窗口变化重读 Mina 屏最上面的任务,`AndroidScreen.foregroundApps`)第一次看到就静。静音按「包 + 用户」作用(`AppAudioKey`:本来那份是包名,另一份是「包名@用户编号」,内置助手的 `*InUser` 几个接口带 `--user`),分身、工作资料里的那份单独静,不连带用户手上本来那份。不静的:Mina 自己;没有桌面入口的系统包(系统界面、选择框、权限框);用户此刻在主屏看得见的(助手 `visibleOnMainScreen`,看不清主屏时按在用算)——静音按包作用,静了用户手上的也没声,这种照实在进度通知上提示「该 App 可能会出声」,静音命令失败时也一样。设置里关掉静音时一个也不静。任务收尾时 `AudioMute.restoreAll` 把这次静过的全部还原,包括中途静上的;静音前的原模式记在内置助手的记录文件里(`app/cap/phone/shell/AudioMuteLedger.kt`),助手启动时先恢复上次没来得及恢复的。恢复规则:原来明确是 allow/ignore/deny 等的照原样写回,没设置过的写 allow、不写 default(安卓只认 allow 才放声音),只动记录里的包。
-- **任务结束时的 App**:默认留下,不随屏销毁。收尾时(`TaskRun` 的 finally,在 `AudioMute.restoreAll` 还原静音之前)`AppsAfterTaskEnd` 把模型标下的去留(`phone_app_after_task`,存在手机端口的 `AfterTaskMarks` 里)交给内置助手的 `finishDisplay`;助手按 `app/cap/phone/shell/AppsAfterTask.kt` 定每个任务的去留:标过的照标的;没标的此刻正在出声就关(先问 `AudioManager.getActivePlaybackConfigurations`,播放器状态为 started 的 uid → 包 + 用户;uid 被隐去时读 `dumpsys audio`;被 Mina 静音的也算在播;都读不到时,正被 Mina 静着的按在播算),否则留下;Mina 自己的页面、不是普通 App 页面的一律关。留下的挪到主屏、排在最后面:`WindowContainerTransaction.setHidden(true)` → `moveRootTaskToDisplay(…, 0)`(系统总放在最上面,藏着就不显示、不拿焦点)→ `reorder(…, false)` → 取消隐藏;挪完再看一眼出声的(没标 keep 又出声的挪回 Mina 屏随屏关掉),再核对没有一个在主屏看得见(看得见就再排到后面,不行就 `removeTask`),最后释放屏。屏仍带 `FLAG_DESTROY_CONTENT_ON_REMOVAL`,没挪走的随屏关掉。这台系统哪一步用不了(接口不在、被拒)就不再挪,照旧随屏关掉,诊断信息里记一行「apps after task: … move not supported」(运行记录里有 `apps_after_task` 的明细)。助手记着留下的任务编号(只在内存里);下次 `startApp`(含另一份)打开同一份 App 时,那个任务若还在主屏后面、用户没在看,就整个挪回 Mina 的屏接着做,不另开;冷启动先关掉它再从头开。只释放屏(`releaseDisplay`、助手解绑的 `releaseAll`)时照旧全部销毁。
-- **内置手机助手**:一个以 shell 身份运行的辅助进程,经手机自己的「无线调试」启动(`app/cap/phone/setup/BuiltinShellManager.kt`、`app/cap/phone/shell/HelperProcess.kt`;ADB 协议是自己实现的,在 `core/adb/`)。配对一次即可:配对码可由无障碍服务从设置页自动读出,也可从通知或设置向导里输入。填码通知(`app/cap/phone/setup/PairingNotifier.kt`,由 `PairingCoordinator` 按助手状态和找配对窗口的进度发)不加屏幕录制、悬浮窗权限,只靠通知本身:「配对」频道是高优先级、带声音和振动,能弹在系统配对窗口上方;频道的重要程度建好后 App 改不了,`PairingChannel.plan` 看已有频道——没有就新建,旧版本建得不够高、用户又没改过(`hasUserSetImportance`)就换新 id 重建,用户自己关掉或调成不弹出的不改回去,由 `SystemStatus.pairingChannel` 交给引导页(`SetupView.notifyIssue`):没允许通知或频道被关时,配对一步的主按钮先是去允许通知 / 打开这个频道的设置页,调成不弹出只提醒一句并给入口。`PairingCoordinator.begin` 开始看着配对(找配对窗口、无障碍读码、发填码通知),时限 10 分钟,从最后一次 `begin` 起算(`SlidingDeadline`):点「去无线调试」、引导页停在配对一步时离开(`ON_STOP`,多半是自己切去系统设置)都会再调一次,已经在看就只把时限往后推,不从头再弹通知;找配对窗口的 mDNS(`BuiltinShellEngine.startDiscovery`)也一样,还在找时再调就重新计时。引导页开着放久了、从最近任务切去系统设置,照样读得到码、弹得出通知。找到配对窗口就发「输入配对码」(无障碍在读码时才晚 5 秒),动作「填配对码」带 RemoteInput(不要求解锁、不给生成的回复);没人填就隔 8、20、40 秒再弹,最多三次,每次都重新响铃弹出,已换成别的内容就不再弹。填的码先在本地规范(空格、各种横线、全角数字)并校验 6 位,不对当场在同一条通知里提示、不去试;对的马上换成「正在配对…」(配对开始前一直是它,不按填码前的状态再算一条),成功变「配对成功」后自己消失;码不对、过期或窗口关了,在同一条通知里说去拿新码再填,输入框留着。无障碍没开时引导页用三行编号小图示讲这三步,页面里直接填码的兜底照旧。设置向导(`app/ui/PhoneSetupScreen.kt`)的状态机是纯函数 `PhoneSetupFlow`(`core/shell/PhoneSetupFlow.kt`),读到的开关只用来自动打勾和给提示,不拦死:开发者选项、USB 调试、无障碍、无线调试四步读到开着就自动打勾、往下走;读到关着就停在那一步,但读开关的三步都有「我已经打开了,下一步」(记进 `SetupInputs.confirmed`),无障碍可以跳过(推荐:配对后 Mina 自己打开,也不会被「受限制的设置」拦住),配对一步除了通知、自动读码还能在页面里直接填,所以哪一步都不会卡死。做完的步骤可以点回去重做(`SetupInputs.revisit`,回去的那一步读到从关变开就自动回到原处)。成功只看助手是否在运行,不管前面读到什么。配对或连接失败(配对窗口关掉、连不上、原因不明)时,按读到的开发者选项和无线调试指出最可能出问题的那一步(`SetupView.suspect`:读到关着,或这台手机读不到),给回到那一步的按钮;用户确认开了无线调试、助手却读到关着不去连时也这样,不一直转圈。断开后自动重试(指数退避)。找无线调试的连接端口(`core/adb/AdbConnectPort.kt`)按顺序试,哪个连上就停:上次连上的端口(存在 App 私有设置里,失效时被拒得很快)、系统属性 `service.adb.tls.port`(读得到才用)、mDNS 查 `_adb-tls-connect._tcp` 得到的每一个本机端口(`NsdAdbServiceFinder`)、扫本机端口(`core/adb/LocalPortScan.kt`)、用户在引导页填的端口。TLS 上被拒不一定是钥匙不对(有的系统让另一个服务先接住同一端口的第一次 TLS 握手,对谁的证书都拒,紧接着再连才落到 adbd):同一端口隔一会儿再试一次,还不行就接着试其余候选,已有端口这样拒了就不再扫本机;试遍都连不上、又有端口拒了我们,才报 `BuiltinShellFailure.AuthorizationRevoked`(要重新配对,看门狗不自动重试)。扫描是前面几样都不行时的兜底(有的网络拦着组播、有的系统不让 App 读属性):无线调试的 adbd 监听系统随手分配的端口,所以只扫临时端口范围(读得到 `/proc/sys/net/ipv4/ip_local_port_range` 就用它,否则 30000–65535),只扫本机自己的地址——先 127.0.0.1,一个像 adbd 的都没有再扫 Wi-Fi 上的 IPv4 地址,不碰别的设备;`NioPortScanner` 用 java.nio 非阻塞连接,同时最多 200 个在连、每个最多等 150 毫秒,跳过前面试过的端口和 Mina 自己开着的监听(`OwnListeningPorts`,如登录回调);开着的端口发 CNXN、回 STLS 才算像 adbd(自己连上自己、别的服务都不会回 STLS),再照常用已配对的钥匙做完 TLS 握手,第一个连上的胜出、记作缓存;扫描和核对合计不超过 10 秒,在 IO 线程上跑,扫的时候 `BuiltinShellManager.scanningPorts` 为真,引导页显示「正在本机查找无线调试端口…」。连不上时引导页连接一步有「填无线调试的端口」(数字键盘,1–65535,整段粘了「IP 地址和端口」也取冒号后面),填了就带着它重试一次(`BuiltinShellManager.connectWithPort`,只用这一次;这次不再扫,连上了记作缓存)。引导页除了成功,哪个阶段(等用户、正在连、失败)底部都有「稍后再说」,返回也总能离开,不把用户困在这一页。几项能力「替我打开无障碍」「不受省电限制」「重启后自动恢复」「自动打开无线调试」默认打开:都要靠已配对的连接才能生效,所以助手每次变成运行中(配对完、掉线重起、App 启动时已配对、开机自动恢复连上)由 `BuiltinShellRecovery.start`(`app/cap/phone/setup/BuiltinShellRecovery.kt`)看着状态,经 `RecoveryPermissions.applyPending`(`core/shell/RecoveryPermissions.kt`)补上用户没亲手关掉、还没生效的几项,不弹框,失败只记下给设置页说一句。记录(`app/settings/RecoverySettings.kt`)每项分两样:「已生效」和「用户亲手关掉」;旧版本只有前一样,没关掉过的一律按默认打开。解除配对收回已生效的几项,不动用户的选择,再配对时照样自动打开,亲手关掉的仍关着;开机自动恢复看「重启后自动恢复」是否已生效。无障碍只加 Mina 自己的服务,别的服务不动。Mina 的无障碍服务可能因为两种原因停掉:进程被系统杀掉后,系统把它当成崩溃了,设置里还开着却不再绑定;被强行停止时,系统直接把它从无障碍列表里拿掉。`BuiltinShellRecovery.start` 同时看着系统列表里有没有 Mina 的服务、服务实例连没连上和助手的状态(都有回调,不轮询);服务没在运行超过 3 秒、又有办法写系统设置时(App 自己有修改系统设置的授权就直接写,不用等助手,无线调试关着也能修;没有授权才等助手在运行),由 `AccessibilityRepair`(`core/shell/AccessibilityRepair.kt`)经 `RecoveryPermissions.restartAccessibility` 把它打开:列表里没有就直接加上,有却没绑定就去掉、停一下再加回去,系统就会重新绑定;等服务连上才算修好;加回失败时把原来的列表(连同总开关)写回,仍按失败算。开机后用户还没解锁过一次时(`UserManager.isUserUnlocked` 为假)服务本来就绑不上,这时不修,状态卡片也只说解锁后会恢复;收到 `ACTION_USER_UNLOCKED` 后再判断一次,还没连上就照常修。不分是谁关的,一律自动打开,只有在 Mina 里关掉了「替我打开无障碍」才不管;每次卡住最多试两次,还不行就停下,留给界面上手动处理的提示。修好了只在设置页那一项下面说一句时间。任务接上手机时照常等无障碍服务 5 秒;正要修或正在修(`AccessibilityRepair.phase`)就接着等到修完(最长约半分钟),放弃了才报手机不可用。只在安卓 13 及以上启用。助手起来后就不再需要无线调试,但重新启动它(重启手机、Mina 更新、助手没了)要靠无线调试,而安卓原版在 Wi-Fi 断开时、重启后都会把它关掉。「自动打开无线调试」:看门狗要起助手、无线调试却关着,且连着 Wi-Fi 时,由 `WirelessDebuggingAutoOn`(`core/shell/WirelessDebuggingAutoOn.kt`)把 `adb_wifi_enabled` 写成 1 再照常连接;Wi-Fi 连上时(网络回调)助手不在也会这样做。只开不关,不碰 USB 调试和开发者选项。只由 App 自己写(要有修改系统设置的授权,和「重启后自动恢复」共用,两项都关掉才收回;要起助手时没有别的连接可用),没授权或用户关掉这一项就不写,界面照旧给手动打开的办法。原版在不允许的 Wi-Fi 上会马上把开关拨回 0 并弹框问用户:写完 3 秒内读到拨回就停下,状态报「这个 Wi-Fi 还没允许无线调试」(`BuiltinShellFailure.WifiNotAllowed`),请用户亲手打开一次并勾选「始终允许」,直到换了 Wi-Fi、用户亲手打开、点了重试或助手起来了才再写,不会反复弹框;写入被拒、或连着写了 3 次助手都没起来也停下;两次写之间按 10 秒起翻倍的间隔拉开。
-- **adb 身份(配对钥匙)**:Mina 自己的一把 RSA-2048 钥匙(公开指数 F4)加自签名证书(`core/adb/AdbIdentity.kt`),配对时把公钥交给设备,之后每次 TLS 连接出示证书,设备只认配对时那一把。钥匙以 PKCS#8 存在 App 私有目录,用 Android Keystore 里的 AES 密钥包一层(`WrappedKeyFile`;`AndroidAdb.keyStore` 清除时连包装密钥一起删)。读回不依赖平台给出带 CRT 参数的私钥:只要是 RSA 私钥就取模数,公开指数先用 CRT 形式里的,没有就从 PKCS#8 的 RSAPrivateKey 结构里读,结构里也是 0 才按 F4 补,补之前签名验一次,对不上就当读不出,不拿错的公钥去连;同一份存下的字节读出的公钥和以前一样,升级不用重新配对。「没存过」和「存着却读不出」严格分开:`AdbKeyStore.read` 前者返回 null,后者(解不开、文件空或截断、解析不了)抛 `AdbKeyUnreadableException`。一个进程里只有一份 `AdbIdentitySource`(`AndroidAdb.identities`),配对(`forPairing`)和连接(`forConnect`)拿到的是缓存里的同一把;没存过就新建并存下;存着却读不出时,连接抛出、记日志(标签 MinaAdbKey)、不动文件,引擎报 `BuiltinShellFailure.KeyUnreadable`(「配对用的密钥读不出来了」,一键修复是重新配对,不自动重试),只有配对这一步会删掉读不出的那把、换新的存下(配对随即把新钥匙交给设备);解除配对(`forget`)删钥匙也清缓存。诊断信息里 `adb key status` 一行是这个进程里钥匙的状况(NotLoaded / Loaded / Created / Unreadable 及原因),只看状况、不为诊断去读钥匙。
-- **用电脑启动内置助手(USB)**:无线调试配对不成功、或由电脑上的 Agent 来设置时,电脑经 USB 调试跑 `adb shell sh /sdcard/Android/data/com.danish.harnessagent/files/usb-start.sh`,起的是同一个助手(同样的 `app_process` 命令和参数),交接也走同一个 `HelperHub.offer`,shell 身份、APK、Binder 所在进程、口令和签名指纹的核对一样不少。脚本由 `UsbStartScript`(`app/cap/phone/setup/UsbStartScript.kt`)写在 `Context.getExternalFilesDir(null)` 里(App 自己写不用权限,shell 读得到,别的 App 读不到),文字是纯函数 `HelperHandoff.usbScript` / `usbStub`。跟着 `HelperHub.shell` 重写,口令被整体作废(`HandoffNonces.resets`,如解除配对)时也重写(`HelperHandoff.usbScriptWrites`;不然助手一直不在时脚本里留的是作废的口令,交接被拒 BadNonce):助手不在时(App 启动、有人要用助手却没有、打开引导页)写带一次性口令的脚本,口令是 `HandoffNonces.usbNonce`——和启动口令、续接口令放在一起,任何一枚被用掉几枚都作废;按墙上时钟 24 小时过期(要跨过重启),还剩一半以上时效就沿用,免得电脑正在跑时被换掉;助手连着时换成不带口令的说明(「已经在运行」,进程不在就请用户先打开 Mina),磁盘上不留能用的口令。脚本只在 `id -u` 是 2000 时起;助手用 setsid 另起会话、放进后台子 shell(子 shell 退出后归 init),口令经内建 echo 走管道进标准输入,输出丢掉,所以 adb 会话结束、拔线后 adbd 杀掉它那一组进程也碰不到助手;脚本等 2 秒再用 `pidof` 看助手进程还在不在,说一句「正在启动,打开 Mina 确认」或「没起来,先打开 Mina 再跑一次」。没配对时收下助手,引擎记下「是电脑起的」(`BuiltinShellPlatform.usbStarted`),状态照常是运行中,后续(补上那几项能力、打开无障碍)和配对后一样:`commandRunner` 助手在时经助手的 `runCommand` 跑命令,不在才连已配对的 adbd。这样起的助手重启后就没了;没配对过时 Mina 自己起不来,新进程先等一会儿(还活着的助手会自己来交接),等不到就报 `BuiltinShellFailure.UsbHelperStopped`(「手机助手已停止」:再在电脑上跑一次命令,或配对无线调试让它自动恢复),开机自动恢复也不去动无线调试;解除配对把这个记录一并清掉。引导页平时不给这条路,只在需要时(`SetupView.usbFallback`,由 `PhoneSetupFlow` 算)在当前这一步里放一张卡片「这台手机打不开无线调试?改用电脑启动」,是一句说明、命令和复制按钮。需要的情况:系统里没有 `adb_wifi_enabled` 这项设置(`SetupInputs.wirelessMissing`;原版安卓 11 起开机时总会把它写成 0 或 1,开着关着都读得到,读不到说明系统没带无线调试,读出错不下结论);用户在无线调试一步点了「找不到无线调试?」(这一步平时唯一的一行提示);配对窗口一直找不到、连不上、电脑起的助手停了,或用户说开了无线调试、助手却读到关着;停在无线调试一步、配对一步(还没找到配对窗口)或自动连接(`PhoneSetupFlow.stallPoint`)45 秒没有进展(`SetupInputs.stalledMs`,换了地方从头算)。前两项要走到无线调试一步才给(电脑启动也要先做完开发者选项和 USB 调试)。卡片出现过就留着(记进 `SetupInputs.usbAsked`),到成功为止。不拿「写了 1 又被拨回 0」当信号:原版在没被允许的 Wi-Fi 上也会这样(会弹框问用户),正常手机上会误报;无线调试页面也没有单独的公开跳转入口能拿来判断。
-- **Mina 被杀后由助手拉起来**:系统或清理工具结束 Mina 的进程(强行停止时系统还会把 Mina 的无障碍服务从 `enabled_accessibility_services` 里拿掉),悬浮胶囊跟着没了。内置助手不跟着死:它从交接时拿到的 Mina 令牌的死亡通知得知(`HelperProcess.onAppDied`),先等 `HelperRestorePolicy.GRACE_MS`(8 秒),这段时间里 Mina 自己回来(uid 重要性监听报它起来、重新交接)就不动手;没回来,就按 Mina 最后交来的心愿(`RestoreWish`,经 `IHarnessShell.setRestoreWish`)决定:胶囊设成一直显示、或者死时有任务在跑才拉,否则(比如用户亲手强行停止、胶囊只在任务时显示)让它停着。拉的时候先把 Mina 的无障碍服务(`com.danish.harnessagent/com.meenai.mina.a11y.HarnessAccessibilityService`)追加回列表、打开 `accessibility_enabled`(`RestoreCommands.accessibility`,别的服务一个不动;只在用户没在 Mina 里关掉「替我打开无障碍」、并且 Mina 活着时列表里确实有它时才写,用户趁 Mina 活着在系统设置里关掉的不替他打开——列表里没了要过 3 秒才算数,免得强行停止那一下把心愿改掉),再照常重新交接:拿 Mina 交接用的 provider 时系统把它的进程起来(shell 能拿任意 App 的 provider,`content` 命令用的就是这条路;provider 不受后台启动服务的限制,也不显示界面),`MinaApp.onCreate` 照常跑,胶囊、看门狗、无障碍自动打开都跟着起来。10 分钟里至多拉 3 次,一拉起来就又死的就停手,等窗口过去;每一步都记在助手的日志里(logcat 标签 MinaHelper)。心愿由 `RestoreWishSync`(`app/cap/phone/setup/`)在胶囊模式、任务在跑、「替我打开无障碍」、无障碍列表任一变化或换了助手时交出(`RestoreWishSender` 只在变了或换了 Binder 时交)。助手在每次交接时把「上次拉起来的时间、最近几次、上次因为太勤而作罢的时间」报给 Mina(`HelperRestoreReport`);Mina 每次启动时看一眼无障碍服务是不是被拿掉了、或在列表里却 5 秒还没绑定(`A11yStartCheck`,只在服务连上过之后才算),记在 `RecoverySettings`;两样都写进「复制诊断信息」的 Recovery 一段(`restored by helper`、`accessibility on start`)。配过对时 Mina 一启动看门狗就起助手(`BuiltinShellEngine.start`:没人来交接就在 3 秒后经已配对的连接起一个,不必等任务要用),这样它才在场;没配对就不去连。有的系统会另外关掉后台的 App,设置 › 悬浮胶囊下面一句话请用户在系统设置里允许 Mina 后台运行、自启动。
-- **读与操作**:无障碍服务(`com.danish.harnessagent/com.meenai.mina.a11y.HarnessAccessibilityService`,源文件 `app/src/main/java/com/meenai/mina/a11y/HarnessAccessibilityService.kt` → `app/cap/phone/a11y/ScreenAccessibility.kt`)按屏读控件树、在指定屏上做手势。每次读屏先按控件树判它够不够用(`core/uistate/TreeQuality.kt`):有名字的元素够多、控件大多有名字、App 窗口里没有一大块一个字也没有的区域,才算明显够用,不识别文字;拿不准时用随 APK 自带的文字识别(`app/cap/phone/a11y/PhoneOcr.kt`)读一次,树里没有的字补出三行以上就算缺了一块(partial);树缺了一块或读不到(unusable)时一定识别文字(看不到图的主模型、回答来源和核查、`phone_collect` 都靠它);防截屏页面不识别。补上的字(`core/uistate/VisibleText.kt`)先去掉认错的行(置信度低、全是符号、以中文为主的屏上零碎的西文数字串),每行带 0–999 的位置和点击中心;树不够用时读屏结果写上 `treeQuality` 和一句提示:按屏上文字的中心点,没有字的控件(图标、图片、输入框)用看图定位,要往框里打字就给输入它的点或在 element 里说是哪个框,看整屏描述只在看不懂是什么页面时用(它慢好几倍,不拿来找一个控件)。主模型能看图、开了「先读元素,必要时看图」时还附上画面。识别文字前先等画面停稳(自绘界面几乎不发无障碍事件,事件安静了画面可能还在过渡),认的过程中换了整页就按新的一页再认一次,局部在动(动图头像、光标)照用(`app/cap/phone/a11y/StillFrameRead.kt`);树在读的过程中变了也照样识别。树不够用而一行字也没读到时,读屏结果写 `ocr`(empty、illegible、timeout、unavailable、failed),提示改为用看图定位找输入框和按钮。输入一般直接写进输入框,网页类编辑区用剪贴板粘贴,用完把用户原来的剪贴板还回去。树里没有拿着焦点的输入框时(App 自己画界面),先全选再经剪贴板粘贴,Ctrl+A / Ctrl+V 由内置助手只发到 Mina 的屏(`injectCtrlKey`),之后比打字前后屏上识别到的文字核对(`core/uistate/UnseenField.kt`:多出现一次为一致,前后完全没变为没打进去,其余为核实不了;弹着输入法时键盘上的字不算)。不要求弹着输入法:按键发到这块屏拿着焦点的窗口,框不经输入法也收得到;没弹输入法而前后完全没变,多半是焦点不在框上,报 `no_focus` 请模型先点输入框,不再盲目重粘。屏上什么都没拿着输入焦点(各窗口里找不到输入焦点)、也没弹输入法时根本不粘,直接报 `no_focus`:没有框接得住,粘了界面别处一动反而会被当成「可能打进去了」(清空同理)。清空同样用全选加删除键,没弹输入法而界面没变时同样报 `no_focus`。输入、清空也接受一个点(坐标,或看图找到的 `@vN`,和点击一样先核对画面没变):先点那一点、等界面安静,点出了树里看得到的输入框就照常对着它打,否则按上面的办法粘贴,粘贴前的屏上文字在点完之后读;粘贴后前后完全没变报 `point_not_typed`(那一点多半不是输入框),不自动重试,核实不了不按回车(`ScreenPort.typeAt` / `clearAt`、`AndroidScreen.typeAt`)。树读不出输入框的屏上不必先点再打:点一下只让框拿到焦点时树和画面都不动,打字的核对才是点中的凭据。往一点上打字时那一下点击也过不可逆判定(点到的是发送一类的按钮按点击判)。按描述指输入框(`element`)而树里没有对得上的、这一屏的树又缺了一块或不能用时,在执行入口换编号那一步看图找这个框(`Interfaces.bySight`,配了看图模型时;和 `find_visually` 同一套核对,没佐证的标出来),参数换成找到的 `@vN`,之后和模型自己传 `@vN` 一样核对画面、判不可逆、粘贴后核对;结果写 `foundBySight` 和看到的字,省掉先找点再打字的那一轮。
-- **手势的节奏**(`core/cap/phone/GesturePacing.kt`,随机取值、弧线、缓动和网页鼠标的 `InputPacing` 共用 `core/uistate/Pace.kt`):每次落指前停 30–120 毫秒;点按按住 50–120 毫秒,双击每下 40–90、两下之间 80–140(在系统认双击的时限里);点元素时落点在中心附近偏一点(不超过宽高的五分之一、至多 12 像素,窄于 24 像素的方向不偏,总在元素里),按坐标点至多偏 3 像素。滑动(`phone_swipe`、`phone_scroll` 退回的手势、单指 `phone_gesture`)起终点不变,两点之间走一小段弧线(偏离不超过距离的 6%、至多 30 像素,多点路径照画好的走),时长在给定值上下浮动 8%,起步慢:短于 800 毫秒的快滑松手时的速度和以前匀速滑动相当(甩出去的远近不变),不短于 800 毫秒的慢拖收尾停稳再抬手、不甩;起终点几乎重合(原地按住)只加长不缩短。快慢要每个点有自己的时刻,无障碍手势做不到(系统按路径匀速走),所以有节奏的一笔由内置助手按时刻逐点注入(`injectStroke`,只发到 Mina 的屏),助手注不了时退回无障碍手势沿同一条弧线走;点按仍走无障碍手势,不行再由助手注入。双指手势只让时长浮动。控件自己的点击、滚动动作(`ACTION_CLICK`、`ACTION_SCROLL_*`)和输入不受影响。`GesturePacing.Instant` 和以前完全一样(测试用)。
-- **操作节奏**(设置 › 干活时 › 操作节奏,`core/cap/phone/OperatingPace.kt`,存在 `FeatureFlags.operatingPace`):手势三种都像人,另外三样按它来——「快」(`FAST`:动作之间不另停、打字一次写入、不设屏数上限,即以前的做法)、「标准」(`STANDARD`,默认)、「像人」(`HUMAN`:所有 App 都按慢的那一套停留和打字)。每个任务开头读一次(`TaskRun`),评测和真机验收经 `EvalHooks.operatingPace` 覆盖,缺省用「快」(`-e evalPace` / `-e livePace` 换成 `standard`、`human`),不改设置里的;核心的 `toolDispatcher` 默认 `AppPacing.Off`,`AndroidScreen` 默认 `TypingPacing.Instant`,测试照旧跑得快。
-  - **打字**(`core/cap/phone/TypingPacing.kt` 纯逻辑):`AndroidScreen.typeText` 找到输入框后先按节奏一段一段写进越来越长的前缀(`ACTION_SET_TEXT`,对任何原生输入框都管用,中日韩文字照样),最后一段全文照旧交给 `typeAndVerify` 整段写入、读回核对、重试。拉丁字母每个字 60–170 毫秒,中日韩文字每个字 160–380 毫秒、连着的 1–3 个一起上屏(像输入法选词),标点、空格之后偶尔多停 0.3–0.9 秒;字多时几个字一段、至多 40 段,总时长至多 6 秒(限制操作快慢的 App 和「像人」:90–230 / 220–520 毫秒,停顿 0.5–1.4 秒,至多 60 段、12 秒)。一个字不拆开(代理对、附加符号、变体选择符、零宽连接的表情序列)。写第一段后读回:框不接受半截字(读回对不上、读不出)或写不进就停下,照旧整段写入。密码框、要粘贴才收得到的网页框(`TypingPacing.forField`)和树里看不到的框(粘贴)照旧一次写入。
-  - **动作之间的停留**(`core/cap/phone/AppPacing.kt` 纯逻辑,`AppDwell.kt` 接到手机能力上):每个改动屏幕的动作都经唯一的执行入口 `ActionExecutor`,它在执行前问这块屏的能力(`Capability.beforeWrite`,手机能力按 `AppDwell` 停),执行后告诉它结果(`afterWrite`);单步、`do_steps` 一批里的每一步、回放都一样,组合动作(`phone_run` 一类)本身不停、里面的每一步各自停;网页仍按它自己的一页一页的停留(`PageDwell`),不经这里。上一个动作的结果里效果是 `done` 或 `place_changed` 算换到了新的一屏,否则是同一屏:标准时同一屏停 0.5–1.2 秒、新的一屏 0.9–2 秒,5% 的机会多停 0.6–1.5 秒,一次至多 3.5 秒;限制操作快慢的 App(App 知识 `pace: careful`,按包名 `GuideCatalog.appPace` 查)和「像人」时同一屏 0.9–2.2 秒、新的一屏 2.5–5 秒,另按模型最近读到的那一屏的字数每字加 15 毫秒读的时间(至多 8 秒),10% 的机会多停 2–5 秒,一次至多 15 秒。停留从上一个动作做完算起,模型想、读屏花掉的时间都算在内,只补不够的部分;停了多久和对外动作的间隔一起记成这次调用的等待(运行记录 `tool_result.waitMs`),不告诉模型;停留中用户插了话就不做这个动作,报 `skipped_for_new_message`。慢的那一套的新的一屏上停得够久、接下来的动作不按屏上的位置做(返回、按键、按方向滚)时,停留里按 `IdleScroll` 的安排在占了大半屏的可滚动内容正中慢慢划一小段(`AndroidScreen.idleScroll`,慢拖、停稳再抬手;弹着输入法、输入框拿着焦点、上面盖着别的应用窗口、没有够大的可滚动内容时不划),划了几下只进运行记录(`idleScrolls`),模型手里那一屏标成过时(`ScreenSession.movedByMina`)。
-  - **屏数上限**:限制操作快慢的 App 一个任务里换到新的一屏至多 24 次(`AppPacing.screenCap`,往下滚读同一页不算),到了之后在 App 里换屏的动作(点、滑、返回、按键、手势)不做,报和网页同一个 `page_limit`(`core/uistate/DwellStop.kt`,说明里让模型先拿已读到的回答、要接着看就用 `ask_user` 问);打字、清空、滚动、拨滚轮、打开别的 App 照常。用户答过话(`Capability.onUserAnswered`)后重新计数;对外动作本身不拦,在这个 App 里做成过一次之后本任务不再设上限(经 `Capability.onOutwardEnd`)。普通 App 不设上限。
-- **工具**(`core/cap/phone/`、`core/uistate/tools/`):
-  - 基本:`phone_observe`、`phone_list_elements`、`phone_tap`、`phone_type_text`、`phone_clear_text`、`phone_scroll`、`phone_swipe`、`phone_back`、`phone_press_key`、`phone_launch_app`、`phone_share_text`、`phone_open_link`、`phone_list_apps`、`phone_screenshot`、`phone_diagnose`。默认的纵向 `phone_scroll` 优先用可滚动控件,找不到才退回手势。
-  - 查询与复合:`phone_query`(在完整控件树里按文字、资源 ID、控件类型查找,只读文字)、`phone_run`(一串有序命令,每步在当前页面重新定位,可按文字条件决定是否继续;目标缺失、无法区分、切到别的 App 时停下交回模型)、`phone_collect`(逐屏读长列表或聊天并按重叠合并)、`phone_find`(滚动找目标)、`phone_extract`(可见文字、列表行、表单字段;密码不返回值)、`phone_dialog`(读弹窗,只有给出唯一按钮文字时才点)、`phone_wait`、`phone_event`(等待或收集窗口、内容、通知事件)、`phone_gesture`(单指路径或双指)、`phone_set_wheel`(把滚轮转到一个值,见下)。
-  - 系统动作:`phone_set_alarm`、`phone_set_timer`、`phone_show_alarms`、`phone_add_calendar_event`(见下)。
-  - 其他:`phone_system_command`(经内置助手执行一条系统命令,与 Linux 沙箱分开;10 秒超时;命令在做点、滑、打字、按键、打开 App 这些专门工具做的事,或连着失败两次时,结果里提醒换回专门工具;本任务提醒过之后,再做那几类事的命令不执行(`use_phone_tool`,只回该用哪个工具),用 shell 分享文字(`am start` 带 SEND、不带文件)一律不执行、指向 `phone_share_text`,查状态、读设置的命令不受影响,`core/cap/phone/CommandSteer.kt`)、看图类工具见下。
-- **分享文字到 App**:`phone_share_text` 把一段文字按安卓的文字分享(ACTION_SEND text/plain、EXTRA_TEXT,只交给指定的包)启动到 Mina 的屏(内置助手 `startShare`,和打开 App 同样查用户是不是正在主屏用它、别的任务占没占着),之后和 `phone_launch_app` 一样等它到前台、认系统问打开哪一个(装了两份;这个 App 有几个收分享的页面时系统问用哪一个,最上面换成系统包的窗口也算),记下任务。它只打开分享页、不发出:收件人和发送键由模型在那一页上点,发送照旧过不可逆操作的确认。这个 App 不收文字分享时报 `cannot_share`。读不到、打不进字的 App 里发消息、记笔记,先走它(`core/cap/phone/AppTools.kt`、`AndroidScreen.shareText`)。
-- **系统动作(闹钟、计时器、日程)**:`phone_set_alarm`(时、分、标签、每周重复的日子、振动)、`phone_set_timer`(秒数、标签)、`phone_show_alarms`、`phone_add_calendar_event`(标题、起止、全天、地点、备注)按安卓的标准接口交给手机上的时钟、日历 App(`AlarmClock.ACTION_SET_ALARM` / `ACTION_SET_TIMER` 带 `EXTRA_SKIP_UI`、`ACTION_SHOW_ALARMS`、日程的 `ACTION_INSERT`,类型直接写明 `vnd.android.cursor.dir/event`;不要日历权限,设闹钟要的 `SET_ALARM` 是普通权限),不用一格一格操作它们的界面(`core/cap/phone/SystemActionTools.kt`,intent 由 `app/cap/phone/shell/SystemIntents.kt` 先写成与安卓无关的 Spec 再换成 Intent)。先在 Mina 这边按包管理器查谁接(清单里的 `<queries>` 列了这几种):没有 App 接时报 `not_supported`,模型退回去操作时钟、日历的界面;有几个时用户设过默认的用默认的,否则先挑系统自带的,直接指定到那个页面,屏上不留「用哪一个」的选择框。之后交给内置助手启动到 Mina 的屏(`startSystemAction`,只放行这几种 intent,和打开链接一样查接手的 App 是不是正在主屏用着、别的任务占没占着;动作前后照常盯着主屏,开到主屏上的挪回来)。接手的页面要求 shell 没有的权限(时钟的设闹钟页要求 `SET_ALARM`)时,助手改为发出 Mina 做好的 PendingIntent:以 Mina 的身份启动、权限按 Mina 查,屏和后台启动按发出的助手查,仍落在 Mina 的屏上(安卓 14 起发出方明说允许后台启动)。闹钟、计时器本该悄悄设好:设闹钟前后读系统报的下一个闹钟(`AlarmManager.getNextAlarmClock`,最多等 3 秒),结果的 `check` 为 verified(下一个就是它)、earlier_alarm_first(更早的闹钟挡在前面,看不到它)、not_seen、unknown,后两种和挡住的那种提示用户要确定时 `phone_show_alarms` 看一次;App 却开了自己的界面时报 `screenOpened`,请模型在那一页上确认。闹钟列表、新日程等那个 App 到最上面、记下任务;新日程不替用户保存,保存键由模型在那一页上点。设闹钟、计时器是收着的手机一组里单用就够的入口(`Entry.Alone`,不展开整组),新日程是展开整组的入口,闹钟列表在组里;风险同打开 App(只改手机上的东西、不花钱,不要确认)。
-- **滚轮选择器**:时间、日期、地区这类一格一格转的滚轮,`phone_set_wheel`(滚轮或它此刻显示的那一项的编号、要显示的值)一次调用在端口里转到位,不用模型看一眼滑一格(`core/cap/phone/SetWheel.kt`、`app/cap/phone/a11y/WheelDriver.kt`)。给的编号可以是滚轮,也可以是它显示的某一项(自己画的滚轮常是选中的那一项):这时滚轮是往上找到的、和这一项横向对齐的那一列(不少于三项、间距差不多,`WheelMath.column`),同一块里并排的别的滚轮(时旁边的分)不读、不拖;往上找到的能滚的容器要横向罩着这一项的正中才拿来无障碍滚(整页的滚动区不算)。按控件能做什么依次试:滚轮里有输入框(原版的数字滚轮有)就把值写进去、让它失去焦点确认(因此弹出的输入法收起来),读回来;能无障碍「往前 / 往后滚」(原版数字滚轮一下一格)就读出当前值,按 `WheelSteps` 一批至多 5 下地滚、每批读回重算,数字按数差定方向、看得出循环(…58 59 00 01…)就走近的一边,第一次读回时校正「往前」是变大还是变小,值不动了:看不出循环是这一边到头、目标不在范围里(`at_end`),看得出循环(没有头)是这一下没起作用、交给拖动(`not_moving`),一下转过不止一格、来回越过目标几次就交给拖动,至多 80 下;文字列表目标在眼前按位置差,不在就往一边扫、到头反过来;都不行(App 自己画的滚轮)就读这一列看得到的几项(无障碍读不到就认屏上的字)估一格多高和当前值,手指落在这一列横向正中、往上拖从靠下的一项起(往下拖从靠上的起,可以拖出这一列),按格数慢拖(不短于 1 秒,按节奏走时末尾停稳再抬手、不甩,免得转过头),读回后按实际转过的格数校准一格多高再补拖,至多 5 轮(`WheelDrags`);拖了值不动不算到头,只有看不出循环、往要去的那边已经没有项才是 `at_end`,否则换快划(0.4 秒)再试、只差一格的拖远一点,连着 3 次不动报 `not_moving`,提示模型自己用 phone_swipe 在这一列上划。认值、方向、循环、格数、一格多高这些纯算法在 `core/cap/phone/WheelMath.kt`(`"09"` 就是 `"9"`、`"40分"` 就是 `"40"`;选中项的无障碍名字常带状态词,`"已选中，21"`、`"Selected, 21"` 就是 `"21"`,整段只有一个数时取它;文字值也按标点切开的段比;系统单独报的 stateDescription 被拼进名字时先拿掉;只有一项标着 isSelected 时它就是选中的,否则是自己的上下范围盖住中线的那一项,都没盖住(有的滚轮只报上下两格)就按上下紧挨着的两个数推出中间那一格(39、41 中间是 40,59、01 中间是 00,11、1 中间是 12,`WheelMath.between`),推不出才退回离中线最近的;每次滚动、拖动、输入之后都等停稳(隔 0.35 秒连读两次值相同)再读,读到目标后停稳了再核对一次,不对就接着转,停稳的值对上才报到了;报给模型的 `value`、`from` 只留值那一段)。结果给 `value`(此刻显示的)、`from`、`attempts`、`method`(text、actions、drag),没转到时报 `wheel_at_end`、`wheel_unreadable`、`wheel_not_moving`、`wheel_not_reached` 并照实给此刻显示的值。读屏树里像滚轮的节点标 `wheel: true`(原版数字滚轮控件,或能滚、里面三到九项短值在正中竖着等距排开的,宁可漏认,`WheelMath.looksLikeWheel`、`ScreenReader.isWheel`)。能放进一次多步,几个滚轮(时、分)一批设好。
-- **装了两份的 App**:同一 App 装在两份用户里(分身、工作资料)时,有的系统打开时先问打开哪一个。`phone_launch_app` 打开后最上面换成了系统包的窗口、窗口里可点的选项提到这个 App 的名字,就算打开了,结果带 `chooser`(选项和哪个是另一份)和提示:按用户说的选,没说就选本来那份,别再打开一次;那个窗口在前台不算被切走,选完 App 到了前台再记下它的任务(`core/uistate/LaunchChooser.kt`、`AndroidScreen.openApp`)。选项旁标的另一份用户的名字仍按 `pm list users` 读。
-- **打开另一份 App**:很多系统只在桌面图标上问打开哪一个,程序启动时不问,另一份就永远打不开。所以 `phone_list_apps` 给每一份另一份单列一项(同一个包名,名字写成「App 名 (another copy: 那份用户的名字)」,带 `user`),`phone_launch_app` 带上这个 `user` 就打开那一份;不带照旧打开本来那份。哪几份用户能用由内置助手按安卓多用户概念判(`core/uistate/AppCopies.kt`,读 UserManager 的 UserInfo、UserProperties,标记用系统自己起的名字:反射 `UserInfo.flagsToString`,不行读 `dumpsys user` 括号里的名字和 parentId,不写死标记位):类型带 private、标记名带 HIDDEN 或 PRIVATE、系统标明对别的 App 隐藏的(私密空间一类),以及访客/演示/临时/停用的,一律不列也不打开;其余的要正在运行且已解锁、不在安静模式、和当前用户连在一起(资料组相同或上级用户就是当前用户),而且看得出是分身(类型带 clone、标记名带 CLONE、或和上级共用媒体)或原版工作资料。任何一项读不到都按不满足算。有的系统把分身做成带分身标记的完整用户(类型不是原版的分身类型),靠标记名认。内置助手的 `appCopyUsers` 给出能用的用户编号和给诊断信息的一行判定(只有编号、标记和标记名、类型、资料组、上级),`startAppInUser` 启动前再核一次,不在之列返回 8(`copy_not_found`)。在另一份用户里先查那份用户的启动页(`queryIntentActivitiesAsUser`,不行改问 `cmd package query-activities --user N`),先走桌面打开图标的那条路:ILauncherApps.startActivityAsUser(`LauncherApps.startMainActivity` 背后的接口;系统按调用方查跨用户权限,shell 有 INTERACT_ACROSS_USERS_FULL,包名也和 uid 对得上),带启动到 Mina 屏的 ActivityOptions——有的系统对程序启动的另一份一律先弹「用哪一个打开」,桌面这条路不弹;不行再以那份用户 `startActivityAsUser`,最后退回 `am start --user N --display D -n 组件`。系统还是在 Mina 屏上问了(选项名字可能一模一样)时,`phone_launch_app` 自己逐个点选项,读最上面任务所属的用户:是要的那份就算打开;不是就按一次返回让它退到后台(不结束,那可能是用户手上那份)、再打开一次点下一个;都不是就失败 `copy_not_opened`,说开出来的是哪一份,不把错的那份当成功。目标 App 装了两份时,每个结果都带 `inProfile`、`profileUser`(此刻屏上那份所属的用户),要的是另一份时再带 `requestedCopy`;开出的是本来那份时明说不是要的那份。占用按「包名 + 用户」算(`ShellService.sameCopy`):用户在主屏用着本来那份时不挡 Mina 用另一份,反过来也一样;任务属于哪个用户读不到时算占用。冷启动只 `am force-stop --user N` 那一份。目标 App 记下任务所属的用户(`TargetApp.userId`),Mina 屏上换成了同一个 App 的另一份也算被切走;并行任务两份分开占;静音按「包 + 用户」作用,目标是另一份时只静那一份,不碰用户手上那份。读屏、点按、打字按屏走,不用改。
-- **开到用户主屏上的 App**:Mina 屏上的 App 不从自己在这块屏上的页面、而是从后台(服务、跳转、系统的选择器、跨用户的转交)打开另一个 App 时,安卓按默认把它放到主屏(装了两份时还先在主屏问打开哪一个),Mina 的屏上看不出变化。每个点、滑、按键之类的动作(`AndroidScreen.verified`)前请内置助手盯着主屏 6 秒(`watchMainScreen`):助手向系统登记任务栈监听(ITaskStackListener,只当「变了」的信号,收到就重看任务列表;登记不上时在盯着的那段时间里每 100 毫秒看一次),记下主屏最上面换上来的任务、它之前在哪块屏、属于哪个用户(`app/cap/phone/shell/MainScreenWatch.kt`、`MainScreenLog.kt`),查询(`mainArrivals`)时再当场看一次。动作之后按纯逻辑 `MainScreenSpill` 判:这段时间里冒出来的普通 App 页面(不是桌面、最近任务一类,不是 Mina 自己和桌面 App),不是从别的屏挪过来的(接管),此刻还在主屏,这期间用户没在主屏上点过东西(无障碍的点按事件),也不是原来最上面的那个又露出来,就挪回 Mina 的屏(和接管同一个挪任务的调用 `moveTask`)。这次冒到主屏上的如果是登录验证、账号确认、付款确认一类要用户亲手处理的弹窗,不挪:系统账号登录服务的页面(登记了账号认证器、自己没有桌面图标的包,`AccountManager.authenticatorTypes` 每次现读、查不到 LAUNCHER 入口才算;这种包冒到主屏上的只会是加账号、登录、验证一类页面;有桌面图标的认证器包,比如为同步联系人登记了账号的聊天 App、邮箱 App,不算,照常按别的判据走,`MainScreenSpill.authenticatorUi`;清单里查了认证器服务,让这类包对 Mina 看得见),顶层窗口不是整屏的对话框、底部弹层,窗口里有密码框,或页面本身不进最近任务(`excludeFromRecents`)(`AndroidScreen.needsUserWindow`;窗口的宽或高不到主屏的八成才算不是整屏,隔 300 毫秒再看一次,免得把还在开场动画里的普通 App 当成弹窗),都留在用户屏上、报成 `onUserScreen`、`needsUser` 并提示请用户经 `hand_to_user` 在那边处理;弹窗出现之后用户已经点在上面(无障碍点按事件的包是它)也不再挪(`MainScreenSpill.Tap`)。**Mina 从不替别的 App 打开或重新打开 App、系统页面**:打开的一方得一直是原来那个 App(比如购物 App 打开付款 App,付款那边要认是谁打开的),挪任务不换打开的一方,重开就换了,所以只挪不重开。动作之前主屏最上面的任务里换了页面,是用户正用着的那个 App 被打开了,不动它;接管中不挪。系统在主屏上问打开哪一个的(系统包的窗口,是系统的选择器、或窗口里的选项对得上装了两份的 App 名;各系统的选择框不一定是原版那个,`MainScreenSpill.handling`)**不挪**:挪了屏它要按新屏重建,有的重建时自己关掉。它留在用户屏上,动作结果带 `opened`(picker、onUserScreen)、认得出的选项 `chooser` 和提示:系统在用户屏上问,别再点、别替用户选,下一个动作会等用户选完。任务在下一个改动屏幕的动作前停住(`TaskRun.awaitUserPick` 接在 `TaskGate` 前面,`AndroidScreen.awaitUserPick`),状态是要你处理的等待(`GateReason.needsYou`,胶囊上是 `CapsuleKind.NeedStep`,「需要你:「<App>」在问用哪个,请在屏幕上选一下」),这期间一直盯着主屏;用户选完(选择框不在了)后看选出来的(`MainScreenSpill.picked`):开到主屏上的普通页面挪回 Mina 的屏接着做,报 inProfile;开在了 Mina 屏上的一并算进来;要用户亲手处理的(窗口里有密码框,或树里读不出东西而截主屏时系统报防截屏窗口,像付款、输密码;只是树读不出的 App 照常挪回,`MainScreenSpill.needsUser`)留在主屏,改成要你处理、可点继续的暂停(「「<App>」要你在屏幕上处理,处理好了点继续」),用户点继续后它还在主屏就挪回来,已经关了就照实说(`byUser`);用户把问题关了(`closed`)就照实说,由模型决定下一步。这些结果在下一次读屏里带 `opened`,下一个动作不做、报 `opened_elsewhere`。结果里的 `opened`(package、app、pulledBack、onUserScreen、needsUser、inProfile、picker、closed、byUser)配着提示:挪回来了别再点、接着在那里做;挪回来的算目标 App 打开的,不算被切走,效果是换了地方而不是没效果;留在用户屏上(用户正用着)的说别再来、请用户处理;要用户亲手处理的弹窗说别挪回来、请用户在那里点(`needsUser`)。装了两份的 App 在问过打开哪一个之后报开的是哪一份(`inProfile` main/other,按任务所属的用户),另一份时提示用户没要就回去选另一个。动作过了一会儿才开出来的,下一次读屏前挪回来、读屏里带 `opened`,下一个动作不做、报 `opened_elsewhere`。一批动作、手机脚本遇到它就停。
-- **接管**:需要用户亲手处理(登录、验证码等)时,`hand_to_user` 发通知;用户点「我来处理」,虚拟屏上的 App 挪到主屏;处理完点「处理好了」或「我自己做完了」挪回去,Agent 先重新读界面核实再继续;「跳过」不算办成(`app/takeover/Takeover.kt`)。多个任务的接管排队。
-
-### web:内置浏览器
-
-- WebView 渲染在 App 自建的私有虚拟显示上(`app/cap/web/WebHost.kt`),不占手机屏幕,也不需要内置助手;默认用桌面版页面(`app/cap/web/cdp/DesktopProfile.kt`),可按网站记住桌面版或手机版(`web_site_mode`)。用户在 Mina 里选定了界面语言(不是跟随系统)时,网页按这种语言请求(`app/cap/web/cdp/PageLanguage.kt`):经 `Emulation.setUserAgentOverride` 的 acceptLanguage 换 Accept-Language 和 navigator.language(s)(如 English → `en-US,en`),桌面版加在桌面身份上,手机版照搬 WebView 默认的 UA 与 UA-CH、只换语言;第一页在会话设好之前就发出去了的,设好后重新加载一次,中途换了语言的标签在下一次主文档加载前换过来;跟随系统时不覆盖,发系统给的那串。
-- 通过 WebView 的 DevTools 协议操作页面(`app/cap/web/cdp/WebDevtools.kt`),点击和输入是真实输入事件;连不上时退回注入的页面脚本。从不打开 Runtime 这一组(`Runtime.enable`):开着它时页面察觉得到挂着调试器,真机上有的网站因此一直重载;读脚本和页面脚本只用隔离世界和求值(页面脚本的 mina 调用经世界里的发件箱、由一直挂着的取件求值交回,不用要开 Runtime 的绑定),世界没了靠主框架换了文档(`Page.frameNavigated`)和求值报上下文不在来认。
-- 读屏脚本(`app/src/main/assets/web/page.js`)的元素树里,密码框,以及 autocomplete 标着银行卡号、安全码、有效期、一次性验证码的文字输入框和 textarea,只报填了几位,不带值;这种 textarea 里的字也不进读页和摘要的正文。打字后的核对照旧在 App 里读值比对,不交给模型。
-- 标签页池:每个任务最多 4 个,全局最多 8 个(`app/cap/web/WebTabPool.kt`、`TabBudget.kt`)。页面要跳到外部 App 的链接不跳。
-- 下载落到当前对话工作区的 `downloads/`,不打开不安装;上传只交工作区里的文件(`WebDownloads.kt`、`UploadStaging.kt`)。
-- 只读脚本:`web_evaluate_js` 在页面的隔离环境里运行,页面对象是只读包装,写、点、跳转一律拦下,也不能联网(fetch、XMLHttpRequest、sendBeacon、WebSocket、EventSource、new Image() 一类报 blocked_network,DevTools 上见到它发出的任何请求也让这次以错误结束;页面背后的数据用 `web_capture` 读页面自己收到的响应),密码框一类的秘密输入框读出来是 `***`(同源 iframe、shadow root、template 里的也一样),它们自己接口上只有类型、名字这类页面定好的属性照读,innerHTML 一类、含秘密 textarea 的外层元素的 textContent 一类在一份不属于任何窗口的副本上打码(不构造页面的自定义元素),秘密 textarea 的子文本节点、秘密输入框的 value 属性节点读出来也是 `***`,拿到以后脱离了页面也是;按 value 属性选元素报 invalid_selector,选择器先照 CSS 的规矩还原(转义、注释、命名空间)再判断,带 `url(` 的一律拦,`web_script` 的 `mina.query` 用同一套(`core/cap/web/ReadScript.kt`、`SelectorPolicy.kt`)。站点命令(网站知识里带 `/* mina-command` 头的脚本,`core/knowledge/SiteCommands.kt`)经 `web_run_site_command` 同样只读运行;目前内置知识里没有站点命令,这个工具不出现。`web_script` 跑的脚本拿不到页面,只能经 Mina 的动作入口操作。
-- 登录状态:网站登记表 `SiteRegistry` 记访问过的站点、是否登录过、是否被验证拦过;设置 → 网站登录可打开登录、单站退出、全部退出(`app/cap/web/WebLogin.kt`)。网页接管把同一个 WebView 挪到主屏的全屏页面(`app/web/WebTakeoverActivity.kt`),表单与登录流程原样保留。
-- 用户自己用的浏览器(侧栏「浏览器」,界面在 `app/ui/BrowserScreen.kt`、`BrowserStart.kt`、`BrowserPageParts.kt`,标签在 `app/browser/UserBrowser.kt`):一个看得见的 `WebTab`,和 Agent 的标签同一个网页配置(Cookie、网页存储),在这里登录了 Mina 办事时也是登录的。平时它不进任何任务的标签池、不占标签上限,也不走网页接管那一次会话(`WebHandover`),任务的标签和接管照常进行;用户在页面上问 Mina 时借给那个任务(见下一条)。**身份**(`BrowserIdentity`):自己浏览默认手机版;在「更多」里换成电脑版的网站记在 `UserSiteModes`(`browser_site_modes.json`,子域名跟着上级走),下次也用电脑版,和 Agent 的那份(`SiteModes`)分开存;从常用网站打开还没登录的网站是「给 Mina 登录」:整个标签照 Mina 办事时那一版走(`WebDevtools.agentWantsMobile`,默认电脑版),登录留下的 Cookie 和 Mina 办事时看到的网站是同一版,顶上一条横幅「给 Mina 登录 · …」带「登录好了」(用 `LoginProbe` 看一眼:看出没登录就提示,看出已登录或看不出来就信用户、记成已登录、回起始页),页面加载完也照常自己看,看出登录好了横幅收起。规则只装在这个标签上(`WebDevtools.setModePolicy`,每个标签一份,null 时按 `SiteModes`),Agent 标签的身份不变。这个标签是用户亲手看、亲手点的(`WebDevtools.setHandOperated`):电脑版时 UA、UA-CH、身份补丁照旧,但不加视口仿真(Agent 标签用它把整页缩进视图、定死缩放),交给 WebView 自己的宽视口与总览模式,打开时整页缩进屏幕、双指能放大(`DesktopProfile.viewportCall`);换版本时经 `beforeLoad` 把 UA、宽视口和仿真换好再重新打开当前页,中途点到别的网站时由 `onPageStarted` 照规则换过来并重载。**起始页**:顶栏只有返回和「浏览器」;一个大搜索框(「用必应搜索」),输入时下面是联想(`StartPageModel.suggestions`:第一条搜这句话,像网址的是打开它;后面是最近打开里标题或网址对得上的);「常用网站」一行四格(`BrowserFavorites.combine`):用户自己加的在前,后面是站点登记表里的网站,同一网站(可注册域名)一格、打开最短的主机名,这个网站任一主机名登录着就带小绿点(下面一句「已登录，Mina 办事时也能直接用」),最后一格「＋」提示去「更多」里加;「整理」或长按进整理,图标轻轻抖(关了动画不抖),× 移除,「完成」退出。常用里只记用户的改动(`browser_favorites.json`:自己加的、移除的),移除只是不显示,登记表、登录状态和 Cookie 都不动(退出在设置页「网站登录」里做)。「最近打开」是这里打开过的最近 10 页(`RecentPages`,同一网址不计 # 只留最近的),搜索写成「搜索：<词>」,网页是网站图标、标题和网站名,右边是相对时间(「10 分钟前」「今天 11:20」「昨天」「10 月 21 日」),标题右边「清除」。网站的名字和图标(`SiteLooks`):页面加载完读页面声明的网站名(og:site_name、application-name),没有就取标题里的一段(首页取开头、别的页取结尾),来历更可靠的才换;图标是 WebView 收到的网站图标(`WebTab.Listener.onIcon`),缩到至多 128 像素存成 PNG;都记在主机名上,可注册域名上还没有(或更差)时也记一份,同一网站别的子域名也认得。都没有时名字取可注册域名去掉后缀(shop.example.com → example),方块是按主机名固定选的底色加第一个字。**网页**:顶上是关闭(回起始页)、地址栏(平时是锁和网站名,搜索页是搜的词,电脑版时带「电脑版」小标签;点了展开成完整网址可改,「取消」收回)、刷新 / 停止和 2dp 进度条;下面是后退 / 前进 / 起始页 / 分享(系统分享面板,网址加标题)/ 更多。「更多」面板:网站(图标、名字、主机名)、刷新、复制链接、在其他浏览器里打开、加入常用网站 / 从常用移除、换成电脑版 / 换回手机版(这个网站下次也这样)。系统返回键先在网页里后退,退不了时开着弹窗就关掉弹窗、回到打开它的那一页,否则回到起始页,起始页上(整理、输入中先退出它们)再按回到进来的地方。地址栏和搜索框的输入由 `AddressInput` 判断:带 `://` 的原样打开,localhost、IP 补 http://,像域名的补 https://,其余用必应搜索;打开前过 `WebUrlPolicy.checkNavigable`,打不开的给一句提示。页面加载完停一会儿用 `LoginProbe` 看登录状态:登记表里有的网站按看到的记上或去掉,没有的看出已登录才记上。页面弹框(alert / confirm / prompt / 离开确认)在这里弹给用户回答;开新窗口(用户点出来的,只开一层)盖在当前页上显示,当前页留着:「用第三方账号登录」这类弹窗登录完要把结果交回打开它的页面;弹窗关掉自己时回到当前页;跳 App 的链接不跳、下载暂不接收,都给一句提示。网页视图放在进程里,转屏时接着用,离开这一页时关掉。
-- **在浏览器页上问 Mina**(`app/ui/BrowserPageAsk.kt` 的界面和 `PageChat`,`app/browser/PageLoans.kt`、`PageConversations.kt`、`PageAskModel.kt`):网页(不是起始页)底下多一条「✦ 问问 Mina，或让它在这页做点什么…」(PageAskBar);选中网页上的文字时,文字选择菜单里多一项「问 Mina」(`PageFrame` 包一层网页内核的选择菜单回调,点了先读出选中的字再收起菜单),选中的字挂在输入框上面,随这句话带上。
-  - **这句话怎么写**:最前面一段英文说明是哪一页(`core/cap/web/AttachedPage.kt`:`[Web page I'm viewing in Mina's browser. It is attached to this task as your current web tab.]`、Title、URL、选中的字每行以「| 」开头、`[End of page]`),空一行后是用户的原话。原样存进对话、交给任务,模型看到的就是这样;只有从浏览器页开始的任务带它(插话里带着新选中的字时也写成同样一段)。对话页在气泡上面画「网页 · 网站」和选中的字(SentPage),标题、列表、通知、起标题的模型都不带这一段(`ChatCopy.plainTitle`、`ScreenCopy.plain`、`ConversationTitler`),语言提示、回答的语言检查和记忆引文也不带(`WebCapability.userWords`)。带着它的任务开局就展开网页一组(`WebCapability.preload`);网页能力说明里有一段「The user's page」:「这一页」就是借来的标签,直接读、直接做,不再打开它的网址;用户看着它,只按需要改动;打开别的网页另开新标签。
-  - **接着哪个对话**(`PageConversations.pick`):同一页(网址相同,不计 `#` 和结尾的 `/`)上问过的接着最近那个,不论隔多久;否则同一个网站(主机名相同)2 小时内问过的接着最近那个(一路点下去还是同一件事);都没有开新对话。输入条上面一行「接着「…」 · 新对话」可以换成新对话。对话从哪一页开始记在对话文件旁边的 `.page` 文件里(`ConversationStore.pageOrigin`,JSON:url、host、title;旧对话没有它,删对话一起删),在同一页上再问时换成最新那一页;侧栏里这种对话标题后面一个「网页」小标签,下面一行是网站(`DrawerConversation.site`)。
-  - **借标签**(`PageLoans`,只在主线程):一问先「答应借」给那个对话(`UserBrowser.lend`),任务开跑时来取(`TaskRun.execute` 里 `UserBrowser.claim`,只有界面发起的任务;这时页面还开着才借得到),同一时间只借出一份。借到了就当场建好网页这一套(`LazyWebPort.prepare`)、把这个标签借进任务的标签池(`WebStack.borrow` → `WebTabPool.attachExternal`):它成为任务的当前标签,网页工具读它、在它上面操作,和池里的标签一样;但不挂到任务的网页显示上(它在浏览器页里)、不算每任务和全局上限、不被腾位置或内存回收关掉,池也不接它的监听(下载、弹窗、登录探查仍归浏览器页)。任务里打开网址(`web_navigate`)不换走用户的这一页,另开新标签(`WebScreen.navigate`);用户的页面开、关弹出的窗口时,借的跟着换成看得见的那个(`PageLoans.swapped` → `WebStack.swapBorrowed`)。任务结束时还回去(`PageLoans.end`,在关掉网页这一套之前),页面留在用户眼前;池关它(`web_tabs` 关、任务结束)也只是还回去(事件 `returned`),不销毁。用户关掉浏览器页(包括「在聊天中打开」离开浏览器页)时页面交给任务接着用(`PageLoans.closing` → `WebStack.adopt` → `WebTabPool.adopt`):同一个 WebView 成为任务的普通标签,挂到网页显示上,滚动、表单、单页应用的状态不丢,任务结束时随别的标签一起关;任务不收(已崩)才由浏览器页关掉。浏览器页的标签编号各不相同(`browser1`、`browser2`…),页面和它弹出的窗口可以先后借给同一个任务。
-  - **借来的标签和 Agent 自己的标签的不同**:它是用户亲手看的(`setHandOperated`,电脑版也不加视口仿真),页面坐标按它在界面上的真实大小算(`WebScreen.viewSize`),DevTools 的点击按视觉视口换算;用户双指放大过时,读屏之前先缩回整页(`WebScreen.unzoom`:视觉视口比排版视口窄或挪开了就 `zoomOut`,至多 12 下),编号的坐标才和屏幕对得上。截图不从网页显示取,直接把这个视图画进一张图(`WebScreen.viewFrame`,和视图像素一一对应,不含盖在上面的对话面板)。停留时不轻滚它(`idleScroll`)。画中画、胶囊此刻不放网页画面(`WebPreview` 按接管中算)。要交给用户处理(人机验证、登录)时不挪到接管界面:它本来就在用户眼前,只锁住、等用户在浏览器页的面板上点「处理好了」(`WebStack.showForTakeover`、`returnFromTakeover`)。
-  - **用户一摸就暂停**:网页视图的容器(`PageFrame.dispatchTouchEvent`)只收经窗口送来的真实触摸;Mina 自己的输入不经过它(DevTools 的鼠标键盘直接进页面,`WebInput` 的原生触摸直接发给网页视图),所以不会把自己的动作当成用户在操作。手指按下 → `UserBrowser.userTouched` → 借着它的任务(`TaskRun.userOnPage`):此刻正在干活、借来的页面是当前标签、又不是正在手机屏上操作时,`TaskGate.onUserOnPage` 记下,当场显示暂停(`publish` 把在跑显示成 `Held(paused, 你在操作，Mina 已暂停)`),下一个会改动屏幕的工具之前停在关卡(不论哪种屏);用户点「继续」(`TaskService.resume`)当场解除,循环还没走到关卡时按它此刻的状态重新显示。等用户回答、接管中等别的状态下摸页面不暂停。
-  - **界面**(PageAskOverlay,纯逻辑在 `PageAskModel`):用户一问,网页下半截盖上半屏对话面板(PagePanel,网页区域高度的 58%),上面露出来的网页就是 Mina 正在操作的那一页;Mina 在干活时页面四周一圈淡紫光边(PageGlow,不挡触摸)。面板顶上是网站名、「从这一页开始 · 页面标题」、「在聊天中打开」(和点通知同一个入口 `TaskService.openAppIntent`)和收起;中间是这个对话的来回(和悬浮胶囊的对话卡片同一套:`CapsuleThreads` 排、ThreadList 画,任务的样子按 `ChatViewModel.reduce`、`CapsuleModel.cardRunOf` 推);干活中下面是步骤(`Steps`),每步前面标「网页」或「App」(那一步的活动对象是「网站 …」还是包名);要你点的按钮(回答选项、同意、我来处理、继续)和胶囊卡片同一套(`Pinned`);最下面是输入框:在跑时是插话(和对话页同一条路,`TaskService.start` 带这句话的编号),右边是停止键;Mina 问你时是回答;结束后是在这一页上接着问。页面在你手上(接手中)时是「处理好了」。面板收起、那件事还没结束时底部是一张小卡片(PageCard),点了展开;你一摸页面而暂停时面板收成这张卡片(写「已暂停」和「继续」),顶上一条「你在操作，Mina 已暂停 · 继续」(PausedBanner);Mina 新要你回话(回答、同意、接手、动一下手)时面板自己打开。任务是完整的 Mina 任务:别的网页在任务自己的后台标签里开,别的 App 在 Mina 的后台虚拟屏上操作,用户留在浏览器里;每次都是聊天列表里的一个普通对话,结果和别的任务一样进对话、发通知。关掉浏览器页不停任务。元素高亮没有做(只有光边)。
-- **任务结束后留下一页**(`web_keep_open`,`core/cap/web/KeepOpen.kt`;`app/cap/web/PageKeeper.kt`,纯逻辑在 `KeptPageSlot.kt`):默认任务结束时关掉这个任务的全部标签和它那块网页显示(`WebStack.close`)。用户要页面在回答之后接着运行(接着播放、挂着别关)时,模型对那一页调 `web_keep_open`(带理由;`keep=false` 撤销),此刻只在 `WebScreen.keepMark` 记下是哪个标签;网页能力说明里写明「任务结束就关,要留先标,回答里如实说留着还是关了」。借来的(用户自己的)那一页本来就不随任务关,报 `users_page`。
-  - **交出**:任务收尾时 `WebTabPool.closeKeeping` 先把那一页从池里拿出来(`release`:不销毁、不从显示上摘下、也不把别的标签挂上去顶掉它),再关这个任务别的标签;那一页连同它挂着的那块私有显示(`WebHost`)一起交给进程里那一份 `PageKeeper`(`WebOwner.pageKeeper`,由 `MinaApp` 给),显示就不关了——页面照旧挂在任务期间那块显示上,和任务期间一样看得见、计时器和播放照常走,不另做别的手脚。之后它不在任何任务的标签池里,别的任务列不到、关不到它;它算进全局标签上限(`TabBudget` 的一员,但不给腾位置关掉)。
-  - **一页、两小时**:全局至多一页,留新的关掉旧的(原因 replaced);`KEEP_OPEN_HOURS`(2 小时)后自动关(按墙上时钟每分钟核一次,系统深睡醒来过了点也关);系统要求释放内存(`TRIM_MEMORY_RUNNING_CRITICAL` 及以上)、渲染进程崩了或被系统收回(`WebTab.reclaimed`)、用户关掉时也关。关的时候 Cookie 写盘、销毁标签、放掉显示,并在来源对话那一轮记下原因(`Turn.keptPageClosed`,`KeptPageClose`);那一轮写进对话时就记下留了哪个站点(`Turn.keptPage`,`TaskService.recordTurn` 经 `PageKeeper.recordFor`,关得比写对话还早也补得上)。不开新的一轮、不请模型。下一轮的上文里写明那一页还开着还是已经关了(`Conversation.context`;记着留着、而 Mina 中途退出过的按已关算)。
-  - **进程**:页面留着时任务服务不退,没有任务在跑时前台通知换成它的常驻通知(「后台网页在运行」· 站点 · 倒计时到自动关,按钮「关闭网页」「打开对话」,进度频道);有任务在跑时它是另一条普通的常驻通知。页面关掉而没有任务时退出前台、停掉服务;服务被销毁时如实关掉那一页(Mina 退出了)。
-  - **界面**:对话页在留页的那一轮下面一行绿色「这一页保持在后台运行 · 站点 · 还剩多久后自动关 · 关闭」,关了换成一句灰字「后台网页已关闭（原因）」;没有任务在跑时顶栏写「后台保持着 1 个网页」(`app/ui/KeptPageRow.kt`、`KeptPageCopy.kt`)。悬浮胶囊:没有任务、结果也停完了时展开成「后台网页运行中」(绿点);开关是「从不显示」时照样不显示,只靠通知。点开是它的卡片(`CardView.Kept`):实时画面(它那块显示的最新一帧,和画中画同一个来源)、还剩多久、来自哪个对话,「打开对话」「关闭网页」。
-- 任务结束时虚拟屏上的 App:手机这一侧的虚拟屏(`AgentDisplay`)在任务收尾时随 `ResourceScope` 放掉(`AgentDisplay.release` → 内置助手 `releaseDisplay` → `VirtualDisplay.release`);这块屏建的时候带着「移除时销毁内容」的标志,上面的 App 窗口随屏一起结束(进程留不留由系统定),静音照原样恢复。留页只管网页,不管这块屏上的 App。
-- 一页一页看的节奏(`core/cap/web/PagePacing.kt` 纯逻辑,`PageDwell.kt` 接到任务上):每个动作本身的鼠标键盘节奏之外,同一网站(按可注册域名)连着换页也不秒开。读屏或打开网页时地址变了(不计 `#` 后面)、往下滚时页面自己又收到成批的 JSON 或文本响应(加载更多),都算来了一页;这个网站在最近 10 分钟里的第一页不停留,第二页起停留 4–7 秒,之后每多一页上下限各加 0.6 / 1 秒,最长 12 秒。可能换页的动作(打开同站网址、点击、后退、按键、往下滚、滑动,`web_interact` 的按键)之前补足这一页还没停够的部分,模型思考、读页面花掉的时间都算在内;打字、清空、往上滚、读不等,去别的网站不等。停了多久记进这次调用(`ToolExecution.waitMs` → 运行记录 `tool_result.waitMs`,小结里算等待,`do_steps` 子步的也算进那一批),不另告诉模型;只由 App 的任务装上(`toolDispatcher(webPacing = …)`),核心测试默认不等。
-  - 站点知识的 `pace: careful`(这个网站限制浏览快慢,见 `docs/dev/knowledge-format.md`)让这个网站的页停得更久:第二页起 10–16 秒,之后每多一页上下限各加 0.6 / 1 秒,最长 30 秒。按当前主机名查站点知识(`GuideCatalog.sitePace`,认站点的规则和注入站点知识同一个 `SiteMatch`),经 `toolDispatcher(webSitePace = …)` 交给 `PageDwell`。
-  - 一个任务里同一个网站来的页有上限(普通 20 页,`careful` 12 页;过了 10 分钟的时间窗也照算)。到了之后,换页的动作(打开同站网址、点击、后退、按键)不做,报 `page_limit`,说明里让模型先拿已读到的回答、用户要接着看就用 `ask_user` 问;往下滚、读页面照常。用户答过话(回答了追问、交回了接管,经 `Capability.onUserAnswered`)后各网站重新计数——不另给模型提高上限的参数,要多看只能经用户点头。被拒的那次调用照常记成运行记录里的 `tool_result`(`error: page_limit`)。上限只管浏览,不打断成批联系、投递:不可逆判定认出的对外动作(发送、提交)本身不受上限拦(`ActionExecutor` 做之前经 `Capability.onOutwardStart` 告诉网页能力,做完经 `onOutwardEnd`),做成过一次之后这个网站(按可注册域名)在本任务余下的时间里不再设上限、用户答话也不恢复,批量做到网站自己报上限(`limitReached`)、风控或用户叫停为止;停留和对外动作之间的间隔照旧。不设节奏(`PagePacing.Off`)时也不设上限。
-  - 停留里的小动作(`core/uistate/IdleScroll.kt` 纯逻辑,App 里的停留也用它):停留至少 3 秒、且动作不按屏幕坐标做(按编号点、后退、按键、往下滚、打开网址)时,停留里轻轻滚 1–3 下整页,每下 0.06–0.16 个视口,大多往下、偶尔往回拨一点(不超过之前往下滚的),几下加起来不超过 0.45 个视口、净移动不超过 0.3 个视口;总停留时长不变。按坐标点、滑动的停留里不滚(坐标会对不上)。走端口的 `WebPort.idleScroll`:桌面版用滚轮且指针不动,否则一下慢慢的原生滑动;不移动鼠标、不悬停、不点;有页面弹框、输入法开着、输入框拿着焦点、标签不在显示时不滚。滚了几下只记进运行记录(`tool_result` 结果里的 `idleScrolls`),不告诉模型;滚完、动作之前重看一眼当作「动作前」(`ScreenSession.reprobe`),这点滚动不算成动作的效果,模型手里那一屏标成过时(`interfaceStale`);下一次读屏照实看到滚动后的位置。只由 App 的任务装上(`toolDispatcher(webIdleScroll = …)`),核心默认不滚。
-- 风控:网页障碍判定(`WebBarrier`)除了限流状态码、人机验证框架,也认字不多的风控拦截页(访问异常、环境异常、操作过于频繁、unusual traffic,或「安全提示」「Security check」这类标题加上异常、验证一类的字),判成要用户处理(access_blocked),`web_diagnose` 提示交给用户、别马上重试;`web_capture` 取回的响应顶层报信息的字段(message、msg、error…)在说被风控拦下时,结果带上 `riskControl` 和同样的提示。
-- 工具:`web_navigate`、`web_observe`、`web_read_page`、`web_list_elements`、`web_tap`、`web_type_text`、`web_clear_text`、`web_scroll`、`web_swipe`、`web_press_key`、`web_back`、`web_tabs`、`web_wait_for`、`web_interact`、`web_downloads`、`web_upload`、`web_capture`、`web_screenshot`、`web_diagnose`、`web_evaluate_js`、`web_script`、`web_site_mode`、`web_keep_open`,以及看图类工具。
+| `ModelCaller` | Group request, model adjustment, streaming output; compression and recovery, temporary error retry, context overlong retry, large and small model offloading |
+| `RetryPolicy` | 429, 5xx, limited retries when disconnected (up to 3 times, exponential backoff, total wait for each task has an upper limit) |
+| `ToolDispatcher` | Find tools by name, hold evidence ledgers, and spell out clues for each ability. |
+| `TurnPolicy` | Progress check (only when the number of steps is limited), a reminder when the reply is empty or truncated, a return when the tool call is missed as text, a reminder when it is time to follow up, a return when the answer is in a different language, and only `end_not_done` in the last round (only a time when the number of steps is limited) |
+| `StopRules` | When does it end: give up, guard stops (same action repeated, no progress, repeated readings, too many failures, sandbox spin), model failure, run out of steps (only when there is a limit on the number of steps) |
+| `BatchRunner` | `do_steps`: give 1-20 known actions at a time, execute and check them one by one; a step may carry wait conditions (`expect` appears, `expect_gone` disappears, `expect_app` foreground app or page address, `wait_stable: true` the UI is stable, `timeout_s` defaults to 8 seconds and is at most 20 seconds). After acting, the code reads the screen and waits until the condition holds before the next step, instead of asking the model "still loading"; a dialog, a window of another package covering the screen, or an app switch stops it early. The result records `wait` (`met`, `stopped`, `waited_ms`). Waiting itself lives in `core/uistate/UntilWait.kt`, shared by phone and web, and wakes through the port's `awaitChange` (accessibility event / page change); wait time counts as waiting in the run summary, not as an operation |
+| `IntentGate` | When the task initiated by the conversation interface requires a non-search tool for the first time, it will be judged whether the user is chatting, looking up information or doing errands; if it is judged as chatting, the user will not use the tool again to answer the question. When it cannot be judged (the call fails, or the reply is not one of the three words), the original decision of the main model is executed; it is only judged once per run (`AgentLoop.assessIntent`) |
+| `StuckAdvice` | Add suggestions to the tool results when you get stuck; you can give up if you get stuck for the second time. |
+| `NoticePolicy` | After viewing an interface, decide whether to supply the knowledge of the app/website corresponding to the model. |
+| `GuideRecommender` | Index of the start: select up to 3 pieces of App/website knowledge according to the task text, and also list all skills (built-in and personal skills in use and trial). The full text is read by the model user `skill_read`. |
+| `RouteReplay` | When "Do as you did last time" is turned on, the successfully matched route will be played back before adjusting the model for the first time (see §9) |
+| `UserExchange` | Questioning, confirming, and taking over are three types of interactions that require user participation. |
+
+There is no upper limit on the number of steps for normal tasks (`AgentLoop.UNLIMITED_STEPS` in
+`TaskRun`), so the progress check, last round, and the number of steps used up are only used for
+evaluation (`EvalHooks.maxSteps`) and subtasks (default 15 steps, the model can reach 40 steps,
+`SpawnAgent`).
+
+### Result judgment
+
+- **No "Complete" tool**: The reply of the model without any tool call is the answer; the text
+  accompanying the tool call is displayed as a process description. The words written down when
+  interrupted by an interruption are not answers, but just let the model know what the user has seen
+  (see "Inbox and Interruptions").
+- **`end_not_done`** (`core/general/OutcomeTools.kt`): Use it to end when you can't do it or can
+  only do part of it. `message` writes down what has been confirmed, where it is stuck, and what is
+  on the interface now; `subtype` is one of `blocked`, `login_incomplete`, `captcha_incomplete`,
+  `route_failed`, `device_unavailable`, and `interaction_failed`.
+- **Before submitting the answer**: Empty reply or truncated reminder; some inference services
+  occasionally do not parse the tool call of the model, and the call becomes the text as it is
+  (`LeakedToolCall`: A common call tag followed by Mina’s tool name), this is not the answer: return
+  it once and let the model be re-called through the tool interface, and it will be recorded in the
+  running record.`core/agent/LeakedToolCall.kt`;Following another leak, it ended with a model error
+  (`tool_call_as_text`), do not hand over the original mark to the user, and recalculate it after
+  adjusting the tool normally; the user just answered something and the Agent did nothing, remind it
+  once; the last action of changing the interface did not read back the result, remind it once. The
+  text of the answer is obviously not in the language of the user’s most recent sentence
+  (`StopRules.toolCallAsText`The number of letters to which letters belong, Chinese characters by
+  word, the rest by word, the original text in quotation marks and the line with only the name are
+  not counted; the user's sentence counts only the characters they typed this time, not the screen,
+  the browser page description, the quoted passage, the attachment lines or the steer marker
+  (`UserWords.typed`); no check is done when the start message carried only the screen, only
+  selected text or only attachments, and a steer that carried only the screen or only selected text
+  falls back to the previous sentence). The model is sent back once to rewrite the whole answer in
+  the user's language; if it is still wrong after that, the answer is handed over anyway.
+- **Source generated by the system**: `AnswerSources` (`core/verify/AnswerSources.kt`) selects
+  observations (up to 6) that support the answer from the evidence ledger `EvidenceLedger` as the
+  "source" below the answer; it is not written by the model itself.
+- **Background result classification**: After the answer is delivered, `TaskRun.settleOutcome` uses
+  `OutcomeJudge` (`core/agent/OutcomeJudge.kt`, giving priority to lightweight models, 30 seconds
+  timeout) in the background to divide the run into Done / Partial / NotPossible / Unknown of
+  `RunOutcome`. It does not change the answer, and the result is written into the running record and
+  conversation record; the scheduled task will mark whether it failed this time accordingly.
+  Learning and playback only recognize Done: there is only one judgment for admission,
+  `LearnGate.done` (`core/agent/LearnGate.kt`): After handing in the answer, it is judged as Done,
+  and there is no value that has not been matched after returning once; if you have run, you must
+  verify the pass (if you have run, you will still be blocked, if you have not run, you will not be
+  blocked). The drafting of personal skills and App knowledge, the conversion from trial to formal,
+  the recording of experience routes and the count of successes are all asked by it (see §9, §11);
+  whether to remember the route is judged by `LearnGate.shouldSaveRoute` (the route is open,
+  completed, has a run number, and the target does not have a user screen).
+- **Independent verification**: `Grounding` (whether the numbers, numbers, and citations in the
+  answer are included in the content you have read, and whether the calculation is correct) and
+  `Verifier` (independent verification model) are both in `core/verify/`, controlled by the
+  `reviewFinalAnswer` switch. The product is currently closed (`TaskRun` in `reviewFinalAnswer =
+  false`), so the answers are recorded as "unverified", see the roadmap "Known Issues"; the study is
+  based on the ending judgment and is not affected by it.
+
+## 4. The only execution entrance and tool
+
+- **Only entrance**: All actions that change the external world go through
+  `ActionExecutor`(`core/action/ActionExecutor.kt`). `ToolDispatcher.execute` requires a
+  `ActionPass` (`core/tool/ActionPass.kt`). Its constructor is internal, and only `ActionExecutor`
+  can create it. This avoids bypassing it from the compilation level; read-only calls to
+  `executeRead`, which are not read-only, will be rejected. The execution sequence is fixed: guard →
+  lock screen inspection → irreversible action inspection and consent → execution → check after
+  action → record.
+- **Interval between external actions** (`core/action/OutwardPacing.kt` pure logic, `ActionExecutor`
+  according to it, etc.): Irreversible judgment recognition of sending and submitting (including
+  buttons to contact others and submit applications, such as "Communicate Now", "Say Hello",
+  "Submit", "Say Hi", "Easy Apply") are done continuously in the same website (according to the
+  registrable domain name) or App (according to the package name), the first time does not wait, and
+  there will be at least 8-20 seconds between the next and the last time. A random period of
+  seconds. The more you do in the last 30 minutes, the upper and lower limits will add 0.5 / 1
+  second each, up to 30 seconds; counting from the last time you finished it, the time spent reading
+  the page and thinking about the next step is included, whether you change pages or not (the pause
+  of page changes is controlled by the rhythm of the web page). The mobile phone and web page have
+  the same judgment and the same set of intervals; when executing independently, the judgment still
+  comes to recognize external actions (press the screen in the model's hand without reading another
+  screen), but does not block it. The task can still be canceled after the judgment is made and
+  before the action is started; the waiting time is recorded in the `waitMs` of this call and is not
+  counted in the operation time. It is only installed by the App task (`AgentLoop(outwardPacing =
+  …)`), and the core test is not equal by default.
+- **Who initiated this step**: `Origin` (`core/action/Origin.kt`) = Model / Batch / Script / Replay
+  / McpTool, each has its own strategy (whether the payment can be released with the user's consent,
+  whether to stop when encountering a guard warning). Each action inside the compound tool
+  (multi-step at a time, `mina phone` in the sandbox, web script) returns to the same entry through
+  `SubActions` (`core/tool/SubActions.kt`), and the same execution and recording path as the
+  single-step tool.
+- **Tool declaration**: Each tool has a class, implements `AgentTool` (`core/tool/AgentTool.kt`),
+  declares its own verbs, risks (Read/Write/External), capabilities, whether it can take multiple
+  steps at a time, whether it can enter the experience route, concurrency mode, etc.; the code works
+  according to these attributes and does not write down the tool name. `ToolRegistry` filters out
+  available tools by task, and the tool definitions within a task are frozen unchanged.
+- **Tools have two layers and expand only when used** (`core/tool/ToolGroups.kt`,
+  `ToolDispatcher.offeredNow`): always present are the general tools (ask the user, end when
+  nothing was done, wait, knowledge and skills, memory, schedules, subtasks, …) and the
+  non-expandable capabilities (MCP); phone, web and sandbox are each a group (`Capability.folds`).
+  At the start only the entry tools are given (`AgentTool.entry`), with the short description from
+  `prompts/entries/<tool>.md`: calling `phone_launch_app`, `web_navigate` or `run_command` expands
+  that group (`Entry.Opens`), while `phone_list_apps` and `web_read_page` (read the body of a URL)
+  are enough on their own and do not expand (`Entry.Alone`). Takeover, reporting an obstacle,
+  reviewing the screen and multi-step batches are given only after the group that has a screen is
+  expanded (`AgentTool.withScreens`, counted as the `screens` group). After expansion, the full
+  text of the whole group is given from the next request on, the entry switches back to its full
+  text, and the capability description (`capabilities/<capability>.md`) is also spelled into the
+  system prompt and kept for the rest of the task; a `moreTools` note in the result says so. If the
+  model calls a closed tool from memory it still runs, and its group is expanded too (even with
+  wrong arguments, so the next call can see the full text and fix them). Fixed order: always
+  present → `screens` → phone → web → sandbox; expanding a group changes only the part starting at
+  that group, and the request prefix is invalidated at most once by expansion. Pre-expanded at the
+  start: groups really used in the previous round (`Turn.groups`, recorded by `AgentLoop.usedGroups`
+  and stored in the session file; entries that are enough on their own do not count as used) and
+  capabilities the current words certainly need (the sandbox when files from the workspace are
+  attached, `Capability.preload`). Commands are not offered in read-only tasks; the sandbox group
+  has no entry, so it is expanded from the start. Subtasks, scheduled triggers and other sources
+  behave the same. The run record notes expansions as `tools_opened` and pre-expansions as
+  `tools_preloaded`; `PromptVersion` is computed as if every group were expanded, so the same
+  prompt version does not differ by which groups were expanded this time.
+- **Approval**: `ApprovalPolicy` (`core/action/Approval.kt`) only asks for one action: the step of
+  spending money (`Risk.payment`: irreversible judgment recognized payment, placing an order, or
+  external, irreversible action hit when there is a payable amount with currency (¥, yuan, $) on the
+  screen, see `ClassifiedRisk`; the characters in the traditional Chinese interface are first
+  changed to simplified Chinese, judged according to the same set of vocabulary,
+  `core/uistate/Hant.kt`). Do everything else directly: send, post, submit, delete, contact others,
+  change account or security settings, type in the password box, look at the picture to find a point
+  but can't see what it is, click on a target that can't be read, no questions asked. The only step
+  to spend money is to initiate it on the mobile phone and ask when the user is present (`Ask`);
+  operations initiated by channels, timings, MCP, subtasks and unattended operations cannot be asked
+  and will be rejected (`approval_unavailable`). There is only one way to agree: only allow the next
+  matching operation (`ConfirmationGate`: the same App, the same action, the object is on the
+  screen, the declared amount is on the screen, within 3 steps, and no other writing operations are
+  done in the middle). The payment itself (determined to be pay) is handed over to the user to pay
+  by hand without consent (`hand_to_user`, reason=payment). The approval conclusions are recorded in
+  the operation record (`RunEvent.Approval`, external, spent and not released), and the verification
+  will be based on this to know that the task has done external things. There are no approval
+  levels, and there is no within-task, long-term authorization.
+- **Ask / Autonomous**: A global switch, in the "Ways of doing things" group at the front of
+  Settings > Developer Options ("Autonomous Mode", test label `dev-autonomous`), the default is off
+  to ask; the value is stored in the JSON of `ApprovalStore` (`autonomous`). `ApprovalControl`
+  (`settings/ApprovalControl.kt`) will give a copy of `RunApproval` (whether it is independent or
+  not) at the start of each task, and `TaskRun` will be installed accordingly: when asking
+  `confirmations = ConfirmationGate()`, `autonomous = false`, the step of spending money will be
+  blocked as `confirmation_required`, and the single category will be adjusted by the model.
+  `request_confirmation` (The amount on the screen must be written. Applications that cannot write
+  the amount will be returned directly and not handed to the user). The user answers on the card on
+  the dialogue page, the card on the floating capsule, or the notification (only agree this time /
+  disagree). The answer is handed over to the loop through `TaskService` → `TaskRun.confirm` →
+  `RunInbox`; When `confirmations = null`, `autonomous = true`, and `request_confirmation` are not
+  provided independently, the judgment will still be executed (the distance for external actions
+  will still be recognized), but the payment will not be blocked. Change the switch
+  (`ApprovalControl.setAutonomous`) and save it to manage subsequent tasks, and all running tasks
+  will be changed accordingly: when starting the task, the task that is asking is changed to
+  autonomous in the middle, and will not be blocked from the next step (the confirmation that has
+  popped up will still wait for the answer as usual); when starting the task, the task that is
+  independent is changed to asking in the middle, and it is left to the next task (the tool and
+  prompt word remain unchanged within a task). Tasks, subtasks, and timed triggers that are
+  initiated and chatted in the suspension capsule all press this switch; the exception is the tasks
+  handed over by the computer via CLI/MCP: `ApprovalControl.start(remote = true)` will always press
+  the query to start work and will not change with the switch. The payment step will never be done
+  in this type of task (see the "Computer Connection" section); the subtask is inherently read-only.
+  When asked, it will pass the level and spend money. When running unattended tasks such as
+  scheduled tasks in the query mode, if a step that costs money is encountered, it will not pause
+  and wait for someone: the execution entry is directly rejected (`approval_unavailable`). The model
+  will tell the truth which step was not completed, and the other steps will be completed as usual,
+  and the results will be notified as usual. `ConfirmationGate` does not exist in autonomous mode.
+  The autonomous early return in `ConfirmDecision.judge` is ranked before the "Don't Mina do it
+  yourself" (`ownApp`) check, so this layer of protection does not take effect in autonomous mode;
+  Mina does not operate itself when asked.
+- **Old tool name after renaming**: `LegacyNames` (`core/tool/LegacyNames.kt`) maps the old name to
+  the current tool and is only used to read old routes, running records and personal skills; when
+  the model calls the old name, it only prompts the new name and does not execute it for it.
+
+## 5. Observation, action, place
+
+- **Observation** is the only unit of core consumption: `Observation`
+  (`core/observation/Observation.kt`) with type `ObsKind` (Read / Output / Reply / UserSaid /
+  Attachment / Fact), source (capability id), place, title, text, screen, credibility, step count,
+  time and number. Read it for evidence ledgers, sources, verifications, and operational records.
+- **Untrusted content** (web pages, subtask results, etc.) are included in
+  `<untrusted>…</untrusted>` (`core/observation/Untrusted.kt`) at one time when building
+  observations.
+- **Place** `Place` (same file): App, Site, Page, Command, File. Knowledge is replenished locally
+  (§11).
+- **Interface status** (`core/uistate/`): Control tree, element numbering and expiration detection,
+  etc. Interface stability, action effects (`ActionEffect`, each action that changes the interface
+  returns the actual effect, input is read back for verification; no changes can be seen in points
+  and gestures on the mobile phone, but the tree on this screen cannot read which part - the tree
+  cannot be used, or a piece is missing and the point is not on any element - the type is still
+  `no_effect`, otherwise marked `treeBlind`, the prompt changed to say "Not seeing changes does not
+  mean that you have not clicked", not saying that most of them have not been clicked; the things
+  done by type (reminder with no effect, multi-step early stop, statistics) remain unchanged; the
+  short text "reached the limit" appears in the interface after the action - the number of times has
+  been used up, the upper limit has been reached, come again tomorrow, the operation is too
+  frequent, limit reached In the first category, prompt bars, pop-up windows, and page pop-ups are
+  not counted if they are on the screen before the action is taken (`LimitNotice`) - `limitReached`
+  and a stop prompt are written in the result, and multiple steps at a time stop at this step).
+  Mobile phones and web pages share this set. Before and after each call to the dispatcher,
+  `SurfaceLayer` is used to allow it to prepare and finish the interface (take a look before the
+  action, compare the effect, and attach the interface after the action), and the tool engine itself
+  does not recognize it (see §1). Use it directly when performing irreversible judgment and approval
+  of the entrance, and when judging playback by screen reading (`ActionTarget`, find the target
+  according to the description).
+- **Visualization**(`core/visual/`): Picture frame number, `view_past_screens` review, picture
+  difference. The screen is just for users to see what Mina is doing and for supplementary
+  observation when the text cannot be read; work depends on the interface status.
+
+## 6. Capability module
+
+The ability is assembled by `CapabilityProvider` according to `RunSpec`
+(`core/assembly/RunAssembler.kt`, `TaskTools.kt`), and is installed once at the start of each run:
+
+- Press `spec.capabilities` to select capabilities; unattended running removes the tools such as
+  query, confirmation, takeover, schedule creation, and image modification; read-only running only
+  leaves read-only tools (plus the webpage opening address).
+- The universal tools (`core/general/`) are always there: `ask_user`, `hand_to_user`,
+  `handle_obstacle`, `end_not_done`, `wait`, `view_past_screens`, etc. Provided only when conditions
+  are met: `request_confirmation` (only available if the user agrees before spending money; only
+  available if there is a confirmation level: interrogation mode, when someone is present), memory
+  tool (only available if "Use Memory" is turned on), knowledge and skill review (only available if
+  there is a knowledge catalog, `LookupTools`), `schedule_task`, `spawn_agent`, `history_read` (only
+  available if there is a running record and previous runs have been recorded).
+
+### phone: mobile app
+
+- **Virtual screen**: The task is to operate the App on a separate virtual screen, and the user can
+  still use the mobile phone. The virtual screen is built by the built-in mobile assistant
+  (`app/cap/phone/display/AgentDisplay.kt`, `app/cap/phone/shell/ShellService.kt`) and has the same
+  size as the main screen; starting from Android 14, it has its own focus and does not affect the
+  main screen input (the main screen focus may be temporarily lost on Android 12 and 13, and a
+  prompt will appear in the settings; mobile apps cannot be operated under Android 12 and below, and
+  chat, web pages and sandboxes are still available). Only connect and create a screen when you need
+  to open an app or link for the first time, or use system commands or event listeners; do not touch
+  it if you only use web pages or sandbox tasks. The target app mutes the sound on the virtual
+  screen and restores the sound when taking over. To mute, set the `PLAY_AUDIO` of the App to
+  ignore, and the rules will be muted before `app/task/AppMuter.kt`:Mina issues a startup (opening
+  the App, opening another copy, sharing, opening the specified App or the link connected to only
+  one App, opening the system action of the interface; The alarm clock and timer that have been
+  quietly set are not silent), and there is no sound in the first few seconds; if the startup is
+  rejected, they will be restored to the silent state in advance; after that, every new app that
+  pops up on the Mina screen (clicked from the target app, another copy on top, and the task at the
+  top of the Mina screen will be reread according to the accessibility window change,
+  `AndroidScreen.foregroundApps`) will be silent for the first time. To mute, press the "Package +
+  User" function (`AppAudioKey`: the original copy is the package name, and the other copy is
+  "Package Name@User Number", several interfaces of built-in assistant `*InUser` have `--user`), the
+  copy in the avatar and work profile is muted independently, not together with the original copy in
+  the user's hand. Unquiet: Mina herself; system package without desktop entry (system interface,
+  selection box, permission box); What the user can see on the home screen at the moment (Assistant
+  `visibleOnMainScreen`, press and use when the home screen cannot be seen clearly) - the mute
+  button works, and there is no sound when the user's hand is muted. This kind of photo prompts "The
+  App may make a sound" on the progress notification, and the same is true when the mute command
+  fails. When mute is turned off in settings, no one is silent. At the end of the task,
+  `AudioMute.restoreAll` restores all the things that have been done this time, including those that
+  were done in the middle; The original mode before muting is recorded in the record file of the
+  built-in assistant (`app/cap/phone/shell/AudioMuteLedger.kt`). When the assistant is started, it
+  will first restore what it did not have time to restore last time. Restoration rules: It turns out
+  that it is clear that allow/ignore/deny, etc. are written back as they are, and those that have
+  not been set are written as allow and not default (Android only recognizes allow before playing
+  sound), and only the packages in the record are moved.
+- **App at the end of the task**: It is left by default and will not be destroyed with the screen.
+  At the end (finally of `TaskRun`, before `AudioMute.restoreAll` restores mute) `AppsAfterTaskEnd`
+  hands over the mark of the model (`phone_app_after_task`, stored in `AfterTaskMarks` of the mobile
+  port) to the built-in assistant `finishDisplay`; the assistant determines the mark of each task
+  according to `app/cap/phone/shell/AppsAfterTask.kt`: the mark is marked; the mark is turned off at
+  the moment (ask first) `AudioManager.getActivePlaybackConfigurations`, the player status is
+  started uid → package + user; when the uid is hidden, read `dumpsys audio`; those muted by Mina
+  are also counted as playing; when they are not read, those being pressed silently by Mina are
+  counted), otherwise they are left; Mina's own page, not the ordinary App page, will be closed.
+  Move the remaining ones to the main screen and arrange them at the end:
+  `WindowContainerTransaction.setHidden(true)` → `moveRootTaskToDisplay(…, 0)` (the system is always
+  placed at the top, and will not be displayed or focused if hidden) → `reorder(…, false)` → Unhide;
+  after moving, take a look at the ones that make a sound (move them back to the Mina screen without
+  the mark "keep" and make a sound and turn them off with the screen), and then check that none of
+  them are visible on the main screen (if they are visible, they will be placed at the back, if not)
+  `removeTask`), finally release the screen. The `FLAG_DESTROY_CONTENT_ON_REMOVAL` screen is still
+  attached, and the screen that has not been moved is turned off. This system will no longer be
+  moved if it cannot be used in any step (the interface is not available or rejected), but it will
+  still be shut down with the screen. A line of "apps after task:... move not supported" will be
+  recorded in the diagnostic information (the details of `apps_after_task` are included in the
+  operation record). The assistant remembers the left task number (only in memory); the next time
+  the `startApp` (including another one) opens the same App, if the task is still behind the main
+  screen and the user is not looking at it, it will move it back to Mina's screen and continue doing
+  it without opening it again; cold start first close it and start it again. When only releasing the
+  screen (`releaseDisplay`, `releaseAll` unbundled by the assistant), all the screens will still be
+  destroyed.
+- **Built-in mobile phone assistant**: an auxiliary process running as a shell, started by the
+  mobile phone's own "wireless debugging" (`app/cap/phone/setup/BuiltinShellManager.kt`,
+  `app/cap/phone/shell/HelperProcess.kt`; the ADB protocol is implemented by itself, in
+  `core/adb/`). Pair once: The pairing code can be automatically read from the settings page by
+  accessibility services, or entered from notifications or the setup wizard. The code filling
+  notification (`app/cap/phone/setup/PairingNotifier.kt`, sent by `PairingCoordinator` according to
+  the status of the assistant and the progress of finding the pairing window) does not include
+  screen recording or floating window permissions, but only relies on the notification itself: the
+  "pairing" channel is a high priority, has sound and vibration, and can pop up above the system
+  pairing window; After the importance of the channel is established, the App cannot change it.
+  `PairingChannel.plan` looks at the existing channel - if there is no channel, create a new one. If
+  the old version is not high enough and the user has not changed it (`hasUserSetImportance`), it
+  will be rebuilt with a new ID. The user can turn it off or adjust it to not pop up without
+  changing it back. `SystemStatus.pairingChannel` will hand it over to the guide page
+  (`SetupView.notifyIssue`): when notifications are not allowed or the channel is turned off, the
+  main button of the pairing step is to allow notifications / Open the settings page of this channel
+  and adjust it to no pop-up, only a reminder and entry. `PairingCoordinator.begin` starts watching
+  for pairing (finding the pairing window, barrier-free code reading, and sending code filling
+  notifications), the time limit is 10 minutes, starting from the last `begin` (`SlidingDeadline`):
+  click "Go to wireless debugging", and leave the guide page when it stops at the pairing step
+  (`ON_STOP`, most likely you cut out the system settings), you will adjust it again. If you are
+  already watching, you will only push the time limit back, and do not start the notification again;
+  The same goes for finding the mDNS (`BuiltinShellEngine.startDiscovery`) in the pairing window. If
+  you adjust it while still looking, reset the timer. The boot page has been left open for a long
+  time, and I cut out the system settings from recent tasks, but I can still read the code and pop
+  up the notification. When you find the pairing window, send "Enter Pairing Code" (the barrier is
+  only 5 seconds late when reading the code), and the action "Fill in Pairing Code" comes with
+  RemoteInput (no unlocking is required, no generated reply is given); if no one fills it in, it
+  will pop up again after 8, 20, or 40 seconds, up to three times, and the popup will ring again
+  every time. If it has been replaced with other content, it will not pop up again. The code you
+  fill in is first standardized in the local area (spaces, various horizontal lines, full-width
+  numbers) and checked for 6 digits. If it is not correct, you will be prompted in the same
+  notification on the spot and do not try; if it is correct, it will be immediately changed to
+  "Pairing..." (it was always the same before pairing started, and it will not be counted according
+  to the status before filling in the code). If it is successful, it will disappear after changing
+  to "Pairing Successful"; if the code is incorrect, expired, or the window is closed, the same
+  notification will say to get a new code and fill it again, and the input box will remain. When
+  accessibility is not turned on, the guide page uses a three-line numbered icon to illustrate these
+  three steps, and the bottom line of filling in the code directly on the page remains the same. The
+  state machine of the setup wizard (`app/ui/PhoneSetupScreen.kt`) is a pure function
+  `PhoneSetupFlow` (`core/shell/PhoneSetupFlow.kt`). The read switches are only used to
+  automatically check and give prompts, and do not block them: developer options, USB debugging,
+  accessibility, and wireless debugging are automatically checked and moved down after the four
+  steps are read. When it reads that it is off, it stops at that step, but the three steps of
+  reading the switch include "I have turned it on, next step" (recorded as `SetupInputs.confirmed`),
+  and can be skipped without any obstacles (recommended: Mina can open it by herself after pairing,
+  and will not be blocked by "restricted settings"). In addition to notifications and automatic code
+  reading, the pairing step can also be filled in directly on the page, so no step will be stuck.
+  After completing the steps, you can click back to redo them (`SetupInputs.revisit`, the step you
+  go back to will automatically return to the original place when it reads from off to on). Success
+  only depends on whether the assistant is running, regardless of what was read previously. When
+  pairing or connection fails (the pairing window is closed, the connection cannot be made, the
+  reason is unknown), press the developer options and wireless debugging to point out the step where
+  the problem is most likely to occur (`SetupView.suspect`: the reading is off, or the phone cannot
+  read), and give the button to return to that step; The user confirmed that wireless debugging was
+  turned on, but the assistant read that it was like this when it was turned off and not connected,
+  and it would not keep spinning. Automatically retry after disconnection (exponential backoff).
+  Find the wireless debugging connection port (`core/adb/AdbConnectPort.kt`) and try in order. Stop
+  when you connect: the port you last connected to (exists in the App private settings, and will be
+  rejected quickly when it fails), system properties `service.adb.tls.port` (use it only after
+  reading it), mDNS check `_adb-tls-connect._tcp` Get each local port (`NsdAdbServiceFinder`), scan
+  the local port (`core/adb/LocalPortScan.kt`), and the port filled in by the user on the boot page.
+  Rejection on TLS does not necessarily mean that the key is incorrect (some systems let another
+  service receive the first TLS handshake on the same port first, rejecting all certificates, and
+  then fall to adbd after reconnecting): try the same port again after a while, and if it still
+  doesn't work, try other candidates. If the existing port is rejected, the machine will no longer
+  scan; if we can't connect after trying, and another port rejects us, we will report
+  `BuiltinShellFailure.AuthorizationRevoked` (re-pairing is required, the watchdog will not
+  automatically retry). Scanning is a cover-up when the previous ones fail (some networks block
+  multicast, and some systems do not allow apps to read properties): the wireless debugging adbd
+  listening system randomly assigns ports, so it only scans the temporary port range (use it if you
+  can read `/proc/sys/net/ipv4/ip_local_port_range`, otherwise 30000–65535), and only scans the
+  machine's own address - 127.0.0.1 first, and no one like adbd is scanned again. IPv4 address on
+  Wi-Fi, without touching other devices; `NioPortScanner` uses java.nio non-blocking connection,
+  with a maximum of 200 connections at the same time, each waiting for up to 150 milliseconds,
+  skipping the previously tried port and the monitoring that Mina has opened by itself
+  (`OwnListeningPorts`, such as login callback); the open port sends CNXN and returns STLS, which is
+  like adbd (it connects itself, and other services will not return STLS), and then complete the
+  task as usual with the paired key. TLS handshake, the first connection wins and is recorded as
+  cache; The total time of scanning and verification does not exceed 10 seconds, and it runs on the
+  IO thread. When scanning, `BuiltinShellManager.scanningPorts` is true, and the boot page displays
+  "Searching for the wireless debugging port on this machine...". When the connection fails, there
+  is a step in the guide page to "fill in the wireless debugging port" (numeric keyboard, 1-65535,
+  the whole paragraph is pasted with "IP address and port" and take the colon). Once filled in, take
+  it and try again (`BuiltinShellManager.connectWithPort`, only use it this time; do not scan this
+  time, and record the connection as cache). In addition to success, the guide page has "I'll talk
+  about it later" at the bottom of every stage (waiting for user, connecting, failed), and you can
+  always leave when you return, so the user is not trapped on this page. Several capabilities, "Turn
+  on accessibility for me", "Not subject to power saving restrictions", "Automatic recovery after
+  restart", "Automatically turn on wireless debugging" are turned on by default: they all rely on a
+  paired connection to take effect, so the assistant becomes running every time (pairing completed,
+  disconnected and restarted, paired when the app is started, automatically restored when starting
+  up), and the `BuiltinShellRecovery.start` (`app/cap/phone/setup/BuiltinShellRecovery.kt`) looks at
+  the status. `RecoveryPermissions.applyPending` (`core/shell/RecoveryPermissions.kt`) adds several
+  items that the user has not turned off personally and have not yet taken effect, without popping
+  up the box. If you fail, just write down a message to the settings page. Each record
+  (`app/settings/RecoverySettings.kt`) is divided into two types: "effective" and "turned off by the
+  user"; the old version is the same as before, and the ones that have not been turned off will be
+  opened by default. Unpairing restores several items that have taken effect without changing the
+  user's choice. When pairing again, they will still be automatically turned on, and those that were
+  turned off by hand will still be turned off. Automatically restore after powering on to see if
+  "automatic recovery after restart" has taken effect. For barrier-free access, only Mina's own
+  services are added, and other services are left unchanged. Mina's accessibility service may be
+  stopped for two reasons: after the process is killed by the system, the system treats it as a
+  crash, and it is still enabled in the settings but is no longer bound; when it is forcibly
+  stopped, the system directly removes it from the accessibility list. `BuiltinShellRecovery.start`
+  At the same time, check whether there are Mina services in the system list, whether the service
+  instance is connected, and the status of the assistant (all have callbacks, not polling); When the
+  service has not been running for more than 3 seconds and there is a way to write the system
+  settings (the App itself has the authorization to modify the system settings, just write it
+  directly, without waiting for the assistant, wireless debugging can be turned off; if there is no
+  authorization, wait until the assistant is running), `AccessibilityRepair`
+  (`core/shell/AccessibilityRepair.kt`) opens it through `RecoveryPermissions.restartAccessibility`:
+  if it is not in the list, add it directly, if it is not bound, remove it, stop and add it back,
+  and the system will rebind; The repair will not be completed until the service is connected; If
+  the addition fails, the original list (together with the main switch) will be written back, and it
+  will still be counted as a failure. If the user has not unlocked it once after powering on
+  (`UserManager.isUserUnlocked` is false), the service cannot be connected, so it will not be
+  repaired at this time, and the status card only says that it will be restored after unlocking;
+  after receiving `ACTION_USER_UNLOCKED`, it will be judged again, and it will be repaired as usual
+  before it is connected. Regardless of who turned it off, it will be turned on automatically. It
+  does not matter if "Turn on accessibility for me" is turned off in Mina; Try at most two times
+  each time it gets stuck. If it still doesn't work, stop and leave the prompt for manual processing
+  on the interface. Fixed it by only saying the time under the item on the settings page. When the
+  task is connected to the mobile phone, wait for the accessibility service for 5 seconds as usual;
+  when it is about to be repaired or is being repaired (`AccessibilityRepair.phase`), wait until the
+  repair is completed (up to about half a minute), and then give up and report that the mobile phone
+  is unavailable. Only enabled on Android 13 and above. Wireless debugging is no longer needed after
+  the assistant is up, but restarting it (restarting the phone, Mina update, the assistant is gone)
+  requires wireless debugging, and the original Android version will turn it off when Wi-Fi is
+  disconnected and after restarting. "Automatically turn on wireless debugging": When the watchdog
+  wants to start the assistant, but the wireless debugging is turned off, and it is connected to
+  Wi-Fi, `WirelessDebuggingAutoOn` (`core/shell/WirelessDebuggingAutoOn.kt`) writes
+  `adb_wifi_enabled` as 1 and then connects as usual; when Wi-Fi is connected (network callback),
+  the assistant will do the same thing. Just turn it on but not off, don't touch USB debugging and
+  developer options. It is only written by the App itself (it must have the authorization to modify
+  the system settings, and it is shared with "Automatic recovery after restart", and it will be
+  taken back when both are turned off; there is no other connection available when starting the
+  assistant). If there is no authorization or the user turns off this item, it will not be written,
+  and the interface will still be opened manually. The original version will immediately turn the
+  switch back to 0 on a Wi-Fi that is not allowed and pop up a box to ask the user: After writing,
+  it will stop after reading the dial back within 3 seconds, and the status will report "This Wi-Fi
+  does not allow wireless debugging yet" (`BuiltinShellFailure.WifiNotAllowed`). The user must open
+  it once and check "Always allow". The user will not write again until the Wi-Fi is changed, the
+  user opens it by hand, clicks Retry, or the assistant wakes up. The box will not pop up
+  repeatedly; writing is rejected, or 3 consecutive words are written. The assistant didn’t even get
+  up and stopped; The interval between two writes is doubled from 10 seconds.
+- **adb identity (pairing key)**: Mina's own RSA-2048 key (public index F4) plus a self-signed
+  certificate (`core/adb/AdbIdentity.kt`). When pairing, the public key is given to the device.
+  Afterwards, when the certificate is presented for each TLS connection, the device only recognizes
+  the one during pairing. The key is stored in the App private directory with PKCS#8, and is wrapped
+  with the AES key in the Android Keystore (`WrappedKeyFile`; `AndroidAdb.keyStore` will be deleted
+  together with the packaging key when clearing). Reading back does not rely on the platform to
+  provide a private key with CRT parameters: as long as it is an RSA private key, take the modulus,
+  and use the public exponent in CRT form first. If not, read it from the RSAPrivateKey structure of
+  PKCS#8. Press F4 to fill in the structure if it is also 0. Verify the signature before filling it.
+  If it does not match, just assume that it cannot be read. Do not use the wrong public key to
+  connect; the public key read from the same saved byte is the same as before, and there is no need
+  to re-pair when upgrading. "Not saved" and "saved but unable to be read" are strictly separated:
+  `AdbKeyStore.read` returns null for the former, and throws `AdbKeyUnreadableException` for the
+  latter (cannot be decoded, the file is empty or truncated, or cannot be parsed). There is only one
+  copy of `AdbIdentitySource` (`AndroidAdb.identities`) in a process, and the pairing (`forPairing`)
+  and connection (`forConnect`) get the same one in the cache; if it has not been saved, create a
+  new one and save it; when it is saved but cannot be read, the connection throws, logs (label
+  MinaAdbKey), the file is not moved, and the engine reports `BuiltinShellFailure.KeyUnreadable`
+  ("The key used for pairing cannot be read", the one-click repair is to re-pair, not automatically
+  retry), only the pairing step will delete the one that cannot be read, replace it with a new one
+  and save it (pairing will immediately give the new key to the device); unpairing (`forget`),
+  deleting the key will also clear the cache. The `adb key status` line in the diagnostic
+  information is the status of the key in this process (NotLoaded / Loaded / Created / Unreadable
+  and the reason). It only looks at the status and does not read the key for diagnosis.
+- **Use the computer to start the built-in assistant (USB)**: When the wireless debugging pairing is
+  unsuccessful, or it is set by the Agent on the computer, the computer runs `adb shell sh
+  /sdcard/Android/data/com.danish.harnessagent/files/usb-start.sh` through USB debugging. It starts
+  with the same assistant (the same `app_process` command and parameters), and the same
+  `HelperHub.offer` is used for handover. The shell identity, APK, Binder process, password and
+  signature fingerprint are all checked. The script is written by `UsbStartScript`
+  (`app/cap/phone/setup/UsbStartScript.kt`) in `Context.getExternalFilesDir(null)` (the app itself
+  does not need permission to write it, the shell can read it, but other apps cannot). The text is a
+  pure function `HelperHandoff.usbScript` / `usbStub`. Following `HelperHub.shell` rewriting, the
+  password is also rewritten when it is completely invalidated (`HandoffNonces.resets`, such as
+  unpairing) (`HelperHandoff.usbScriptWrites`; Otherwise, invalid passwords will be left in the
+  script when the assistant is not around, and the handover will be rejected (BadNonce): When the
+  assistant is not around (App startup, someone wants to use the assistant but there is no
+  assistant, and the boot page is opened), write a script with a one-time password. The password is
+  `HandoffNonces.usbNonce` - put it together with the startup password and the renewal password. Any
+  number of used passwords will be invalid; according to the wall clock 24 After the hour has
+  expired (it needs to be restarted), if more than half of the time is left, it will be used to
+  avoid being replaced while the computer is running; When the assistant is connected, it is changed
+  to a description without a password ("already running", if the process is no longer available,
+  please open Mina first), and no usable password is left on the disk. The script only starts when
+  `id -u` is 2000; the assistant uses setsid to create a new session and put it into the background
+  sub-shell (the sub-shell returns to init after exiting). The password is piped into the standard
+  input through the built-in echo, and the output is lost. Therefore, after the adb session ends and
+  the line is unplugged, adbd kills its group of processes and cannot touch the assistant; The
+  script waits for 2 seconds and then uses `pidof` to see if the assistant process is still there,
+  and says "Starting, open Mina to confirm" or "Not up, open Mina first and run again." When you
+  accept the assistant when it is not paired, the engine records "it is caused by the computer"
+  (`BuiltinShellPlatform.usbStarted`), and the status is running as usual. The follow-up (adding
+  those capabilities, turning on accessibility) is the same as after pairing: the `commandRunner`
+  assistant runs commands through the assistant's `runCommand`, and the paired adbd is not connected
+  until it is gone. The assistant started in this way will disappear after restarting; Mina cannot
+  get up without pairing, and the new process will wait for a while (the assistant that is still
+  alive will take over by itself). If it does not wait, it will report
+  `BuiltinShellFailure.UsbHelperStopped` ("Mobile Assistant has stopped": run the command again on
+  the computer, or pair the wireless debugging to let it automatically resume). It will
+  automatically resume after powering on without touching the wireless debugging; unpairing will
+  clear this record. The guide page usually does not provide this path, but only when needed
+  (`SetupView.usbFallback`, calculated from `PhoneSetupFlow`) puts a card in the current step "This
+  phone cannot turn on wireless debugging? Use the computer to start instead", which is a
+  description, command and copy button. Required situation: There is no `adb_wifi_enabled` setting
+  in the system (`SetupInputs.wirelessMissing`; the original Android 11 will always write it as 0 or
+  1 when starting up, and it can be read whether it is on or off. If it cannot be read, it means
+  that the system does not have wireless debugging, and no conclusion can be drawn if the reading is
+  wrong); The user clicked "Can't find wireless debugging?" (the only one-line prompt for this
+  step); the pairing window was never found or connected, and the assistant on the computer stopped,
+  or the user said wireless debugging was turned on, but the assistant read that it was off; the
+  user stopped at the wireless debugging step, pairing step (the pairing window has not been found
+  yet) or automatic connection (`PhoneSetupFlow.stallPoint`) with no progress for 45 seconds
+  (`SetupInputs.stalledMs`, changed the place and started from the beginning). The first two items
+  need to be completed in the wireless debugging step (the developer options and USB debugging must
+  also be completed before starting the computer). Once the card appears, keep it (recorded as
+  `SetupInputs.usbAsked`) until success. Don't take "writing 1 and then dialing back 0" as a signal:
+  the original version will also do this on Wi-Fi that is not allowed (a pop-up box will ask the
+  user), and it will be a false alarm on a normal mobile phone; there is no separate public jump
+  entrance on the wireless debugging page that can be used to judge.
+- **After Mina is killed, the assistant pulls her up**: The system or cleanup tool ends Mina's
+  process (when it is forcibly stopped, the system will also remove Mina's accessibility service
+  from `enabled_accessibility_services`), and the suspension capsule disappears. The built-in
+  assistant does not die: it learns from the death notification of the Mina token obtained during
+  the handover (`HelperProcess.onAppDied`), and waits for `HelperRestorePolicy.GRACE_MS` (8
+  seconds). During this time, Mina comes back by itself (the uid importance monitor reports it and
+  re-handovers) and does not take action; If the capsule does not come back, it will be decided
+  according to Mina’s last wish (`RestoreWish`, via `IHarnessShell.setRestoreWish`): the capsule is
+  set to always display, or it will be pulled when there is a task running when it dies, otherwise
+  (for example, the user forces a stop by hand, and the capsule is only displayed during the task)
+  to let it stop. When pulling, first add Mina's accessibility service
+  (`com.danish.harnessagent/com.meenai.mina.a11y.HarnessAccessibilityService`) back to the list,
+  open `accessibility_enabled` (`RestoreCommands.accessibility`), and leave all other services
+  unchanged; Only write this if the user has not turned off "Turn on accessibility for me" in Mina,
+  and it is indeed in the list when Mina is alive. If the user turns it off in the system settings
+  while Mina is alive, it will not be turned on for him - it will not be turned on for him until it
+  is no longer in the list, so as not to force a stop to change the wish), and then re-handover as
+  usual: when the provider used for Mina handover is taken, the system will start its process (the
+  shell can take any App's The provider,`content` command uses this path; The provider is not
+  restricted by the background startup service and does not display the interface),
+  `MinaApp.onCreate` runs as usual, and the capsule, watchdog, and barrier-free automatic opening
+  all follow. Pull it up to 3 times in 10 minutes. Once it starts to pull up, stop and wait for the
+  window to pass; every step is recorded in the assistant's log (logcat tag MinaHelper). The wish is
+  handed over by `RestoreWishSync` (`app/cap/phone/setup/`) in capsule mode, task running, "Turn on
+  accessibility for me", any change in the accessibility list, or when the assistant is changed
+  (`RestoreWishSender` is only handed over when the assistant is changed or changed). The assistant
+  reports to Mina (`HelperRestoreReport`) "the last time I pulled up, the last few times, and the
+  last time I gave up because I was too diligent" during each handover; Every time Mina starts,
+  check whether the accessibility service has been removed or is in the list but has not been bound
+  for 5 seconds (`A11yStartCheck`, only after the service is connected), and records it as
+  `RecoverySettings`; both are written into the Recovery section of "Copy Diagnostic Information"
+  (`restored by helper`, `accessibility on start`). When paired, Mina starts the assistant as soon
+  as the watchdog is started (`BuiltinShellEngine.start`: If no one comes to handover, it will
+  connect to the paired one after 3 seconds, without waiting for the task to be used), so that it is
+  present; if it is not paired, it will not connect. Some systems will additionally turn off
+  background apps. In the following sentence of Settings › Suspension Capsule, users are asked to
+  allow Mina to run in the background and start automatically in the system settings.
+- **Read and operate**: Accessibility service
+  (`com.danish.harnessagent/com.meenai.mina.a11y.HarnessAccessibilityService`, source file
+  `app/src/main/java/com/meenai/mina/a11y/HarnessAccessibilityService.kt` →
+  `app/cap/phone/a11y/ScreenAccessibility.kt`) press the screen to read the control tree and make
+  gestures on the specified screen. Every time you read the screen, first press the control tree to
+  determine whether it is sufficient (`core/uistate/TreeQuality.kt`): if there are enough elements
+  with names, most of the controls have names, and there is not a large area with no words in the
+  App window, it will be considered sufficient and the text will not be recognized; If you are not
+  sure, use the text recognition (`app/cap/phone/a11y/PhoneOcr.kt`) that comes with the APK to read
+  it once. Add more than three lines of words that are not in the tree to count as a missing piece
+  (partial); when a piece of the tree is missing or unreadable (unusable), the text must be
+  recognized (the main model of the picture cannot be seen, the answer source and verification,
+  `phone_collect` all rely on it); prevent the screenshot page from not being recognized. For the
+  added words (`core/uistate/VisibleText.kt`), first remove the wrongly acknowledged lines (low
+  confidence, all symbols, fragmentary Western numeric strings on the screen that are mainly in
+  Chinese), and each line has a position of 0-999 and a click center; When the tree is not enough,
+  the screen reading result will be written with `treeQuality` and a reminder: press the center
+  point of the text on the screen, and use the picture to locate the controls without words (icons,
+  pictures, input boxes). If you want to type into the box, enter its point or say which box it is
+  in the element. The whole screen description is only used when you can't understand what the page
+  is (it is several times slower, and it is not used to find a control). The main model can view
+  pictures, and the screen is attached when "Read elements first, look at pictures if necessary" is
+  turned on. Before recognizing text, wait for the screen to stop (the self-drawn interface almost
+  never generates accessibility events, and the screen may still be transitioning when the event is
+  quiet). During the recognition process, if you change the whole page, click on a new page to
+  recognize it again. Use the same method for partial animation (animated avatar, cursor)
+  (`app/cap/phone/a11y/StillFrameRead.kt`); even if the tree changes during the reading process, it
+  will still be recognized. When the tree is not enough and no line of words has been read, the
+  screen reading result reads `ocr` (empty, illegible, timeout, unavailable, failed), and the prompt
+  is to use the image to locate the input box and button. Input is generally written directly into
+  the input box, and the web page editing area is pasted with the clipboard. After use, the user's
+  original clipboard is returned. When there is no input box with focus in the tree (the App draws
+  its own interface), first select all and then paste via the clipboard. Ctrl+A / Ctrl+V is only
+  sent to Mina's screen by the built-in assistant (`injectCtrlKey`). Then it is compared with the
+  text recognized on the screen before and after typing (`core/uistate/UnseenField.kt`: one more
+  occurrence is consistent, nothing before and after has changed to not being typed, and the rest
+  cannot be verified; the words on the keyboard when playing the input method are not counted). The
+  input method is not required to be played: the keys are sent to the window with the focus on this
+  screen, and the frame can be received without the input method; the input method is not played and
+  there is no change at all. It is probably because the focus is not on the frame, and `no_focus` is
+  reported. Please click the input box first, and do not blindly re-paste. When there is nothing on
+  the screen and the input focus is not found (the input focus cannot be found in each window), and
+  the input method is not played, it will not stick at all. It will directly report `no_focus`:
+  There is no frame to catch it. If the interface is stuck and moved elsewhere, it will be regarded
+  as "possibly hit" (the same goes for clearing). To clear, use the Select All and Delete keys. When
+  the input method is not played and the interface does not change, `no_focus` will also be
+  reported. Input and clear also accept a point (coordinates, or `@vN` found by looking at the
+  picture, just like clicking, first check that the screen has not changed): click on that point
+  first, wait for the interface to be quiet, click on the input box visible in the tree, then type
+  on it as usual, otherwise paste according to the above method, the text on the screen before
+  pasting will be read after clicking; the report will not change at all after pasting.
+  `point_not_typed` (that point is probably not an input box), does not automatically retry, and
+  does not press Enter if it cannot be verified (`ScreenPort.typeAt` / `clearAt`,
+  `AndroidScreen.typeAt`). There is no need to click and then type on the screen where the input box
+  cannot be read: clicking only makes the box focus and neither the tree nor the screen moves. The
+  verification of typing is the proof of click. When typing on a point, the click will pass the
+  irreversible judgment (the click is a button click judgment of the send type). According to the
+  description, point to the input box (`element`) but there is no matching one in the tree, and the
+  tree on this screen is missing or cannot be used. When executing the step of changing the entry
+  number, look at the picture to find this box (`Interfaces.bySight`, when equipped with the picture
+  viewing model; check with `find_visually` in the same set, and mark those without evidence).
+  Change the parameters to the found `@vN`, and then pass `@vN` to the model itself. Check the
+  screen in the same way, judge it is irreversible, and check after pasting; As a result, write
+  `foundBySight` and the words you see, saving you the round of searching first and then typing.
+- **Gesture rhythm** (`core/cap/phone/GesturePacing.kt`, shared by `InputPacing` of random values,
+  arcs, easing, and web mouse `core/uistate/Pace.kt`): 30–120 milliseconds pause before each finger
+  drop; 50–120 milliseconds for click and hold, 40–90 milliseconds for each double click, and
+  between two clicks 80–140 (within the time limit for double-click recognition by the system); when
+  clicking on an element, the landing point will be a little offset near the center (no more than
+  one-fifth of the width and height, at most 12 pixels, and the direction narrower than 24 pixels
+  will not be offset, always within the element), and the coordinate point will be offset at most 3
+  pixels. The start and end points of sliding (`phone_swipe`, `phone_scroll` back gesture, single
+  finger `phone_gesture`) remain unchanged, and a short arc is walked between two points (the
+  deviation does not exceed 6% of the distance, up to 30 pixels, and the multi-point path is
+  followed as drawn), the duration fluctuates 8% above and below the given value, and the start is
+  slow: shorter than 800 The speed when letting go of the fast slide of milliseconds is equivalent
+  to the previous constant speed slide (the distance of the throw remains the same), and the slow
+  slide of not less than 800 milliseconds ends with a stop and then raises the hand without
+  throwing; the starting and end points are almost coincident (press and hold in place) only
+  lengthen but not shorten. The speed requires each point to have its own time, which is not
+  possible with accessible gestures (the system follows the path at a constant speed), so the
+  rhythmic strokes are injected point by point by the built-in assistant (`injectStroke`, only sent
+  to Mina's screen). When the assistant cannot pay attention, return to the accessible gesture and
+  walk along the same arc; click and still use the accessible gesture. If it fails, the assistant
+  will inject it again. Two-finger gestures only allow the duration to float. The control's own
+  clicks, scrolling actions (`ACTION_CLICK`, `ACTION_SCROLL_*`) and input are not affected.
+  `GesturePacing.Instant` is exactly the same as before (for testing).
+- **Operation Rhythm** (Settings › Work › Operation Rhythm, `core/cap/phone/OperatingPace.kt`,
+  exists `FeatureFlags.operatingPace`): Three gestures are like human beings, and the other three
+  gestures are pressed - "Quick" (`FAST`: no pause between actions, typing once, no upper limit on
+  the number of screens, which is the previous practice), "Standard" (`STANDARD`, default), "Like a
+  human" (`HUMAN`: All Apps Press the slower one to stay and type). Each task is read once at the
+  beginning (`TaskRun`). Evaluation and real machine acceptance are covered by
+  `EvalHooks.operatingPace`. The default is "fast" (`-e evalPace` / `-e livePace` is replaced by
+  `standard`, `human`). Do not change the settings; the core `toolDispatcher` defaults to
+  `AppPacing.Off`, and `AndroidScreen` defaults `TypingPacing.Instant`, the test still runs fast.
+  - **Typing** (`core/cap/phone/TypingPacing.kt` pure logic): `AndroidScreen.typeText` finds the
+    input box and writes increasingly longer prefixes one by one according to the rhythm
+    (`ACTION_SET_TEXT`, which is applicable to any native input box, including Chinese, Japanese and
+    Korean characters). The last full text is still handed over to `typeAndVerify` to write the
+    entire paragraph, read it back for verification, and try again. 60-170 milliseconds per word for
+    Latin letters, 160-380 milliseconds per word for Chinese, Japanese and Korean characters, 1-3
+    consecutive words are displayed on the screen together (like input method word selection), and
+    there is an occasional pause of 0.3-0.9 seconds after punctuation and spaces; when there are
+    many words, there are several words in one paragraph, up to 40 paragraphs, and the total time is
+    up to 6 seconds (apps and "people-like" that limit the speed of operation: 90-230 / 220–520 ms,
+    pause 0.5–1.4 s, up to 60 segments, 12 s). Not splitting a word (surrogate pairs, diacritics,
+    variant selectors, zero-width concatenated emoticon sequences). Read back after writing the
+    first paragraph: the box does not accept half of the character (the readback does not match or
+    cannot be read out) or stops writing if it cannot be entered, or writes the entire paragraph.
+    The password box, the web page box that can only be received by pasting
+    (`TypingPacing.forField`), and the box that cannot be seen in the tree (paste) are still written
+    at once.
+  - **Stay between actions** (`core/cap/phone/AppPacing.kt` is pure logic, `AppDwell.kt` is
+    connected to the phone's capabilities): Each action that changes the screen goes through the
+    only execution entrance `ActionExecutor`. It asks the screen's capabilities before execution
+    (`Capability.beforeWrite`, the phone's capabilities press `AppDwell` to stop), and tells it the
+    result after execution (`afterWrite`); single step, `do_steps` Every step and playback in a
+    batch is the same. The combined action (`phone_run` type) itself does not stop, and each step in
+    it stops separately; the web page still stays on its own page (`PageDwell`) without passing
+    through here. The effect of the previous action is that `done` or `place_changed` has switched
+    to a new screen, otherwise it is the same screen: the same screen pauses for 0.5–1.2 seconds as
+    standard, the new screen pauses for 0.9–2 seconds, and there is a 5% chance of an additional
+    pause of 0.6–1.5 seconds, up to 3.5 seconds at a time; Apps that limit the speed of operation
+    (App knowledge `pace: careful`, according to the package name `GuideCatalog.appPace`) and "Like
+    a Human", the same screen lasts 0.9-2.2 seconds, the new screen takes 2.5-5 seconds, and the
+    number of words on the screen recently read by the model adds 15 milliseconds to the reading
+    time for each word (up to 8 seconds). There is a 10% chance of stopping for an additional 2-5
+    seconds, up to 15 seconds at a time. When the pause is counted from the completion of the
+    previous action, the time spent by the model thinking and reading the screen is included, and
+    only the insufficient part is made up; the duration of the pause and the interval between
+    external actions are recorded as the wait for this call (running record `tool_result.waitMs`),
+    and the model is not informed; if the user interrupts during the pause, the action will not be
+    performed, and `skipped_for_new_message` is reported. If the slow one stays on the new screen
+    long enough and the next action does not follow the position on the screen (return, press keys,
+    press direction scroll), press `IdleScroll` while staying. The arrangement is to slowly draw a
+    small section in the middle of the scrollable content that takes up more than half of the screen
+    (`AndroidScreen.idleScroll`, drag slowly, stop and then raise your hand; do not draw when the
+    input method is playing, the input box is holding the focus, it is covered by other application
+    windows, and there is not enough scrollable content). After a few strokes, the running record is
+    entered (`idleScrolls`), and the screen in the model's hand is marked as outdated
+    (`ScreenSession.movedByMina`).
+  - **Maximum number of screens**: Apps that limit the speed of operation can switch to a new screen
+    up to 24 times in one task (`AppPacing.screenCap`, scrolling down to read the same page does not
+    count). After that, the actions of changing screens in the app (click, swipe, return, keys,
+    gestures) are not performed, and the report is the same as the web page `page_limit`
+    (`core/uistate/DwellStop.kt`. In the description, the model is asked to first read the answer.
+    If you want to continue reading, use `ask_user` Q); Typing, clearing, scrolling, turning the
+    wheel, and opening other apps are as normal. The count will be restarted after the user answers
+    the question (`Capability.onUserAnswered`); the external action itself is not blocked. After it
+    is completed once in this App, there is no upper limit for this task (via
+    `Capability.onOutwardEnd`). There is no upper limit for ordinary apps.
+- **Tools** (`core/cap/phone/`, `core/uistate/tools/`):
+  - Basics: `phone_observe`, `phone_list_elements`, `phone_tap`, `phone_type_text`,
+    `phone_clear_text`, `phone_scroll`, `phone_swipe`, `phone_back`, `phone_press_key`,
+    `phone_launch_app`, `phone_share_text`, `phone_open_link`, `phone_list_apps`,
+    `phone_screenshot`, `phone_diagnose`. Vertical `phone_scroll` prefers a scrollable control and
+    falls back to a gesture only when none is found.
+  - Query and compound: `phone_query` (search by text, resource ID, control type in the complete
+    control tree, read only text), `phone_run` (a series of ordered commands, each step is
+    repositioned on the current page, and you can decide whether to continue based on text
+    conditions; the target is missing, cannot be distinguished, and switches to another App Stop and
+    return the model when necessary), `phone_collect` (read a long list screen by screen or chat and
+    press overlap to merge), `phone_find` (scroll to find the target), `phone_extract` (visible
+    text, list rows, form fields; password does not return a value), `phone_dialog` (read Pop-up
+    window, click only when unique button text is given), `phone_wait`, `phone_event` (wait or
+    collect window, content, notification event), `phone_gesture` (single finger path or two
+    fingers), `phone_set_wheel` (turn the scroll wheel to a value, see below).
+  - System actions: `phone_set_alarm`, `phone_set_timer`, `phone_show_alarms`,
+    `phone_add_calendar_event` (see below).
+  - Others: `phone_system_command` (Execute a system command through the built-in assistant,
+    separated from the Linux sandbox; 10 seconds timeout; when the command is doing things that are
+    done by specialized tools such as clicking, swiping, typing, pressing keys, and opening apps, or
+    fails twice in a row, the results will remind you to switch back to the specialized tool; after
+    this task is reminded, commands to do those types of things will not be executed
+    (`use_phone_tool`, only which tool should be used), use the shell to share text (`am start` with
+    SEND (without file) will not be executed. Commands pointing to `phone_share_text`, checking
+    status, and reading settings are not affected. `core/cap/phone/CommandSteer.kt`) and picture
+    viewing tools are shown below.
+- **Share text to App**: `phone_share_text` Launch a piece of text according to Android text sharing
+  (ACTION_SEND text/plain, EXTRA_TEXT, only to the specified package) to Mina's screen (built-in
+  assistant `startShare`, and open the App to check whether the user is using it on the home screen
+  and whether it is occupied by other tasks), and then wait for it to come to the front desk like
+  `phone_launch_app`, and the system will ask which one to open (two copies are installed; this App
+  When there are several pages for collecting sharing, the system asks which one to use (the window
+  with the system package at the top will also count), write down the task. It only opens the
+  sharing page and does not send: the recipient and the send button are clicked by the model on that
+  page, and the sending is still confirmed by the irreversible operation. This App does not accept
+  text sharing times `cannot_share`. If you cannot send messages or take notes in an app that cannot
+  be read or typed, use it first (`core/cap/phone/AppTools.kt`, `AndroidScreen.shareText`).
+- **System actions (alarm clock, timer, schedule)**: `phone_set_alarm` (hours, minutes, labels,
+  repeated days of the week, vibration), `phone_set_timer` (seconds, labels), `phone_show_alarms`,
+  `phone_add_calendar_event` (title, start and end, all day, location, notes) are handed over to the
+  clock and calendar App (`AlarmClock.ACTION_SET_ALARM` / `ACTION_SET_TIMER`) on the phone according
+  to the Android standard interface. `EXTRA_SKIP_UI`, `ACTION_SHOW_ALARMS`, schedule
+  `ACTION_INSERT`, the type directly states `vnd.android.cursor.dir/event`; Calendar permissions are
+  not required, `SET_ALARM` required for setting the alarm clock is a normal permission), and there
+  is no need to operate their interfaces one by one (`core/cap/phone/SystemActionTools.kt`, the
+  intent is first written from `app/cap/phone/shell/SystemIntents.kt` into a Spec that has nothing
+  to do with Android and then replaced with Intent). First, click on the package manager on Mina to
+  check who is connected (`<queries>` in the list lists these types): there is no App to connect to
+  the Times `not_supported`, and the model returns to the interface for operating the clock and
+  calendar; There are a few times when users have set the default to use the default one. Otherwise,
+  they first choose the one that comes with the system and specify it directly to that page. There
+  is no "Which one to use" selection box on the screen. Then let the built-in assistant launch to
+  Mina's screen (`startSystemAction`, only release these types of intents, and check whether the
+  connected app is being used on the home screen and whether it is occupied by other tasks like
+  opening a link; keep staring at the home screen before and after the action, and move it back to
+  the home screen). When the page taken over requires permissions that the shell does not have (the
+  alarm setting page of the clock requires `SET_ALARM`), the assistant instead issues a
+  PendingIntent prepared by Mina: start as Mina, press Mina to check the permissions, and press the
+  assistant to check the screen and background startup. It still falls on Mina's screen (the issuer
+  clearly says that background startup is allowed since Android 14). Alarm clocks and timers should
+  be set quietly: before and after setting the alarm clock, read the next alarm clock reported by
+  the system (`AlarmManager.getNextAlarmClock`, wait up to 3 seconds). The resulting `check` is
+  verified (the next one is it), earlier_alarm_first (the earlier alarm clock is blocked in front,
+  so it cannot be seen), not_seen, unknown. The latter two and the blocked one prompt the user to
+  check `phone_show_alarms` once; App But I opened my own interface `screenOpened`, please confirm
+  the model on that page. Move the alarm list, new schedule, and other apps to the top and write
+  down the tasks; the new schedule is not saved for the user, and the save button is clicked by the
+  model on that page. Setting alarm clocks and timers is a single-use entry for a group of stored
+  mobile phones (`Entry.Alone`, without expanding the entire group). New schedule is an entry for
+  expanding the entire group, and the alarm clock list is in the group; the risks are the same as
+  opening the App (only change things on the phone, no money, no confirmation).
+- **Scroll wheel selector**: A scroll wheel that rotates one frame at a time, date, region, etc.
+  `phone_set_wheel` (the wheel or the number of the item it displays at the moment and the value to
+  be displayed) is called in the port at one time and rotates one frame
+  (`core/cap/phone/SetWheel.kt`, `app/cap/phone/a11y/WheelDriver.kt`) without looking at the model.
+  The number given can be the scroll wheel, or it can be a certain item it displays (the scroll
+  wheel you draw is often the selected item): at this time, the scroll wheel is found in the column
+  aligned horizontally with this item (no less than three items, with similar spacing,
+  `WheelMath.column`). Other scroll wheels (the minutes next to the hour) in the same block are not
+  read or dragged; The scrollable container found above must cover the center of this item
+  horizontally before it can be scrolled without obstacles (the scrolling area of the entire page
+  does not count). Try the controls in order according to what they can do: if there is an input box
+  in the scroll wheel (the original digital scroll wheel has it), just write the value into it, let
+  it lose focus and confirm (so the pop-up input method is put away), and read it back; It can read
+  out the current value by "rolling forward/backward" (one click of the original digital scroll
+  wheel) without any problem. Press `WheelSteps` to roll up to 5 times in one batch. Each batch is
+  read back and recalculated. The direction of the numbers is determined by the difference. It can
+  be seen that the cycle (...58 59 00 01...) is on the side that is approaching. When reading back
+  for the first time, correct whether "forward" becomes larger or smaller. The value does not move:
+  it cannot be seen that the cycle ends on this side. The target is not within the range (`at_end`),
+  It can be seen that the loop (without a head) does not work this time. It is handed over to
+  dragging (`not_moving`). It can rotate more than one grid at a time. It crosses the target back
+  and forth several times and then handed over to dragging, at most 80 times; Press the position
+  difference of the text list target in front of you. If it is not there, swipe it to one side or
+  vice versa; None of them work (the scroll wheel drawn by the App itself). Read the visible items
+  in this column (recognize the words on the screen if you can't read them) and estimate the height
+  of one grid and the current value. Place your finger on the horizontal center of this column, drag
+  up from the bottom item (drag down from the top item to drag out this column), drag slowly
+  according to the number of grids (no less than 1 second, when walking according to the rhythm,
+  stop at the end and then raise your hand without shaking it, so as not to turn your head). After
+  reading it back, calibrate the height of one grid according to the actual number of grids rotated
+  and then drag it up, up to 5 rounds (`WheelDrags`); If the value does not move after dragging, it
+  does not count as the end. Only if the loop cannot be seen and there is no item in the direction
+  where you want to go, it will be `at_end`. Otherwise, change to fast swipe (0.4 seconds) and try
+  again. If the drag is only one frame away, it will report `not_moving` three times without moving,
+  prompting the model to use phone_swipe to swipe on this column. Pure algorithms such as value
+  recognition, direction, cycle, number of grids, and how high one grid is are in
+  `core/cap/phone/WheelMath.kt` (`"09"` is `"9"`, `"40 minutes"` is `"40"`; The accessible name of
+  the selected item often contains the status word, `"selected, 21"`, `"Selected, 21"` is `"21"`,
+  which is taken when the whole paragraph has only one number; the text value is also divided
+  according to the segment ratio of punctuation; the stateDescription separately reported by the
+  system is removed when it is spelled into the name; When only one item is marked isSelected, it is
+  selected. Otherwise, the item in the middle line is covered by its own upper and lower ranges. If
+  it is not covered (some rollers only report the upper and lower squares), press the two numbers
+  next to each other to push out the middle square (39, 41, 40 in the middle, 59, 01 in the middle,
+  00, 11, 1 in the middle, 12 in the middle, `WheelMath.between`). If it cannot be pushed out, it
+  will return to the one closest to the midline; After each scrolling, dragging, and input, wait
+  until it stops (the values are the same twice in a row at 0.35 seconds) before reading again.
+  After reading the target, it stops and then checks again. If it is not correct, continue to turn.
+  Only when the stopped values match are they reported; the `value` and `from` reported to the
+  model only leave the value segment). The results are given to `value` (currently displayed),
+  `from`, `attempts`, `method` (text, actions, drag). It is not transferred to the times
+  `wheel_at_end`, `wheel_unreadable`, `wheel_not_moving`, `wheel_not_reached` and the values
+  currently displayed are given accordingly. The scroll wheel-like node mark in the screen reading
+  tree is `wheel: true` (original digital scroll wheel control, which may scroll, with three to nine
+  short-term values arranged vertically and equidistantly in the center. It is better to miss
+  them, `WheelMath.looksLikeWheel`, `ScreenReader.isWheel`). Multiple steps can be entered at one
+  time, and several rollers (hours and minutes) can be set in one batch.
+- **App installed in two copies**: When the same App is installed in two users (avatar, work
+  profile), some systems will ask which one to open first when opening it. After `phone_launch_app`
+  is opened, the top window is replaced by the system package window. The clickable options in the
+  window mention the name of the App. Even if it is opened, the result will be `chooser` (option and
+  which one is another) and a prompt: Select according to the user's instructions. If not, select
+  the original one and do not open it again. The window is not cut out in the foreground. After
+  selecting the App, go to the foreground and write down its tasks (`core/uistate/LaunchChooser.kt`,
+  `AndroidScreen.openApp`). Another user's name next to the option is still read as `pm list users`.
+- **Open another App**: Many systems only ask which one to open on the desktop icon. If they don’t
+  ask when the program starts, the other one will never be opened. so`phone_list_apps`Give each copy
+  another separate item (the same package name, write the name as "App name (another copy: the name
+  of the user)", with`user`bring this`phone_launch_app`Just open that copy; if you don’t bring it,
+  open the original copy. Which users can use it is determined by the built-in assistant according
+  to the Android multi-user concept (`user`, read the UserInfo and UserProperties of UserManager,
+  and mark them with the name given by the system itself:
+  reflection`core/uistate/AppCopies.kt`,cannot read`UserInfo.flagsToString`The name and parentId in
+  brackets, do not hard-code the tag bit): the type is private, the tag name is HIDDEN or PRIVATE,
+  the system indicates that it is hidden from other apps (a category of private space), and the
+  guest/demo/temporary/deactivated ones, will not be listed or opened; the rest must be running and
+  unlocked, not in quiet mode, connected to the current user (the same data group or the superior
+  user is the current user), and can be seen as clones (the type is clone, the tag name is the
+  current user) CLONE, or share media with superiors) or original work materials. If you cannot read
+  any item, it will be considered as unsatisfactory. Some systems make clones into complete users
+  with clone tags (the type is not the original clone type), and they are identified by the tag
+  name. Built-in assistant`dumpsys user`Gives the available user number and a one-line definition of
+  the diagnostic information (only number, tag and tag name, type, data group,
+  superior),`appCopyUsers`Check again before starting, if not included, return 8(`startAppInUser`).
+  First check the startup page of that user in another user (`copy_not_found`, can’t change the
+  question`queryIntentActivitiesAsUser`), first take the path to open the icon on the desktop:`cmd
+  package query-activities --user N`The interface behind it; the system checks cross-user
+  permissions based on the caller, the shell has INTERACT_ACROSS_USERS_FULL, and the package name
+  matches the uid), with ActivityOptions to boot to the Mina screen - some systems will always
+  prompt "Which one to open with" for the other copy of the program to start, but the desktop path
+  will not be played; if it does not work, then use that userILauncherApps.startActivityAsUser, and
+  finally return `am start --user N --display D -n component`. When the system still asks on the
+  Mina screen (the option names may be exactly the same),`LauncherApps.startMainActivity`Click the
+  options one by one and read the user to whom the top task belongs: if it is the one you want, it
+  will be opened; if it is not, press Return once to let it go to the background (it will not end,
+  it may be the one in the user's hand), open it again and click the next one; if it is not, it will
+  fail.`startActivityAsUser`, tell which one was given, and don’t regard the wrong one as a success.
+  When the target app is installed twice, each result will have`phone_launch_app`(The user who owns
+  the copy on the screen at the moment), bring it when you want another copy`copy_not_opened`;The
+  one that was issued was the one that I clearly said I didn’t want. Occupancy is counted by
+  "package name + user" (`ShellService.sameCopy`): when the user is using the original copy on the
+  home screen, Mina is not blocked from using the other copy, and vice versa; when the task's user
+  cannot be read, it counts as occupied. A cold start only runs `am force-stop --user N` on that
+  copy. The target app records the user the task belongs to (`TargetApp.userId`), and if Mina's
+  screen is switched to another copy of the same app it also counts as taken over; parallel tasks
+  occupy the two copies separately; muting applies per "package + user", so when the target is the
+  other copy only that copy is muted and the one in the user's hand is left alone. Reading the
+  screen, tapping and typing follow the screen, so nothing else changes.
+- **Open the App on the user's home screen**: When the App on Mina's screen opens another App not
+  from its own page on this screen, but from the background (service, jump, system selector,
+  cross-user transfer), Android puts it on the home screen by default (when two copies are
+  installed, it first asks which one to open on the home screen), and no change is visible on Mina's
+  screen. Please use the built-in assistant to stare at the home screen for 6 seconds
+  (`watchMainScreen`) before each click, slide, key press and other actions
+  (`AndroidScreen.verified`): the assistant registers the task stack listener (ITaskStackListener)
+  with the system, only as a "changed" signal, and re-views the task list after receiving it; if
+  registration fails, every 100 seconds during the staring period milliseconds), write down the task
+  that was replaced at the top of the main screen, which screen it was on before, and which user it
+  belonged to (`app/cap/phone/shell/MainScreenWatch.kt`, `MainScreenLog.kt`), and look again on the
+  spot when querying (`mainArrivals`). After the action, the judgment is based on pure logic
+  `MainScreenSpill`: the ordinary App page that popped up during this period (not the desktop,
+  recent tasks, not Mina itself and the desktop App), was not moved from another screen (takeover),
+  and is still on the home screen at the moment. During this period, the user has not clicked
+  anything on the home screen (unobstructed click event), nor is the original top one exposed again,
+  so it is moved back to Mina's screen (and the call to take over the same move task) `moveTask`).
+  If the pop-up windows that pop up on the home screen this time are login verification, account
+  confirmation, payment confirmation and other types of pop-ups that need to be handled by the user,
+  do not move: the page of the system account login service (a package that has registered an
+  account authenticator and does not have a desktop icon, `AccountManager.authenticatorTypes` only
+  counts if the LAUNCHER entrance cannot be found every time it is read; the only pages that pop up
+  on the home screen are pages such as adding an account, logging in, and verifying; Authenticator
+  packages with desktop icons, such as chat apps and mailbox apps that have registered accounts for
+  synchronizing contacts, do not count, and follow other criteria as usual,
+  `MainScreenSpill.authenticatorUi`; the authenticator service is checked in the list to make such
+  packages visible to Mina), the top window is not a full-screen dialog box, the bottom pop-up
+  layer, there is a password box in the window, or the page itself does not enter recent tasks
+  (`excludeFromRecents`) (`AndroidScreen.needsUserWindow`; The width or height of the window must be
+  less than 80% of the main screen to be considered a full screen. View it again every 300
+  milliseconds, so as not to regard the ordinary App that is still in the opening animation as a
+  pop-up window.), all remain on the user's screen, reporting `onUserScreen`, `needsUser`, and
+  prompting the user to process `hand_to_user` there; After the pop-up window appears, the user has
+  clicked on it (it is the package of the barrier-free click event) and will not move it
+  (`MainScreenSpill.Tap`). **Mina never opens or reopens apps or system pages for other apps**: The
+  app that is opened must always be the original app (for example, if a shopping app opens a payment
+  app, the payment app must identify who opened it). If you move the task without changing the app,
+  it will change when you reopen it, so you can only move it and not reopen it. Before the action,
+  the page was changed in the task at the top of the home screen. The App that the user was using
+  was opened, so it should not be moved; it would not be moved during the takeover. The system asks
+  which one to open on the home screen (the window of the system package is the system selector, or
+  the options in the window match the name of the App that is installed twice; the selection box of
+  each system is not necessarily the original one, `MainScreenSpill.handling`) **Does not move**: If
+  the screen is moved, it will be rebuilt as a new screen, and some will be closed by themselves
+  during the rebuild. It remains on the user screen, with the action result `opened` (picker,
+  onUserScreen), the recognized option `chooser`, and a prompt: The system asks on the user screen,
+  don't click again, don't choose for the user, the next action will wait for the user to finish
+  selecting. The task stops before the next action of changing the screen (`TaskRun.awaitUserPick`
+  is connected in front of `TaskGate`, `AndroidScreen.awaitUserPick`). The status is waiting for you
+  to process (`GateReason.needsYou`, `CapsuleKind.NeedStep` on the capsule, "Need you: "<App>" is
+  asking which one to use, please choose on the screen"). During this period, you have been staring
+  at the main screen; After the user has made the selection (the selection box is no longer there),
+  look at the selected one (`MainScreenSpill.picked`): open the normal page on the home screen, move
+  it back to Mina's screen, continue the process, and report inProfile; the ones opened on Mina's
+  screen are also included; the system requires the user to handle it manually (there is a password
+  box in the window, or when the main screen cannot read anything in the tree, the system will
+  report a screenshot window, such as payment and password input; Apps that cannot be read in the
+  tree are moved back as usual, `MainScreenSpill.needsUser`) remains on the home screen, and are
+  changed to a pause that requires you to process and you can click to continue (""<App>" requires
+  you to process it on the screen, click to continue after processing"). After the user clicks
+  continue, it will be moved back to the home screen if it is still on the home screen. If it is
+  closed, tell the truth (`byUser`); The user closed the question (`closed`) and told the truth, and
+  the model decided the next step. These results will be displayed as `opened` in the next screen
+  reading. If the next action is not performed, `opened_elsewhere` will be reported. `opened`
+  (package, app, pulledBack, onUserScreen, needsUser, inProfile, picker, closed, byUser) in the
+  results is accompanied by a prompt: if you move it back, don’t click it again, and continue
+  working there; what is moved back is counted as the target App is open, not cut away, and the
+  effect is that it has been moved to another place rather than having no effect; what is left on
+  the user screen (the user is currently using it) says not to come back, and asks the user to deal
+  with it; The pop-up window that requires the user to handle it by hand says not to move it back,
+  but please click there (`needsUser`). With two copies of the app installed, after asking which one
+  to open, which one was reported to be opened (`inProfile` main/other, according to the user to
+  whom the task belongs), when the other one was prompted, the user was prompted to go back and
+  choose the other one if he didn't want it. The action was started after a while. Move it back
+  before reading the screen next time, and `opened` will appear in the screen reading. The next
+  action will not be performed, but `opened_elsewhere` will be reported. A batch of actions and
+  mobile scripts will stop when they encounter it.
+- **Takeover**: When the user needs to handle it manually (login, verification code, etc.),
+  `hand_to_user` sends a notification; the user clicks "I will handle it", and the App on the
+  virtual screen moves to the home screen; after the processing is completed, click "Handle" or "I
+  finished it myself" to move it back, and the Agent re-reads the interface to verify before
+  continuing; "Skip" does not count as completion (`app/takeover/Takeover.kt`). Takeover queuing of
+  multiple tasks.
+
+### web: built-in browser
+
+- WebView is rendered on the App's self-built private virtual display (`app/cap/web/WebHost.kt`),
+  which does not occupy the mobile phone screen and does not require a built-in assistant; the
+  desktop version page (`app/cap/web/cdp/DesktopProfile.kt`) is used by default, and the desktop
+  version or mobile version (`web_site_mode`) can be remembered according to the website. When the
+  user selects the interface language in Mina (not following the system), the web page is requested
+  in this language (`app/cap/web/cdp/PageLanguage.kt`): after the acceptLanguage of
+  `Emulation.setUserAgentOverride` is changed to Accept-Language and navigator.language(s) (such as
+  English → `en-US,en`), the desktop version is added to the desktop identity, and the mobile
+  version copies WebView's default UA and UA-CH, only change the language; the first page is sent
+  before the session is set up, and is reloaded once after setting up. The label of the language
+  changed midway will be changed before the next main document is loaded; when following the system,
+  it is not overwritten and the string given by the system is sent.
+- Through WebView's DevTools protocol operation page (`app/cap/web/cdp/WebDevtools.kt`), clicks and
+  inputs are real input events; when the connection fails, the injected page script is returned.
+  Never turn on the Runtime group (`Runtime.enable`): when it is turned on, the page will notice
+  that the debugger is hanging, and some websites on the real machine will always be reloaded;
+  reading scripts and page scripts only need to isolate the world and evaluate (the mina call of the
+  page script is returned by the outbox in the world, and is returned by the always-hanging fetch
+  evaluation, without turning on the Runtime binding). The world is not recognized by the main frame
+  changing the document (`Page.frameNavigated`) and the evaluation report context is no longer
+  there.
+- In the element tree of the screen reading script (`app/src/main/assets/web/page.js`), the password
+  box, as well as the autocomplete text input box and textarea marked with bank card number,
+  security code, validity period, and one-time verification code, only report the number of entries,
+  without values; the words in this textarea are not included in the text of the reading page and
+  abstract. The verification after typing is done by reading and comparing the values in the App
+  as before, and is not handed over to the model.
+- Tab pool: up to 4 per task, up to 8 globally (`app/cap/web/WebTabPool.kt`, `TabBudget.kt`). The
+  link that the page wants to jump to the external app will not jump.
+- Download `downloads/` that falls into the current conversation workspace, and it will not be
+  installed if it is not opened; upload only the files in the workspace (`WebDownloads.kt`,
+  `UploadStaging.kt`).
+- Read-only script: `web_evaluate_js` runs in the isolation environment of the page. The page object
+  is a read-only wrapper. Writing, clicking, and jumping are all blocked, and the Internet (fetch,
+  XMLHttpRequest, sendBeacon, WebSocket, EventSource, new Image()) is reported as blocked_network.
+  Any request it makes when seen on DevTools also ends with an error; the data behind the page is
+  `web_capture` Read the response received by the page itself), the secret input box such as the
+  password box reads `***` (the same is true for iframe, shadow root, and template). On their own
+  interface, only the attributes set by the page such as type and name are read. The innerHTML class
+  and the textContent class of the outer element containing the secret textarea are coded on a copy
+  that does not belong to any window (custom elements that do not construct the page). The secret
+  textarea The child text node and the value attribute node of the secret input box are also read as
+  `***`, and the same is true when leaving the page after getting it; selecting elements according
+  to the value attribute reports invalid_selector, and the selector is first restored according to
+  CSS rules (escape, comment, namespace) and then judged. Those with `url(` are all blocked, and
+  `web_script` and `mina.query` use the same set (`core/cap/web/ReadScript.kt`,
+  `SelectorPolicy.kt`). Site commands (scripts with `/* mina-command` headers in website knowledge,
+  `core/knowledge/SiteCommands.kt`) can also be run read-only through `web_run_site_command`;
+  currently there are no site commands in built-in knowledge, and this tool does not appear. The
+  script run by `web_script` cannot get the page and can only operate through Mina's action entry.
+- Login status: Website registration form `SiteRegistry` records the sites visited, whether you have
+  logged in, and whether you have been blocked by verification; Settings → Website login can open
+  login, single site exit, and all exit (`app/cap/web/WebLogin.kt`). Web page takeover moves the
+  same WebView to the full-screen page of the main screen (`app/web/WebTakeoverActivity.kt`),
+  leaving the form and login process intact.
+- The user's own browser (sidebar "Browser", interfaces at `app/ui/BrowserScreen.kt`,
+  `BrowserStart.kt`, `BrowserPageParts.kt`, label at `app/browser/UserBrowser.kt`): a visible
+  `WebTab`, and the same web page configuration (Cookie, web page storage) as the Agent label. When
+  logging in to the Mina service here, it is also logged in. Usually it does not enter the tag pool
+  of any task, does not occupy the tag limit, and does not go to the web page to take over the
+  session (`WebHandover`). The tags and takeover of tasks proceed as usual; The user asks Mina for
+  that task when asked on the page (see next item). **Identity** (`BrowserIdentity`): Browse the
+  mobile version by default; change the website to the computer version in "More" and record it as
+  `UserSiteModes` (`browser_site_modes.json`, the subdomain name follows the superior). Next time,
+  you will also use the computer version and save it separately from the Agent's share
+  (`SiteModes`); To open a website that has not been logged in from a commonly used website is "Log
+  in for Mina": the entire label is the same as when Mina is working
+  (`WebDevtools.agentWantsMobile`, the default computer version), the cookies left after logging in
+  are the same version of the website that Mina sees when working, and there is a banner on the top
+  "Log in for Mina..." with "Logged in" (use `LoginProbe` to take a look: if you see that you are
+  not logged in, you will be prompted, if you see that you are logged in or if you can't see it, you
+  will trust the user, Mark as logged in, return to home page), After the page was loaded, I looked
+  at it as usual. I saw that I had logged in and the banner was closed. The rules are only installed
+  on this label (`WebDevtools.setModePolicy`, one copy for each label, press `SiteModes` when null),
+  and the identity of the Agent label remains unchanged. This label is seen and clicked by the user
+  personally (`WebDevtools.setHandOperated`): In the computer version, UA, UA-CH, and identity
+  patches are still the same, but no viewport simulation is added (the Agent label uses it to indent
+  the whole page into the view, and the zoom is fixed), and it is given to WebView's own wide
+  viewport and overview mode. When it is opened, the whole page is indented into the screen, and two
+  fingers can zoom in (`DesktopProfile.viewportCall`); When changing the version, use `beforeLoad`
+  to change the UA, wide viewport and simulation and then reopen the current page. When you click on
+  another website halfway, use `onPageStarted` to change it according to the rules and reload it.
+  **Start page**: The top bar only has return and "Browser"; a large search box ("Search with
+  Bing"), and below it is Lenovo when typing (`StartPageModel.suggestions`: The first search for
+  this sentence, if it looks like a URL, open it; followed by the recently opened title or URL that
+  matches); "Commonly used websites" has four cells in a row (`BrowserFavorites.combine`): the ones
+  added by the user are at the front, followed by the websites in the site registration form. The
+  same website (registerable domain name) is in one cell, and the shortest host name is opened. Any
+  host name of this website will be logged in with a small green dot (the following sentence is
+  "Logged in, Mina can also use it directly when working"). The last cell "+" prompts to go to
+  "More" to add; "Organize" or long press to enter the organizer, the icon shakes slightly (the
+  animation will not shake when the animation is turned off), × remove, "Finish" to exit. Only the
+  user's changes (`browser_favorites.json`: those added and removed by oneself) are recorded in the
+  common use. If they are removed, they will not be displayed. The registration form, login status
+  and cookies will not be moved (exit can be done in the "Website Login" on the settings page).
+  "Recently opened" refers to the last 10 pages opened here (`RecentPages`; the same URL is not
+  counted twice and only the most recent ones are kept). The search entry reads "Search: <term>". The web
+  page is the website icon, title and website name. The right side is the relative time ("10 minutes
+  ago", "Today 11:20", "Yesterday", "October 21st"), and the right side of the title is "Clear".
+  Website name and icon (`SiteLooks`): After the page is loaded, read the website name
+  (og:site_name, application-name) declared on the page. If not, take a section of the title (take
+  the beginning of the homepage, take the end of other pages) and change it to a more reliable
+  source; the icon is the website icon (`WebTab.Listener.onIcon`) received by WebView, reduced to at
+  least 128 pixels and saved as PNG; All are recorded in the host name. If the registered domain
+  name does not exist (or is worse), a copy will also be recorded. Other sub-domain names of the
+  same website can also be recognized. When there is no such thing, the name can be taken from the
+  registered domain name and the suffix is removed (shop.example.com → example). The box is based
+  on the fixed background color of the host name plus the first character. **Web page**: The top is
+  close (return to the home page), address bar (usually the lock and website name, the search page
+  is the search term, the computer version has a small label of "PC version"; click to expand to the
+  complete URL to change, "Cancel" to take back), refresh/stop and 2dp progress bar; The following
+  is back/forward/start page/share (system sharing panel, URL plus title)/more. "More" panel:
+  website (icon, name, host name), refresh, copy link, open in other browsers, add frequently used
+  websites / remove from common, switch to computer version / switch back to mobile version (the
+  same will happen next time for this website). The system return key first goes back in the web
+  page. If it cannot go back, close the pop-up window and return to the page where it was opened.
+  Otherwise, return to the start page. On the start page (exit them first during sorting and input),
+  press it again to return to the place where you came in. The input in the address bar and search
+  box is judged by `AddressInput`: anything with `://` is opened as it is; localhost and IP
+  addresses get `http://`, anything that looks like a domain gets `https://`, and the rest goes to
+  Bing search; before opening it passes `WebUrlPolicy.checkNavigable`. If it cannot be opened, give a
+  prompt. After the page is loaded, wait for a while and use `LoginProbe` to check the login status:
+  some websites in the registration form will be marked or removed according to the ones you see,
+  and those that are not will be marked only after you see that you have logged in. The page pop-up
+  box (alert / confirm / prompt / exit confirmation) pops up here to give the user an answer; a new
+  window (clicked by the user, only opens one layer) is displayed on the current page, and the
+  current page remains: "Log in with a third-party account" and other pop-up windows. After logging
+  in, the results must be returned to the page where it was opened; When the pop-up window closes
+  itself, it will return to the current page; links to Apps will not jump, and downloads will not be
+  accepted temporarily, and a prompt will be given. The web view is placed in the process, continues
+  to be used when the screen is turned, and is closed when leaving this page.
+- **Ask Mina on the browser page** (`app/ui/BrowserPageAsk.kt`'s interface is the same as
+  `PageChat`, `app/browser/PageLoans.kt`, `PageConversations.kt`, `PageAskModel.kt`): There is an
+  additional "✦ Ask Mina, or let her do something on this page..." (PageAskBar) at the bottom of the
+  web page (not the start page); when selecting text on the web page, there is an additional "Ask"
+  in the text selection menu. "Mina" (`PageFrame` includes a layer of web page kernel selection menu
+  callback, click to read the selected word first and then close the menu), the selected word is
+  hung on the input box, and is brought along with this sentence.
+  - **How to write this sentence**: The first paragraph in English describes which page it is
+    (`core/cap/web/AttachedPage.kt`: `[Web page I'm viewing in Mina's browser. It is attached to
+    this task as your current web tab.]`, Title, URL, each line of the selected words starts with
+    "|", `[End of page]`), and after a blank line is the user's original words. Save the
+    conversation as it is, hand it over to the task, and this is what the model sees; only tasks
+    starting from the browser page will have it (the same paragraph will be written when the newly
+    selected word is included in the interjection). On the dialogue page, draw "webpage·website" and
+    the selected word (SentPage) above the bubble. Titles, lists, notifications, and title models do
+    not include this paragraph (`ChatCopy.plainTitle`, `ScreenCopy.plain`, `ConversationTitler`),
+    nor do language prompts, answer language checks, and memorized citations
+    (`WebCapability.userWords`). With its mission, a group of web pages (`WebCapability.preload`)
+    are opened at the beginning; there is a paragraph "The user's page" in the web page capability
+    description: "This page" is a borrowed tag, read it directly, do it directly, and no longer open
+    its URL; the user looks at it and only changes it as needed; open other web pages and open new
+    tabs.
+  - **Which conversation should be followed** (`PageConversations.pick`): The questions asked on the
+    same page (the same URL, excluding `#` and the ending `/`) will be followed by the most recent
+    one, no matter how long ago; otherwise, the questions asked within 2 hours on the same website
+    (same host name) will be followed by the most recent one (the same thing is still clicked all
+    the way); no new conversation will be opened. The line above the input bar "Continue "..." · New
+    conversation" can be replaced with a new conversation. The page from which the conversation
+    starts is recorded in the `.page` file next to the conversation file
+    (`ConversationStore.pageOrigin`, JSON: url, host, title; the old conversation does not have it,
+    delete the conversation together). When asked again on the same page, change it to the latest
+    page; there is a small "web page" label after the conversation title in the side column, and the
+    lower line is the website (`DrawerConversation.site`).
+  - **Borrow tag**(`PageLoans`, only in the main thread): When asked, first "agree to lend" to that
+    dialogue (`UserBrowser.lend`), pick it up when the task starts
+    (`TaskRun.execute`inside`UserBrowser.claim`, only tasks initiated by the interface; it can only
+    be borrowed when the page is still open), and only one copy can be borrowed at the same time.
+    After borrowing it, I built the web page on the spot (`LazyWebPort.prepare`), borrow this tag
+    into the task’s tag pool (`WebStack.borrow`): It becomes the current label of the task, and the
+    web tool reads it and operates on it, just like the label in the pool; but it is not linked to
+    the web page display of the task (it is in the browser page), does not count the per-task and
+    global upper limit, is not turned off by space allocation or memory recycling, and the pool does
+    not accept its monitoring (downloads, pop-ups, and login probes still belong to the browser
+    page). Open the URL in the task (`WebTabPool.attachExternal`)Do not change the user's page and
+    open a new tab(`web_navigate`); When the user's page opens or closes the pop-up window, the
+    borrowed one will be replaced with the visible one (`WebScreen.navigate`). Return it when the
+    mission is over (`PageLoans.swapped`, before closing the web page), the page remains in front of
+    the user; the pool closes it (`WebStack.swapBorrowed`Level, mission ends) and just return
+    (event`PageLoans.end`), not destroyed. When the user closes the browser page (including "open in
+    chat" to leave the browser page), the page is handed over to the task and then used
+    (`PageLoans.closing` → `WebStack.adopt` → `WebTabPool.adopt`): the same WebView becomes an
+    ordinary tab of the task and is attached to the web page display, so scrolling, form state and
+    single-page-app state are not lost; when the task ends it is closed together with the other
+    tabs, and only if the task does not take it over (it crashed) does the browser page close it.
+    Browser page tab numbers are all different (`browser1`, `browser2`, …), and a page and its
+    pop-up window can be lent to the same task one after another.
+  - **The difference between the borrowed label and the Agent's own label**: It is viewed by the
+    user personally (`setHandOperated`, the computer version does not include viewport simulation),
+    the page coordinates are calculated according to its actual size on the interface
+    (`WebScreen.viewSize`), and DevTools clicks are converted according to the visual viewport; when
+    the user zooms in with two fingers, the full page must be retracted before reading the screen
+    (`WebScreen.unzoom`: the visual viewport is narrower than the layout viewport or moved away)
+    `zoomOut`, up to 12 times), the numbered coordinates must match the screen. The screenshot is
+    not taken from the web page display, but the view is drawn directly into a picture
+    (`WebScreen.viewFrame`, which corresponds to the view pixels one-to-one, excluding the dialogue
+    panel covering it). Do not roll it lightly when staying (`idleScroll`). Picture-in-picture and
+    capsule do not put the web page at the moment (`WebPreview`, click to accept the calculation).
+    When it is left to the user for processing (human-machine verification, login), it is not moved
+    to the takeover interface: it is already in front of the user, and is only locked until the user
+    clicks "Processed" on the browser page panel (`WebStack.showForTakeover`, `returnFromTakeover`).
+  - **Pause as soon as the user touches it**: The container of the web view
+    (`PageFrame.dispatchTouchEvent`) only receives real touches sent through the window; Mina's own
+    input does not pass through it (the mouse and keyboard of DevTools enter the page directly, and
+    the native touch of `WebInput` is sent directly to the web view), so its own actions will not be
+    regarded as user operations. Press your finger → `UserBrowser.userTouched` → Borrow its task
+    (`TaskRun.userOnPage`): When you are working at the moment, the borrowed page is the current
+    tab, and you are not operating on the mobile phone screen, `TaskGate.onUserOnPage` makes a note,
+    and the pause is displayed on the spot (`publish`. The running display is `Held(paused, you are
+    operating, Mina Paused)`), the next tool that will change the screen was previously stopped at
+    the level (no matter what kind of screen); the user clicks "Continue" (`TaskService.resume`) to
+    cancel it on the spot, and when the loop has not reached the level, it will be redisplayed
+    according to its current state. The page will not pause when touching the page while waiting for
+    the user to answer, taking over, etc.
+  - **Interface** (PageAskOverlay, pure logic in `PageAskModel`): When the user asks, the lower half
+    of the webpage is covered with a half-screen dialogue panel (PagePanel, 58% of the height of the
+    webpage area). The webpage exposed above is the page that Mina is working on; when Mina is
+    working, the page is surrounded by a lavender light edge (PageGlow, not blocking touch). The top
+    of the panel is the website name, "Start from this page·Page title", "Open in chat" (the same
+    entrance as the notification click `TaskService.openAppIntent`) and collapse; in the middle is
+    the back and forth of this dialogue (the same set of dialogue cards as the floating capsule:
+    `CapsuleThreads` row, ThreadList drawing, the task looks like `ChatViewModel.reduce`,
+    `CapsuleModel.cardRunOf` push); while working, the following are the steps (`Steps`), each step
+    is marked with "webpage" or "App" (the activity object of that step is "website..." or the
+    package name); the buttons you want to click (answer options, agree, I will handle it, continue)
+    are the same set of capsule cards (`Pinned`); the bottom is the input box: when running, it is
+    to interrupt (the same path as the dialogue page, `TaskService.start` (with the number of this
+    sentence), on the right is the stop button; when Mina asks you, it is the answer; after the end,
+    it is to continue asking on this page. A page is "processed" when it is in your hands (under
+    control). When the panel is retracted and the matter is not over yet, there is a small card
+    (PageCard) at the bottom. Click to expand it; when you touch the page and pause it, the panel
+    collects this card (writes "Paused" and "Continue"), with a message on top "You are operating,
+    Mina has been paused and continued" (PausedBanner); when Mina wants you to reply (answer, agree,
+    take over, move a hand), the panel opens by itself. The task is a complete Mina task: other web
+    pages are opened in the task's own background tab, other apps are operated on Mina's background
+    virtual screen, and the user stays in the browser; each time it is a normal conversation in the
+    chat list, and the result is the same conversation and notification as other tasks. Close the
+    browser page and continue working. Element highlighting is not done (only light edges).
+- **Leave a page after the task ends** (`web_keep_open`, `core/cap/web/KeepOpen.kt`;
+  `app/cap/web/PageKeeper.kt`, pure logic in `KeptPageSlot.kt`): By default, when the task ends, all
+  labels of the task and its web page display are turned off (`WebStack.close`). When the user wants
+  the page to continue running after answering (continue to play, hang up and close), the model
+  calls `web_keep_open` (with reason; `keep=false` cancels) for that page, and only notes which
+  label it is at `WebScreen.keepMark` at this time; the web page capability description states
+  "Close the task after the task is over, leave the first mark, truthfully tell whether to keep it
+  or close it in the answer." The page borrowed (the user's own) is not closed with the task, so it
+  reports `users_page`.
+  - **Hand over**: At the end of the task, `WebTabPool.closeKeeping` first takes out the page from
+    the pool (`release`: does not destroy it, does not remove it from the display, and does not
+    attach other tags to push it out), then close the other tags of this task; that page, together
+    with the private display (`WebHost`) it is attached to, is handed over to the process
+    `PageKeeper` (`WebOwner.pageKeeper`, by `MinaApp` (Give), the display will not be turned off -
+    the page is still hung on the display during the task, and is visible as during the task, and
+    the timer and playback will continue as usual, without any other actions. After that, it is no
+    longer in the tag pool of any task, and other tasks cannot be listed or turned off; it is
+    counted into the global tag limit (a member of `TabBudget`, but will not be turned off to make
+    room).
+  - **One page, two hours**: At most one page globally, keep the new one and turn off the old one
+    (reason replaced); automatically turn off after `KEEP_OPEN_HOURS` (2 hours) (check once per
+    minute according to the wall clock, and turn off after the system wakes up from deep sleep);
+    also turn off when the system requires memory release (`TRIM_MEMORY_RUNNING_CRITICAL` and
+    above), the rendering process crashes or is taken back by the system (`WebTab.reclaimed`), or
+    when the user turns it off. When closing, the cookie is written to the disk, the label is
+    destroyed, the display is released, and the reason is recorded in the round of the source
+    dialogue (`Turn.keptPageClosed`, `KeptPageClose`); when the dialogue is written in the round,
+    which site is left (`Turn.keptPage`, `TaskService.recordTurn`, `PageKeeper.recordFor`, it is
+    closed earlier than writing the dialogue and can be made up). Don’t start a new round, don’t
+    invite models. The upper text of the next round indicates whether the page is still open or
+    closed (`Conversation.context`; remember to keep it, and the page that Mina quit midway will be
+    counted as closed).
+  - **Process**: The task service does not exit when the page is left. When there is no task
+    running, the foreground notification is replaced by its resident notification ("Background web
+    page is running" · Site · Countdown to automatic shutdown, button "Close web page" "Open
+    conversation", progress channel); when there is a task running, it is another ordinary resident
+    notification. When the page is closed and there are no tasks, it exits the foreground and stops
+    the service; when the service is destroyed, it faithfully closes the page (Mina exits).
+  - **Interface**: On the dialogue page, there is a green line under the round of leaving the page
+    "This page keeps running in the background · Site · How long it will be left before
+    automatically closing · Close". When it is closed, it is replaced with a gray text "The
+    background web page has been closed (reason)"; when there is no task running, the top column
+    says "1 web page is maintained in the background" (`app/ui/KeptPageRow.kt`, `KeptPageCopy.kt`).
+    Suspension Capsule: When there are no tasks and the results have been stopped, it expands to
+    "Background web page is running" (green dot); when the switch is "Never Show", it will still not
+    be displayed and only rely on notifications. Click to open its card (`CardView.Kept`): real-time
+    picture (the latest frame it displays, the same source as picture-in-picture), how long it is
+    left, which conversation it comes from, "open conversation" and "close web page".
+- Apps on the virtual screen at the end of the task: The virtual screen on this side of the phone
+  (`AgentDisplay`) is released with `ResourceScope` at the end of the task (`AgentDisplay.release` →
+  built-in assistant `releaseDisplay` → `VirtualDisplay.release`); this screen was built with the
+  "Destroy content when removed" sign, and the App window above it ends with the screen (whether the
+  process is left or not is determined by the system), and the mute is restored as it is. The left
+  page only cares about the web page, regardless of the apps on the screen.
+- The rhythm of reading page by page (`core/cap/web/PagePacing.kt` for pure logic, `PageDwell.kt`
+  for receiving tasks): In addition to the mouse and keyboard rhythm of each action itself, the same
+  website (according to the registrable domain name) does not open in seconds even after page
+  changes. When reading the screen or opening a web page, the address changes (not counting `#`),
+  and when scrolling down, the page itself receives batches of JSON or text responses (loading
+  more), all of which count as one page; this website does not stay on the first page in the last 10
+  minutes, but stays on the second page for 4-7 seconds. After that, each additional page adds 0.6 /
+  1 second to the upper and lower limits, up to a maximum of 12 seconds. It may be necessary to make
+  up for the unfinished part of the page before the page change action (open the same site URL,
+  click, back, press the button, scroll down, slide, `web_interact` button), model thinking, and the
+  time spent reading the page are included; typing, clearing, scrolling up, reading, etc., or going
+  to other websites. How long it has been stopped is recorded in this call (`ToolExecution.waitMs` →
+  run record `tool_result.waitMs`, which is counted as waiting in the summary, and `do_steps`
+  sub-steps are also counted in that batch), and the model is not told separately; it is only
+  installed by the App task (`toolDispatcher(webPacing = …)`), and the core test defaults to
+  different values.
+  - Site knowledge's `pace: careful` (this website limits browsing speed, see
+    `docs/dev/knowledge-format.md`) makes the pages of this website pause longer: 10-16 seconds from
+    the second page, and the upper and lower limits add 0.6 / 1 second for each additional page, up
+    to a maximum of 30 seconds. Check the site knowledge according to the current host name
+    (`GuideCatalog.sitePace`, the rules for identifying the site and injecting the site knowledge
+    are the same `SiteMatch`), and pass it to `PageDwell` through `toolDispatcher(webSitePace = …)`.
+  - There is an upper limit for pages from the same website in a task (normally 20 pages,`careful`12
+    pages; any time after the 10-minute window will be counted). After arriving, the page change
+    actions (opening the same site URL, clicking, backing, and pressing keys) are not performed, and
+    the report`page_limit`, in the description, ask the model to get the answers that have been read
+    first, and the user can use them if they want to continue reading.`ask_user`Q; Scroll down and
+    read the page as usual. The user has answered the question (answered the follow-up question,
+    handed over the takeover, and has`Capability.onUserAnswered`) after each website is re-counted -
+    no additional parameters are given to the model to increase the upper limit. If you want to see
+    more, you can only get the user's nod. The rejected call will be recorded in the running record
+    as usual.`tool_result`). The upper limit only covers browsing and does not interrupt batch
+    connections and deliveries: external actions (send, submit) recognised by irreversible
+    judgments are not blocked by the upper limit (`error: page_limit` is returned before
+    `ActionExecutor` acts; the web capability is told and completes the experience through
+    `Capability.onOutwardStart`). After one such action completes, this website (by registrable
+    domain name) has no upper limit for the rest of this task, and user responses do not restore
+    it. The website reports the limit by itself in batches (`onOutwardEnd`), on risk control, or
+    when the user stops; the interval between stays and external actions stays the same. With no
+    pacing (`PagePacing.Off`) there is no upper limit either.
+  - Small actions in the stay (`core/uistate/IdleScroll.kt` is pure logic, it is also used for stays
+    in the App): When the stay is at least 3 seconds, and the action is not based on the screen
+    coordinates (press numbered point, back, button, scroll down, open the URL), gently scroll 1–3
+    times to scroll down the entire page, 0.06–0.16 viewports each time, mostly down, and
+    occasionally go back a little (not more than the previous scroll), and the total number of times
+    does not exceed 0.45 viewports, net movement does not exceed 0.3 viewports; the total dwell time
+    remains unchanged. Press the coordinate point and the slide will not scroll (the coordinates
+    will not align). Ported `WebPort.idleScroll`: The desktop version uses the scroll wheel and the
+    pointer does not move, otherwise it will slide slowly and natively; it does not move the mouse,
+    does not hover, and does not click; it does not scroll when there is a page pop-up box, the
+    input method is on, the input box has the focus, and the label is not displayed. After scrolling
+    a few times, it is only recorded in the running record (`idleScrolls` in the `tool_result`
+    result) without telling the model; after scrolling, taking another look before the action is
+    regarded as "before action" (`ScreenSession.reprobe`). This scrolling is not considered the
+    effect of the action, and the screen in the model's hand is marked as outdated
+    (`interfaceStale`); the next time you read the screen, you will see the actual position after
+    scrolling. It is only installed by the App task (`toolDispatcher(webIdleScroll = …)`), and the
+    core does not roll by default.
+- Risk control: Web page obstacle determination (`WebBarrier`), in addition to the current limit
+  status code and human-machine verification framework, also involves poorly literate risk control
+  interception pages (abnormal access, abnormal environment, too frequent operations, unusual
+  traffic, or titles such as "security prompt" and "Security check" plus words such as exception and
+  verification), which are judged to require user processing (access_blocked). `web_diagnose`
+  prompts to hand it over to the user, do not try again immediately; `web_capture` When the
+  retrieved response top-level report fields (message, msg, error...) are blocked by risk control,
+  the result is `riskControl` and the same prompt.
+- Tools: `web_navigate`, `web_observe`, `web_read_page`, `web_list_elements`, `web_tap`,
+  `web_type_text`, `web_clear_text`, `web_scroll`, `web_swipe`, `web_press_key`, `web_back`,
+  `web_tabs`, `web_wait_for`, `web_interact`, `web_downloads`, `web_upload`, `web_capture`,
+  `web_screenshot`, `web_diagnose`, `web_evaluate_js`, `web_script`, `web_site_mode`,
+  `web_keep_open`, and image viewing tools.
+
+### sandbox:Linux sandbox
+
+- Based on the operating environment of PRoot and Alpine 3.22, it comes with the APK. The App is
+  unpacked offline in the background when it starts (`app/cap/sandbox/RuntimePreparer.kt`,
+  `RootfsInstaller.kt`); Mina automatically re-unpacks after upgrade. The sandbox program only has
+  the arm64 version. Other devices display "This device does not support it (requires arm64)", and
+  the model is also told not to use this set of tools. See `tools/sandbox/README.md` for sources and
+  construction.
+- Each conversation has a workspace, and the sandbox is `/workspace`, which is retained across
+  messages; files attached in the chat are put into `/workspace/inbox/`; `share_file`. The files are
+  saved to the "Download/Mina" of the phone and displayed as file cards in the conversation; when
+  the card is clicked, web pages, Markdown, PDF, images and text files are opened on the viewing
+  page in the App (`FileViewerActivity`, see Section 15), and the rest are left to the App that can
+  open it in the system.
+- The network is disconnected by default, and "Allow scripts to connect to the Internet" in Settings
+  → Advanced → File and Computing Environment must be turned on before connecting to the Internet.
+  When the device cannot isolate the network, it can only run if "Allow scripts to connect to the
+  Internet" is turned on (`AndroidSandbox`, `AdvancedSection` prompts). Each task has a cumulative
+  running time budget, and the same command will be stopped if it fails repeatedly
+  (`core/cap/sandbox/SandboxGuard.kt`).
+- **Network Proxy**: Use the "Network Proxy" setting on the home page (see Section 12 "Network
+  Proxy"). That line on this page is only displayed and is not changed here. Only give it in the
+  command that allows networking (`AndroidSandbox` is empty when not connected to the Internet), and
+  put `http_proxy`/`https_proxy`/`all_proxy` (one copy each in upper and lower case) and `no_proxy`
+  (`LocalHosts.NO_PROXY`: local machine, LAN segment and suffix direct connection) through
+  `ProcRunner.env`; the `https://` agent only uses the commands here.
+- **Used space**: A group below the same page (`SandboxUsageReader`,
+  `app/cap/sandbox/SandboxUsage.kt`): total, operating environment, skills, and conversation
+  workspaces, and then list the workspaces by conversation (by conversation title, if the
+  conversation has been deleted, write "Deleted Conversation", the largest one first). The size is
+  calculated as an ordinary file in the directory tree, and the link is not followed
+  (`AndroidSandbox.treeBytes`). Click a line to confirm before clearing that workspace, and the last
+  line clears everything; just like deleting a conversation, delete it by handle through the file
+  gate, do not follow the link, hold the sharing permission of the tree lock, and reset the mutex;
+  dialogues with tasks running or queued indicate "cannot be cleaned temporarily", skip them when
+  clearing everything. The operating environment and skills come with the App and are not cleared
+  here (you need to prepare from scratch using "Reset Operating Environment"). There is no mobile
+  phone storage in the container.
+- Tools: `run_command`, `run_bundled_script` (run the scripts that come with knowledge and skills,
+  see `docs/dev/skill-scripts.md`), `read_file`, `write_file`, `search_files`, `share_file`.
+- A command in the sandbox can drive the mobile tools of the current task with
+  `mina phone <operation> '<json args>'` (`app/cap/sandbox/SandboxBridge.kt`,
+  `BridgeProtocol.kt`): each command opens a local socket with a random name and a one-time token,
+  and the tools themselves declare which ones are callable (`ToolInfo.sandboxCallable`: tools with
+  mobile capability are callable by default, image-viewing ones are not; adding mobile tools needs
+  no list change). `<operation>` is the tool name without `phone_` (`type`, `clear`, `key`,
+  `launch`, `dump` stand for `phone_type_text`, `phone_clear_text`, `phone_press_key`,
+  `phone_launch_app`, `phone_list_elements`). Each operation still goes through the single entrance
+  through `SubActions` and is written into the running record. The timeout and upper limit are the
+  same as direct calls (up to 30 seconds for `phone_wait` / `phone_event`, 10 seconds for
+  `phone_system_command`). There are also `mina share` and `mina progress`.
+
+### Look at the picture
+
+If a model that can see images is configured (§12), `phone_describe` (describe the screen) and
+`web_describe` are provided. Visual locating (`phone_find_visually`, `web_find_visually`) first
+searches the control tree precisely; if the target is not found, it marks the frame and checks the
+name. A model whose locating accuracy has not been verified must provide supporting evidence — the
+tree of this screen cannot be used, or a part is missing and the thing being looked for is not in
+the tree — and if there is nothing to compare against, the frame is still handed over and the
+result is confirmed by the effect after the click. Describing the screen reads the whole screen and
+writes a long paragraph, several times slower than locating: the prompt only allows it when the
+model cannot tell what page it is, and the description requirements (`roles/describe.md`) ask for
+only four short parts — at most 15 lines of interactive elements, a few words each, no text that is
+not a control, only the first few items of a long list, and at most two lines of clues. The
+screenshot tool is provided only when the main model can see images. Graphical CAPTCHAs are not
+solved by Mina; they are left to the user.
+
+### subtask
+
+`spawn_agent` (`core/general/SpawnAgent.kt`, `core/child/ChildRuns.kt`) sends a subtask to check a
+bounded problem: only web page and sandbox, read-only, no one present, default 15 steps (model can
+be transferred to `maxSteps`, 1–40), cannot ask questions, cannot send externally, cannot write
+memory, cannot build timing, cannot send subtasks, and there is no knowledge and skill query tool.
+The result has an upper limit on length (default is 4,000 words, the model can pass
+`maxResultChars`, 500–8,000; if it exceeds the pull-in range, if it is not an integer, it will be
+returned by parameter error; when truncated, the result will be written as `truncated`), and it will
+be returned to the parent task as an untrustworthy observation; only one is sent at a time, and the
+parent task will wait for it to be completed; the completion of the sub-task does not mean the
+completion of the user's goal. It is only provided when the dialog interface is initiated and has
+web page capabilities.
+
+### Records from previous rounds
+
+The upper part of the dialogue only contains the endings of the most recent rounds
+(`Conversation.context`: up to 5 rounds, 2,500 tokens), and the original text read in the previous
+rounds is not included. `history_read` (`core/general/HistoryRead.kt`) allows the model to check by
+itself: without `turn`, list the previous rounds (the new one first, up to 20 rounds: which round,
+user's original words, ending, starting time, and whether there are detailed records); with `turn`
+(1 = the round that just passed), read the complete ending of that round, if the user interrupted
+midway, Mina The progress description (with the words in the call reply) and the original text read
+(`observed` in the running record, the same original text is only given once), paging by article
+(`offset` / `nextOffset`, one page is about 8,000 words, one article is up to 2,000 words), without
+screenshots. Only the rounds of the same conversation (`Turn.runId` in `RunSpec.priorTurns`) brought
+about by the start of this run are recognized. Other conversations and other runs cannot be found;
+read-only. The original text is taken from the running record (`core/record/RunRecords.kt`, the app
+side is `RunStore.reader()`, read on the IO thread). It has been desensitized and truncated when it
+is placed on the disk, and is read as it is. Untrustworthy web pages are still included in
+`<untrusted>`. The original text read was submitted for verification as an observation (the source
+is recorded as `history`), and the use of the previously read value in the answer is well
+documented. Only the last 30 times are kept in the running record, and only the ending
+(`recorded=false`) of the earlier round is left. It will only be provided if there are running
+records and previous rounds of running. In this case, there will be an additional hint at the end of
+the above article (history_hint in `feedback/loop.md`). Subtasks do not have previous rounds and are
+not provided. It can also be adjusted when discussing history (the intention is judged as
+discussion).
+
+### Computer connection: CLI and MCP
+
+Both directions. **Mina is used as an MCP server** (computer connection) has been connected, there
+are two connection methods: via USB (open with adb on the computer, only listen to loopback) and via
+LAN (enabled by the user in the settings, off by default); **Mina is used as an MCP client** to use
+other servers (`core/cap/mcp/McpClient.kt`, according to the annotation to determine risks, tool
+list startup freeze) and low-level tool sessions (`core/mcp/McpServer.kt`) only have skeletons and
+tests. For user documentation, see [mcp.md](../mcp.md) and [cli.md](../cli.md). The computer CLI
+uses the common HTTP task API, parallel to the MCP adapter, and shares a task service.
+
+The layers of **server** are all in `:core`, and you can test the entire set on your computer:
+
+- `MiniHttpServer`(`core/remote/HttpServer.kt`): A shared minimalist HTTP/1.1 listener. There is one
+  thread for each connection, and there are upper limits for the number of connections, request
+  headers, and bodies. With Content-Length and chunked, connections can be reused. The path and
+  query parameters are reserved for entrance verification; TLS is not used, and only private
+  addresses and access tokens are collected for verification.
+- `RemoteAccess` (`core/remote/RemoteAccess.kt`): the gate shared by both entrances, in a fixed
+  order: 403 when the `Origin` header is present; an address that fails authentication 5 times
+  within one minute is blocked for one minute (429 with `Retry-After`); `Authorization: Bearer`
+  tokens are compared in constant time and a mismatch is 401. Routing and error formats are decided
+  by the adapter, and unknown paths pass authentication first. `privateAddress` recognises loopback,
+  LAN, private-network and link-local addresses; if either end of the connection is not a private
+  address it is disconnected on the spot. The LAN token accepts all allowed connections, the USB
+  token accepts only loopback; both are compared, with no short-circuit. Authentication failure
+  counts are shared between the API and MCP.
+- `RemoteTaskService` (`core/remote/RemoteTaskService.kt`): Protocol-independent start, query, list,
+  wait, answer and cancellation use cases, centralized verification of input and task status, return
+  typed results and business errors; does not include HTTP, MCP tool names or JSON-RPC envelopes.
+  `RemoteTasks` / `RemoteTask` / `RemoteStatus` in `core/remote/RemoteTasks.kt`; the status is only
+  mapped from the existing `TaskState`, and the two entries share fields and the same task index.
+  Wait for return according to status changes (changes in the progress description are not counted),
+  up to 50 seconds; if the task in the index disappears, it will be reported as non-existent. The
+  mcp- prefix is retained for compatibility with existing remote conversation IDs and is isolated
+  from the local conversation on the phone.
+- `RemoteTaskApi` (`core/remote/RemoteTaskApi.kt`): Common HTTP/JSON entry `/api/v1`, providing
+  version, task life cycle and read-only device status without MCP handshake or tool discovery.
+  Business errors are mapped to HTTP status and code/message; unknown fields are rejected. For
+  detailed contracts, see [CLI document](../cli.md#http-contract).
+- `McpRpc` (`core/mcp/McpRpc.kt`): JSON-RPC on Streamable HTTP, only returns a single JSON, does not
+  open the SSE stream (allowed by the specification), GET / DELETE returns 405, does not send a
+  session number, and the server does not send a request. Both generations of protocols recognize:
+  each request of the new generation (2026-07-28) carries the version and client capabilities in
+  `_meta`. The `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` in the HTTP header must be
+  consistent with the text (inconsistency -32020). If the version is not recognized, it will return
+  -32022 and the recognized version will be listed side by side. Support `server/discover`; The
+  older generation (2025-03-26 to 2025-11-25) shakes hands with `initialize` first and chooses the
+  version recognized by both parties. If the tool parameters are incorrect or the task cannot be
+  found, it means a tool execution error (`isError`). Return it to the opposite model for viewing;
+  if the tool name is not recognized, it means a protocol error.
+- `McpTaskTools` (`core/mcp/McpTaskTools.kt`): Retain the original tool name, schema, MCP prompt
+  copy and return format, and convert the parameters to a shared service call. `mina_run_task` /
+  `mina_task_status` / `mina_wait_task` / `mina_answer` / `mina_cancel_task` / `mina_list_tasks` do
+  not save the task status. Payment, confirmation and mobile phone takeover cannot be released with
+  normal answers.
+- `RemoteEndpoints` (`core/remote/RemoteEndpoints.kt`): Common protocol routing after completing
+  transmission authentication, holding `RemoteTaskService`, handing `/api/v1` to the ordinary API,
+  `/mcp` to the MCP, and recording recent activities. It does not authenticate the connection, and
+  the caller must first complete the authentication of the corresponding entrance.
+- `RemoteHost` (`core/remote/RemoteHost.kt`): LAN/USB entrance, holds `RemoteAccess` and HTTP
+  monitoring, and delivers it to the shared router after authentication. `bindAddress` selects all
+  network cards or IPv4 loopback 127.0.0.1, consistent with ADB forwarding. Private address checking
+  is not relaxed for remote gateways.
+- `RelayGateway` / `RelayClient` (`core/remote/`): HTTPS paired with active WSS channel, does not
+  follow redirects, only forwards fixed MCP POST. Requests have independent numbers, bounded
+  concurrency and text, repeated numbers are not executed, cancellation and disconnection are
+  interrupted and waited; the connection is backed off and reestablished but the operation is not
+  replayed. The user authorization that has been verified by the gateway is not transparently
+  transmitted as a USB token and does not forge the loopback source. The tunnel shares protocol
+  routing with the local ingress, and tasks are still processed from the existing remote origin.
+- `McpUsb` (`core/mcp/McpUsb.kt`): USB agreement with the computer. Connection information
+  `mcp-usb.json` adds the api_url / api_version of the ordinary API, and retains the original
+  content (Streamable HTTP address, `Authorization` header, token, port, `adb forward` command, the
+  number of this boot `boot`); "connect-computer.sh" running on the computer: If it is not a shell
+  (uid 2000), it will not run. Run it first. "usb-start.sh" starts the mobile assistant, then `am
+  start-foreground-service` starts `McpService` (action `USB_ON`, with `off` parameter it is
+  `USB_OFF`), wait until the matching connection information between `boot` and `settings get global
+  boot_count` is written (recognize that it is not left from the last boot), type it out; wait for
+  the file to be deleted when it is turned off. The script carries no secrets.
+
+**App side**:
+
+- Self-hosted remote mode: `RelaySettings` (`settings/RelaySettings.kt`) The entire encrypted atom
+  saves the pairing and switch, independent Keystore key; the state stream only contains non-secret
+  fields. `McpRuntime` manages this channel independently from the original monitoring, and the
+  `McpService` front-end service is used when the remote is enabled. The closing action of the
+  notification also closes remote access. Pairing itself does not enable access, the pairing is
+  retained after closing, and unpairing is closed first and then revoked by the gateway.
+  `RelaySection` is the "remote" item in the MCP boot, using existing components and
+  Chinese-English-Traditional resources, and does not display saved tokens.
+
+- The kind of LAN: the switch and port exist `files/settings/mcp.json`, the access token (32-byte
+  random number) and the service provider's Key are encrypted by `KeyCipher` and exist
+  `mcp-token.bin` (`settings/McpSettings.kt`), the default is off.
+- USB kind (`settings/McpUsbSettings.kt`): Another switch, another token, exists
+  `files/settings/mcp-usb.json` (along with the boot number when turned on
+  `Settings.Global.BOOT_COUNT`). A token is generated when it is opened, and is used when it is
+  opened again; after listening, the connection information is written to `mcp-usb.json` in the
+  external file directory (from Android 11 onwards, other apps cannot read it, but the shell can;
+  the token is originally given to the computer in clear text, so the clear text is also stored in
+  the private directory); it is deleted before it is opened. Forget the token when shutting down
+  (replace it with a new one next time) and delete two files. No cross-reboot: If the boot number
+  changes, just press Off and clear the last file.
+- `McpModes`(`app/mcp/McpModes.kt`): How to combine the two switches. Only one port is open: LAN is
+  open and all network cards are connected (including loopback, USB can still be connected), only
+  USB is open and loopback is only connected, and it will not listen to all the others; the action
+  received by the service is `USB_ON` / `USB_OFF` / `TURN_OFF` ("off" on the notification, both are
+  off) which switch should be changed.
+- `McpRuntime` (`app/mcp/McpRuntime.kt`) A copy of the entire process: `McpService`
+  (`app/mcp/McpService.kt`, specialUse front-end service, resident with a low-priority notification,
+  which can be turned off directly), the service will only monitor when it is turned on; `sync` will
+  be executed every time the service is started: If the monitoring method changes (the LAN is turned
+  on or off), change the monitor, USB If it is turned on, the connection information will be
+  written; if it is turned off, the service will be stopped and the port will be closed. Write
+  "connect-computer.sh" once when the app starts.
+- `McpService` is open to the outside world and requires the caller to hold
+  `INTERACT_ACROSS_USERS_FULL`: shell. It cannot be obtained by ordinary apps, nor can adb (the same
+  door as the provider used by the assistant), so `adb shell am start-foreground-service -n
+  <package>/.mcp.McpService -a com.meenai.mina.mcp.USB_ON` can only be issued by the computer through USB
+  debugging. Use foreground services instead of broadcasting: Starting from Android 12, background
+  apps generally cannot open foreground services by themselves, and the foreground service initiated
+  by the shell is allowed according to the system uid; when entering the foreground is rejected, the
+  service exits without crashing. The list test (`ManifestProvidersTest`) guards this authority. The
+  task service will exit by itself when there are no tasks, so the monitoring is not placed in
+  `TaskService`. The service will be rebuilt when it is recycled by the system (START_STICKY); when
+  booting or opening the Mina interface, if the switch is on but not running, it will be repaired.
+- `RemoteTaskHub` (`app/task/RemoteTaskHub.kt`) implements `RemoteTasks`: `TaskService.startMcp`
+  starts a task along the same path as the chat UI, and both CLI and MCP use the permission policy
+  of the existing external task origin `RunOrigin.Mcp` (a historical name here; it does not mean
+  CLI goes through the MCP protocol) and presence `Reachable` (follow-up questions wait as usual
+  and count as unanswered at the deadline; a step handed to the user has the same deadline, and
+  when nobody handles it in time the task stops). If the same conversation already has a task, the
+  new one queues behind it and is not lost. Status is read from the task itself (`TaskRun.state`);
+  this hub only records which conversation each computer-supplied number belongs to, the original
+  words, and the final state at the end (including being cancelled while queued or the service
+  being stopped); a task handed over that is not registered within two minutes counts as not
+  started. An answer goes straight to `TaskRun.answer`, only while the task is waiting for a
+  follow-up answer; stop goes through `TaskService`'s `ACTION_CANCEL_MCP` (a queued task is removed
+  directly). Only numbers registered here are recognised; tasks started on the phone cannot be seen
+  or touched by the computer. New conversations still ask the model for a title as usual.
+- Several security guarantees: payment and confirmation can never be released from the computer -
+  `mina_answer` only gives the answer to the task waiting for questioning; `request_confirmation`
+  directly rejects the payment initiated by the non-mobile phone (`declined_remote`),
+  `ApprovalPolicy` will deny the payment initiated by the non-mobile phone; the operation initiated
+  by CLI or MCP will start by asking regardless of the autonomous switch
+  (`ApprovalControl.start(remote = true)`), so the autonomous mode cannot allow payment.
+  Notifications for asking questions and taking over popped up on the phone as usual. The start
+  event of the running record indicates the source (`RunEvent.TaskStarted.origin` = `mcp`, if it is
+  initiated on the mobile phone, do not write it), which is also included in the summary.
+- Settings page (`ui/McpScreen.kt`): The top section distinguishes between access not enabled,
+  waiting for computer request, recently received request and startup failure; turning on monitoring
+  or switching does not mean that the computer is connected. First select CLI / Skill or MCP, and
+  then select the USB or Wi-Fi / private network mode shared by both. CLI only has two steps:
+  installation and connection. Connect comes with connection verification; the network method
+  provides HTTP root address, token file command and token copy, and MCP provides /mcp
+  configuration. Switching boot does not change permissions. Access switches, token management and
+  remote wake-up are placed in the advanced settings that are folded by default; the network MCP
+  configuration preview is also folded by default and the token is hidden, and the complete
+  configuration is generated only when copied. The address and request time will be refreshed within
+  two seconds of the page. `ComputerAccessScreenTest` Verifies boot switching, explicit permission
+  operations, status and configuration replication.
+
+`mina_steer_task` and `POST /api/v1/tasks/ID/steer` (CLI `task steer`) are additionally requested
+through the same `RemoteTaskService.steer`. Only `running` remote tasks are accepted;
+`TaskRun.steerRemote` rechecks running, pause/wait and cancellation status, `RunInbox.steerCurrent`
+and shutdown/cancel are mutually exclusive. Messages only belong to the current task. When they are
+finished without being consumed, they are marked as unused. UI interruption is not used for the next
+task. Return message number and inbox receipt confirmation; `steers` of task status only lists
+`received`/`joined`/`not_applied` of remote messages, without mobile phone interruption or message
+body, and the final status retains a snapshot.
+
+The ordinary API only provides read-only device status for use by CLI doctor; MCP also provides home
+screen preparation tools `mina_device_state`, `mina_wake_device`, and `mina_unlock_device`. They
+belong to the host device management (same as pairing and recovery), do not register as a model's
+`AgentTool`, and do not enter the model context, action history, or credential logs. After MCP
+original authentication, it is adjusted by `McpDeviceTools` to `core/device/DeviceAccess.kt`: Home
+screen status → Wake up → Request to display the credential page → Enter local credentials if
+necessary → Verify system status. The core only relies on `DeviceAccessPort` and
+`DeviceAccessStore`; Android is adapted in `app/device/`, the main screen input shell is implemented
+in `cap/phone/shell/DeviceUnlockInput.kt`, AIDL has a separate method, and the ordinary virtual
+screen button whitelist remains unchanged.
+
+`DeviceAccess` One copy per process, Mutex serialization; remote permission is off by default, and
+credentials can only be set on the mobile phone. `DeviceAccessSettings` atomically writes the entire
+configuration encrypted with a separate Keystore key, caching only the non-secret state. Persistence
+failure space before input will be cleared only when the system is unlocked; credentials must be
+re-saved locally after failure/interruption. Android adaptation only enters the unique,
+type-matching password box on the main screen SystemUI, and does not process SIM PIN or
+unrecognizable manufacturer pages; the keystrokes are directed through `ShellService.injectTo`
+injection, and are only cast to the focus window owned by SystemUI (`injectInputEvent(event, mode,
+targetUid)` starting from Android 13). When there is a window above the lock screen or it is
+unlocked and returned to the App, the system rejects it. The keys will not fall elsewhere, and the
+modifier keys are only released to SystemUI after the keys are sent; Android 13 No credentials were
+previously entered (`unsupported_keyguard`). `TaskGate` remains unchanged, and the system will
+automatically continue after the screen is actually turned on and unlocked. The settings UI is a
+group card of the computer connection page. It uses existing row/input/button components and Chinese
+and English resources. The UI state can be restored if the credentials are not entered, and
+screenshots are prohibited during editing. This feature does not change task sources and payment
+policies.
+
+## 7. Context and compression
+
+- **Cache Partition** (`core/agent/ContextBuilder.kt`, `ContextCompressor.kt`): Area 0 is the system
+  prompt word and tool definition. Within a task, it only changes when a group of tools is expanded
+  (each group is at most once, and only the part starting from that group is changed). The rest of
+  the time remains unchanged (only the tools that have been abandoned are given in the last round
+  when the number of steps is used up, and tools are not given when it is judged as a repeat
+  question during discussion, except for these two requests); Area 1 It is the starting context,
+  written once and never changed (previous conversations, memories and portraits, original words of
+  the task, available channels, App/website knowledge, knowledge and skill index; all except the
+  user's original words are included in `<context kind=… source=… trust=…>`); Area 2 is the history,
+  only appended; Area 3 is the result, screen and runtime status of this step (which interface,
+  which step, local time, and the beginning of the word the user typed in the most recent sentence
+  are attached to the end of the last message). The text written to the model by the main loop (the
+  source and credibility of the shell, runtime status, reminders, instructions for confirmation and
+  acceptance, playback process, tool results, folding summary) are all in English, consistent with
+  the system prompt words and tool descriptions, to prevent the model from answering in Chinese; the
+  text shown to the user is still in the interface language.
+- **Append only**: Normally sent messages are not rewritten, and the complete history is never
+  modified; only when compressed, they are rewritten once on the copy. `AnthropicModel` When the
+  assistant message is returned, the order of the blocks is as received, and the thinking blocks do
+  not move. Models starting from Claude 5.1 will also verify the returned thinking block: the
+  signature and the system prompt word when it was generated, the tool, the previous message
+  binding, a group of tools expanded, and after compression (as well as the last round when the
+  number of steps has been used up, and the re-question when the tool was not given during the
+  discussion) will not match, and some accounts and models will directly return 400. When rejected,
+  `AnthropicModel` removes all the thinking blocks that were brought this time and sends them again.
+  Subsequent requests for the same model instance (one for each task, shared by subtasks) will no
+  longer carry them (they will remain in the history), and the received ones after resending will be
+  returned as usual. Check zone 0 by online bytes and only append `PrefixStabilityTest` (compatible
+  interface for OpenAI) and `PrefixStabilityAdaptersTest` (compatible interface for Responses,
+  Anthropic, Gemini and standard cache), running the same 30-step fake task: zone 0 only changes
+  when expanding, and history is only rewritten when compressing; the latter also checks the
+  playback of encrypted thoughts, thought signatures and thoughtSignature at every step, Anthropic
+  No more than 4 cache tags may be requested at one time.
+- **Token budget**: Starting context, memory, previous rounds, App/website knowledge are all
+  calculated by token (`TokenEstimate` rough estimate): total 8,000, Task 4,000, Knowledge 5,000,
+  single text 2,000; full memory 4,000, retrieval 800; previous rounds 2,500 (if there is only one
+  round left and it is too long, the original story and the ending will be cut off separately); the
+  previous rounds with ending judgment and intention judgment are 800. After calculating by token,
+  each language accounts for the same amount of context: Compared with the original quota by word
+  count, English can hold about twice as many words, and Chinese can hold about one-third less; the
+  single copy of the built-in App/website knowledge text is within 2,000. The line used to calculate
+  the "large result" during compression is 1,000 tokens (the number of tokens corresponding to the
+  original 4,000 characters, the cutting method for English and JSON results remains unchanged). The
+  upper limits of the tools and interfaces themselves (`maxChars`, `OutputClip`, web page reading
+  and script results, summary fields, references, skill documents, etc.) are still character-based
+  and have not changed.
+- **When to compress**: Always compare the **whole request** (system prompt word + tool definition +
+  message, the same caliber as the input token reported by the service provider). The size of the
+  entire request is calculated by `UsageMeter`: when there is a recent reply with real usage of the
+  same model, = the input token of that time (including the prompt word and tool definition at that
+  time) + the output of this reply minus the thinking token reported separately by the service
+  provider (`Usage.reasoningTokens`: compatible interfaces
+  `completion_tokens_details.reasoning_tokens`, Responses `output_tokens_details.reasoning_tokens`,
+  Gemini `thoughtsTokenCount`; Anthropic Not reported separately, calculated as all output) +
+  estimation of subsequent messages + changes in fixed overhead since that time; when there is no
+  anchor point (the first step, the model has been changed, and it has just been compressed), the
+  message and fixed overhead are fully estimated. Fixed overhead is only counted this time.
+  Estimates are always multiplied by the same "real/rough estimate" ratio: after smoothing the
+  calibration with the real dosage, the more conservative 1.2 was used before. The trigger point is
+  only calculated at `ContextLimits.of`: available = window − output reserve (up to 20K, small
+  window is based on one quarter of the window); trigger point = available − margin (up to 13K,
+  small window is based on one quarter of the available), not less than half of the window; one
+  compression is below "half of the available, and one margin lower than the trigger point".
+  Example: 32K window trigger point is 18K, 128K is 95K, 1M is 967K. After compression, at least a
+  margin will be added before compressing again (hysteresis), but it will not exceed the available
+  window; therefore, the history that has a large fixed overhead and cannot be compressed will not
+  be compressed every step, and it will be compressed every step when it reaches the edge of the
+  available window. Window and Absolute Trigger Click Vendor and Model Save in Settings, assembled
+  by `ProviderStore.modelFor`. Unspecified trigger points are automatically calculated by
+  `ContextLimits.of`, and manually filled values follow the same range. When the service provider
+  reports that the context is too long, it will resend using a more aggressive gear. The context
+  length of the selected model is inherited when the window is left empty.
+- **How to compress** (without adjusting the model): First shorten the old results before the last
+  12 rounds (old interface reading is replaced with placeholders, web pages, commands, and file
+  contents are cut off if they are too long; observation numbers are retained in the placeholders),
+  then fold the old rounds into "Earlier steps (compressed)"; if it is not enough, tighten it step
+  by step. Structured summary (`StepSummary`) is implemented and is turned off by default.
+- **Never cut**: What the user says (original words of the task, interruptions, answers) is never
+  cut; the rounds of questioning, confirmation, and acceptance are not folded. After compression,
+  `ContextRecovery` fills in the missing user information and start-up context (previous
+  conversations, memories, knowledge, skills, channels).
+
+## 8. Parallelism
+
+Tasks of different conversations can be carried out at the same time, and each task has a virtual
+screen (`app/task/ParallelCapability.kt`): Android 14 and above are required, and the speed switch
+"Different conversations at the same time" is turned on (default off), the upper limit is 1–3
+(default 2); only 1 is allowed for low-memory devices or when the second screen fails to be built.
+What is truly exclusive is the same App, home screen takeover and clipboard, which are coordinated
+by `ResourceScheduler` (`app/task/ResourceScheduler.kt`): the same App only has one task at the same
+time, takeover is queued, the clipboard is locked, and the web page tab has a total budget.
+
+**Wait for other tasks to release the App**: When you open an App that is being used by another
+task, the result is `app_in_use_by_other_task`. The instructions tell the model to do other things
+first, or bring `wait` (seconds, 1–180, `LaunchApp.MAX_WAIT_S`) and adjust `phone_launch_app` again.
+Whether to wait and how long to wait are determined by the model according to the task, and there is
+no set switch. When `wait` is brought and occupied again, the tool passes through
+`ScreenPort.awaitAppFree` and so on: `AndroidScreen` treats "it is not occupied by other screens and
+is not occupied by other tasks in the occupation registration" as released, and hands it to
+`ResourceScheduler.awaitApp` (passed by `TaskCenter.awaitApp`) - it registers "who is waiting for
+which App", and when there is a task released App (`releaseOwner`, when the task ends), it wakes up
+the waiting App on other screens on the spot. If you turn it off by yourself, there will be no
+notification, and you will look at it again every second; if you let it go, you will turn it on
+again, and it will still be occupied when the time limit expires and return to `app_wait_timed_out`.
+Before starting to wait, search along the lines of "Whose app is the task that occupies this App is
+waiting for?", go around and wait for each other (the same applies to two or three tasks in a
+circle), wait on the spot, and return to `app_wait_would_deadlock` (checking and registration are in
+the same lock. When two tasks start waiting at the same time, the one that comes later can see the
+one that came first; the one that comes first will still wait, and the one that comes later will
+wait. After finishing, put down the app in your hand, and the one that came first will be waiting).
+During this period of waiting, the task is still `Running`, and the progress is
+`RunProgress.WaitingForApp` (the conversation page, notifications, and capsules all say "Waiting for
+another task to finish using an app"). It is not paused, nor does it count as "asking you to handle
+it"; after waiting, put back the original sentence. This is two levels different from the queue of
+tasks handed over to the service on the dialog page (when parallelism is turned off, tasks elsewhere
+start first, and new tasks are queued behind it and start after the end, and the message says "Wait
+until the previous task is completed before starting"). There are two levels: that is, the entire
+task is queued before other tasks are started, and only one is run at a time, and there is no
+competition for Apps; here is a task that is already running in parallel and is waiting for an App
+in the middle.
+
+## 9. Experience replay
+
+Successful routes can be recorded, similar tasks can be played back directly, each step is lightly
+checked, and the model is not adjusted. If it is not correct, the model will be returned
+(`core/replay/`, the playback action is executed through the only entrance `Origin.Replay`). The
+route is only recorded from the completed run (`LearnGate`, `TaskRun.settleOutcome` is taken from
+the placed run event after the ending is judged, `RouteRecorder`, regardless of whether the route
+itself is remembered); if the playback is completed and it is completed again this time, the route
+success count is increased by one (`RouteReplay.noteResult`). The speed switch "does what we did
+last time" is on by default: the old setting was upgraded once from `FeatureFlags`
+(`speed_defaults_applied_v3`), and will remain off after the user turns it off.
+
+## 10. Timing and conditional triggering
+
+- **Tools**: `schedule_task`(`core/general/ScheduleTask.kt`),`op` =
+  create(default)/list/pause/resume/delete/run_now/reschedule. Only available in runs initiated
+  through the dialog interface.
+- **Time rules** (`TriggerDefinition`, `core/trigger/Triggers.kt`): one-time (`at`); fixed interval
+  (`intervalMinutes`, multiple misses are merged into one and the missed times are recorded);
+  according to local time every day or day of the week (`repeatAt` + `repeatZone` + `weekdays`), the
+  clock remains unchanged across daylight saving time.
+- **Three methods**: Fixed reminder (`reminder`) is delivered directly to the point without
+  adjusting the model; the service task is executed as an unattended Run at the point; with
+  `condition`, the condition is first checked using a read-only web page and sandbox, and the result
+  is structured as `ConditionOutcome` (`core/trigger/ConditionOutcome.kt`). Errors in the check are
+  not considered "unsatisfied"; the action is only executed when the condition changes from
+  unsatisfied to satisfied. `whenIdle` makes it wait until there are no tasks running.
+- **Scheduling** (`app/task/TriggerRuntime.kt`): The system alarm is just a wake-up signal,
+  `FileTriggerStore` is the real source. Before dispatching, write down the next time and this
+  time's window (number = trigger + expiration time). The same window will not be dispatched twice.
+  If you can use the accurate alarm clock, use it. If you don't have permission, a notification will
+  be sent for the first time to guide the user to open the system settings. The result of
+  `schedule_task` also tells the model that "it may not be on time"; a prompt is displayed on the
+  planning page. Rearrange when booting, changing time, changing time zone, accurate alarm clock
+  permission changes (`app/setup/BootRestoreReceiver.kt`), and also when the App is started.
+- **Results returned to original dialog**: The task that reaches the point is run in the dialog that
+  created it. The results, reminders and failure instructions are all written back to that dialog,
+  and the notification click is it.
+- **Killed in the middle of the process**: The reminder is re-delivered (removed by number); other
+  claimed windows are marked as unknown results, and "Mina will not automatically repeat the
+  operation" is explained and notified in the original dialogue.
+- **Planning page** (`app/ui/PlansScreen.kt`): It is divided into two sections: "In progress" and
+  "Disabled", each with three lines (what to do, repeat rule and next time or status, last result).
+  The switch on the right is to pause and resume; click on a line to bring up the operation panel:
+  view dialogue, execute immediately, change time, delete.
+
+## 11. Knowledge and skills
+
+- **Built in** (`core/src/main/resources/`): app knowledge (`knowledge/apps/<id>/APP.md`), site
+  knowledge (`knowledge/sites/<domain>/SITE.md`), and skills (`skills/<id>/SKILL.md`), one per
+  directory, so adding one means adding a directory. To see what exists, look at these directories
+  or at the generated index `knowledge/index.json`; the list in the README is generated from the
+  same index by `./gradlew updateReadme`. The format is described in
+  [`knowledge-format.md`](knowledge-format.md). At build time `KnowledgeIndex` scans the headers,
+  validates them and generates the index; a validation failure fails the build.
+- **Automatic supply**: Match the task text at the beginning; supplement its knowledge text when
+  entering an App (read its interface) or a website (successfully opened or read for the first
+  time). Each copy is only given once, and each task has a maximum of 3 copies (`KnowledgeStore`,
+  `NoticePolicy`).
+- **Skills are given in two layers** (`GuideRecommender`, `ContextBuilder.start`): All skills are
+  listed in the index at the beginning, and are not selected according to the task text - built-in
+  skills are first, personal skills are last, each is arranged by name, each has one line (id,
+  display name, description; the description in the trial is marked as not yet verified), disabled
+  and pending drafts are not listed. The index is written once in the startup context. It will not
+  be added or changed when switching to the front desk in the middle. It will be given in full and
+  will not be cut by the budget. Whether to use it and which copy to use will be determined by the
+  description of the model. When you want to use it, use `skill_read` to read the full text; no more
+  full text of any skills will be inserted at the beginning. After reading a personal skill,
+  `SkillUsed` is recorded once (`how` = viewed; injected in the old record is still read and counted
+  as used), and the result of that skill is recorded accordingly in the mission outcome.
+- **Check tool** (`core/general/LookupTools.kt`): `knowledge_search` / `knowledge_read` checks App
+  and website knowledge, `skill_search` / `skill_read` checks skills (both built-in and personal).
+- **Write skills according to user requirements** (`core/general/SkillSave.kt`, built-in skill
+  `skills/skill-authoring`): When the user wants to create, import or rewrite a skill in a task, the
+  model writes the entire document according to the built-in "Write Skill" skill, and saves it as a
+  personal skill using `skill_save`. The citation must come from what the user said this time (words
+  in pages and files cannot be written by others); it must pass the same verification process as the
+  self-study draft (`SkillDrafter.validate`: name, description, five sections, length, tool name,
+  sensitive content); the name of the built-in skill cannot be used, and the one with the same name
+  as the draft to be confirmed will not be accepted; if you modify an existing copy, you must bring
+  the version returned by `skill_read` (the first 12 digits of the original text fingerprint, if it
+  does not match, it means it has been changed halfway). Save it and go directly to the trial, mark
+  "Write according to your requirements" (`meta.json`'s `source: user`) in "Memory and Skills", and
+  convert it to official once; change the name and delete it and leave it in the settings. This time
+  the saved skills will no longer start a new self-study draft (`Eligibility`). What the user said
+  this time (`UserUtterances`) no longer follows the memory switch: it is only in the memory, and
+  each task starts to be cleared. When the memory is turned off, the memory_* tool is still not
+  provided, and it is not used to extract the memory.
+- **Personal skills self-study** (`core/skills/`, `app/task/RunLearning.kt`): After the task is
+  completed (`LearnGate`, it is not required to pass the final verification), draft a personal skill
+  according to the conditions (enough actions, no skipped takeover, the user did not complete it by
+  himself, no disagreement confirmation, not replayed, see `Eligibility`); When drafting, assign
+  existing personal skills (together with drafts to be confirmed) to the model one by one. Which of
+  them is the same type of event this time? The model writes `updates: <name>`, the code only checks
+  whether this copy exists: if it points to the one that has been accepted, it will be regarded as
+  its updated draft (overwrite it when accepting, and check with the original text fingerprint), if
+  it points to the draft to be confirmed, the draft will be replaced, and if the name does not
+  match, it will be regarded as a new one (the new one cannot occupy the existing name); the draft
+  must be accepted by the user in "Memory and Skills" before it can be tried. When the trial is
+  successful, it will be converted to official, and if it fails, it will be deactivated; there are 2
+  formal skills in the past 3 times. Disable it even if the result is bad (`SkillOutcomes`, if the
+  outcome is not successful, it will not be counted). The switch "Learn skills from completed tasks"
+  is on by default (the old setting is upgraded once when `MemorySettings` is read, and remains off
+  after the user turns it off).
+- **App knowledge self-study** (`core/knowledge/AppKnowledgeLearning.kt`,
+  `app/knowledge/AppKnowledgeFiles.kt`): Under the same switch, the dialogue interface is initiated
+  and the mobile app is run. Each app that has been used and has built-in knowledge entries will be
+  judged once (apps without entries will not be supplemented and will not be learned). There are
+  three types of things worth learning (`AppKnowledgeDrafter.kind`): it’s done, and there are enough
+  actions that are effective in the App; it’s done, but it’s stuck (an error occurred or the
+  interface didn’t change more than two times, or the app returned more than twice); Not completed
+  or only partially completed (decided as Partial / NotPossible, or giving up, running out of
+  steps), and having taken at least 3 steps in this App. Those that are canceled, those that skip
+  takeover, those that are completed by the user themselves, and those that are played back are not
+  learned. Please model once (lightweight models are preferred; role
+  `prompts/roles/app_knowledge.md`, the requested format is `app_knowledge_input.md`; If a verified
+  supplement is successfully completed, please do not ask), give it the built-in description of the
+  app, the supplement in use, the ending and the simplified action list (with error codes, interface
+  changes, without the original screen text and input words), and the full text after the supplement
+  is returned: only the fact lines starting with "-", up to 12; if there are no worthy supplements,
+  NONE will be returned, and nothing will be output. Give the goal, answer, or reason for failure in
+  the request as it is; The returned supplement will be received as it is (the data is only on the
+  mobile phone and will not be desensitized). Only the complete copy with passwords and verification
+  codes will not be accepted (`SensitiveFilter`). Each App can have at most one revision to be
+  confirmed. If the revision does not correspond to the one currently injected (the other one was
+  accepted first), it will not be accepted; After the copy you are using has changed (accepted,
+  archived, and changed the trial stage), archive the revisions to be confirmed on the other draft
+  copy on the spot. Accepting the outdated revisions will only archive them, and will not always
+  occupy the position to block future drafts of the app; accept the copy that replaced it during the
+  trial period (the old one will not be injected or deleted), archive the old one when it becomes
+  official, and replace it with the old one when it is archived (`AppKnowledgeTrial.inUse`).
+  Attached to the App description when injecting, the trial mark indicates that it has not been used
+  for completed tasks (`feedback/loop.md`’s `knowledge.learned_trial`, the verified one is
+  `knowledge.learned`). The running results that have been used in the trial draft will be converted
+  into official ones; those that have been learned from experience will be archived if they are not
+  good twice in a row, and the other one will be archived (`AppKnowledgeTrial`); just like personal
+  skills, if there is a problem with the model, the operating environment, or the operation
+  protection is stopped, it is neither good nor bad (`SkillOutcomes.resultOf`). "To be confirmed"
+  indicates whether it is a supplement or a revision, and lists the added and deleted lines; the
+  copy that is temporarily replaced by the revision in trial is marked as "temporarily replaced by
+  the revision in trial" and will not be archived.
+
+## 12. Memory and Models
+
+- **Thinking Intensity**: The service provider has specified the gear level
+  (`supported_reasoning_levels` / `capabilities.reasoning.effort`) in the model list. Each of the
+  four protocols has its own method of sending: `ResponsesModel` sends `reasoning: {effort: ...}`;
+  `OpenAiCompatModel` sends `reasoning_effort`; `AnthropicModel` sends `thinking: {type: adaptive,
+  display: summarized}` and `output_config: {effort: ...}` (choose `none` `thinking: {type:
+  disabled}`); `GeminiModel` sends `generationConfig.thinkingConfig` (`thinkingLevel`,
+  `thinkingBudget: 0` when `none` is selected, `includeThoughts: true` when turned on).
+  `ModelCatalog` retains the gear position and order, cached with `ListedModel.reasoningEfforts`;
+  missing and clear empty list distinction. The Anthropic list is filled out item by item according
+  to `capabilities.effort.<level>.supported` and `capabilities.thinking.types.<mode>.supported`: when
+  `adaptive` is accepted, the gear level is marked with the supported levels (from lightest to
+  deepest), and `disabled` is also accepted with `none` in front; not accepted `adaptive` (only
+  `enabled` can be considered according to the budget) or the empty list regardless of grade; the
+  accepted way of thinking is saved as `ListedModel.thinkingTypes` and handed over to
+  `AnthropicModel` through `ClientSetup.thinkingTypes`. The one that is not accepted will not be
+  sent. The Gemini list only has a Boolean `thinking` and does not give gears. `ReasoningOptions`
+  priority list; When there is no report, only the Responses family (including ChatGPT, xAI login)
+  gives the general manual gear, and the compatible interface, Messages, and generateContent are not
+  guessed (each model recognizes different gears and writing methods, and if you guess wrong, every
+  request will be rejected). Which protocol is actually used is determined by
+  `ProviderStore.adapterFor` (subscription and login always use this interface, not other protocols
+  written in the list), model building and sharing among stalls. `ReasoningControl` is selected
+  under the use card, and `RoleChoices.reasoningEfforts` is saved to `uses.<role>.reasoningEffort`
+  according to the use. The same model can be different for different uses; "Use main model"
+  inherits the strength of the main model, and clears its old selection when changing the model for
+  this use. The default is not specified, and the old configuration will not be migrated to the new
+  default; `ProviderStore.modelFor` is transmitted to the adapter via `ClientSetup`, and is only
+  sent if explicitly selected. After Claude turned on thinking, the output limit was raised to 16K
+  (thinking is also included in `max_tokens`); In the round with tool call, the signature of the
+  thinking block and the address where it is received are stored in `Part.Thinking.opaque`
+  (`SignedThinking`), and only the same address is returned (`redacted_thinking` is also returned).
+  It is not returned when the address is changed or thinking is turned off. When the server rejects
+  the selected gear, an error will be reported as usual and the gear will not be downgraded
+  silently; the unsupported `include` will be removed and the strength will still be retained when
+  retrying. After refreshing the list, the selected gears that are no longer supported will be
+  retained and prompted, and the default can be restored.
+
+- **Memory** (`core/memory/`): Three categories `MemoryKind` - facts, preferences, practices. Facts
+  and preferences are written down immediately and can be revoked, and the practices require user
+  approval. It is only recorded from what the user says (`UserUtterances`, with the page description
+  of the screen, browser page, quoted Mina's answer, attachment, only the words typed by the user
+  are included, and the quoted words are also included, `UserWords.said`), not from the screen and
+  web page content; passwords, verification codes, card numbers, ID numbers, etc. are blocked by
+  `SensitiveFilter`. Tools `memory_save`, `memory_search`; after the task is completed,
+  `MemoryExtractor` is extracted from the user's original words in the background (the run that has
+  read the web page is not extracted; it is also required that this run be initiated by the dialogue
+  interface and the answer is handed over, `RunLearning`). Memory injection at the start
+  (`MemoryContext`): If the total amount of memory is within `FULL_MAX_TOKENS`, only one item will
+  be given (topped first, and the rest are in descending order of update time). If it exceeds, only
+  the top and retrieved related entries (BM25 of `MemoryIndex`) will be returned. When the total
+  amount is full, all the practices will be given. When retrieving, the practices will be listed
+  according to their relevance, up to `MAX_PROCEDURES`. Article; Product path (`AgentLoop`) uses
+  automatic mode, `Mode.Relevant` retains the old behavior. There are also separate user portraits
+  (`ProfileStore`, tool `profile_edit`, changes will take effect from the next task). Memories and
+  images are stored encrypted using keys in the Android keystore
+  (`app/memory/EncryptedMemoryFile.kt`). The switches "Use Memory" and "Automatically remember what
+  I said" are on by default.
+- **Model**: Four interfaces - OpenAI Completions (Chat Completions), OpenAI Responses, Anthropic,
+  Gemini (`core/model/`); you can also log in with a ChatGPT account and use the package quota (see
+  "Responses and logging in with ChatGPT" below). The model is divided into three purposes
+  `ModelRole`: main model, picture viewing model, and lightweight model. Speech-to-text is the
+  fourth use, but it is not included in `ModelRole`. It is stored separately (`SpeechChoice`, see
+  "16. Voice input"). What is selected for each purpose is clearly stated by the user
+  (`RoleChoices`, in `app/settings/ProviderStore.kt`), and there is no default allocation based on
+  capabilities: the main model is a specific model or has not been selected; the picture shows a
+  specific model, "use the main model" or "not used" (new installations use it by default);
+  lightweight is a specific model or "use the main model" (new installations default). Select not to
+  block by capability mark (`ProviderStore.choose` does not reject), and write down the
+  corresponding marks when selecting a specific model: select the main model to record tool calls,
+  and select the model to view pictures. When running, press these two marks to decide whether to
+  send tool definitions and attach drawings; when viewing pictures "use the main model", `configFor`
+  gives the configuration of the main model and takes the view mark seriously (the user said it can
+  view pictures), the main model still operates according to its saved mark. Ability labels are for
+  reference only. The lightweight model is preferred for outcome determination, memory retrieval,
+  intention determination, and route matching; after turning on the speed switch "Leave simple steps
+  to the lightweight model", the simple steps are also handed over to it
+  (`core/agent/ModelRouter.kt`, the lightweight model does not support the mobile phone step when
+  calling the tool). "Viewing positioning has been verified" (`Capabilities.groundingVerified`) is
+  changed in Settings › Developer Options. It affects the configuration of the current viewing model
+  (`ProviderStore.setVisionGroundingVerified`). It is not displayed when there is no viewing model.
+  The API Key is encrypted and stored in the keystore (`app/settings/KeyCipher.kt`).
+- **Service Provider Default** (`app/settings/ProviderPresets.kt`): Pre-filled interface type,
+  address and initial capability value, model name and Key are filled in by the user. Domestic:
+  DeepSeek, Tongyi Qianwen, Kimi, Zhipu, Silicon Flow, Volcano Ark (bean bag, the model name can
+  fill in the model ID or access point `ep-…`), MiniMax (domestic station `api.minimax.cn`), Step
+  Star, Tencent Hunyuan (TokenHub `tokenhub.tencentmaas.com`), Baidu Qianfan
+  (`qianfan.baidubce.com/v2`); foreign: OpenRouter, OpenCode Go, Anthropic, Gemini, OpenAI, xAI,
+  Mistral, Groq; running on your own machine: Ollama, LM Studio; and finally "custom". The interface
+  type of "OpenAI" is Responses (`ProviderConfig.Kind.OpenAiResponses`): the official document
+  states that the new main model calling tool must use Responses, and Chat Completions with tools
+  will be rejected; the column model is also `GET /models`. The rest are OpenAI compatible. When
+  adding a "custom" service provider, the interface type can be OpenAI compatible, Anthropic,
+  Gemini, OpenAI Responses (`ProviderConfig.Kind.withApiKey`, Responses ranked last), select
+  Responses through `ResponsesModel`, adjust `{base}/responses`, and the column model is still `GET
+  {base}/models`; Custom Responses requires the same Key as Anthropic and Gemini (only OpenAI is
+  included in the custom service provider Compatibility does not need to be filled in, it is mostly
+  a local service, see `AddForm.keyRequired`). The address of `ProviderPreset.selfHosted` (Ollama,
+  LM Studio) is pre-filled with the default port of the machine (`http://127.0.0.1:11434/v1`,
+  `http://127.0.0.1:1234/v1`). The form can be changed to the computer's LAN address
+  (`AddForm.urlEditable`, the following sentence prompts how to change it). The Key does not need to
+  be filled in (`AddForm.keyRequired`). The saved service provider name still uses the default name.
+  The default list in the README is generated by `./gradlew updateReadme` from this file (see
+  `ReadmeSections`).
+- **Column model and connection service provider**: `ModelCatalog` (`core/model/ModelCatalog.kt`)
+  calls each public column model interface (OpenAI is compatible with `GET /models`, Anthropic `GET
+  /v1/models`, Gemini `GET /v1beta/models`, the latter two turn pages), returns the model name and
+  the capabilities given by the interface (tool calling, picture viewing, context length,
+  reasoning); those not provided by the interface are empty, and are given by `ModelOptions`
+  (`app/settings/ModelOptions.kt`) follows the default initial value and is marked as unconfirmed.
+  Failures are classified by reason (Invalid Key, Network, No List Provided, etc.). List interface
+  404 / 405 / 501 is recorded as "does not provide a list", but by looking at it alone, you cannot
+  tell whether this company really does not provide a list or whether the address and interface type
+  are filled in incorrectly. You can tell by the following trial call.
+- **One service provider, several protocols**: Some service providers (such as subscription-based
+  aggregation services) use different protocols for models under one Key. Each model in the list has
+  a `api` table, the key is the protocol (`chat-completions`, `messages`, `generate-content`,
+  `responses`...), and the value contains `base_url` of this protocol (compatible interfaces can
+  also be written as `compatibility.reasoning_field`). `ModelCatalog` Take the first one in the
+  order of Chat Completions, Messages, generateContent, and Responses, and record it as
+  `ListedModel.endpoint` (`ModelEndpoint`: protocol, address, thought field); One that cannot be
+  said (such as `realtime`), write down the protocol name (`unsupportedApis`), `ListedModel.usable`
+  is false, `ModelOptions.merge` is not listed, and the number of models of the service provider is
+  not included. Users cannot choose a model that is bound to fail. The abilities in the same writing
+  method are also recognized: `capabilities.tools.supported`, `capabilities.reasoning.supported`,
+  `limit.context`, `modalities.input` (you can see the picture if you have `image/…`). `endpoint` is
+  stored in `services[].models[].api` of `providers.json` along with the model list (the same place
+  as `unsupportedApis`). When building the model `ProviderStore.modelFor`, check the `endpoint` of
+  this model in the list remembered by the service provider. If there is, select the adapter
+  according to the protocol (`ProviderConfig.Kind.of`: Chat Completions → `OpenAiCompatModel`,
+  Messages → `AnthropicModel`, generateContent → `GeminiModel`, Responses → `ResponsesModel`), use
+  its address, if not, just use the service provider's interface type and address; if you re-list
+  it, if the address is changed, use the new one next time you build a model. The adapter connects
+  to the version path (Anthropic connects to `/v1/messages`, Gemini connects to `/v1beta/models/…`),
+  and the existing `/v1` and `/v1beta` at the end of the list address are removed from
+  `ModelEndpoint.adapterBaseUrl` and will not be repeated. The key is always the one from the
+  service provider. Compatible interface thought return (`OpenAiCompatModel`, not judged by service
+  provider name, address or model name): each company puts the thought in `reasoning_content`,
+  `reasoning`, or `content`, which is a block array, and thinks in the `thinking` block (the text
+  block is the answer); When receiving a thought, write down the address and location where it was
+  received (`ReasoningVia`, `Part.Thinking.opaque` exists), and put it back to its original place in
+  the request with the tool (the field has the same name; the whole line that is divided into blocks
+  is put back in chunks, with the thought block first). Only messages received from the same address
+  will be returned, messages from other addresses and other adapters will not be sent, and service
+  providers that do not recognize these fields will not receive them; bypass calls without tools
+  will not be sent back. The list indicates `reasoning_field` (`reasoning_content` or `reasoning`),
+  and thoughts of unknown origin (the history saved by the old version) are also returned according
+  to it. The default "OpenCode Go" is like this: list address `https://opencode.ai/zen/go/v1` (no
+  Key required in the list), interface type OpenAI compatible is just a fallback when the protocol
+  is not written; models with only `responses` written (address such as
+  `https://opencode.ai/inference/go/openai/v1`) are called by `ResponsesModel`.
+- **Responses and logging in with ChatGPT**:`ResponsesModel`) tune`core/model/ResponsesModel.kt`,
+  uniformly`POST {base}/responses`, put the context in every time`stream:true`Array: system prompt
+  words`store:false`, the system message in the conversation is changed to developer message, the
+  picture is`input`(When the model cannot be viewed, replace it with a placeholder sentence.) The
+  tool is the function tool (`instructions`), the tool call and the result are`input_image`entry. By
+  default, only`strict:false`;Sent separately when the user chooses the intensity of
+  thinking`function_call`, the temperature and output upper limit are not issued (not charged when
+  using ChatGPT package quota). Inference model thinking requests encrypted content
+  (`function_call_output`), stored as is in the first tool call of this round`model`, put it back in
+  front of the tool call during playback (remove the ones that are only meaningful on the server
+  side)`instructions`); The server says it won’t accept it.`input`Remove it and send it again. only
+  received`tools`(or`store`recorded as output truncated) is considered successful,`stream`according
+  to`include`Return to`reasoning.effort`, the stream is disconnected before the end as a network
+  failure (will be retried). Token consists of`include: reasoning.encrypted_content`Give: The API
+  Key is fixed; you can change it to a new one (ChatGPT). If you encounter HTTP 401, change it first
+  and then send it again. Dosage from`Part.ToolCall.opaque`) will be recorded in the Token usage.
+  **Sign in with ChatGPT** (`core/chatgpt/`, API type `ProviderConfig.Kind.ChatGpt`) uses the path
+OpenAI offers to open-source apps that run locally: a public client with no secret, authorization
+code + PKCE (S256), and a fresh state, nonce and verifier for every login. `LoopbackCallback`
+(`core/oauth/`, shared with OpenRouter) opens a free port chosen by the system on `127.0.0.1` and
+accepts only one `GET /auth/callback` (other paths return 404; a state mismatch returns 400 and
+keeps waiting). When the callback arrives, the login is finished first — check the callback,
+exchange the token, verify the ID token, check the plan permission, at most 20 seconds — and only
+then is the browser answered (it waits on that connection): success shows "Signed in, return to
+Mina", failure shows the same reason as the UI, and the page button is an intent link that opens
+Mina; timeout or cancellation closes it. The authorization page
+`https://auth.openai.com/api/accounts/authorize` opens in the system browser: the first time it
+registers with `client_id=dynamic_agent_client`, `agent_name_hint=Mina` and the device identity
+`ext_agent_host_id` (`urn:uuid:…`, generated once per device); the callback returns a client_id
+specific to that account, which is stored before the token exchange
+(`settings/chatgpt-host.json`, next to the device identity, neither being a secret), and every later
+exchange, refresh and re-login uses it (a re-login sends the previous ID token and email as hints;
+after signing out it sends no ID token). `scope` is
+`openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, `resource` is
+`https://api.openai.com/v1`. After the token exchange (`/api/accounts/oauth/token`, form encoded)
+the ID token is verified: RS256 signature against `/.well-known/jwks.json`, issuer, audience
+(= client_id), expiry and nonce; a grant without `chatgpt.tokens.use.direct` does not count as a
+successful login (`signInWithChatGpt` ties this together). Rejections are classified by
+`ChatGptAuth.failureOf`, the UI and the callback page say the same human sentence, and the
+diagnostics record the error code: a non-JSON 403 / 429 is blocked by the protection layer
+(`SignInFailure.Blocked`, change network or retry later); `unsupported_country` / `region` /
+`territory` in the code or description means the region is unsupported (`SignInFailure.Region`);
+`invalid_grant` means the code expired or was used (`SignInFailure.CodeExpired`); `access_denied`
+and similar mean the user did not consent (`SignInFailure.Denied`); a plan or permission word
+(`invalid_scope`, `plan`, `subscription`, `scope`) in the code or description, or a grant without
+the plan scope, means Plus / Pro is required (`SignInFailure.NoPlanScope`); anything else is
+"ChatGPT rejected this sign-in (error: code)" (`SignInFailure.Exchange`). The `error` returned by
+the authorization page is classified the same way, and anything that names neither a region nor a
+plan counts as `SignInFailure.Denied`. During login Mina is in the background while the user types
+a password and two-factor codes in the browser, and Android may freeze or reclaim the background
+process: the local port stays open with nobody accepting, the browser waits until it times out and
+the authorization code may expire. So the login does not run in the UI scope but in the app-wide
+`ChatGptSignIns` (`app/settings/ChatGptSignIns.kt`, which survives UI recreation and going to the
+background, one at a time); it starts the foreground service `ChatGptSignInService` (`specialUse`,
+attached to the quiet "Task progress" channel: "Waiting for you to sign in to ChatGPT in the
+browser", with "Cancel"); if the service cannot start it only logs a line and the login continues.
+The service watches `ChatGptSignIns.running` and stops itself when the login ends (success, failure,
+cancellation, timeout). The last login failure (time, category, error code, a short redacted
+description) is kept in memory only and written into "Copy diagnostics". The whole session
+(`ChatGptSession`: client_id, identity, tokens, expiry, granted scopes) is treated as this
+provider's "Key" and encrypted by the same `KeyCipher` into `provider-keys.json`. The access token
+expires after an hour: `ChatGptTokens` exchanges the refresh token for a new pair when it is close
+to expiry (less than 5 minutes) or rejected, storing the new refresh and access tokens together,
+with only one refresh at a time; when the refresh token can no longer be used (`invalid_grant`
+etc.) the tokens are cleared and "sign-in expired" is reported, while a transient network or server
+error keeps them. Signing out first revokes the refresh token on the server
+(`/api/accounts/oauth/revoke`) and clears the local tokens even when that cannot be confirmed,
+explaining why; the provider, models and uses stay, so signing in again continues where it left off.
+Deleting the ChatGPT provider forgets the client_id (the next sign-in registers again and may use a
+different account) and keeps the device identity. The model list is `GET
+https://api.openai.com/v1/models` (access token); the returned `models` keep only entries whose
+`visibility` is `list`, in server order, with `slug` as the name and `display_name` as the label,
+and `input_modalities`, `context_window` and `supported_reasoning_levels` fill in capabilities when
+present; all calls go through `ResponsesModel` (`chatGptPlan`). Plan-quota errors:
+`subscription_sharing_usage_limit_exceeded` (or HTTP 429) means the quota is exhausted
+(`ModelError.ChatGptLimitReached`), `subscription_sharing_user_not_eligible` (or HTTP 403) means
+the account cannot be used this way (`ChatGptNotEligible`); neither is retried, and the outcome
+explains the reason and where to check usage (chatgpt.com/settings/usage).
+`subscription_sharing_usage_unavailable` and other temporary unavailability are retried later as
+503. UI: the ChatGPT row in the "Sign in with account" group at the top of Add provider opens a
+panel with "Use your ChatGPT plan" and "Continue with ChatGPT" buttons (stating that Plus and Pro
+work and Mina charges nothing extra), and after the first successful sign-in it explains once that
+usage goes through the ChatGPT plan; the provider details show the account (email), manage usage
+(opens chatgpt.com/settings/usage), and sign out or sign in again, with no API type, URL or Key.
+- **Sign in with an account (xAI, OpenRouter)** (`core/oauth/`): next to ChatGPT, in the
+  "Sign in with account · no Key needed" group at the top of Add provider (`ui/AccountSignIn.kt`:
+  three rows, ChatGPT, xAI / Grok and OpenRouter; signed-in ones say "Signed in" and open the
+  details, others open an explanation panel and only start on "Continue signing in"; xAI shows a
+  risk warning and "Use an API Key instead"). All sign-ins run in `ChatGptSignIns`
+  (`SignInTarget` decides which provider, and the foreground notification uses that provider's two
+  sentences); on success the models are listed and stored, one is chosen if there is no main model
+  yet, and that provider's details open (`ModelSetupUi.signedInProvider`). The details
+  (`ModelsScreen.kt`) show the account, status, set-as-main-model, open the provider's account page,
+  and sign out or sign in again; signing out clears only local data. Failure categories and error
+  codes go into diagnostics. The local callback `LoopbackCallback` and `Pkce` live in `core/oauth/`
+  and are shared by ChatGPT and OpenRouter; `SignInBrowser` opens the browser, returns to Mina and
+  shows the result page after the callback.
+  **xAI** (API type `ProviderConfig.Kind.Xai`): sign-in, encrypted storage, refresh and calls to
+  xAI's own API are four separate steps. It uses the device code flow (RFC 8628,
+  `DeviceCodeClient`, `awaitDeviceGrant`): the user opens the verification page in a browser and
+  checks the short code, and the app polls for the token at the interval the server gives (adding 5
+  seconds on `slow_down`, and only failing after 3 consecutive connection failures); the panel shows
+  the same short code, its lifetime and "Copy code and reopen the confirmation page"; if the
+  verification page's host is not on the allow-list, the fixed official page is opened instead.
+  Access tokens, refresh tokens and device codes never go into logs. The whole session
+  (`AccountSession`) is encrypted into `provider-keys.json` like an API Key; `AccountTokens`
+  refreshes when close to expiry or rejected, and when the refresh token can no longer be used it
+  clears them and reports "xAI sign-in expired" (`ModelError.SignInExpired.account`). `XaiAuth`
+  first reads `https://auth.x.ai/.well-known/openid-configuration`; the issuer and the device-code
+  and token endpoints must be https `auth.x.ai` (`OauthUrls`), otherwise it stops. The client reuses
+  the public login entry of xAI's official command-line tool (not one registered for Mina), with
+  scopes including `grok-cli:access` and `api:access`; the panel states the reuse risk before
+  signing in. Calls go to Responses at `https://api.x.ai/v1` (`ResponsesModel`, `accountLogin`); an
+  HTTP 403 means the subscription tier cannot use this API
+  (`ModelError.AccountPlanNotAllowed`, not retried, and the message says to use an xAI API Key).
+  **OpenRouter** (`OpenRouterAuth`, `signInWithOpenRouter`): official OAuth PKCE. The authorization
+  page `https://openrouter.ai/auth` carries the local callback
+  (`http://localhost:<port>/auth/callback`, listening only on 127.0.0.1), an S256 challenge,
+  `key_label=Mina` and the state; a state mismatch returns 400 and keeps waiting, and no code with
+  no state means the user refused; `POST /api/v1/auth/keys` (JSON: code, code_verifier,
+  code_challenge_method) exchanges it for an OpenRouter Key. It is stored as an OpenAI-compatible
+  provider following the OpenRouter preset, the Key is encrypted as usual, and `Provider.signIn`
+  records `openrouter` (in `providers.json` under `services[].signIn`); an authorized provider and
+  one where the user typed a Key are separate providers (`findOrAddProvider` separates them by
+  origin), authorization never replaces the user's Key, and the UI shows "OpenRouter (account
+  sign-in)". Signing out deletes the local Key (`ProviderStore.signOutOpenRouter`) and suggests
+  deleting it on OpenRouter's Keys page. See `docs/dev/account-signin.md` (which also explains why
+  Claude subscriptions, Google accounts and MiniMax accounts are not supported).
+- **Request header and session number** (`core/model/ClientHeaders.kt`): Each request sent to the
+  model service (the four protocol adapters Chat Completions, Messages, generateContent, Responses,
+  one-time and streaming, and the `ModelCatalog` column model) carries the header given by
+  `ClientHeaders.of`, and the Key (or ChatGPT access token) header is still added by the adapter
+  itself; "Log in with ChatGPT" also carries `User-Agent`, it does not declare a session header and
+  does not send a session number. `User-Agent` is `Mina/<version>` (App uses `BuildConfig.VERSION_NAME`
+  to `ProviderStore`, core does not write the version number). Some service providers require each
+  conversation to have a fixed session number (route and reuse the prompt word cache accordingly,
+  and reject it if it is not provided): by default, use `ProviderPreset.sessionHeader` to declare
+  the first name (currently only `x-opencode-session` of "OpenCode Go"), and record it on the
+  service provider when connecting (`Provider.sessionHeader`, there is `providers.json`)
+  `services[].sessionHeader`; The old version does not have this item, and it will be filled in
+  according to the default address that matches the address when reading). The undeclared service
+  provider will not issue a session number, and the code will not be judged by the service
+  provider's name. The session number is `ModelSession.of (conversation id)` (UUID v3, irreversible,
+  does not send the conversation id itself): The three model factories of `TaskEnvironment` have one
+  more parameter, `ModelSession`, `TaskRun` Build the main, lightweight, and picture-viewing model
+  according to your own dialogue. Use these for verification, intention judgment, ending judgment,
+  and explanation after stopping. `TaskService` also uses the same conversation ID when starting the
+  conversation title; the conversation number for each run and each bypass call in the same
+  conversation is the same, but it will be different when changing the conversation. Requests that
+  do not belong to any conversation (column model, connection test) use a new number of
+  `ModelSession.fresh()` each time.
+- **Clear text http** (`res/xml/network_security_config.xml`, referenced by `networkSecurityConfig`
+  in the list): Most of the model services that users run on their local machine or LAN are only
+  http, so the entire App allows plain text (`base-config cleartextTrafficPermitted="true"`), and
+  the certificate only trusts the system. Nowhere else in the code does it reject
+  http:`ModelCatalog` and the adapter only requires it to be a valid http(s) address, and the add
+  form only requires it to start with `http://` or `https://`. When adding a service provider, plain
+  text http For addresses that are not on the local machine or the local area network
+  (`LocalHosts.isLocal`: localhost, 127/8,::1, 10/8, 172.16/12, 192.168/16, 169.254/16, fc00::/7,
+  fe80::/10, `.local`), please note (`AddForm.unencryptedWarning`) under the form and do not stop
+  it. The built-in browser can therefore directly open http web pages: in the past, the system
+  rejected (`ERR_CLEARTEXT_NOT_PERMITTED`), `WebScreen` and then changed to https and reopened it.
+  Now it is opened according to the original address. The retry of changing to https is only useful
+  when the device policy or WebView still rejects clear text; the clear text sub-resource in the
+  https page is still rejected as `MIXED_CONTENT_NEVER_ALLOW`.
+- **Network proxy** (`core/net/NetProxy.kt`, `ProxyAddress.kt`, `LocalHosts.kt`; set in
+  `app/settings/NetProxyStore.kt`): Set the line "Network proxy" under the model in the "Basic"
+  group on the homepage (`ui/NetProxySettings.kt`, only change this place), fill in `http://[user:password@]
+  Host: port`, also recognize socks5, socks5h, https (`ProxyAddress.parse` Check, if it is written
+  incorrectly, it will not be saved). If left blank, it means direct connection. The address may
+  contain an account password, which is encrypted by `KeyCipher` (Android keystore) and saved as
+  `settings/net-proxy.bin` like the service provider's key. No clear text preferences are entered,
+  no logs are written, and only the protocol, host, and port are displayed on the interface
+  (`ProxyAddress.toString` does not contain an account password either). Earlier it was only used
+  for containers and existed as `container-proxy.bin` (another key): `NetProxyStore`. When reading
+  it for the first time, it was decoded and saved, and the old file was deleted.
+  - Who takes it: OkHttp client built by `NetProxy.shared.client(…)` - model client of
+    `ProviderStore` (four adapters one-time and streaming, voice transcription, connection test) and
+    column model, client with account login and token exchange, `UpdateChecker`, built-in browser
+    download (`WebStack`); sandbox command via environment variables (see Section 6 sandbox). Don't
+    use it: remote transfer (`RelayGateway`), running record export (`OtlpSender`).
+  - How to go: The client is installed with `NetProxy.selector` (`ProxySelector`). Each request now
+    asks: `LocalHosts.bypassesProxy` (the paragraphs of `isLocal`, plus the machine name without
+    dots, `.lan`/`.home.arpa`/`.internal`, 100.64/10) for direct connection. Otherwise, use HTTP or
+    SOCKS proxy; SOCKS The domain name is handed over to the proxy for resolution (socks5 is the
+    same as socks5h). `https://` proxy (hold TLS with the proxy first) OkHttp does not support,
+    `ProxyAddress.forApp` is false, Mina's own connection is direct, and the settings page states
+    that it is only for containers. Streaming replies are still read paragraph by paragraph, and the
+    agent does not change the reading method. The settings have been changed to `NetProxyStore` and
+    adjusted to `NetProxy.changed()`: re-parse and clear the idle connections of each client
+    (ongoing requests will still be completed).
+  - Account password: The HTTP proxy is `NetProxy.authenticator` (OkHttp's `proxyAuthenticator`).
+    When the proxy returns 407 and before establishing the https tunnel, `Proxy-Authorization:
+    Basic` is provided; if the same request is rejected and is rejected, do not try again. The SOCKS
+    proxy can only pass one `java.net.Authenticator` in the whole process to: `MinaApp`.
+    `NetProxy.socksAuthenticator` is installed at startup. It only answers the query that the
+    protocol is SOCKS and the host port matches the current proxy, and does not answer anything
+    else.
+  - Error report: `HttpSupport` When the connection fails, the request that went through the proxy
+    is classified as `NetProxy.classify` as `ModelError.Proxy` (`ProxyFailure.Unreachable`:
+    connection refused, proxy host not found, connection timeout, tunnel establishment failure,
+    SOCKS handshake error; `ProxyFailure.AuthFailed`: proxy rejected the account password), HTTP 407
+    is also considered the latter; interruption during reading reply is still `Network`.
+    `userReason`, trial call (`ModelSetupViewModel.proxyReason`), and column model
+    (`ListFailure.ProxyUnreachable` / `ListFailure.ProxyAuth`) are all said to be problems with the
+    agent, not the Key or the wrong model. If you cannot connect, you can try again. If the account
+    and password are incorrect, you will not try again, and the model will not be deactivated.
+  - Update download: The system download service (`DownloadManager`) does not use the App's proxy,
+    so when the proxy is set up, `ApkUpdater` is downloaded in the process through the proxy instead
+    of `ProxiedApkDownload` (first write `.part`, complete and then change the name; the process is
+    considered a failure if it is killed, just try again). When installing, `UpdateFilesProvider` is
+    used to give the system installer a read-only address; the verification is the same as before.
+  - Built-in browser (`cap/web/WebProxy.kt`): When WebView supports `PROXY_OVERRIDE`,
+    androidx.webkit and `ProxyController` set the same proxy for all WebViews in this process. The
+    direct connection rule is `LocalHosts.BYPASS_RULES` plus a simple host name; when the HTTP proxy
+    requires an account and password, `WebTab.onReceivedHttpAuthRequest` only answers the host of
+    the current proxy (up to 3 times for each label). When WebView does not support it, or the proxy
+    is SOCKS with account and password (the kernel does not support SOCKS authentication), the
+    browser connects directly, and the line on the settings page states this. The WebView will not
+    be loaded for this purpose when launched without a proxy.
+- **Storage of service provider and model configuration** (`app/settings/ProviderStore.kt`):
+  `Provider` is a connected service provider (id, name, interface type, address, and the most
+  recently listed model), `ProviderConfig` is a model hanging under it (note `providerId`, the
+  interface type and address are copied from the service provider, and the Key is taken from the
+  service provider when building the model). The model configuration is an internal layer of storage
+  that cannot be seen by users: it is created on the spot when selecting a model
+  (`ProviderStore.use`), and is deleted when it is no longer used (every time the purpose is
+  changed, the service provider is deleted, and it is sorted when it is read in; the key is stored
+  according to the service provider, and the key is not changed when deleting the configuration). In
+  `providers.json`, `services` stores the service provider (including the remembered model list),
+  `providers` stores the model configuration, and `uses` stores three choices for use
+  (`{"use":"model","config":<config id>}`, `{"use":"main"}` or `{"use":"none"}`); the Key exists after
+  being encrypted by `KeyCipher` `provider-keys.json`, one copy for each service provider. The old
+  version only has model configuration, and the key is stored according to the configuration id:
+  when reading, it is grouped into service providers according to `ProviderConnection.keyOf`
+  (interface type, address, name), and the key is taken from any item in the group, and then cleared
+  according to the configuration id. The old version of `roles` only remembers the explicitly
+  specified configuration id: when reading, write the allocation that is actually effective at that
+  time as `uses` - if the main model is not specified, take the first configuration. If the main
+  model is not specified, "use the main model" if you can see the picture, otherwise do not use it.
+  If it is not specified, "use the main model" (it is only done once, the migrated one will not be
+  moved, and repeated execution will have no side effects). When deleting the service provider,
+  delete the configuration below it together with the Key, and use its purpose to return to the
+  default (the main model becomes unselected, which is not used when looking at the picture, and the
+  main model is used lightly).
+- **Configuration model page** (`app/ui/ModelSetupScreen.kt`, status is `ModelSetupViewModel`):
+  "Configuration model" and settings › "Model" when getting started (`app/ui/ModelsScreen.kt` Just
+  the same page without guidance) share the page and status, and the user only cares about two
+  parts: purpose (three cards, each indicating what is selected: model name, "main model used" and
+  who the main model is, "not used" or not set) and service provider (one row for each company,
+  indicating which purpose it is working for). When getting started, the service provider comes
+  first. When there is no service provider, the adding form is placed directly on the page. Select
+  the main model in "Next" at the bottom before clicking it; in the settings, the purpose is first,
+  there is no bottom button, and the changes take effect immediately. Add a service provider, select
+  default or customized, fill in the Key and "test and save": first list the model, and then try to
+  call it again after the list is found (or the service does not provide a list) - press the order
+  of `ModelOptions.candidates` (the company's own model first: the model name or display name has
+  the default `ProviderPreset.familyTokens`, such as Tongyi Qianwen's qwen; then list the tools that
+  can be called; In the same file of your own, the latest version in the model name comes first
+  (`settings/ModelOptions.kt`’s `ModelVersion`: `x-3.1-pro`, `qwen3`, `claude-4-5`, `4o` and other
+  version numbers, the parameters and context length at the end of b / k are not counted; the
+  official version of the same version comes first, `latest` alias comes second, `preview` / `exp` /
+  `beta` and so on; if there is no date written in the same file, go first, then press
+  `-2025-08-07`, `-0827`, the newer date is first; if the version cannot be read, go behind the one
+  that can be read; do not comment on which file is better, flash, pro, lite, the same version is in
+  the order of the list; Models from other companies are not arranged by version - the old model is
+  often first in the service provider list, and the old model may have been offline); the rest are
+  in the order of the list; those that clearly say that they will not call tools, such as
+  vector/rearrangement/speech/drawing, are not tried - the `type` in the list and the output mode
+  state that it should be followed (`ListedModel.chat`), but the words in the model name are not
+  written; If there is no candidate, try the first one) Give the model a parameterless tool
+  `get_time`, ask it to call, and reply with an upper limit of 1024 tokens (enough for one tool call
+  together with the thought of the model first); Messages and generateContent are given; Chat
+  Completions are not given, `max_tokens` and `max_completion_tokens` are recognized differently,
+  and the entire request is rejected if the error is given; Responses are not given, the ChatGPT
+  package does not accept `max_output_tokens`), and the real task takes the same path to build the
+  model (`ProviderStore.probe` uses the same `modelFactory`, the request header and session number
+  are the same, and the session number is new), and you have to wait up to 20 seconds (you do not
+  need to go through this form to log in with ChatGPT, do not try: the login itself has been
+  verified); Key No, the missing request header required by the service provider is exposed here,
+  and the error reported by the server is displayed as it is and does not exist.
+  `ProviderStore.probe` returns to `ProbeResult`: the tool call (`ToolCalled`) is returned and
+  passed; I only replied (`NoToolCall`), indicating that the interface is ok, but this model does
+  not call the tool. If it fails, it is a problem with the model itself (it only replies, or the
+  adapter gives `ModelError.ModelNotAvailable`, the account is not opened or does not have
+  permission, `ModelNotFound`, `ToolsUnsupported`) and then try the next candidate, up to 3
+  (`ModelSetupViewModel.PROBE_CANDIDATES`): the passed ones are the main models, and on the page,
+  under the service provider list, say which ones tried first failed (`ModelSetupUi.probeNote`);
+  Even if it fails, it still saves the service provider (the key has been proven to be correct) and
+  the main model. Tell me why the first one failed and what I tried. The next one is "select the
+  main model". This one is recorded as `ModelSetupUi.pickToProbe`. When selecting the main model in
+  it, try calling it first (`ModelSetupUi.probeBeforePick` → `pickManual`). If it doesn't work, tell
+  the reason and don't select it; test again or close it when the main model is selected. The first
+  one failed due to other reasons (Key, network, address, timeout, server error) and is not saved;
+  Subsequent candidates who failed due to other reasons will not be tried again and will not pass
+  the test. The adapter thinks "this model is not suitable" and uses the same
+  `core/model/ModelAccessErrors.kt`: HTTP 400 / 403 / 404 error content contains tools that are not
+  supported ("does not support tools"...), this account cannot be used ("not activated" "not
+  authorized to access this model" "does not have access to the model" "Model.AccessDenied" "not
+  activated" "no permission"..., bring the original words of the server), There is no such model
+  ("model_not_found" "model not exist" "not found for API version" in 400 / 403..., Bring the
+  original words in the JSON error report) These types of statements are given as
+  `ToolsUnsupported`, `ModelNotAvailable`, `ModelNotFound`, and the model has been offline ("no
+  longer available", "has been retired", "model... is deprecated", "offline"...) can also be counted
+  as `ModelNotAvailable`, with the original words; HTTP 429 is only considered `ModelNotAvailable`
+  when it means that this account has a quota of zero on this model ("limit: 0" ""quotaValue": "0""
+  "doesn't have a free quota tier") (it's useless to wait, just change the model, try calling and
+  then try the next one), other 429 is still limited or the quota is used up; the rest are handled
+  according to the status code of each adapter, 401 is always Key For the problem, 404 is given as
+  `ModelNotFound`, and the original words in the JSON error report are also included (not JSON is
+  not included). If the model is not listed (the list interface does not exist, or the list is
+  empty), do not save it directly: the form requires a model name (`AddForm.noList`, the example of
+  the input box is according to the interface type, `ModelSetupCopy.modelExample`), and then use it
+  to try calling, and save it as a service provider that does not provide a list and use it as the
+  main model. If it fails, it will not be saved. There is a "manually filled in model name"
+  (`AddForm.manual`) on the form at any time. It will be automatically expanded when the column
+  model is wrong and there is no hand to fill it in. If it is filled in (`AddForm.typedModel`), just
+  try this one. If the list is drawn (whether it is there or not), if it cannot be listed, or if
+  other errors occur (the Key is wrong, 5xx, the response is not JSON), you can still try it. The
+  conclusion of the trial call has the final say. If it passes, save it together with the list
+  drawn; Those not in the list are recorded as `Provider.typedModels` (save with the service
+  provider, refresh the list without losing it, `ModelOptions.ofProvider` is still listed,
+  `ModelOption.typed` is marked "hand-filled"); when there is no hand-filling, the column model
+  error still says the reason (the Key is wrong, it says the Key is wrong), and does not exist; the
+  adapter gives 404 when trying to call back `ModelError.ModelNotFound(model)`, the form clearly
+  states which model it is and what the model name probably looks like. If it is customized, it also
+  says that the address or interface type may be filled in incorrectly. If the host name of the
+  custom address is the same as a certain preset (`ProviderPresets.forHost`, except for the service
+  you run), you will be reminded to use that default. Just change it and keep the key. If the
+  address is the preset one, but the interface type is different, you will also be told at the same
+  time. The name of the model that was responded to by the trial call is recorded in
+  `Provider.verifiedModels` (saved with the service provider; the old file does not exist, and if
+  the list is not provided at that time, do not try to call it). It has become a common practice.
+  `ProviderStore.connect` saves this company and the list (the same interface type, address, and
+  name are updated as the original one), and the name is the default name; For customized ones, you
+  can give a name in the form (`AddForm.name`, up to `ModelSetupViewModel.MAX_NAME` characters
+  (according to code points, emoji will not be cut into half), do not fill in `AddForm.defaultName`:
+  the host name of the address, the address is a default name preset by a certain company, and this
+  default name is written in the prompt of the input box), the same address is saved with different
+  names (for example, two of the same transfer station) Key), can’t list the reason, doesn’t exist.
+  When you connect to the first store and there is no main model yet, one of its models will be
+  automatically selected. On the purpose selection page (for `app/ui/ModelsScreen.kt`), you can see
+  that there are "Use Main Model" and "Don't Use" at the top of the picture, and "Use Main Model" at
+  the top of Lightweight. All models are listed below by service provider (you can filter by name in
+  many cases). The tags are for reference only, and are not filtered or grayed out. You can manually
+  fill in the model name under each company (the list is not provided, and there is nothing in the
+  list). If you fill it in manually, try calling it first (`ModelSetupViewModel.pickManual`, The
+  main model also needs to be able to call tools), select it only after passing it, Record it as
+  verified (if it is not in the list, it will also be recorded as filled in by hand). If it doesn't
+  work, please tell me the reason below; The rest will take effect and return with one click. For a
+  model (`ModelSetupUi.unverified`) that is in use but has not been verified by a service provider
+  that does not provide a list, the service provider's line reminds "Failed to pass the test", and
+  the details page has "Retest" (`ModelSetupViewModel.retest`). When the model call in the task is
+  404, the failure reason indicates which model does not exist, go to Settings › Model to check the
+  model name or use the corresponding preset; If there are original words in the server-side JSON
+  error report, do not conclude that the model does not exist. Instead, quote the original words
+  ("Server reply:..."), say that the model name may be wrong or the service is temporarily
+  unavailable, and then give the same checking suggestions (remove the last period from the original
+  words in the sentence, and the same is true for the "server description" of ChatGPT quota and
+  subscription level); Please indicate which model cannot be used by this account, go to Settings ›
+  Change the model or activate it in the service provider's backend; if the model does not support
+  the tool, please indicate which one will call the tool (`core/agent/StopRules.kt`'s `userReason`;
+  if these lightweight models are encountered, the main model will be used for the remaining steps
+  of this task). The service provider details (same file) include connection (status, interface,
+  address, Key can be replaced), up to three models (the one in use first, marked for which purpose
+  it is used for) and "View all N models", delete (specify which purposes need to be re-selected
+  before deleting); the search box of the "All Models" page is fixed at the top, and the upper right
+  corner is refreshed and re-listed. Click any model to pop up the "Use" main model/view
+  model/lightweight model from the bottom, and follow the same operation as the selection page. The
+  names, actions and descriptions of the three uses are only written once in `ModelsCopy`. When
+  opening the selection page or service provider page, service providers whose lists have not been
+  remembered (for example, those migrated from old versions) will be listed once.
+- **Token usage** (`core/usage/`): Accounting is done at the source, not by each caller. The models
+  that can be called in the App are only taken from `ProviderStore.modelFor` (`buildModel` is
+  private to it), and they are all measured by `metered` (`MeteredModel.kt`) before going out: the
+  name and capabilities are still the same, exceptions are thrown as they are, and each text is
+  called back as usual; At the end of each call, a record is recorded - the service provider id, the
+  current service provider name, the model name, and the purpose (`UsagePurpose`, which is
+  `ModelRole` when taking the model: "Use the main model" to view pictures, light calls are recorded
+  under the name of view, lightweight), those with usage are recorded as input (including cache
+  hits), output, cache hit tokens, and those that do not report usage or throw errors (including
+  cancellation) only record the number of times, not estimated. Side calls such as main loop, ending
+  judgment, intention judgment, picture viewing, memory retrieval, route matching, skills and App
+  knowledge drafting are all counted; the column model is not a dialogue call, so it is not
+  remembered. The ledger `UsageLedger` is accumulated according to the UTC hour × service provider ×
+  model × purpose, and only exists on the local machine `files/usage-v1.json` (the same as other
+  settings, it is JSON; One copy of the key table, and the rows are compact arrays): accounting is
+  only added in memory, multi-thread safe, the whole copy is written atomically by the background
+  thread in about 2 seconds after the change, and the last few seconds are lost at most when the
+  process is killed; only 400 days are left. Statistics `UsageQuery` is a pure function, and the
+  local time zone is converted during statistics: "24 hours" is the rolling last 24 full points
+  (including the hour at this moment) in hours, "7 / 30 / 90 days" is the local calendar day
+  including today, "custom" is the local start and end dates (both ends included), in days, and more
+  than 45 days in weeks (every 7 days from the first day) Day one grid, `UsageStep`); An hourly
+  bucket falls to the local day according to the time it starts (the day of daylight saving time is
+  still correct). Each grid contains the token of each service provider, which can be stacked and
+  drawn. Each service provider has a fixed order (`ProviderUsage.order`: connected ones in order of
+  connection, deleted ones in the back, according to the earliest accounting time), and the color
+  matching is based on the classification color in the theme (`MinaColors.series` three types, the
+  rest are gray and are classified as "other" in the trend chart). Changing the scope and selecting
+  the service provider will not change the color; the text will always use ink color. If the service
+  provider deletes the history but it still exists, use the name at the time of accounting and add
+  "(deleted)". Purpose is only used as a dimension of storage. The interface does not differentiate
+  between purposes and does not display prices. Settings › Write the total of the past 7 days in one
+  line of "Token Usage"; Click on a page (`app/ui/UsageScreen.kt`, no next level): time (24 hours /
+  7 days / 30 days / 90 days / custom, the bottom line writes the actual range, custom with "change
+  date"), total usage card (always all service providers: big number, input / output / cache hit /
+  number of calls), and then three pictures - "usage trend" (pillars stacked by service provider,
+  legend, Two dotted grid and scale on the right, Click one bar to see the total of this grid and
+  the usage of each household), "By service provider" horizontal bar ranking (for usage and
+  proportion, click on one to select, and then click to cancel. When selected, other companies will
+  fade, and other companies will fade to a quarter in the trend chart), "By model" horizontal bar
+  ranking (the upper row of capsules and service provider rankings are the same choice; I selected
+  only the model of this company, the horizontal bar is the color of its service provider, and the
+  proportion is calculated according to this); the number of times of reported usage and "the number
+  is subject to the return of the service provider" are written in the footer.
+
+## 13. Operation record
+
+Write a record for each run (`app/record/RunStore.kt`): `run.json`, `events.jsonl` and screenshots
+under `files/runs/<time>-<id>/`, and keep the latest 30 times. For event types, see
+`core/record/RunEvent.kt` (model reply and usage, tool results, observation, activity, confirmation,
+takeover, source, compression, outcome determination, etc.); before writing, `Redactor` masks the
+password box input and key-like string. "View Process" on the interface opens the timeline
+(`app/ui/RunTimelineScreen.kt`): the top is the goal, standard, ending, time, number of model calls
+and other details, which are collected in "More Details". The vertical steps
+(`components/StepLine.kt`) are listed below step by step. Click on the step with the picture to see
+the picture at that time. There is a "running process" under the steps on the runtime dialogue page
+of the task: the number is taken according to the dialogue where the card is located
+(`TaskCenterState.run (conversation).runId`, which is the same as `endedRunIds` at the end, and does
+not need to be the number in the external display of the service); the ending at the top of the page
+is written as "in progress", the record is reread every second, the steps are long, and it does not
+automatically scroll to the bottom; there is an end record or the task is no longer there
+(`RunTimelineViewModel`) `alive`, the kind where the process is killed and the record is not
+finished) will stop.
+
+**Verbose Trace** is turned off by default. The debug version and performance test version can be
+turned on in "Settings → Developer Options → Run Recording" and will be collected starting from the
+next task. Turning it off will stop recording. Each main loop request (including retransmission) and
+top-level tool call of the four model interfaces is recorded as a span. In "View Process → Detailed
+Trace", you can compare the first changed block in adjacent requests for the same model. The cache
+usage is not reported and the hit is zero are displayed separately.
+
+- "Save this Trace" exports an OTLP Protobuf file (`.pb`) containing only diagnostic metadata by
+  default. Check "Attach desensitized text" to save the ZIP, which contains the same copy of
+  `trace.pb` and the desensitized text named according to the span ID.
+- Click "Send via OTLP/HTTP" in "Detailed Trace", fill in the complete traces receiving address, and
+  optionally fill in the authentication header. After confirmation, only the default diagnostic
+  metadata of `.pb` is sent, and the authentication value is only used for the current request. The
+  public network address must use HTTPS, and the local machine, LAN IP, and the `.local` name
+  resolved to the local address can use HTTP. The interface displays the receipt confirmation, the
+  number of rejected spans or HTTP errors. After the transmission fails, you can still view or save
+  the archive locally.
+- When encountering "partial record", first look at the `mina.trace.partial_reasons` of the root
+  span. To locate the truncated chunk, look at `mina.block.path` and `mina.truncation.reason` for
+  `mina.trace.truncated` events on the model span. A single run has a body budget of 8 MiB and
+  records a maximum of 1,024 subspans.
+
+The total capacity of the application private archive defaults to 100 MiB and can be adjusted in the
+developer options. When there is insufficient space, the oldest completed archive will be cleared
+first, and the archive that is being recorded or exported will be retained.
+
+**A summary of everything** (`core/record/RunMetrics.kt`): `RunMetrics.of(events)` is a pure
+function, only looking at the events in the running record; the time is calculated from the start
+event (previous loading of knowledge and preparation of the mobile phone are not counted).
+- The total duration reaches the ending event (the last event that has not ended is recorded as
+  unfinished); the ending also has a failure category (`kind` for the ending event, which is the
+  lowercase name of `FailKind`) and an ending that is judged after handing in the answer. Completed
+  = The application was successful (including those that could not be verified), and it was not
+  judged that only part of the application was completed or that it could not be completed.
+- **First Feedback**: From the moment when the user sees the actual progress of this run for the
+  first time - the earliest truly executed model reply is received (`repliedAtMs` of the reply
+  event; the reply with the call is not recorded until it is executed, so the receipt time is
+  recorded separately). At this time, the interface displays its progress description, things to be
+  done or answers; or the earliest activity (the first step is completed when the playback does not
+  go through the model). Replies from lightweight models that have been reassigned are not counted;
+  when responses are displayed paragraph by paragraph, the first paragraph is earlier and there is
+  no record, so it is not counted.
+- **Back and forth with the model**: The number of model reply events (requests from the main loop,
+  including dispatched lightweight model replies); token is the sum of the usage of these replies,
+  and the additional number of times if the usage is not reported. Bypass calls (intent judgment,
+  verification, image viewing, compression) and failure retry without sending reply events: Run
+  `RunUsageTally` into its own coroutine context, and the model applied to `metered` will add a sum
+  for each request, and at the end it will be recorded as `RunEvent.ModelCalls` (all requests, the
+  number of unreported usage and token). The ending judgment and memory retrieval after handing in
+  the answer are outside this context and only go to the Token usage page.
+- **Time direction**: Model thinking is the sum of the request time of each reply (failed requests
+  and back-off before retry are recorded separately); screen reading/operation is the execution time
+  of top-level tool calls (model adjustment, playback), divided according to the type of activity
+  given by the only execution entrance (the risk declared by the tool is read-only, and the rest are
+  operations), and there are no new timing points. The outer call time of a batch of actions and
+  page scripts already includes sub-steps: reads in sub-steps are counted as reads, and the rest are
+  operations and are not counted repeatedly; control calls such as waiting, asking the user, please
+  confirm, and handing over to the user are not counted as reads or operations. Others = total time
+  minus these three items: waiting for user, retry backoff, control call, verification and other
+  overhead.
+- The writing thread of the running record calculates as it writes (`RunMetrics.Builder`, leaving
+  only a few numbers of the results of each tool). When closing, the summary is handed over to
+  `RunMetricsStore`: `files/run-metrics.jsonl`, one per line, leaving only the last 500 copies, and
+  will not be cleaned with the 30 running records; the ending will be added after the judgment.
+  Lines that cannot be read are skipped, and the entire line is replaced when writing. There is no
+  more reading or writing on the main loop.
+- Interface: The top line of "View Process" reads "Total 2 minutes and 13 seconds · 14 times back
+  and forth with the model · 86,000 Tokens · First feedback 3.2 seconds". Click to open the model
+  thinking/screen reading/operation/other time and proportion, input/output/cache hit token, and
+  number of steps (`app/ui/RunMetricsUi.kt`; the writing method of token is the same as the Token
+  usage page). Developer Options › "Run Statistics" calculates the completion rate, time and first
+  feedback based on the last 10 / 30 / 100 times or all, the average number of round trips and
+  tokens, and the time direction (`RunStats`). You can copy or share the summary of these times into
+  JSON.
+- The "Export Usage Records" in "View Process" saves this round of usage details (JSONL) through the
+  system file selector, and is also applicable to old records that are still retained. Each
+  `model_reply` retains the step number and original Token count, and multiple replies for the same
+  step are listed one by one. The input contains cache hits, missing counts indicate unknown. The
+  `compressed` event retains the time and `foldedSteps` in the original order, and the old record
+  does not give it a separate step number. `model_calls` is the total total including bypass calls.
+  Export only takes the diagnostic field, and the lines that failed to parse are marked with
+  `unreadable_event` with the original line number.
+- Evaluation: `Observed` for each question is accompanied by `RunMetrics` and `EvalReport`. There is
+  an additional section "Running Summary" (summary and one line for each question), and the result
+  directory is written as `metrics.json` (`EvalReport.metricsJson`).
+
+## 14. Prompt words
+
+The fixed text seen by the model is all in `core/src/main/resources/prompts/`, and the layering and
+rules can be found there. `README.md`: `system/` (identity and general criteria), `capabilities/`
+(one paragraph for each ability, only spell it in after the set of tools is expanded), `tools/`
+(description of each tool), `entries/` (short description when the entrance tool is collected in
+that group), `feedback/` (feedback of tool results and main loop), `roles/` (internal roles such as
+verification, ending judgment, memory retrieval, skill draft, etc.). The system prompt word is
+spelled by `SystemPrompt` (`core/agent/SystemPrompt.kt`) at the beginning of the task, and is only
+re-spelled when a group of tools is expanded (paragraphs are in a fixed order); all text has a gold
+sample test, and the full picture and size of the four situations of closed, mobile phone only, web
+page, and fully open are in `prompt-surface/layers/`.
+
+## 15. Interface and Visibility
+
+- **Style**: Color (light and dark sets, follow the system), font size, size, rounded corners, and
+  animation duration are all tokens, in `app/ui/theme/` (`MinaTheme`, `Colors.kt`, `Tokens.kt` of
+  `Theme.kt`); line icons are in `app/ui/theme/Icons.kt`; common components such as group cards,
+  list rows, switches, buttons, top bars, and glass input fields are in `app/ui/components/`. The
+  page only selects colors and components from here, without writing dead color values. The
+  background of the glass input field is blurred starting from Android 12, and earlier systems use
+  an opaque background.
+- **Navigation** (`app/ui/MainActivity.kt`, `app/ui/Navigation.kt`): The dialogue page is the root
+  page, and the other pages (settings, models, memory and skills, scheduled tasks, browsers, running
+  processes, sources, mobile operation guides, welcome and configuration models for getting started)
+  are pushed into the page stack `NavStack`, and the return key and the return button on the page
+  return to the previous page (entering from the sidebar returns to the open sidebar, entering from
+  settings returns to settings). Each page is entered and exited only through callbacks.
+- **Sidebar**(`app/ui/ChatDrawer.kt`): The menu in the upper left corner of the conversation page
+  slides out from the left. The top is the logo, Mina and ready status; the entrance includes new
+  conversations, scheduled tasks, memory and skills, browser, and settings; the bottom is "In
+  Progress" (the current conversation and other conversations with tasks running can be cut through
+  in parallel; "Backstage Screen ›" on the right side of the section title to enter the background
+  screen page `app/ui/ScreensScreen.kt`: One card for each running task, write what it is doing,
+  which App it is using (the connected built-in assistant rechecks the top App every time the task
+  does something, without polling), status, click on the card to return to its dialogue, "View
+  Screen" to expand the real-time screen in the card (only subscribe when expanded, reuse the speed
+  limit of the capsule), click on the screen to enlarge to the full screen, pinch and zoom; Do not
+  write things such as screen numbers and pixels for development; the data is taken from the own
+  stream of each task and can be seen on screens that are not displayed in parallel), "pinned"
+  (pinned conversations, the most recently pinned first) and "recent" conversations
+  (`drawerSections`); Each conversation is only listed in one paragraph: the pinned dialogue has
+  tasks listed in progress (also with pushpins) when running, and returns to the top after running.
+  Other dialogues and tasks have small dots on the menu buttons during runtime. Long press a saved
+  conversation (vibrate it; it is "Conversation Operation" in accessibility) to pop up the menu in
+  place (`app/ui/ConversationMenu.kt`'s `LongPressMenu()`, long press the message on the
+  conversation page also uses it): the entire screen becomes dark, and the subsequent conversation
+  page and sidebar are still blurred in Android 12 (earlier systems only dimmed); The row was
+  "raised" from its original position into a slightly enlarged, shaded white card (the content is
+  the same as the row in the side column), followed by a narrower, left-aligned white card, followed
+  by "pin to top" (pinned to the top is "unpin"), "rename", and red text "delete", with text on the
+  left and icons on the right, with thin lines separating items. If it cannot fit at the bottom (the
+  row is near the bottom and the keyboard is playing), place it on top of that row. If it cannot fit
+  on both sides, move the row up and connect the menu below without going beyond the status bar,
+  navigation bar and keyboard (`placeMenu`). Click outside and press return to collapse (play the
+  animation that appears backwards); when the animation is turned off, the appearance and collapse
+  will be directly in place without scaling. When the menu is open, the content behind it is not
+  accessible. The menu has a panel title of "dialogue operation" and "collapse" operation. Each item
+  can be focused and the name can be read. The menu is drawn on the same layer as the dialog page,
+  covering the entire screen. Press and hold the position of the line in the window to position it.
+  New conversations that have not yet been saved to the list will not respond to long presses.
+  **Rename** An input box pops up, which contains the current title (select the entire paragraph).
+  Remove the blanks at both ends and save. The empty ones cannot be saved; write `.title`
+  (`ConversationStore.rename`, change regardless of whether there is a title). The created title is
+  only written when there is no title yet (`setTitle`), so even if the title is set late in the
+  background, it cannot cover the name changed by the user; the sidebar and the "Continue "..."
+  Chat" on the top of the floating capsule card are all replaced with the new name
+  `ConversationStore.changes`. **Pinned** Write `.pin` (pinned time, `ConversationStore.setPinned`),
+  cancel pinned to delete it; the conversation list contains pinned time
+  (`ConversationSummary.pinnedAt`), the modified time of the conversation is not changed, and it
+  returns to the original position in "Recent" after canceling; there is a small thumbtack in front
+  of the pinned title. Deleted conversations will no longer be renamed or pinned to the top.
+  **Delete** pops up to confirm "Delete this conversation?" and indicate the title of the
+  conversation; It indicates that tasks will be stopped when running or queuing, and when bound to
+  scheduled tasks, it indicates that several items will be deleted together; the red words on the
+  right are "Delete" and the left are "Cancel" (the same as the confirmation of deleting things
+  elsewhere). When the conversation cannot be changed (the task is in progress and parallelism is
+  not enabled), it cannot be opened. However, it still works if you press and hold it (the
+  instructions are written above the first saved conversation). After confirmation, it will no
+  longer be listed on the sidebar (`ChatViewModel.deleted`). What is deleted is that the dialogue on
+  the screen will be replaced with a new empty dialogue, and the task will no longer be followed;
+  The rest is done by `ConversationDeleter` (`app/chat/ConversationDeleter.kt`) in the background:
+  first delete `trigger.threadId`, which is its scheduled task (preventing them from starting new
+  tasks), then use `TaskService.cancel` to stop all its running and queued tasks and wait for it to
+  finish (up to 15 seconds, the "stopped" round saved at the end is also within the deletion range),
+  and then delete its workspace (attached) `inbox/`, the screen sent by the user `screens/`, the
+  file written by the task; Delete by handle, do not follow the link, hold the sharing permission of
+  the tree lock, and reset the mutex), and finally delete the session file
+  `ConversationStore.delete`, `.title`, `.pin`, half-written temporary files, and damaged files
+  moved aside. The supplementary writing that comes later (the title created in the background, the
+  ending and explanation after the closing) will not be written back; if someone adds another round
+  to this number, it will be considered as starting over, and the side column will be relisted.
+  Running records (running processes, running statistics) are global and will not be deleted; files
+  exported to the download directory belong to the user and will not be deleted.
+- **Conversation page**(`app/ui/ChatScreen.kt`, text in`app/ui/ChatCopy.kt`): The top bar is "Mina"
+  and what you are doing at the moment (which app is being operated / waiting for you to handle),
+  and a new conversation in the upper right corner. The empty conversation is a greeting and a list
+  of examples by time period, which can be sent directly after clicking. The task in progress is a
+  line of status (circle, current progress, time) plus a vertical line step (a small arrow on the
+  right side of the step with specific actions. Click on it to list the things to be done in this
+  step one by one under the line: the interface statement of the action · object · result is the
+  same as the running process page.`Exchange.stepActions`; does not show the tool name and error
+  code), when operating the phone in the background, there is a line of small words below; when you
+  are asked to process (take over, question, confirm, pause, lock screen, blocked), the progress
+  stops at the current step (orange dot, "paused"), and there is a white card below to write down
+  what you are asked to do and the button. After the process is completed, the process will be
+  harvested with a line of "N steps taken · time taken · view process" (enter the timeline). The
+  answers are arranged in Markdown on a very light gray background (lower left corner, symmetrical
+  with the user's blue bubble). Below are the "source" capsule (click to see the original text and
+  screen) and the file card. Long press a message (a completed answer, a reply that has been
+  finished before interjecting, an explanation after stopping, or the user's own blue bubble;
+  vibrate to see the "message operation" in the accessibility) and an in-place menu that looks the
+  same as the sidebar will pop up (`ChatCopy.actionLine`, see the sidebar below; the dialogue page
+  is in`LongPressMenu()`): The back is darkened (it’s still blurry since Android 12), and the
+  message is raised into a shadowed one (the answer is a white card, and the user’s words are still
+  blue bubbles; a very long answer only raises the first half of the screen), below it is “copy”,
+  “quote” and “select text”, the user’s words are to the right, and the menu is also to the right.
+  **Copy** Put the entire plain text into the clipboard and prompt "Copied": Answer and remove the
+  Markdown symbol (`app/ui/MessageMenu.kt`: Paragraphs, titles, and codes should be as they are in
+  the original text. Each line of the list should be marked with "•" or "1.". Each line of the list
+  should be marked with ">". Table grids should be separated by tabs (no separators). Remove
+  attachments, screens, and quoted lines from the user's words; the above "Failed to Verify" prompt,
+  source capsules, file cards, photo grids, and viewing processes are not counted. **Select text**
+  Let that one be changed back`MarkdownModel.toPlainText`(A reminder: "Long press the text to
+  select"): Press and hold again to see the system's selection handle and copy bar. You can select
+  only a paragraph; it will remain like this until you change the conversation, and other messages
+  will still pop up the menu. The part where the answer is growing or interrupted by the
+  interruption cannot be selected without popping up the menu. The selection handle is in a separate
+  pop-up window, and dragging the handle will not bring out the sidebar; the movement after long
+  pressing and dragging is consumed by the selection, the horizontal swiping of the sidebar and the
+  vertical scrolling of the list will not follow, and the horizontal swiping and vertical scrolling
+  without long pressing will still be the same. Click the link in the answer as usual. **Quote** Put
+  the plain text of that article into a small strip above the input field (a blue line on the left,
+  up to two lines, × "Remove Quote" on the right,`SelectionContainer`), it will be sent with the
+  next sentence, and the bar will disappear after it is sent; it will be cleared when changing
+  conversations or starting a new conversation; it will not be sent when there is only a quote but
+  no words (it is OK when attaching it). The quote is written at the beginning of the user's
+  sentence (`ChatUi.quote`): The first line indicates who is
+  quoting,`core/agent/QuoteMessage.kt`(Mina's answer) or`> [Quoting your earlier reply]`(The user's
+  own words), then each line begins with ">" and is the quoted content (up to 1000 words, cut off
+  more and add "..."), followed by a blank line is what is said this time, and the attachment line
+  is continued at the end as before. Save this sentence as it is`> [Quoting my earlier
+  message]`(Interjection into`Turn.userText`), hand over the task, and do not add new fields: new
+  tasks, interrupting (the task is running), and answering questions are all the same. The model
+  directly sees what is quoted, and the text of the previous round is also included; if there is no
+  such line in the old dialogue, it is displayed as it is. On the conversation page, draw the
+  quotation as a small area of light color (maximum two lines) above the bubble. This sentence
+  should be called without quotation in the conversation title, sidebar, and notifications
+  (`Turn.steers`). The card of the floating capsule does not do these things: it is in a
+  barrier-free floating window and does not usually grab the focus. The selection handle and system
+  copy bar cannot be removed there or are unreliable; the sentence on top of it calling the task
+  also has no reference. The input field is a glass capsule. You can enter as usual during the task
+  as an interruption (gray text in the input box). The rounds on the screen start
+  with`ChatCopy.plainTitle`Whichever one is saved shall prevail: whichever dialogue it has written
+  is in`ScreenCopy.plain`Send the number of that dialogue, no matter who wrote it (here, suspended
+  capsule, timed task);`ConversationStore`When you receive the dialogue on the screen, reread it,
+  merge it with the rounds you have followed here according to the running number (use the copy
+  here, with steps and times, no repetition), leave the question and answer you are following at the
+  end; when the sidebar is open, also reread the dialogue list with it. When the conversation page
+  is visible again (return to the front desk, come back from other
+  pages,`ConversationStore.changes`) and add it again, and connect the tasks that were started
+  elsewhere in this conversation and are not being followed here (in the original words, use the
+  task itself, and if it is inserted elsewhere, it will also be hung up); there is no need to wait
+  to return to the front desk, and the tasks started elsewhere in this conversation on the screen
+  will be connected as soon as there is a state, and the words and steps will be there when running.
+  The service registers the task in the task list (`publishRuns`) before showing it (`TaskRun.show`),
+  so the original words are already available when the UI receives the status; if they are not
+  available yet when attaching, they are filled in as soon as the task list updates. With the
+  parallel switch off, the UI also identifies tasks by the conversation id carried in the status, so
+  tasks from other conversations are not attached to the conversation on screen; when the service
+  switches to showing a task that just started in another conversation, the task being followed here
+  is shown again by the service.
+- **Attachments to the dialogue page** (`app/ui/ChatAttachments.kt`, `AttachSources.kt`, pure logic
+  is in `AttachmentMessage.kt`, attachment line is written in `core/agent/AttachmentLines.kt`):
+  Click the "+" on the left side of the input field to open the panel below the input field, which
+  occupies the keyboard position and is as high as the keyboard (use the default height if you have
+  not seen the keyboard). Open the panel to close the keyboard, and then click "+" (convert to ×) or
+  click the input box to close it and switch to the keyboard. When the two are swapped, the input
+  field will not jump up and down; return to the close panel first. There is a row of cameras on the
+  top of the panel (the system camera takes pictures, and the photos are first written to `camera/`
+  in the cache, no camera permissions are required), albums (system photo selector, no permissions
+  are required), files (system file selector), and the four columns below are "recent photos" (newly
+  added photos in the media library are first, and thumbnails are read in the background according
+  to grid size). The permission to read photos is asked once when opening the panel for the first
+  time (photos can be read from Android 13 onwards, only some photos can be given since Android 14,
+  and external storage can be read from Android 12 and earlier); when it is not given, there is a
+  description and "Allow access to photos" (go to the App information when you select not to ask
+  again). When it is only partly given, the given permission is listed, and the range can be changed
+  next to it. The selected photos have serial numbers, and there can be up to 9 photos and files
+  together, hanging in a row above the input field (photo thumbnails, file cards, × removed); you
+  can send if there are words or attachments, or you can send only attachments. Copy them into the
+  conversation workspace `/workspace/inbox/` (`Attachments.importInto`, each no more than 200 MB as
+  before) when sending. Each line at the end of the message "Attachment: <path> (<size>)" is handed over
+  to the task - the model still gets these lines of path, and the picture is still given to the
+  picture by the sandbox file reading tool; the attachment needs to be sandboxed, and there is no
+  "+" when the device does not support sandbox. According to these lines, the conversation page
+  draws the user's messages into a photo grid (one large picture that maintains the proportion, two
+  pictures side by side, three pictures in three columns) and file cards (the type corner, name, and
+  size are colored according to the extension). When writing, a new bubble is opened, and the lines
+  of the path are not displayed; the messages in the old conversation are also drawn in the same
+  way. When clicking a photo or card, copy a copy from the workspace (via the file gate) to
+  `viewing/` in the cache, and hand it to the file viewing page (pictures can be zoomed), and hand
+  the unseen types to other apps; these two cache directories are given content:// addresses by
+  `AttachFilesProvider`, and are not exported to the outside world. They are temporarily authorized
+  when used, and the workspace itself is not open. The conversation title and the message with only
+  attachments in the side column are called "photos", "3 photos", "contract.pdf" and the like
+  (`ChatCopy.plainTitle`). The Suspended Capsule card remains unchanged.
+- **Camera declaration and refresh rate** (`AndroidManifest.xml`): The camera accessory is the
+  system camera. It is declared in the manifest that the camera is used, but it is not required
+  (`required="false"`). Devices without cameras are installed as usual. Some systems classify
+  applications according to APK characteristics. If not declared, Mina may be regarded as a game and
+  the refresh rate may be limited, so this statement should be kept, and `ManifestProvidersTest`
+  will guard it.
+- **File View Page** (`app/ui/viewer/FileViewerActivity.kt`, the interface is in
+  `FileViewerScreen.kt`): Click the file card in the conversation to view it here. A single Activity
+  can also be opened with `FileViewer.open` elsewhere. The type first looks at the MIME given by the
+  content provider, and then looks at the extension (`ViewerKinds`, `app/ui/viewer/ViewerKind.kt`)
+  if it is not recognized: the webpage uses a new WebView (script-opened, zoomable, does not go
+  through the web browser); Markdown uses the same `MarkdownText` in the dialog; PDF uses the
+  system's `PdfRenderer` Draw page by page according to the screen width, only the visible pages are
+  drawn, you can zoom in and out with two fingers, and the page number is displayed at the bottom;
+  the picture is spread proportionally and can be zoomed and dragged; the text is displayed in the
+  same width and can be selected. Text and Markdown can read up to the first 1 MB. If it exceeds the
+  limit, a sentence will appear saying "The file is large, only the first part is displayed." On the
+  right side of the top bar are "Share" and "Open with other apps"; if you can't read it, say
+  something and say "Open with other apps". Other types do not enter this page and are directly
+  handed over to the system selection panel.
+- **Small screen** (`app/ui/AgentPip.kt`): A small draggable floating window on the conversation
+  page. It usually stops in the lower right corner and above the input field. It displays the
+  virtual screen or web page that Mina is operating in real time (you can only watch the operation);
+  the thin green border means that he is working, and the orange breathing light means that he needs
+  you. It is a floating layer within the app, not system picture-in-picture. The webpage screen
+  comes from the current tag hanging on the webpage display; when the webpage is only read in the
+  background temporary tag (`web_read_page` with address), there is no tag on the webpage display.
+  `TaskRun` and `WebPreview` are not included in the webpage (`webOpen` is false and the screen is
+  not placed). The small window does not appear because of this. The floating capsule is also
+  displayed as a dialogue card. Once the visible page is opened, it will be displayed as usual. On
+  the mobile phone, the creation of the virtual screen does not mean that there is a picture: the
+  task screen that only uses system commands and event tools is empty, `TaskRun` is set when the
+  target app is opened on the screen for the first time, `appShown`
+  (`TaskEnvironment.agentAppShown`), and the small window appears by pressing
+  `TaskEnvironment.previewOpen` (the app has been opened or the built-in browser is used), and the
+  entire task will not be black. After expansion, "This task will no longer display the small
+  screen" in the upper left corner (`ChatViewModel.closePip`, `PipUi.closed`): before the end of
+  this task, there is only a small "Show Screen" button in the lower right corner, click it and open
+  it again (`reopenPip`); clear it when changing to the next task or connecting to another task.
+  When it is turned off, the takeover will not automatically expand when it is started; when you are
+  asked to deal with it, the small button turns into an orange breathing "Waiting for you to deal
+  with", click it and scroll to the card you want to deal with. There is no setting switch; I want
+  to see all screens and go to the background screen page of the side bar.
+- **Suspension Capsule**(`app/capsule/`): When the user is in another app, a Mina icon floats in the
+  upper right corner of the screen and below the status bar, telling you the most important thing in
+  the background at the moment; it is usually just a capsule (about 40dp), which expands into a line
+  of text when it has something to tell you. Accessible service paintings on the floating floor
+  (`app/cap/phone/a11y/OverlayHost.kt`: Accessible floating layer window, do not have "display on
+  top of other applications" permission; equip Compose with life cycle, state saving and ViewModel
+  host outside of Activity; usually do not grab the focus, but can be switched to receive the
+  keyboard when typing; when the service is disconnected`ScreenAccessibility`Remove the window it
+  added; if it cannot be added, it will return empty and no error will be reported). Show what is
+  shown by pure logic`CapsuleModel`Fixed: The switch is off, the accessibility service is not
+  available or the overlay cannot be drawn, Mina's own interface is in the foreground
+  (`AppForeground`number of visible activities), the screen is off or locked (`DeviceStateWatcher`);
+  otherwise it only says one thing according to the priority - you are working on it (the App has
+  been moved to the home screen, with a line "You handle it · Don't do it · Processed" in the middle
+  of the top, and the two buttons are to cancel the task and return it), you need to take
+  over/agree/answer, waiting for conditions, working, done/not done/stopped. The status on the
+  stone: when working, a blue arc in the outer circle rotates (it is a full circle when the
+  animation is turned off), a gray circle for waiting conditions, and the whole stone turns orange
+  when you are asked to handle it, the outer circle exhales and inhales, the number of items is
+  written in the corner when there are several tasks, green ticks are completed, and gray corners
+  are marked for not being completed and stopped. There is nothing when idle ("always displayed" and
+  no tasks); when you change a step during work, it will not start. There are only two times when it
+  is expanded into a capsule: there is something for you to deal with, but you have not seen it in
+  the card (it stays there, without shrinking or fading, until the card is opened or the thing no
+  longer needs you; the few things you see when opening the card - the same thing, the same waiting
+  - are recorded as seen, and then returned to the orange one, and a new one comes or another waits
+  before expanding); It disappears after 10 seconds, and returns to the icon when "always
+  displayed"; what you have seen in the card is directly a star; when the conversation is deleted,
+  the one it just ended disappears immediately, and the card no longer continues it). When there are
+  several things, write "N items in total" on the capsule. If there are things that you need to deal
+  with, write "1 item that you need to deal with · 2 items in total"; use the text
+  first.`Running.narration`,reuse`reason`, playback and batch execution are written as "Follow the
+  route 3/7" (when reading the screen, the saying is`CapsuleCopy.describe`, such as "Mina is
+  working:..., click to see details"). Each sentence in the same thing and in the same state should
+  be paused for at least 1.5 seconds (only the last sentence is left during this period). The
+  capsule will only become wider but not narrower. It will only be re-set when the state is changed,
+  expanded or retracted; the maximum width of a line is 60% of the screen. The capsule and the
+  capsule have the same base, and the width slowly changes between the two. The icon stays on the
+  side where it is docked (change it directly when the animation is turned off).`CapsuleContent`It
+  is a capsule interface without state.`CapsuleController`Connect task status, switches, front desk,
+  screen and services to the model, and add, move and remove windows according to the results. Click
+  one or the capsule to expand the card (`CapsuleCardContent.kt`, without state; content consists of
+  pure logic`CapsuleCards`Set, see`app/capsule/CapsuleCardModel.kt`): The card only says one thing,
+  there is no list, and there is no switching in the card: the task of the conversation that has
+  just been sent in the card is first (so that you can see the answer), otherwise the tasks that you
+  need to deal with (take over, agree, answer), in progress, and just ended are taken first; there
+  are other things at the same time, go to Mina's dialogue page to see. The selected item is
+  selected according to its current status (do not click on the past): it is not over yet, and it is
+  currently operating an app or web page (it has its own virtual screen).`TaskRun.displayId`, or
+  using the built-in browser`TaskRun.webOpen`) are task cards, others - pure chats, those that have
+  ended (including those who have operated the app and responded to the call after completing the
+  task), and when you are free - are all conversation cards (`CapsuleCards.taskCard`). The tasks in
+  the task card are the most recent three steps (the steps are the same as those on the dialogue
+  page.`ChatViewModel.reduce`), time used; the task is still in progress (working, Mina When asking
+  you, waiting for conditions), stop is the black stop button on the right side of the input box
+  like the input field on the dialogue page; why do you want to take over (list the goods, amount,
+  and address when paying), I will handle it (bring the number you are waiting for this time, the
+  same as the one on the notice), stop, when you are behind other takeovers, write "First handle the
+  takeover of the other item, and then deal with this one." If you don't let me handle it, if you
+  are at the front and behind, write "After handling this, there are N Files are waiting for you"
+  (the ones read one after another are shared by several tasks)`TakeoverQueue`, read it again as
+  soon as the queue changes; among the items that are equally important, mention the ones at the
+  front of the queue first, and the next item will immediately become "Need You" on the capsule
+  after the previous item is returned); you are required to agree to the same set of words and
+  declaration number as the confirmation card on the dialogue page, agree/disagree, and "allow this
+  task" and "allow in the future", and the bottom line operation is only for "agree only this time";
+  Mina When asked, if you give the option, list it as a button (as an answer); wait for the
+  conditions to say why, and continue if you can continue; and at the bottom is "Go back to Mina to
+  see the complete process." Conversation cards are the back and forth of that conversation
+  (`app/capsule/CapsuleThread.kt`of`CapsuleThreads`Row,`LazyColumn`Drawing): the same record as the
+  conversation page (`ConversationStore`The recorded turns are followed by the unrecorded tasks at
+  this moment in this conversation (delegate by running record number). What you said is the small
+  bubble on the right. Mina’s answer is the full text with the mark removed
+  (`CapsuleCards.answerText`), the old one is on top; the reply interrupted by the interruption is
+  arranged in front of the interruption like the conversation page, with a light color and a line
+  below "Interrupted by your new message"; the reply that has been finished before the interruption
+  is also arranged in front of it, as the answer looks like; the interruption that has not yet been
+  handed over to the model is arranged after the answer being written; the round of operating the
+  app or web page (read its active objects from the running record of that round, and the records
+  that have been cleared are treated as pure chat) only receive one line "✓ Shopping · "It's done"
+  "12306 · Not done" and then answer the question without putting the steps, pictures and sources;
+  in pure chat, the words will grow when you answer. There is a stop button on the right side of the
+  input box. When you answer and agree, the question is in the back and forth, and the button is
+  fixed at the bottom. The last 10 rounds are sorted first, then scrolled to the top and then 10
+  rounds forward (each key is determined by the running record number, and the list stops at the
+  same place); when opening, the latest sentence you said stops at the top of the visible area, and
+  the words that go down only follow you down when you are at the bottom (same as the conversation
+  page). Below is the input box and "Return to Mina". All buttons go`TaskService`Existing actions
+  (cancel, continue, take over, answer, agree, disagree), with the task number of that thing;
+  "Return to Mina" is the same entry as the click notification`TaskService.openAppIntent`. Click
+  outside the card, close the button or go back to retract it into one (it is a capsule when there
+  are still things you have not seen yet that you need to deal with); when it is unfolded, the model
+  stops the watch, and the result the user is looking at will not be taken away. After it is put
+  away, the remaining time is continued; when the App is handed over to you, the card is put away
+  and replaced with the one at the top. The card and the card are each in a floating window, waiting
+  for their respective positions (the card is empty when folded and has no size): when expanded, the
+  card zooms in and fades in from the position of the card in its own window (about 240
+  milliseconds; wait for the cards to be arranged before starting, before starting, the card is
+  still in the same place), and the window of the card becomes empty; when the card is retracted,
+  the card retracts to the position of the card, fades out, and the card pops up on the edge at the
+  same time (all in`app/capsule/CapsuleCardContent.kt`In the same animation, only the layer is
+  moved, and it goes directly to the position when the animation is turned off). Do not allow a
+  window to move back and forth between two places, because Android will animate the simple movement
+  of the window into a sliding animation; nor change the window size frame by frame (every time the
+  window is changed, it must be rearranged and the canvas is changed, one card at a time). The width
+  between the capsule and the capsule only changes during drawing: layout it to the wider one
+  between the two, and then shrink it after drawing. When I am working, I want you to take over, and
+  when the conditions are met, a small virtual screen will appear on the left (that is my
+  own`TaskRun.frames`: The mobile phone is a frame of the virtual screen, and the web page is a
+  frame of the built-in browser, which is the same source as the picture-in-picture in the
+  application; tasks without pictures will not be released), and will only be collected when the
+  card is expanded and looking at that thing, at most 5 pictures per second, and the same as the
+  previous one will not be pushed (`previewFrames`,exist`app/capsule/CapsulePreview.kt`); Click to
+  enlarge, click again or click outside to return. The capsule can be dragged (`OverlayHost`The
+  window is arranged according to the entire screen and is only as large as the content. Drag on the
+  root of the window according to screen coordinates. It is not dragged until it exceeds the touch
+  threshold. The button pressed will be canceled and will not be regarded as a click.), let go and
+  paste to the nearest left or right (12dp away from the edge, avoid the status bar, bangs and
+  bottom gesture bar, the range is`OverlayHost.area`(Read the system column); which side to stop and
+  the proportion of the height to the swingable range are recorded in`FeatureFlags`, and put it back
+  in proportion next time and after the screen is turned; the "You handle it" is in the center of
+  the top and can only be dragged up and down. The width of the card remains unchanged and the left
+  and right are centered. The height of the dialogue card is fixed and does not change with the
+  content: 58% of the screen height. When the input method pops up, it is placed above it (the
+  middle section becomes shorter, but the input box is still visible); the task card is as high as
+  the content, and no space is left below. The middle section takes the height of the small picture
+  on the left (according to the aspect ratio of the picture) and the text on the right. When there
+  is no picture, it is as high as the text on the right, and the highest is the same as the dialogue
+  card. Longer text rolls in the section on the right. If the two cards cannot fit in the middle,
+  they are rolled inside, and the buttons and input boxes are fixed below. The position of the card
+  is recorded as above: the proportion of the upper part in the placeable range (the range is
+  calculated based on the tallest card, and cards with different heights are aligned at the same
+  proportion), the upper part does not move when the card is changed (task cards and dialogue cards
+  are exchanged) or the content becomes taller or shorter, and it is in place in one fell swoop (the
+  window only changes once with the size of the content, not frame by frame). When it cannot be
+  placed down (gesture bar, input method), move it up until it is just right. Drag the card up and
+  down according to the title bar (`OverlayWindow.draggable`Give a handle, you can drag it only when
+  you press it, and the up and down slide in the middle is scrolling; it is also dragging when you
+  move it past the touch threshold, and the close button will not be clicked). Let go and clamp it
+  within the status bar, bangs and gesture bar. The above proportions are recorded
+  separately.`FeatureFlags`(In the past, the ratio of the fixed height card was exactly the ratio
+  above it, so it can still be read). Next time you expand and rotate the screen, press it to move
+  it back. Algorithms are pure
+  functions`CapsuleDocking`and`CardDocking`(exist`app/capsule/CapsuleDock.kt`). When reading the
+  screen, there is an additional "Move to the other side of the screen" function on the capsule
+  instead of dragging. The buttons, small screens, folding and returning of the card have
+  instructions. There is an input box at the bottom of the card (not available when you are asked to
+  take over or agree): when running and waiting for conditions, it is "Supplement or change the
+  request...", and leave it to that thing (the same way as inserting during the dialogue page
+  task,`TaskService.start`Bring the number of this sentence); when Mina asks you, it is "Answer
+  Mina..." (the option button remains); after the completion, it is "Continue..." and continue in
+  the same conversation; when there is no task (the switch is "Always display"), click the Mina icon
+  to see an idle conversation card: continue the conversation the user is currently in the App
+  (`ConversationStore.current`,Depend on`ChatViewModel`When opening a new conversation, switching
+  conversations, or speaking in a new conversation, choose Pure Logic`CapsuleIdle`Here: When there
+  is no record, continue the most recent one. The newly opened dialogue that has not yet been spoken
+  is a new dialogue; the dialogue it is in has priority over the results of other dialogues that
+  have ended and are still pending); top "Continue «<latest conversation title>»" and "Chat · New Conversation", in the middle
+  is the back and forth of that conversation (it is empty when it is a new conversation), and the
+  input box is "What do you want Mina to do?". The latter two are the same as sending a task in the
+  conversation page (recorded in that conversation; other tasks are queued during running and will
+  not be lost). After that, the card follows the task of that conversation, and the answer grows in
+  the conversation card; when the app is opened, it is replaced by a task card. The input box is
+  usually just a line of prompts. Clicking it allows the floating layer to receive the keyboard
+  (`OverlayWindow.setFocusable`), send, close, click outside, and return immediately when pressing
+  return; get out of the way when the input method pops up (the position of the input method window
+  is determined by`OverlayHost.imeTop`Read from the accessible window list, re-read as soon as the
+  window changes, no matter which app the input method is played against): the cards, bullets and
+  expanded capsules are moved to it, and the input method is retracted and returned to its original
+  position. If you don't touch it for 3 seconds, one will fade to about 40% (the outer ring and
+  corner markers remain solid color), and it will be restored immediately if it is touched, dragged,
+  or the status or number of items changes; the unfolded capsule requires you to handle it, and the
+  "You handle it" item does not fade with the card (the rule is pure logic`CapsuleFade`). When
+  turning the screen, reposition according to the noted side and height ratio; no special treatment
+  is required when playing in full screen. The switch is in Settings › "Suspension Capsule"
+  (in`app/ui/SettingsSubPages.kt`): Close / Show when there is a task / Always show (default, you
+  can double-click the capsule to display this screen at any time), exists`FeatureFlags`; For those
+  that have not been selected (including those upgraded from old versions), press the default.
+
+- **Screen at the moment** (double-click the capsule): Double-click a screen or capsule to send the
+  screen the user is looking at at the moment to the conversation in the card that will be expanded
+  by clicking; then it is exactly the same as sending a sentence in the card (interject while
+  running, answer when Mina asks you, continue talking after finishing, continue the latest
+  conversation or open a new conversation when free, the same `CapsuleController.submit`), and then
+  expand the card to see the answer. Clicking will not expand until Android's double-click time
+  limit (`ViewConfiguration.getDoubleTapTimeout`) passes. The judgment of single-clicking and
+  double-clicking is purely logical `DoubleTap`; there is also "send the current screen to Mina" in
+  the screen reading software. When the card has no input box (requiring you to accept and agree),
+  there is no place to send it. Double-clicking is the same as clicking. Displaying or disabling the
+  capsule still follows the switch of the floating capsule, and there is no other switch; the
+  capsule is not there when Mina is in the foreground or locks the screen. There is a screenshot
+  button on the left side of the card input box: take a screenshot and hang it on the input box
+  (thumbnail, "your screen at the moment", App · time, × do not want), you can add a sentence and
+  then send it, just sending it is the same as double-clicking it. Screenshot: Do not dismantle the
+  floating layer window, only hide the content inside (`OverlayWindow.hiddenWhile`), wait until the
+  hidden frame is drawn and handed over to the system (frame submission callback), and then two
+  refreshes (the synthesizer replaces it) before taking a screenshot; When the input box of the card
+  is open, close it first and wait for the input method to exit. Use the accessibility service
+  `takeScreenshot` to take a screenshot of the home screen
+  (`ScreenAccessibility.takeMainScreenshot`, if it is too fast, wait for one second before taking
+  the screenshot). After taking the screenshot, immediately display the overlay back and flash it
+  up. At the same time, read the accessibility tree of the App window on the home screen (status
+  bar, navigation bar, input method, overlay are not counted). Organize in the background
+  (`MainScreenCapture.build`): The words on the screen are first used with the elements with names
+  in the tree. If the tree is not enough (the same set as the task reading screen `TreeAdequacy`),
+  recognize the words on the screen (`PhoneOcr`), only fill in the words that are not in the tree,
+  remove the wrongly recognized lines and the words in the status bar and navigation bar; It’s just
+  that the elements that connect several paragraphs of text inside the frame (the entire row of a
+  row of setting items) are not in separate columns, leaving the paragraphs inside; Each row has a
+  center point (0-999, the pixel center of the element in the tree is also converted), from top to
+  bottom, and from left to right in the same row (`core/userscreen/UserScreenText.kt`). Pages that
+  prevent screenshots (the screenshot reports a safe window error, or the screenshot is almost
+  completely black with an App window on the screen) do not leave the screen, just note which app it
+  is from, and the screenshot cannot be taken. Mina herself was at the front desk at all times.
+  Storage: Follow the conversation and put it in the workspace of that conversation
+  (`/workspace/screens/<id>.jpg` and `.json`, `app/chat/UserScreenFiles.kt`, with the permission of
+  the workspace file gate to read and write, and hold the tree lock when writing), in the same place
+  as the attachment, and disappear when the workspace is deleted; the command in the sandbox can
+  also read this picture. The message itself is an ordinary sentence: a single line
+  `[[screen:<id>]]`, and the rest is a postscript (`core/userscreen/UserScreenMessage.kt`). It is
+  saved into the conversation as usual, as an interruption or reply. The picture selected from the
+  album or file is still on the attachment line, and the two are not mixed. Click it to draw the
+  conversation page and card into a screenshot bubble (`app/ui/ScreenMessage.kt`: thumbnail, "your
+  current screen · app · moment", add a new bubble as a postscript; What prevents screenshots is the
+  line "not captured"), which is called postscript or "your current screen" (`ScreenCopy.plain`) in
+  conversation titles, sidebars, and notifications. For the model (`core/agent/UserScreenTurns.kt`,
+  the text is in `UserScreenPrompt` and `user_screen.*` of `feedback/loop.md`): This sentence is
+  replaced with "The user just took a screenshot of the screen (App, time) he is looking at, without
+  postscript / postscript:..." (if the screenshot is not allowed, tell the truth that it was not
+  taken). When the main model can see the picture, the screenshot will be connected to this
+  sentence; Follow a paragraph of `user_screen` context (not included in the budget, retained when
+  compressing): number, app and package name, time, words on the screen (set with untrustworthy
+  mark), and if there is no postscript, bring the rule of guessing the intention by pressing the
+  screen - just answer, read, and check and do it directly; if you want to write or change something
+  elsewhere (note, issue, publish, subscribe, pay, delete, change settings) first use ask_user to
+  ask once, give options (buttons in the card), and then do it after agreeing; If you don’t know
+  which app the user uses to do this kind of thing, ask them, and write it down if you can remember
+  it. If there is a postscript, proceed as usual, without additional rules; Confirmation of
+  irreversible operations shall remain as usual. When only the screen is displayed and no words are
+  spoken, the intention is not judged (there are no words to judge). In the previous rounds, there
+  was only one line left on the screen (App, time, the first few words on the screen and the
+  number). If you want to see it again, use `view_user_screen`: press the number to the App, time
+  and word. When the main model can see the picture, a screenshot will be attached. If you can't see
+  the picture, you will be asked to ask questions about the saved screenshot of the picture model
+  (character prompt word `user_screen`); this time or in the previous rounds, it will only be
+  provided with the screen. The words on the screen are recorded in the evidence ledger (answer
+  source); Judge the ending, retrieve the memory and read the changed sentence; if you have a
+  screen, you will not remember the experience route.
+- **Notification**: There are notifications when the task is in progress, needs to be taken over,
+  needs to be answered, and the result; the takeover button is on the notification. The two channels
+  "Need Your Handling" and "Task Result" are set to high importance (pop-up), and "Task Progress"
+  remains quiet; When the capsule is displayed on the bright screen, "Need You" will be sent as
+  usual but enter the notification bar quietly (use the system's group reminder rules: put this into
+  a group without summary, only let summary reminder, the system will not sound or pop up the
+  banner, the same method as the system's own silent notification; no channel change, no new
+  channel), it will still pop up when the screen is locked, the capsule is closed or cannot draw; As
+  a result, the channel id was changed (`task_result_v2`, the old one was deleted at startup), and
+  channels were created everywhere with `TaskService.ensureChannels`. Status monitoring checks
+  whether these two channels have been lowered. If they are lowered, it will prompt. The repair
+  button directly opens the system settings page of the channel. If it cannot be opened, it will
+  return to the application notification page. When the mobile phone operation is started, it will
+  also be checked after notifications are allowed. Settings › "Notifications" page (in
+  `app/ui/SettingsSubPages.kt`) only looks at the status, go to the system to change it, and do not
+  put the notification switch in Mina: the top is the notification master switch ("turn it on" when
+  not allowed, Android 13 first requests permission, otherwise it opens the application notification
+  page), below there is one line for each of the three channels "Needs You to Handle", "Task Result"
+  and "Task Progress", indicating when it was sent and whether it will "pop up", "only enter the
+  notification bar" or "closed" now. Click a line to open the system settings page of the channel
+  (the same set of jumps and downgrades as above). The status judgment is a pure function
+  `NotificationOverview.of` (`app/settings/NotificationOverview.kt`): according to the channel
+  importance, `IMPORTANCE_NONE` is closed, if it is not lower than `IMPORTANCE_HIGH`, it will pop
+  up, and the rest will only go into the notification bar; "Need you to handle" and "Task Result"
+  will be marked instead of popping up (the progress is quiet or closed is not abnormal), and when
+  the main switch is turned off, all three lines are closed; The right side of the "Notifications"
+  row in "Basic" on the home page displays the overall status (normal / N items will not pop up /
+  closed). The "Notifications" row on the mobile phone operation page also enters this page. The
+  channel importance is read from `SystemStatusMonitor` into `SystemStatus`, and updated with
+  `refresh` when returned from system settings.
+- **Other pages**: Settings (`app/ui/SettingsScreen.kt`): There is a general status card on the top
+  (follow `Prerequisites.check`, everything is ready when everything is normal, and problems will
+  become prompts with repair buttons), the following four groups - basic (model entrance and current
+  main model, Token usage, mobile phone operation, application access, work, suspension capsule,
+  notification), privacy and data (memory and skills, website login), advanced (files and computing
+  environment, Memorized operating routes, Recovery and Repair, Developer Options), About Mina (when
+  there is a new version, write "x can be updated" with a red dot). Clicking on each item is a
+  sub-page (mobile phone operation in `app/ui/SettingsSubPages.kt`, work, suspended capsule, file
+  and computing environment, memorized operation route, recovery and repair, and
+  `DeveloperOptionsScreen`; switch by the settings page; go to the model page and configuration
+  model page `NavStack`); the "Restore and Repair" page is the three authorization switches for
+  mobile phone operation (open by default, toggle to execute directly, no confirmation, instructions
+  are written below the switch; When the mobile phone has not been configured for operation, the
+  display will open and prompts to complete the settings first), and the corresponding entrances for
+  unsupported systems (lower than Android 13) and devices that are not supported by the sandbox will
+  not be displayed. The engineering switch (`app/settings/FeatureFlags.kt`) is in the developer
+  options, divided into two groups: "speed" (read the element first, look at the picture when
+  necessary, bring back the screen change after the operation, do a few steps in a row when you are
+  sure, directly open the page you want to go to, simple steps are handed over to the lightweight
+  model) and "experiment" (do as you did last time, different conversations are conducted at the
+  same time, and the summary of long tasks is written in strips). The developer options are only
+  displayed in the debug version and performance test version. Among them, you can set the switch
+  and storage limit of detailed Trace; After first installation or upgrade, turn on "Read elements
+  first, look at pictures if necessary", "Bring back screen changes after operation", "Do a few
+  steps in succession when you are sure" (then keep it off if the user manually turns it off), and
+  the rest are turned off by default; the release version also takes effect, but these switches
+  cannot be seen in the settings. There are also memory and skills, plans, and mobile assistant
+  setup wizards. The Memory and Skills page (`MemoryScreen`, `SkillsSection`) is divided into three
+  sections: "Memory" (grouped by facts, preferences, and practices, click on a line to bring up the
+  panel: change, pin, delete), "Skills" (switch to activate and deactivate), "To be confirmed" (to
+  be approved practices, new skill drafts, App knowledge drafts), the switch and all clear are
+  placed at the end; The source page (`SourceScreen`) only displays screenshots of each source when
+  there are screenshots (click to open the full screen to enlarge). If there are no screenshots (the
+  web page text, files, command output, etc. read in the background), the original text excerpt is
+  displayed, and the license page (`LicensesScreen`) uses the same set of top columns, groups, and
+  rows as they do.
+- **About & Check for Updates**:About Page(`app/ui/AboutScreen.kt`, text in`AboutCopy`) Go to the
+  Settings homepage or "About Mina" at the bottom of the sidebar ("Settings" is on the left at the
+  bottom of the sidebar, "About Mina" is on the right, go`NavStack`of`Route.About`). Top version
+  number, Beta mark (`BuildConfig.BETA`) and build number (`BuildConfig.GIT_HASH`, take the short
+  hash of the current submission when compiling (dev when there is no git); check the updates and
+  update records below; contact the author (the author's WeChat QR
+  code`res/drawable-nodpi/wechat_qr.jpg`, please note Mina when adding friends on the panel, long
+  press or "Save QR code" to save to the album Pictures/Mina; "Join X Group Chat"
+  opens`MinaLinks.X_GROUP`;When the interface is in English, put the X group chat at the top and the
+  WeChat code at the bottom.`AboutCopy.X_GROUP_FIRST`Judge according to the language actually
+  displayed in the App), feedback questions (go to GitHub to ask questions, the question template is
+  pre-filled with three lines of model, Android version, and Mina version; copy the diagnostic
+  information; say it in WeChat or`Route.License`:License original
+  text`assets/licenses/Apache-2.0.txt`, third-party components listed below). All external addresses
+  are there`app/about/HarnessLinks.kt`. Check for updates (`app/about/UpdateChecker.kt`) does not
+  have its own server, so it only asks about GitHub's releases/latest interface (no login, short
+  timeout). If it cannot connect, is limited, or cannot read, it will not be found; every time you
+  open the App (`MainActivity.onStart`) are checked quietly once, and only those that come
+  consecutively are blocked (those that are less than two minutes after the last automatic check are
+  not checked.`UpdateSchedule.MIN_GAP_MS`; Write down the time before starting the check, and those
+  who come in at the same time will not check twice). There will be no prompt or banner for failure.
+  The result will be prompted after manually clicking "Check for Updates". The version found
+  exists`files/update-v1.json`, when it is newer than the current one, the sidebar, settings
+  homepage, and about page will have a red dot; when there is an APK attachment, "Download updates"
+  in the update panel will be handed over to the system DownloadManager to download in the
+  background (`app/about/ApkUpdater.kt`): Only official repositories are
+  accepted`releases/download/`HTTPS address under (`ApkIntegrity.requireOfficialUrl`), the file is
+  placed in the exclusive directory external to this application`Download/updates/`, only one is
+  left at the same time. The task number is retained so that you can continue to see the progress
+  after restarting. It can be deleted and retried if it fails; the download notification is only
+  displayed during the download (when the notification is completed, the installation package will
+  be opened directly by bypassing the verification, so it is not retained). After the download is
+  complete, click "Install Updates". You need to allow the installation of unknown applications for
+  the first time. After authorization is returned, continue; before opening the system installer,
+  check in sequence: the size and the SHA-256 (interface of the published attachment)`digest`fields,
+  if they are qualified, reject if they do not match), the package name, version number is higher
+  than the installed one, the signing certificate is consistent with the installed one (or the
+  installed certificate is in the signature history of the new package); if it fails, delete the
+  file and explain the reason (`ApkRejected`). The system installer rechecks the signature and asks
+  for confirmation. After the update is installed, clear the remaining installation packages at next
+  startup (`MinaApp`inside`dropInstalled`). Publishing page still opens without APK attachment.
+- **Diagnostic Information**: The user actively clicks "Copy Diagnostic Information" (always there
+  at the bottom of the boot page, and also in the error step when it fails; about page › fourth item
+  of feedback issues) to collect it, first in the bottom panel (`app/ui/DiagnosticsSheet.kt`) is
+  shown to the user. Click "Copy" to enter the clipboard, click "Share" to send it to the system
+  sharing panel, and nothing will be sent automatically.
+  collect(`app/about/DiagnosticsCollector.kt`) Read-only ready-made status: system status, status of
+  the built-in assistant, and the original text of the most recent pairing or connection failure
+  (`BuiltinShellEngine.lastError`), when looking for the connection port, each source gave several
+  candidates, when scanning the machine, how many ports are open, such as adbd, and whether there
+  are ports filled in by the user (`AdbConnectPort`report
+  to`BuiltinShellManager.lastConnectCandidates`, only the number, do not write the address and port
+  number), automatically restore those items, model configuration, running summary, check for
+  updates; the steps on the guide page use the input of the guide page itself (`setupInputs`,
+  including steps confirmed by the user) to the same`PhoneSetupFlow`Count it, don’t count it again.
+  written in text (`app/about/Diagnostics.kt`, pure function), the segment order is fixed, English
+  keys: App, Device, Phone control, Recovery, Models, Recent runs, Update; the service provider only
+  writes the interface type and host name, and only writes the relative time, ending, failure
+  category, number of steps and model when running, and does not write the Key, login, task goal,
+  answer and screen content; finally, the entire paragraph is desensitized (IP connection port, port
+  number, email, "name=value" like credentials, and then handed over`Redactor`). The last paragraph
+  of the GitHub issue template only prompts the user where to copy and paste, and does not
+  automatically bring it along.
+- **Compatibility Self-Check** (Settings › Recovery and Repair › Compatibility Self-Check,
+  `app/ui/SelfCheckScreen.kt`): The user clicks "Start Self-Check", and it takes about a minute to
+  check what can be used on the phone, and produce a report that can be copied and posted to GitHub.
+  Pure logic in `core/selfcheck/`: Each item (`SelfCheck`: device, permissions, built-in assistant,
+  virtual screen, opening app, screen reading, tapping and typing, continuous running, undisturbed
+  home screen, built-in browser, sandbox, another app) is run in order. Each item indicates which
+  items must be passed first. If one item fails or is skipped, if it depends on it, skip it and
+  indicate which item is missing (partial use does not count as failed); Each item has its own time
+  limit (5-25 seconds), and there is a total time limit of 90 seconds for the whole time. If the
+  remaining time is used up, it will be marked as skipped; if an error occurs, it will be marked as
+  failure, and the following items will not be interrupted; when canceling, both the running and
+  following items will be marked as skipped, and `SelfCheckPort.release` (`SelfCheckRunner`) will
+  always be called once in the end. The conclusion of each item is "status + one line of English
+  facts + a kind of vernacular for the interface (`Advice`)"; The report (`SelfCheckReport`) only
+  contains the version, model, system version, processor architecture, memory, screen size, whether
+  there is wireless debugging and one line for each item, with an English key. The last paragraph is
+  a desensitization of "copy diagnostic information" (`Diagnostics.sanitize`), and does not include
+  account numbers, App lists, user content and serial numbers. The implementation on Android is
+  `AndroidSelfCheck` (`app/selfcheck/`). The mobile phone uses the same set of tasks: the shared
+  assistant connection in the process (`SharedShell`), `AgentDisplay` screen building,
+  `AndroidScreen` opening page and `tapRef`, `typeText`, `scroll`, `back`. The result reflects the
+  Agent real behavior. What is operated on the virtual screen is Mina's own test page
+  `SelfCheckTargetActivity` (counting buttons, input boxes, scrollable columns, numbers that keep
+  jumping and horizontal bars that change color back and forth, indicating that it is Mina's test
+  page): Like the services connected to the computer, it is only open to the shell level: it is
+  exported in the list, but the caller is required to hold INTERACT_ACROSS_USERS_FULL (available in
+  the shell and system, not available in ordinary apps), no intent-filter, a single task, do not
+  enter the latest task (`ManifestProvidersTest` guarded), When you open it on the home screen, turn
+  it off immediately. `AndroidScreen.openOwnPage` passes its component to the assistant through
+  `IHarnessShell.startSystemAction`. The assistant recognizes this component
+  (`SystemIntents.OWN_PAGE_CLASS`, the package name must be Mina's) and directly starts it as a
+  shell to Mina's screen (the same way as opening the App: startActivityAsUser with a startup
+  screen, cannot return to `am start --display`); shell startup is not restricted by the Android
+  background startup page, and Mina can be opened in the foreground or not. No new assistant
+  interface is added. The system settings can only be opened by ordinary `openApp`, check and open
+  on Mina's screen instead of on the main screen, and then return once and leave without clicking
+  anything in it. Continue to run a test page and stare at the test page for 15 seconds: it will
+  stop if the real-time image of the virtual screen does not change for 3 seconds, or if the jumping
+  numbers in the control tree do not change for 3 seconds. The main screen is a task that compares
+  the start of the run with the top task of the main screen of each node. The built-in browser
+  creates an additional set of web page display and tag pool (no website list is given, and visits
+  are not recorded in the website login). Open the local page
+  `app/src/main/assets/selfcheck/page.html` packaged with the App (via WebViewAssetLoader, not
+  connected to the Internet), read the page of `WebScreen`, and click on the number to check again.
+  The sandbox only runs `echo ok` and one line of Python on arm64; the running environment is not
+  ready and is partially available, and is not installed for self-test. Another app only counts the
+  number of copies that can be used by another user (`appCopyUsers`, private space does not count),
+  and the app is not listed. When you leave this page, it will be canceled. The virtual screen, test
+  page, web page label and assistant connection will be released on the spot; if there are tasks
+  running, they will not be started. After the run is completed, the entire report is displayed on
+  the page, and "Copy Report" only copies; "Go to GitHub Feedback" to copy the report and open the
+  new issue page, select the device feedback template `.github/ISSUE_TEMPLATE/device-report.yml`,
+  only prefill the title (`[Compatibility] Android version model`), the report is pasted by the
+  user, and the address is not included (the address has a maximum length). The complete test run on
+  the real machine is `SelfCheckDeviceTest`.
+- **First time getting started**: Welcome (`app/ui/WelcomeScreen.kt`) → Configure model → Mobile
+  operation (`PhoneSetupScreen`, numbered list, can be skipped; after the connection is successful,
+  the list will be retained, all checked, the top line "Already set up", the bottom main button
+  "Start using", click to enter the dialogue, the entry from the settings is "Complete"). Which
+  steps to take are judged by `Onboarding` (`app/ui/Onboarding.kt`) by pressing "Have you seen it
+  before": only take the first two steps when there is no main model, and have not been configured
+  with a model in the getting started process (those who have already configured a model will skip
+  it directly); the mobile phone operation follows the original judgment (the system is new enough,
+  not ready yet, and the boot has not been viewed).
+- **Interface language** (`app/i18n/`): The interface text is all Android string resources, English
+  is the default (`res/values/`), Simplified Chinese is in `res/values-zh/`, Traditional Chinese is
+  in `res/values-b+zh+Hant/` (Android matches according to the text system, `values-zh` Not valid
+  for Traditional Chinese systems), as well as Japanese, Korean, Spanish, Portuguese, Russian, and
+  Indonesian (`values-ja`, `values-ko`, `values-es`, `values-pt`, `values-ru`, `values-in`;
+  Indonesian follows Android’s old language code in). Each entry has a one-to-one correspondence
+  with English (`StringResourcesTest` checks entries, placeholders, quantifiers to be written in the
+  plural of each language, Traditional Chinese versus Simplified, and there is no Chinese left in
+  English and languages that do not use Chinese characters), so the system displays corresponding
+  translations when these languages are used, and English is displayed when the system is in other
+  languages. Settings › "Language" can choose to follow the system or one of them (`AppLanguage`;
+  each name is written in its own language, "Follow system" is written in the current language;
+  Language tags are zh-Hans, zh-Hant, en, ja, ko, es, pt, ru, id. For languages other than Chinese,
+  they are recognized by language code, regardless of region. The old code in given by Android
+  Locale must be replaced with the current code before comparison. If the Chinese tag does not have
+  a text system, press ICU's `ULocale.addLikelySubtags` to fill it out. Hant is Traditional Chinese,
+  and other Chinese is Simplified. The zh-Hans saved by selecting "Chinese" in the past is
+  Simplified Chinese): "Application Language" (`LocaleManager`) given to the system starting from
+  Android 13, `android:localeConfig` lists these languages in the list, What can be changed in the
+  system settings is the same value, and the system is responsible for remembering and rebuilding
+  the interface); Android 11 and 12 are recorded locally, and `AppLanguage.wrap` is applied to the
+  `attachBaseContext` of each Activity and the Compose host of the suspension capsule. After
+  replacement, the current interface is rebuilt. `stringResource` is used directly in Compose; `tr`
+  / `trPlural` (`app/i18n/UiText.kt`) is used for text calculation outside the interface (status
+  copy, notification, task service, capsule data, tool description), which obtains resources
+  according to the App language. In the JVM single test, it is replaced by `ResFileTexts` (test
+  installation `ChineseTexts` for asserting Chinese) that directly reads the resource file. The
+  quantity is written in plural resources, and the date, week, and month are written in
+  `uiLocale()`. The tool statement uses the Chinese label in the tool declaration as the key to
+  search the resource (`ToolLabels.TOOL_LABELS`). Only scroll through the interface: the built-in
+  App knowledge, skills, and prompt words are still in Chinese; the answers, questions, and titles
+  written by the model follow the language spoken by the user.
+
+## 16. Voice input
+
+Native Beanbao streaming speech recognition 2.0 can be configured separately on the speech-to-text
+page, uploading PCM in real time and returning the intermediate full text; the credentials are
+independently encrypted without going through the Ark chat model path. See
+[doubao-asr.md](doubao-asr.md) for protocol, lifecycle and test restrictions.
+
+There are two entrances to press and hold: the dialogue page input box and the floating capsule. The
+two places only use `VoiceSource` (`voice/VoiceInput.kt`, `VoiceInput` in the App) to take the
+session, and the interface test is replaced by a fake one; the logic of recognition and
+transliteration is all in `app/voice/`, and the interface only cares about gestures, pictures and
+connections.
+
+- **`voice/` package responsibilities**: `SpeechChoice` is the user's choice (automatic, built-in
+  with the phone, no use, a certain model of a certain service provider) and its access in the
+  settings (`SpeechSettings`, one key and a piece of JSON, if it cannot be read out, it is
+  automatic). `SpeechResolver` Combining choices, mobile phone capabilities (`SystemCapability`),
+  and existing service providers, we came up with this engine `SpeechEngineSpec`. `SpeechSession` is
+  a session interface, which only sends `SpeechEvent` (volume, intermediate results, text
+  conversion, final results, failure); two implementations: `SystemSpeech` (mobile phone comes with
+  built-in recognition, words are spoken while speaking) and `ProviderSpeech` (record with
+  `PcmRecorder`, release the entire `Wav` to `Transcriber`). `HoldToTalk` is a press-and-talk state
+  machine (press, slide up to cancel, release, end at the point), without touching the interface and
+  gestures, and the input box and capsule are shared. When the hand is still pressed, the session
+  will end by itself (it has built-in recognition that it will not restart after a sentence is said,
+  and it will not be reopened after a mistake is made in the middle, but the word has been heard).
+  The result will be kept first, and the interface will still display the word heard. When the
+  finger leaves, it will be processed according to the landing point at that time: when it is
+  stopped on Cancel, it will be discarded, otherwise it will be handed over, so when you want to
+  cancel, the word will not be filled in or sent out; when you make an error while pressing, you
+  will be prompted without waiting for release. Only when it is stopped on Cancel, it will be kept,
+  and when it is released on Cancel, there will be no prompt. `Segments` puts together the segments
+  in which the identification service is ended and reopened according to the segment. `Restarts`
+  determines whether to reopen the empty segment and how long after that.
+- **The engine is only selected in `SpeechResolver`**: The interface and `VoiceInput` do not decide
+  which one to use. When "Auto" is selected (not selected), use the phone's built-in recognition if
+  it is available; if the built-in system says it is, but it does not respond after trying it on
+  this phone, give `Unavailable(SystemNoResponse)` and let the interface tell the truth and point to
+  the setting, and you will not quietly switch to a service provider model that costs money**. If
+  you select the service provider model, use it. The service provider is deleted and given to
+  `Why.ProviderGone`. The various reasons for `Unavailable` are changed from the interface to a
+  description of "Voice input is not yet available", and the button goes directly to the selection
+  page in the settings.
+- **The secret behind why the phone's built-in recognition does not respond**: The system can only
+  tell you whether there is such a recognition service, and you will have to try it to find out if
+  you ignore it. `SystemSpeech` 3 seconds after starting to listen (`NO_RESPONSE_MS`, leaving time
+  to identify the cold start of the service process) there is no callback, this time it reports "no
+  response" and ends; after waiting another 2 seconds (`FINAL_WAIT_MS`) there is still no final
+  result, it ends with the same set of words: reply with the words you have heard, there is no
+  callback, it means no response, it will not stop and end; the same session will only be recorded
+  once if it does not respond. If it happens like this twice in a row
+  (`SpeechSettings.SILENT_STRIKES`), it will be recorded as "no response"
+  (`SpeechSettings.noteSystemSilent`, the number of times is also stored in the settings, and a
+  stuck time is probably just a slow cold start). If there is a reply at any time in the middle, it
+  will be counted again (`noteSystemAnswered`). After recording it, `SpeechResolver` no longer
+  regards it as available, and the label on the settings page displays "Not Responding". When the
+  user selects "Automatic" or "Included with the phone" in the settings, the marks and times are
+  cleared. If the identification service is changed and the phone has updated the system, the user
+  can try again.
+- **Change another recognition service and try again**: The system's default recognition service may
+  only be used by the system's own voice assistant, and may not provide any callbacks to other apps.
+  When more than one recognition service is registered on the mobile phone
+  (`SystemSpeech.services`), the default one is no reply, and the hand is still pressed, and the
+  next one is called. The one open to other apps is tried first, and a maximum of
+  `SystemSpeech.MAX_ATTEMPTS` can be tried at a time (`SystemSpeech.attempts`); the one that is
+  called and tried is written down (`SpeechSettings.systemService`), and it is tried first next
+  time. When there is only one service, it is the default one and will not be named again. The
+  `[Speech]` section of the diagnostic information lists the options, the status of built-in
+  recognition, and the recognition services registered on the phone (component name, open or not,
+  required permissions).
+- **How the service provider converts text and remembers it**: `Transcriber` Press
+  `TranscribeMethod` to send a request. It is only based on the protocol and not based on the model
+  name. The error reporting method uses the same set of `ModelHttp` mapping as the conversation
+  model. Five forms: uploading files through the audio transcoding interface
+  (`TranscribeMethod.AudioTranscriptions`), `input_audio` with bare base64 in the conversation
+  interface and adding a transliteration command (`TranscribeMethod.ChatInputAudio`), the same
+  `data` with data URI (`TranscribeMethod.ChatInputAudioUri`), Gemini's inline data
+  (`TranscribeMethod.GeminiInline`), `input_audio` with data URI in the conversation interface And
+  it only sends audio without commands (`TranscribeMethod.ChatInputAudioOnly`). When selecting a
+  model, `detect` uses one second of mute and tries in sequence (Gemini only tries its own kind;
+  others try from the first to the last). The first one that passes is the method of this model,
+  save it into `SpeechChoice.Provider.method`, and use it directly every time after rewriting.
+  `TranscribeMethod.ChatInputAudioOnly` is placed last, because the general model will also respond
+  to 2xx (recording as chat) for audio-only requests, and the first one will be mistakenly selected.
+  Only if "the interface is not used in this way" (can't be found, the format of the response is
+  wrong), then change to the next one; if there is a problem with Key or quota, it will be useless
+  to try again, just throw it away. Enumerations can only be added later and cannot be renamed or
+  deleted. Only the old settings can be read back. Selecting a model on the settings page
+  (`ui/SpeechModelScreen.kt`) will trigger the trial transfer. Only select and return after passing
+  the test. Only those with names like voice models (`looksLikeSpeech`) are listed in the list. If
+  there are no models, you can manually fill in the model name.
+- **Dialog Input Box** (`ui/VoiceHold.kt`): The gesture covers the **unfocused** input box. Clicking
+  it will still focus on playing the keyboard. Press and hold for about 300 milliseconds before
+  starting to listen; when the input box is focused, this gesture is not installed, and long
+  pressing is still the system's own word selection and pasting. At this time, there is an extra
+  microphone between the input box and the send key. Press and hold it to listen. Clicking it only
+  prompts "press and hold to speak". Press and slide up 80dp to "release to cancel". The words
+  spoken after releasing the message will only be filled in the input box and not sent. The user
+  will change the message before sending it. The service provider will display "Transfer to text..."
+  as soon as the message is released. Please change it and then fill it in again. You can wait up to
+  30 seconds (`ProviderSpeech.TRANSCRIBE_TIMEOUT_MS`) for the message to be transferred. When it
+  times out, you will receive a message indicating that the network is unavailable, and it will not
+  keep spinning. After releasing it, you can press and hold it again when it is still spinning (or
+  the built-in recognition is still finishing), discard the previous paragraph, and start listening
+  again. The same goes for the capsule. If you press it too short (less than 0.5 seconds from when
+  you press it with your finger), it will be an accidental touch. Do not turn it to avoid wasting
+  your credit. This section will be lost when you leave the page, transfer the screen, or go to the
+  background of the app.
+- **Suspension Capsule** (`capsule/CapsuleVoice.kt`, `CapsuleController`'s `talkHold` and
+  `CapsuleTalk`): Long press to move `cap/phone/a11y/OverlayHost.kt`'s `OverlayHold`, the finger
+  does not move for 400 milliseconds after pressing to be considered a long press (`HoldGesture`
+  judgment, first moving over the touch threshold is dragging, and then it is no longer counted as a
+  long press), `start/move/end/cancel` is called back to the controller. When you press it, the
+  entire screen will be darkened, and a panel will appear next to the capsule with two drop points
+  "Cancel" and "Change"; release it elsewhere and directly send it to the thing it is facing at the
+  moment (a conversation to continue chatting, a run waiting for an answer, etc.), drag it to
+  "Change" to open the card and make changes, drag it to "Cancel" and discard it. Screen readers use
+  the "speaking" operation: click to start, click again to send. There are no fingers, so they can
+  only speak. When the capsule is talking, it changes to "You handle it" (or it can no longer be
+  said). This sentence is simply discarded and the microphone is released. The recording occurs in
+  the floating window gesture of the accessibility service. When pressed, the finger is on the
+  screen and the front desk service is not started.
+- **60 seconds cap**: Both the input box and the capsule can be listened to for a maximum of 60
+  seconds (`MAX_MS`) at a time. When the point is reached, they will be released and will not be
+  held back. The last 10 seconds of the input box will count down in the lower right corner of the
+  card. `HoldToTalk.tick` is adjusted to `release` at the right time, because the recording stops at
+  the right time without further notification, and the last words are lost without ending.
+- **Recording Permission**: Only required on first press and hold (`RECORD_AUDIO`). In the input
+  box: when there is no permission, the system box will pop up; when it is rejected and the system
+  no longer pops up the box, change the pop-up description, and the button will go directly to
+  Mina's permission page in the system. When recording has been allowed and the recognition service
+  still reports no permission, or a recording error (`ERROR_AUDIO`, `SpeechFailure.AudioError`) is
+  reported, another explanation is displayed: whether the microphone usage master switch in the
+  quick settings (from Android 12) is turned off, whether Mina's microphone is turned off separately
+  in the system permission management, or it may be occupied by another application; the button
+  still opens Mina's application details in the system. The identification service reports an error
+  on the client side, throws an error when starting to listen, the service provider's recording
+  cannot be started, and still only prompts that the microphone may be occupied by other
+  applications. In the capsule: Do not start without permission, pop up a prompt and click back to
+  Mina (`capsule_voice_need_mic`) to authorize. `VoiceInput.start` will only send a session of
+  `Failed` when there is no permission and the engine cannot be used. The interface will handle the
+  same set of failures without making separate judgments.
+
+The `content-transcribe` skill is Agent's transcription of **audio files**, and the voice input here
+are two different things, independent of each other.
+
+## 17. Application access
+
+Restrict apps that can be read and operated by standard mobile tools by package name. See the rules
+and boundaries.[`app-access.md`](app-access.md)。
+
+- **Policy** (`core/access/AppAccess.kt`): Applications without settings are allowed by default, and
+  classification does not determine permissions. An empty block list will not be rejected due to
+  missing package names; if it is not empty and the ownership is unknown, it will wait briefly and
+  reread it. If it is still unknown, `app_access_unverified` will be returned. File unavailability
+  returns `app_access_unavailable`, reset by user in settings.
+- **Access Control** (`core/uistate/AppAccessScreenPort.kt`): The mobile phone port of the packaging
+  task, protecting the screen reading results and explicit targets; `ActionExecutor` checks before
+  and after the action and refuses to return the model with tool results. Each member of
+  `ScreenPort` is explicitly written in the access control, without requiring `by` delegation. The
+  test checks each member one by one to "transfer to the port inside" and "all are checked except
+  for a few that do not touch the App interface." Ports added to members in the future will not be
+  missed. The Android port only provides window ownership (`AndroidScreen.accessPackages`), and you
+  only see the list where the target cannot be seen in the access control: it does not specify who
+  will receive the link and system action of the App and open it to the App on the user's home
+  screen; there is no downward transition to read the settings. `ScreenSession` Clear old element
+  references, screenshots and positioning cache by permission revision.
+- **Overhead**: Nothing more is done when the list is empty (no window, no system prompts, no
+  application access section). When the list is not empty, the screen reading directly uses the
+  window ownership in the read screen to check, without asking the window; other reading and action
+  checking results will be used for up to 1 second when the window has not changed (the accessible
+  window change count has not changed) and the list has not changed. The screenshots and task
+  preview frames that follow the same screen reading therefore do not need to ask the window every
+  time.
+- **Prompt word**: The rules for application access are in `prompts/capabilities/app-access.md`,
+  which is only connected after the mobile phone section when the list is not empty (or the setting
+  cannot be read); it is disabled only when the task is in progress, and the instructions that come
+  with the rejection result still tell the model what to do next.
+- **Storage and Interface** (`app/settings/AppAccessStore.kt`, `app/ui/AppAccessScreen.kt`): process
+  sharing, atomic writing; do not upload the list when opening the settings page, and confirm
+  sending the application name and package name before refreshing the category. `AppClassifier`
+  reuses the existing model configuration and does not change the permissions if it fails. Pages,
+  categories and sharing copy support English, simplified and traditional Chinese.
+- **Active sharing** (`app/cap/phone/a11y/ScreenShareConsent.kt`, `ShareChoice.kt`): Users can allow
+  only screen sharing, allow this application, or cancel; independent sharing permission does not
+  lift automatic operation restrictions, and review sources and permissions before and after
+  collection. Sensitive authorization interfaces can only be operated by users.
+- **Boundary**: Shell commands, sandbox, and computer access (MCP) are not restricted by this access
+  control; calls to standard mobile tools within scripts are still subject to inspection. Models
+  that encounter restricted applications should re-evaluate the route and specify the allowed
+  locations in "Settings › Application Access" if necessary.
 
-### sandbox:Linux 沙箱
-
-- 基于 PRoot 和 Alpine 3.22 的运行环境,随 APK 自带,App 启动时在后台离线解包(`app/cap/sandbox/RuntimePreparer.kt`、`RootfsInstaller.kt`);Mina 升级后自动重新解包。沙箱程序只有 arm64 版本,其他设备显示「此设备不支持(需要 arm64)」,模型也被告知不用这组工具。来源与构建见 `tools/sandbox/README.md`。
-- 每个对话一个工作区,沙箱里是 `/workspace`,跨消息保留;聊天里附加的文件放进 `/workspace/inbox/`;`share_file` 把文件存到手机的「下载/Mina」并在对话里显示为文件卡片;点卡片时网页、Markdown、PDF、图片和文本类文件在 App 里的查看页打开(`FileViewerActivity`,见第 15 节),其余交给系统里能打开它的 App。
-- 默认断网,设置 → 高级 → 文件与计算环境里「允许脚本联网」打开后才联网;设备无法隔离网络时,只有打开「允许脚本联网」才能运行(`AndroidSandbox`、`AdvancedSection` 的提示)。每个任务有累计运行时间预算,同一条命令反复失败会被叫停(`core/cap/sandbox/SandboxGuard.kt`)。
-- **网络代理**:用的是设置首页的「网络代理」(见第 12 节「网络代理」),这一页那一行只显示、不在这里改。只在允许联网的命令里给(`AndroidSandbox` 不联网时传空),经 `ProcRunner.env` 放进 `http_proxy`/`https_proxy`/`all_proxy`(大小写各一份)和 `no_proxy`(`LocalHosts.NO_PROXY`:本机、局域网网段和后缀直连);`https://` 代理只有这里的命令用得上。
-- **已用空间**:同一页下面一组(`SandboxUsageReader`,`app/cap/sandbox/SandboxUsage.kt`):合计、运行环境、技能、对话的工作区各占多少,再按对话列出工作区(按对话标题,对话已删掉的写「已删除的对话」,大的在前)。大小按目录树里的普通文件算,不跟进链接(`AndroidSandbox.treeBytes`)。点一行先确认再清掉那个工作区,最后一行清空所有;和删对话一样经文件闸门按句柄删、不跟进链接,拿着树锁的共享许可、和重置互斥;有任务在跑或排队的对话写明「暂时不能清理」,清空所有时跳过它们。运行环境和技能随 App 自带,不在这里清(要从头准备用「重置运行环境」)。容器里不挂手机存储。
-- 工具:`run_command`、`run_bundled_script`(运行知识、技能自带的脚本,见 `docs/dev/skill-scripts.md`)、`read_file`、`write_file`、`search_files`、`share_file`。
-- 沙箱里的命令可以用 `mina phone <操作> '<json 参数>'` 调当前任务的手机工具(`app/cap/sandbox/SandboxBridge.kt`、`BridgeProtocol.kt`):每次命令运行一个随机名字的本地套接字和一次性令牌,开放哪些由工具自己声明(`ToolInfo.sandboxCallable`:手机能力的工具默认开放,看图类不开放;新增手机工具不用改名单),`<操作>` 是工具名去掉 `phone_`(`type`、`clear`、`key`、`launch`、`dump` 是 `phone_type_text`、`phone_clear_text`、`phone_press_key`、`phone_launch_app`、`phone_list_elements` 的简写)。每次操作仍经 `SubActions` 回到唯一入口并写进运行记录,超时与上限和直接调用相同(`phone_wait` / `phone_event` 最长 30 秒,`phone_system_command` 10 秒)。另有 `mina share`、`mina progress`。
-
-### 看图
-
-有能看图的模型时(§12),提供 `phone_describe`/`web_describe`(描述界面)和 `phone_find_visually`/`web_find_visually`(看图定位,`core/vision/Locator.kt`:先在控件树里精确找,找不到才让模型框,再核对名字;定位准度没验证过的模型要有佐证,但这一屏的树不能用、或缺了一块而要找的不在树里时没东西可对照,框照样交出去,标 `unverified`,点完由效果说话)。描述界面一次要读整屏、写一大段,比定位慢好几倍:提示词里只让它在看不懂是什么页面时用,描述的要求(`roles/describe.md`)也只要简短的四段——可交互元素至多 15 行、每个几个字,不列不是控件的字,长列表只给前几项,线索至多两行。截图工具只在主模型能看图时提供。图形验证码不自己解,交给用户。
-
-### 子任务
-
-`spawn_agent`(`core/general/SpawnAgent.kt`、`core/child/ChildRuns.kt`)派一个子任务去查一个有边界的问题:只有网页和沙箱、只读、无人在场、默认 15 步(模型可传 `maxSteps`,1–40),不能追问、不能对外发送、不能写记忆、不能建定时、不能再派子任务,也没有知识与技能查阅工具。结果有长度上限(默认 4,000 字,模型可传 `maxResultChars`,500–8,000;超出范围的拉回范围内,不是整数的按参数错退回;截掉时结果里写 `truncated`),作为不可信的观察交回父任务;一次只派一个,父任务等它做完;子任务做完不等于用户的目标完成。只在对话界面发起、有网页能力的运行里提供。
-
-### 之前几轮的记录
-
-对话的上文只带最近几轮的结局(`Conversation.context`:最多 5 轮、2,500 token),之前几轮读到的原文不带。`history_read`(`core/general/HistoryRead.kt`)让模型自己查:不带 `turn` 列出之前的轮次(新的在前,最多 20 轮:第几轮、用户原话、结局、开始时刻、还有没有详细记录);带 `turn`(1 = 刚过去的那一轮)读那一轮的完整结局、用户中途插的话、Mina 的进度说明(带了调用的回复里的字)和读到的原文(运行记录里的 `observed`,同样的原文只给一次),按条分页(`offset` / `nextOffset`,一页约 8,000 字,一条最多 2,000 字),不带截图。只认这次运行开局带来的、同一个对话的轮次(`RunSpec.priorTurns` 里的 `Turn.runId`),别的对话、别的运行查不到;只读。原文取自运行记录(`core/record/RunRecords.kt`,app 一侧是 `RunStore.reader()`,在 IO 线程上读),落盘时已脱敏、截短,读出来原样给;网页一类不可信的照样包进 `<untrusted>`。读到的原文作为观察交给核查(来源记为 `history`),回答里用到之前读到的值时有据可查。运行记录只留最近 30 次,更早的那一轮只剩结局(`recorded=false`)。有运行记录、之前有记过运行的轮次时才提供,这时上文末尾多一句提示(`feedback/loop.md` 里的 history_hint 一条)。子任务没有之前的轮次,不提供。讨论历史时(意图判为讨论)也能调它。
-
-### 电脑连接:CLI 与 MCP
-
-两个方向。**Mina 作为 MCP 服务器**(电脑连接)已经接上,两种连法:经 USB(电脑用 adb 打开,只听回环)和经局域网(用户在设置里打开,默认关);**Mina 作为 MCP 客户端**去用别的服务器(`core/cap/mcp/McpClient.kt`,按注解定风险、工具列表开局冻结)和低层工具会话(`core/mcp/McpServer.kt`)还只有骨架和测试。用户文档见 [mcp.md](../mcp.md) 与 [cli.md](../cli.md)。电脑 CLI 使用普通 HTTP 任务 API,与 MCP 适配器并列,共用一份任务服务。
-
-**服务器**的分层都在 `:core`,可以在电脑上整套测:
-
-- `MiniHttpServer`(`core/remote/HttpServer.kt`):共用的极简 HTTP/1.1 监听。每个连接一个线程,连接数、请求头、正文都有上限,认 Content-Length 和 chunked,连接可以复用。保留路径和查询参数供入口校验;不做 TLS,靠只收私有地址和访问令牌把关。
-- `RemoteAccess`(`core/remote/RemoteAccess.kt`):两个入口共用的门口,顺序固定:带 `Origin` 头的 403;同一地址一分钟内认证失败 5 次封一分钟(429,带 `Retry-After`);`Authorization: Bearer` 令牌按常量时间比较,不对 401。路由与错误格式由适配器决定,未知路径也先过认证。`privateAddress` 判定回环、局域网、私有组网和链路本地地址;连接两端有一端不是私有地址就当场断开。局域网令牌认所有允许的连接,USB 令牌只认回环,两个都比、不短路。认证失败计数跨 API 和 MCP 共用。
-- `RemoteTaskService`(`core/remote/RemoteTaskService.kt`):协议无关的启动、查询、列表、等待、回答与取消用例,集中校验输入和任务状态,返回类型化结果与业务错误;不包含 HTTP、MCP 工具名或 JSON-RPC 信封。`RemoteTasks` / `RemoteTask` / `RemoteStatus` 在 `core/remote/RemoteTasks.kt`;状态只从已有的 `TaskState` 映射,两种入口共用字段和同一个任务索引。等待按状态变化返回(进度说明变了不算),最多 50 秒;索引中的任务消失就报不存在。保留 mcp- 前缀以兼容已有远程对话 ID,与手机本地对话隔离。
-- `RemoteTaskApi`(`core/remote/RemoteTaskApi.kt`):普通 HTTP/JSON 入口 `/api/v1`,提供版本、任务生命周期和只读设备状态,无需 MCP 握手或工具发现。业务错误映射为 HTTP 状态和 code/message;未知字段会被拒绝。详细契约见 [CLI 文档](../cli.md#http-契约)。
-- `McpRpc`(`core/mcp/McpRpc.kt`):Streamable HTTP 上的 JSON-RPC,只回单个 JSON、不开 SSE 流(规范允许),GET / DELETE 回 405,不发会话编号,服务端不发请求。两代协议都认:新一代(2026-07-28)每个请求在 `_meta` 里带版本和客户端能力,HTTP 头里的 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 要和正文一致(不一致 -32020),不认的版本回 -32022 并列出认的版本,支持 `server/discover`;老一代(2025-03-26 到 2025-11-25)先 `initialize` 握手,选双方都认的版本。工具参数不对、任务找不到是工具执行出错(`isError`),交回给对面的模型看;工具名不认得是协议错误。
-- `McpTaskTools`(`core/mcp/McpTaskTools.kt`):保留原有工具名、schema、MCP 提示文案与返回格式,把参数转为共用服务调用。`mina_run_task` / `mina_task_status` / `mina_wait_task` / `mina_answer` / `mina_cancel_task` / `mina_list_tasks` 均不另存任务状态。付款、确认和手机接管不能被普通回答放行。
-- `RemoteEndpoints`(`core/remote/RemoteEndpoints.kt`):完成传输认证后的共用协议路由,持有 `RemoteTaskService`,把 `/api/v1` 交给普通 API、`/mcp` 交给 MCP,并记录近期活动。它不认证连接,由调用者先完成对应入口的认证。
-- `RemoteHost`(`core/remote/RemoteHost.kt`):局域网/USB 入口,持有 `RemoteAccess` 与 HTTP 监听,认证后交给共用路由。`bindAddress` 选择所有网卡或 IPv4 回环 127.0.0.1,与 ADB 转发一致。私有地址检查不因远程网关而放宽。
-- `RelayGateway` / `RelayClient`(`core/remote/`):HTTPS 配对与主动 WSS 通道,不跟随重定向,仅转发固定的 MCP POST。请求有独立编号、有界并发与正文,重复编号不执行,取消和断线中断等待;连接退避重建但操作不重放。网关已校验的用户授权不作为 USB 令牌透传,不伪造回环来源。隧道与本地入口共用协议路由,任务仍按现有远程来源处理。
-- `McpUsb`(`core/mcp/McpUsb.kt`):和电脑之间经 USB 的约定。连接信息 `mcp-usb.json` 新增普通 API 的 api_url / api_version,并保留原内容(Streamable HTTP 的地址、`Authorization` 头、令牌、端口、`adb forward` 命令、这次开机的编号 `boot`);电脑上跑的 「connect-computer.sh」:不是 shell(uid 2000)就不跑,先跑一次 「usb-start.sh」 起手机助手,再 `am start-foreground-service` 起 `McpService`(动作 `USB_ON`,带 `off` 参数时是 `USB_OFF`),等到 `boot` 和 `settings get global boot_count` 对得上的连接信息写好(认出不是上次开机留下的),把它打出来;关掉时等文件被删。脚本不带秘密。
-
-**App 一侧**:
-
-- 自托管远程方式:`RelaySettings`(`settings/RelaySettings.kt`)整份加密原子保存配对及开关,独立 Keystore 密钥;状态流只含非秘密字段。`McpRuntime` 将这一路与原有监听独立管理,远程开着时沿用 `McpService` 前台服务。通知的关闭动作同时关闭远程访问。配对本身不启用访问,关闭后保留配对,解除配对先关闭再到网关撤销。`RelaySection` 是 MCP 引导中的「远程」项,使用现有组件和中英繁体资源,不显示保存的令牌。
-
-- 局域网那种:开关、端口存在 `files/settings/mcp.json`,访问令牌(32 字节随机数)和服务商的 Key 一样经 `KeyCipher` 加密存在 `mcp-token.bin`(`settings/McpSettings.kt`),默认关。
-- USB 那种(`settings/McpUsbSettings.kt`):另一个开关、另一个令牌,存在 `files/settings/mcp-usb.json`(连同打开时的开机编号 `Settings.Global.BOOT_COUNT`)。打开时生成令牌,已开着再打开沿用;监听起来后把连接信息写到外部文件目录的 `mcp-usb.json`(安卓 11 起别的 App 读不到,shell 读得到;令牌本来就要明文交给电脑,所以私有目录里也存明文);没开起来就删掉。关掉时忘掉令牌(下次换新的)、删掉两个文件。不跨重启:开机编号变了就按关着算,顺手清掉上次的文件。
-- `McpModes`(`app/mcp/McpModes.kt`):两个开关怎么合起来。端口只开一个:局域网开着绑所有网卡(回环在内,USB 照样能连),只有 USB 开着只绑回环,都关就不听;服务收到的动作 `USB_ON` / `USB_OFF` / `TURN_OFF`(通知上的「关闭」,两种都关)改哪个开关。
-- `McpRuntime`(`app/mcp/McpRuntime.kt`)整个进程一份:有一种开着就起 `McpService`(`app/mcp/McpService.kt`,specialUse 前台服务,常驻一条低优先级通知,上面能直接关掉),服务在才监听;服务每次收到启动都 `sync` 一遍:监听方式变了(局域网开了、关了)就换一个监听,USB 开着就写连接信息;都关了就停服务、关端口。App 启动时写一次 「connect-computer.sh」。
-- `McpService` 对外开放、要求调用方持有 `INTERACT_ACROSS_USERS_FULL`:shell 有,普通 App 拿不到、adb 也授不了(和助手交接的 provider 用的同一道门),所以 `adb shell am start-foreground-service -n <包名>/.mcp.McpService -a com.meenai.mina.mcp.USB_ON` 只有电脑经 USB 调试才发得出。用前台服务而不用广播:安卓 12 起后台 App 一般不能自己开前台服务,而 shell 发起的前台服务启动按系统 uid 一类放行;进前台被拒时服务退出,不崩。清单测试(`ManifestProvidersTest`)守着这道权限。任务服务没任务时会自己退出,所以监听不放在 `TaskService` 里。服务被系统回收会重建(START_STICKY);开机时、打开 Mina 的界面时,开关开着却没在跑就补起来。
-- `RemoteTaskHub`(`app/task/RemoteTaskHub.kt`)实现 `RemoteTasks`:`TaskService.startMcp` 开始任务,和对话界面同一条路,CLI 与 MCP 均沿用现有外部任务来源 `RunOrigin.Mcp` 的权限策略(此处是历史名称,不表示 CLI 经过 MCP 协议)、在场情况 `Reachable`(追问照常等,到时限当作没回答;交给用户的一步也有同样的时限,过时没人处理任务就停下)。同一对话里还有任务时排在后面,不丢。状态读任务自己的(`TaskRun.state`),这里只记电脑给的编号对应哪个对话、原话,和收尾时的终态(含排队时被取消、服务被停);交出去两分钟还没登记上的按没开始成算。回答直接交给 `TaskRun.answer`,只在任务正等着回答追问时;停止经 `TaskService` 的 `ACTION_CANCEL_MCP`(排队中的直接移出)。只认这里登记过的编号,手机上发起的任务电脑看不到也动不了。新对话照常请模型起标题。
-- 安全上的几道保证:付款和确认永远不能从电脑放行——`mina_answer` 只把回答交给等着追问的任务;`request_confirmation` 在非手机发起的运行里直接拒绝(`declined_remote`),`ApprovalPolicy` 对非手机发起的付款一律 Deny;CLI 或 MCP 发起的运行不管自主开关都按询问开工(`ApprovalControl.start(remote = true)`),所以自主模式也放不行付款。手机上照常弹出提问、接管的通知。运行记录的开始事件写明来源(`RunEvent.TaskStarted.origin` = `mcp`,手机上发起的不写),概要里也有。
-- 设置页(`ui/McpScreen.kt`):顶部区分访问未开启、等待电脑请求、最近收到请求和启动失败;监听或开关打开不表示电脑已经连接。先选 CLI / Skill 或 MCP,再选两者共用的 USB 或 Wi-Fi / 私有网络方式。CLI 只有安装和连接两步,connect 自带验连;网络方式提供 HTTP 根地址、令牌文件命令及令牌复制,MCP 则提供 /mcp 配置。切换引导不改变权限。访问开关、令牌管理和远程唤醒放在默认收起的高级设置中;网络 MCP 配置预览也默认收起且隐藏令牌,复制时才生成完整配置。地址和请求时间沿用页面内两秒刷新。`ComputerAccessScreenTest` 验证引导切换、显式权限操作、状态和配置复制。
-
-`mina_steer_task` 与 `POST /api/v1/tasks/ID/steer`(CLI `task steer`)经同一个 `RemoteTaskService.steer` 追加要求。只收 `running` 远程任务;`TaskRun.steerRemote` 再核对运行、暂停/等待与取消状态,`RunInbox.steerCurrent` 和关闭/取消互斥。消息只归当前任务,未消费就结束时标为未用上,不沿用 UI 插话的下一任务兜底。返回消息编号和收件箱接收确认;任务状态的 `steers` 只列远程消息的 `received`/`joined`/`not_applied`,不带手机插话或消息正文,终态保留快照。
-
-普通 API 仅提供只读设备状态供 CLI doctor 使用;MCP 另提供主屏准备工具 `mina_device_state`、`mina_wake_device`、`mina_unlock_device`。它们属于宿主设备管理(同配对与恢复),不注册为模型的 `AgentTool`,不进入模型上下文、动作历史或凭据日志。MCP 原有认证之后由 `McpDeviceTools` 调 `core/device/DeviceAccess.kt`:主屏状态 → 唤醒 → 请求显示凭据页 → 必要时输入本机凭据 → 核实系统状态。核心只依赖 `DeviceAccessPort`、`DeviceAccessStore`;安卓适配在 `app/device/`,主屏输入的 shell 实现在 `cap/phone/shell/DeviceUnlockInput.kt`,AIDL 有单独方法,普通虚拟屏按键白名单保持不变。
-
-`DeviceAccess` 每进程一份、Mutex 串行化;远程许可默认关,凭据只能手机端设置。`DeviceAccessSettings` 用独立 Keystore 密钥加密原子写整个配置,仅缓存非秘密状态。输入前持久化失败占位,只有系统已解锁才清掉;失败/中断后必须本机重新保存凭据。Android 适配只在主屏 SystemUI 的唯一、类型匹配密码框上输入,不处理 SIM PIN 或无法辨认的厂商页;凭据按键经 `ShellService.injectTo` 定向注入,只投给 SystemUI 拥有的焦点窗口(安卓 13 起的 `injectInputEvent(event, mode, targetUid)`),锁屏上方另有窗口或已解锁回到 App 时系统拒绝,按键不会落到别处,修饰键也只在发过按键后向 SystemUI 释放;安卓 13 以前不输入凭据(`unsupported_keyguard`)。`TaskGate` 不变,系统实际亮屏解锁后自动继续。设置 UI 是电脑连接页的分组卡片,使用已有行/输入/按钮组件及中英文资源,凭据不进可恢复 UI 状态、编辑时禁止截图。此功能不改变任务来源和付款策略。
-
-## 7. 上下文与压缩
-
-- **缓存分区**(`core/agent/ContextBuilder.kt`、`ContextCompressor.kt`):区 0 是系统提示词和工具定义,一个任务内只在展开一组工具时变(每组至多一次,只改从那一组起的部分),其余时候一字不变(步数用完的最后一轮只给放弃用的工具、判成讨论时的重问不给工具,这两种请求例外);区 1 是开局上下文,写一次不改(以前的对话、记忆与画像、任务原话、可用渠道、App/网站知识、知识与技能索引;除用户原话外都包在 `<context kind=… source=… trust=…>` 里);区 2 是历史,只追加;区 3 是本步的结果、画面和运行时状态(在哪个界面、第几步、当地时间、用户最近一句话里他自己打的字的开头,附在最后一条消息末尾)。主循环写给模型的文字(外壳的来源与可信度、运行时状态、提醒、确认与接管的说明、回放经过、工具结果、折叠摘要)一律是英文,和系统提示词、工具说明一致,免得模型跟着中文回答;给用户看的文字照旧按界面语言。
-- **只追加**:平时已发出的消息不改写,完整历史从不被修改;只有压缩时在副本上统一改写一次。`AnthropicModel` 回传助手消息时块的顺序照收到的,思考块不挪位置。Claude 5.1 起的模型还会校验回传的思考块:签名和产生它时的系统提示词、工具、前面的消息绑定,展开一组工具、压缩之后(还有步数用完的最后一轮、判成讨论时不给工具的那次重问)就对不上,部分账号和模型上直接回 400。被拒时 `AnthropicModel` 把这次带的思考块都去掉再发一次,同一个模型实例(每个任务一个,子任务共用)之后的请求也不再带它们(历史里照留),重发以后收到的照常回传。按线上字节查区 0 与只追加的是 `PrefixStabilityTest`(OpenAI 兼容接口)和 `PrefixStabilityAdaptersTest`(Responses、Anthropic、Gemini 和标缓存的兼容接口),跑同一个 30 步的假任务:区 0 只在展开时变,历史只在压缩时改写;后者还查回放的加密思考、思考签名与 thoughtSignature 每一步都带齐,Anthropic 一次请求的缓存标记不超过 4 个。
-- **token 预算**:开局上下文、记忆、之前几轮、App/网站知识都按 token 计(`TokenEstimate` 粗估):总额 8,000,Task 4,000,Knowledge 5,000,单份正文 2,000;记忆全量 4,000、检索 800;之前几轮 2,500(只剩一轮还超长时原话和结局分别截);结局判定、意图判断带的之前几轮 800。按 token 计后各语言占的上下文一样多:和原来按字数的额度比,英文能放的字多了约一倍,中文少了约三分之一;自带的 App/网站知识正文单份都在 2,000 以内。压缩时算「大结果」的线是 1,000 token(原来 4,000 字符对应的 token 数,英文和 JSON 结果的裁法不变)。工具和界面自己的上限(`maxChars`、`OutputClip`、网页读取与脚本结果、摘要字段、引用、技能文档等)仍按字符,没有改。
-- **何时压缩**:一律按**整份请求**(系统提示词 + 工具定义 + 消息,和服务商报的输入 token 同一口径)比。整份请求的大小由 `UsageMeter` 算:有同一模型最近一条带真实用量的回复时,= 那次的输入 token(已含当时的提示词和工具定义)+ 这条回复的输出减去服务商单独报出的思考 token(`Usage.reasoningTokens`:兼容接口 `completion_tokens_details.reasoning_tokens`、Responses `output_tokens_details.reasoning_tokens`、Gemini `thoughtsTokenCount`;Anthropic 不单独报,按全部输出算)+ 之后消息的估算 + 固定开销自那次以来的变化;没有锚点(第一步、换了模型、刚压缩过)时消息和固定开销全量估算。固定开销只算这一次。估算一律乘同一个「真实 / 粗估」比值:有真实用量后平滑校准,之前用偏保守的 1.2。触发点只在 `ContextLimits.of` 一处算:可用 = 窗口 − 输出预留(最多 20K,小窗口按窗口的四分之一);触发点 = 可用 − 余量(最多 13K,小窗口按可用的四分之一),不低于窗口的一半;一次压缩压到「可用的一半,且比触发点低一个余量」以下。例:32K 窗口触发点 18K,128K 为 95K,1M 为 967K。压缩后至少再长一个余量才再压(回差),但不越过可用窗口;所以固定开销很大、压不动的历史也不会每步都压,真到了可用窗口边上才每步压。设置里的窗口和绝对触发点按服务商与模型保存，经 `ProviderStore.modelFor` 装配。未指定的触发点由 `ContextLimits.of` 自动计算，手填值沿用同一范围。服务商报上下文超长时,改用更激进的档位重发一次。窗口留空时沿用所选模型的上下文长度。
-- **怎么压**(不调模型):先缩短最近 12 轮之前的旧结果(旧的界面读取换成占位,网页、命令、文件内容超长才截;占位保留观察编号),再把旧轮次折叠成「Earlier steps (compressed)」;不够再逐档收紧。结构化摘要(`StepSummary`)有实现,默认关。
-- **永不裁剪**:用户说的话(任务原话、插话、回答)从不裁剪;追问、确认、接管那几轮不折叠。压缩后 `ContextRecovery` 把缺了的用户消息和开局上下文(以前的对话、记忆、知识、技能、渠道)补回原位。
-
-## 8. 并行
-
-不同对话的任务可以同时进行,每个任务一块虚拟屏(`app/task/ParallelCapability.kt`):需要安卓 14 及以上、打开速度开关「不同对话同时进行」(默认关),上限 1–3(默认 2);低内存设备或第二块屏建失败过时只允许 1 个。真正独占的是同一个 App、主屏接管和剪贴板,由 `ResourceScheduler`(`app/task/ResourceScheduler.kt`)统一协调:同一个 App 同时只归一个任务,接管排队,剪贴板加锁,网页标签页有总预算。
-
-**等别的任务放开 App**:打开一个正被另一个任务用着的 App 时,结果是 `app_in_use_by_other_task`,说明里告诉模型可以先做别的,或带上 `wait`(秒,1–180,`LaunchApp.MAX_WAIT_S`)再调一次 `phone_launch_app`。要不要等、等多久由模型按任务定,没有设置开关。带了 `wait` 又被占着时,工具经 `ScreenPort.awaitAppFree` 等:`AndroidScreen` 把「别的屏上没有它、占用登记里也没有别的任务占着」当作放开,交给 `ResourceScheduler.awaitApp`(经 `TaskCenter.awaitApp`)——它登记「谁在等哪个 App」,有任务放开 App(`releaseOwner`,任务结束时)当场叫醒等着的,别的屏上的 App 自己关掉没有通知,每秒再看一眼;放开了就再开一次,到时限仍被占着返回 `app_wait_timed_out`。开始等之前顺着「占着这个 App 的任务在等谁手里的 App」一路找,绕回自己就是互相等(两个、三个任务成圈都一样),当场不等、返回 `app_wait_would_deadlock`(查与登记在同一把锁里,两个任务同时开始等时后来的那个看得见先来的;先来的照样等着,后来的不等、做完收尾放掉手里的 App,先来的就等到了)。等的这段时间任务仍是 `Running`,进展是 `RunProgress.WaitingForApp`(对话页、通知、胶囊都写「等另一个任务用完某 App」),不是暂停,也不算「要你处理」;等完放回原来那句。这和对话页交给服务的任务排队(并行关着时,别处的任务先开始了,新任务排在它后面、收尾后开始,消息下面写「等前一个任务做完再开始」)是两层:那是整个任务排在别的任务后面才开始,一次只跑一个,不会争 App;这里是并行时已经在跑的任务中途等一个 App。
-
-## 9. 经验回放
-
-成功路线可记录下来,同类任务直接回放、每步轻量核对、不调模型,对不上就交还模型(`core/replay/`,回放的动作以 `Origin.Replay` 经唯一入口执行)。路线只从办成的运行里记录(`LearnGate`,`TaskRun.settleOutcome` 判过结局后从落盘的运行事件里取,`RouteRecorder` 只管路线本身记不记得下);回放走完、这次又算办成的,路线成功计数加一(`RouteReplay.noteResult`)。速度开关「照着上次的做法做」默认开:旧设置由 `FeatureFlags` 升级一次(`speed_defaults_applied_v3`),之后用户关掉就保持关闭。
-
-## 10. 定时与条件触发
-
-- **工具**:`schedule_task`(`core/general/ScheduleTask.kt`),`op` = create(默认)/ list / pause / resume / delete / run_now / reschedule。只在对话界面发起的运行里提供。
-- **时间规则**(`TriggerDefinition`,`core/trigger/Triggers.kt`):一次性(`at`);固定间隔(`intervalMinutes`,错过多次合并成一次并记下错过几次);按当地时间每天或每周几(`repeatAt` + `repeatZone` + `weekdays`),跨夏令时保持钟点不变。
-- **三种做法**:固定提醒(`reminder`)到点直接送达,不调模型;办事任务到点作为无人在场的 Run 执行;带 `condition` 的先用只读的网页和沙箱检查条件,结果结构化为 `ConditionOutcome`(`core/trigger/ConditionOutcome.kt`),检查出错不算「不满足」;只在条件从不满足变为满足时才执行动作。`whenIdle` 让它等到没有任务在跑时再做。
-- **调度**(`app/task/TriggerRuntime.kt`):系统闹钟只是唤醒信号,`FileTriggerStore` 是真源。派发前先写好下次时间和这一次的窗口(编号 = 触发器 + 到期时间),同一窗口不会派发两次。能用精确闹钟就用,没有权限时第一次会发通知引导用户去系统设置打开,`schedule_task` 的结果也告诉模型「可能不准时」;计划页显示提示。开机、改时间、改时区、精确闹钟权限变化时重新布置(`app/setup/BootRestoreReceiver.kt`),App 启动时也会。
-- **结果回原对话**:到点的任务就在创建它的对话里运行,结果、提醒和失败说明都写回那个对话,通知点开就是它。
-- **进程中途被杀**:提醒重新送达(按编号去重);其他已认领的窗口标为结果不明,在原对话里说明并通知「Mina 不会自动重复操作」。
-- **计划页**(`app/ui/PlansScreen.kt`):分「进行中」「已停用」两段,每条三行(做什么、重复规则与下次时间或状态、上次结果),右边开关即暂停与恢复;点一行升起操作面板:看对话、立即执行、改时间、删除。
-
-## 11. 知识与技能
-
-- **内置**(`core/src/main/resources/`):App 知识(`knowledge/apps/<id>/APP.md`)、网站知识(`knowledge/sites/<域名>/SITE.md`)、技能(`skills/<id>/SKILL.md`),一个目录一份,加一份就是加一个目录;现有哪些看这几个目录或构建生成的索引 `knowledge/index.json`,README 里的清单由 `./gradlew updateReadme` 从同一份索引生成。格式见 [`knowledge-format.md`](knowledge-format.md)。构建时 `KnowledgeIndex` 扫描头部、校验并生成索引,校验不过构建失败。
-- **自动补给**:开局按任务文字匹配;进入某个 App(读过它的界面)或某个网站(第一次成功打开或读取)时补上它的知识正文。每份只给一次,每个任务最多 3 份(`KnowledgeStore`、`NoticePolicy`)。
-- **技能分两层给**(`GuideRecommender`、`ContextBuilder.start`):开局的索引里列出全部技能,不按任务文字挑——内置技能在前、个人技能在后,各按名字排,每份一行(id、显示名、描述;试用中的描述前标明还没验证过),停用的和待确认的草稿不列。索引在开局上下文里写一次,中途切换前台也不补、不改,整份给、不受预算裁剪。用不用、用哪份由模型按描述判断,要用时用 `skill_read` 读全文;开头不再塞进任何技能的全文。读了个人技能记一次 `SkillUsed`(`how` = viewed;旧记录里的 injected 照样读,一样算用到),任务结局据此记进那份技能的结果。
-- **查阅工具**(`core/general/LookupTools.kt`):`knowledge_search` / `knowledge_read` 查 App 与网站知识,`skill_search` / `skill_read` 查技能(内置的和个人的一起)。
-- **按用户要求写技能**(`core/general/SkillSave.kt`,内置技能 `skills/skill-authoring`):用户在任务里要新建、导入或改写一份技能时,模型照内置的「写技能」技能写好整份文档,用 `skill_save` 存成个人技能。引文要出自用户本次说的话(页面、文件里的字不能让它写);和自学草稿过同一道校验(`SkillDrafter.validate`:名字、描述、五个小节、长度、工具名、敏感内容);内置技能的名字不能占,和待确认草稿同名的不收;改已有的一份要带上 `skill_read` 返回的 version(原文指纹前 12 位,对不上说明中途被改过)。存下直接进试用、在「记忆与技能」里标明「按你的要求写下」(`meta.json` 的 `source: user`),办成一次转正式;改名、删除留在设置里。这次存过技能的运行不再另起自学草稿(`Eligibility`)。用户本次说的话(`UserUtterances`)不再跟着记忆开关:只在内存里、每个任务开始清空,记忆关着时 memory_* 工具照样不提供、也不拿它提取记忆。
-- **个人技能自学**(`core/skills/`、`app/task/RunLearning.kt`):任务办成后(`LearnGate`,不要求跑过最终核查),按条件起草一份个人技能(动作够多、没有跳过的接管、用户没自己办完、没有不同意的确认、不是回放出来的,见 `Eligibility`);起草时把已有的个人技能(连同待确认的草稿)逐行列给模型,这次的事是其中哪一份的同一类事由模型在头部写 `updates: <名字>`,代码只核对确有这份:指向已收下的就作为它的更新起草(收下时覆盖它,带着原文指纹核对),指向待确认的草稿就换掉那份草稿,名字对不上的当作新的一份(新的一份不能占已有的名字);草稿要用户在「记忆与技能」里收下才试用,试用时办成转为正式,失败就停用;正式技能近 3 次里有 2 次不好也停用(`SkillOutcomes`,结局没判成的不算)。开关「从办成的任务里学技能」默认开(旧设置在 `MemorySettings` 读时升级一次,之后用户关掉就保持关闭)。
-- **App 知识自学**(`core/knowledge/AppKnowledgeLearning.kt`、`app/knowledge/AppKnowledgeFiles.kt`):同一个开关下,对话界面发起、在手机 App 里动过手的运行,每个动过手、有内置知识条目的 App 各判一次(没有条目的 App 没处附补充,不学)。值得学的有三种(`AppKnowledgeDrafter.kind`):办成了、这个 App 里生效的动作够数;办成了但磕绊(出错或界面没变的动作两次以上,或返回两次以上);没办成或只办成一部分(判下来 Partial / NotPossible,或放弃、步数用完),且在这个 App 里动过至少 3 步。取消的、跳过接管的、用户自己办完的、回放出来的不学。请一次模型(轻量模型优先;角色 `prompts/roles/app_knowledge.md`,请求的格式在 `app_knowledge_input.md`;已核实的补充遇上一次顺利办成不请),交给它这个 App 的内置说明、在用的补充、结局和精简动作清单(带出错码、界面变没变,不带屏幕原文和输入的字),要回补充改完以后的全文:只有「- 」开头的事实行,至多 12 条;没有值得补的回 NONE,什么也不出。请求里目标、回答或没办成的原因照原样给;交回的补充照原样收(数据只在手机上,不做脱敏),只有写了密码、验证码这类东西的整份不收(`SensitiveFilter`)。每个 App 至多一份待确认的修订,修订对着的不是现在注入的那份(另一份先收下了)就不收;在用的那份变了(收下、归档、试用改了阶段)之后,对着别的那份起草的待确认修订当场归档,收下过时的修订也只是把它归档,不会一直占着位置挡住这个 App 往后的草稿;收下后进试用,试用期间顶替它修订的那份(旧的不注入也不删),转正式才把旧的归档,被归档就换回旧的(`AppKnowledgeTrial.inUse`)。注入时附在 App 说明后面,试用中的标明还没被办成的任务用过(`feedback/loop.md` 的 `knowledge.learned_trial`,已核实的是 `knowledge.learned`)。用过试用稿的运行办成就转正式;从教训学来的连着两次不好才归档,别的一次不好就归档(`AppKnowledgeTrial`);和个人技能一样,模型出错、运行环境出问题、操作保护停下的运行不算好也不算不好(`SkillOutcomes.resultOf`)。「待确认」里写明是补充还是修订,列出加了、去掉的行;被试用中的修订暂时顶替的那份标成「暂时由试用中的修订顶替」,不给归档。
-
-## 12. 记忆与模型
-
-- **思考强度**:服务商在模型列表里写明了档位(`supported_reasoning_levels` / `capabilities.reasoning.effort`)的模型都能选,四种协议各有自己的发法:`ResponsesModel` 发 `reasoning: {effort: ...}`;`OpenAiCompatModel` 发 `reasoning_effort`;`AnthropicModel` 发 `thinking: {type: adaptive, display: summarized}` 和 `output_config: {effort: ...}`(选 `none` 时发 `thinking: {type: disabled}`);`GeminiModel` 发 `generationConfig.thinkingConfig`(`thinkingLevel`,选 `none` 时用 `thinkingBudget: 0`,开启时 `includeThoughts: true`)。`ModelCatalog` 保留档位和顺序,随 `ListedModel.reasoningEfforts` 缓存;缺失与明确空列表区分。Anthropic 列表按 `capabilities.effort.<档位>.supported` 和 `capabilities.thinking.types.<方式>.supported` 逐项照填:接受 `adaptive` 时档位是标了支持的那几级(由浅到深),也接受 `disabled` 的前面加 `none`;不接受 `adaptive`(只能 `enabled` 按预算思考)或不分档位的为空列表;接受的思考方式另存 `ListedModel.thinkingTypes`,经 `ClientSetup.thinkingTypes` 交给 `AnthropicModel`,不接受的那种不发。Gemini 列表只有 `thinking` 一个布尔,不给档位。`ReasoningOptions` 优先用列表;没报告时只有 Responses 一族(含 ChatGPT、xAI 登录)给通用手动档位,兼容接口、Messages、generateContent 都不猜(各模型认的档位和写法不同,猜错了每次请求都被拒)。实际走哪种协议由 `ProviderStore.adapterFor` 一处判断(订阅登录固定走这一家的接口,不跟列表里写的别的协议走),建模型和给档位共用。`ReasoningControl` 在用途卡片下选择,`RoleChoices.reasoningEfforts` 按用途保存到 `uses.<角色>.reasoningEffort`,同一模型不同用途可不同;「用主模型」继承主模型强度,更换该用途模型时清掉它的旧选择。默认不指定,旧配置不迁移出新默认;`ProviderStore.modelFor` 经 `ClientSetup` 传到适配器,只有明确选择才发。Claude 开了思考后输出上限提到 16K(思考也算在 `max_tokens` 里);带工具调用的回合把思考块的签名连同收到它的地址存进 `Part.Thinking.opaque`(`SignedThinking`),只回传给同一个地址(`redacted_thinking` 同样回传),换了地址或关掉思考时不回传。服务端拒绝所选档位时照常报错,不悄悄降档;去掉不支持的 `include` 重试时仍保留强度。刷新列表后不再支持的已选档位保留并提示,可恢复默认。
-
-- **记忆**(`core/memory/`):三类 `MemoryKind`——事实、偏好、做法。事实和偏好记下即用、可撤销,做法要用户批准。只从用户自己说的话里记(`UserUtterances`,带着屏幕、浏览器页的页面说明、引的 Mina 的回答、附件时只收用户打的字,引的他自己说过的话也收,`UserWords.said`),不从屏幕和网页内容里记;密码、验证码、卡号、证件号等由 `SensitiveFilter` 挡掉。工具 `memory_save`、`memory_search`;任务结束后 `MemoryExtractor` 在后台从用户原话里提取(读过网页的运行不提取;还要求这次运行由对话界面发起、交出了回答,`RunLearning`)。开局注入记忆(`MemoryContext`):记忆总量在 `FULL_MAX_TOKENS` 以内就一条不落全给(置顶在前,其余按更新时间倒序),超了才退回只带置顶与检索到的相关条目(`MemoryIndex` 的 BM25),全量时做法也全给,检索时做法按相关度最多带 `MAX_PROCEDURES` 条;产品路径(`AgentLoop`)用自动模式,`Mode.Relevant` 保留老行为。另有单独的用户画像(`ProfileStore`,工具 `profile_edit`,改动从下一个任务起生效)。记忆和画像用安卓密钥库里的密钥加密存储(`app/memory/EncryptedMemoryFile.kt`)。开关「使用记忆」「自动记住我说过的事」默认开。
-- **模型**:四种接口——OpenAI 兼容(Chat Completions)、OpenAI Responses、Anthropic、Gemini(`core/model/`);另可用 ChatGPT 账号登录、用套餐额度(见下「Responses 与用 ChatGPT 登录」)。模型分三个用途 `ModelRole`:主模型、看图模型、轻量模型。语音转文字是第四种用途,但不在 `ModelRole` 里,另外存(`SpeechChoice`,见「16. 语音输入」)。每个用途选什么都是用户明说的(`RoleChoices`,在 `app/settings/ProviderStore.kt`),没有按能力推断的默认分配:主模型是一个具体模型或还没选;看图是一个具体模型、「用主模型」或「不用」(新装默认不用);轻量是一个具体模型或「用主模型」(新装默认)。选择不按能力标记拦(`ProviderStore.choose` 不拒绝),选具体模型时把对应标记记下:选作主模型记工具调用、选作看图模型记看图,运行时按这两个标记决定发不发工具定义、附不附图;看图「用主模型」时 `configFor` 给出主模型那条配置并把看图标记当真(用户说了它能看图),主模型自己办事仍按它存着的标记。能力标签只作参考。结局判定、记忆提取、意图判断、路线匹配优先用轻量模型;打开速度开关「简单步骤交给轻量模型」后简单步骤也交给它(`core/agent/ModelRouter.kt`,轻量模型不支持工具调用时不接手机步)。「看图定位已验证」(`Capabilities.groundingVerified`)在设置 › 开发者选项里改,作用在当前看图模型那条配置上(`ProviderStore.setVisionGroundingVerified`),没有看图模型时不显示。API Key 用密钥库加密保存(`app/settings/KeyCipher.kt`)。
-- **服务商预设**(`app/settings/ProviderPresets.kt`):预填接口类型、地址和能力初值,模型名和 Key 用户填。国内:DeepSeek、通义千问、Kimi、智谱、硅基流动、火山方舟(豆包,模型名可填模型 ID 或接入点 `ep-…`)、MiniMax(国内站 `api.minimax.cn`)、阶跃星辰、腾讯混元(TokenHub `tokenhub.tencentmaas.com`)、百度千帆(`qianfan.baidubce.com/v2`);国外:OpenRouter、OpenCode Go、Anthropic、Gemini、OpenAI、xAI、Mistral、Groq;自己机器上跑的:Ollama、LM Studio;最后是「自定义」。「OpenAI」的接口类型是 Responses(`ProviderConfig.Kind.OpenAiResponses`):官方文档写明新的主力模型调用工具必须走 Responses,Chat Completions 带工具会被拒;列模型同样是 `GET /models`。其余都是 OpenAI 兼容。添加「自定义」服务商时接口类型可选 OpenAI 兼容、Anthropic、Gemini、OpenAI Responses(`ProviderConfig.Kind.withApiKey`,Responses 排最后),选 Responses 的经 `ResponsesModel` 调 `{base}/responses`,列模型照样是 `GET {base}/models`;自定义的 Responses 和 Anthropic、Gemini 一样要填 Key(自定义服务商里只有 OpenAI 兼容可以不填,多半是本地服务,见 `AddForm.keyRequired`)。`ProviderPreset.selfHosted` 的(Ollama、LM Studio)地址预填本机默认端口(`http://127.0.0.1:11434/v1`、`http://127.0.0.1:1234/v1`),表单里能改成电脑的局域网地址(`AddForm.urlEditable`,下面一句提示怎么改),Key 可不填(`AddForm.keyRequired`),存下的服务商名字仍用预设名。README 里的预设清单由 `./gradlew updateReadme` 从这个文件生成(见 `ReadmeSections`)。
-- **列模型与连接服务商**:`ModelCatalog`(`core/model/ModelCatalog.kt`)调各家公开的列模型接口(OpenAI 兼容 `GET /models`、Anthropic `GET /v1/models`、Gemini `GET /v1beta/models`,后两者翻页),返回模型名和接口给出的能力(工具调用、看图、上下文长度、推理);接口没给的为空,由 `ModelOptions`(`app/settings/ModelOptions.kt`)沿用预设的初值并标为未确认。失败按原因分类(Key 无效、网络、不提供列表等)。列表接口 404 / 405 / 501 记为「不提供列表」,但单看它分不出这家真不提供列表还是地址、接口类型填错了,由下面的试调用来分。
-- **一个服务商、几种协议**:有的服务商(如订阅制的聚合服务)一个 Key 下的模型走不同协议,列表里每个模型带一张 `api` 表,键是协议(`chat-completions`、`messages`、`generate-content`、`responses`…),值里有这个协议的 `base_url`(兼容接口还可写 `compatibility.reasoning_field`)。`ModelCatalog` 按 Chat Completions、Messages、generateContent、Responses 的次序取第一种会说的,记成 `ListedModel.endpoint`(`ModelEndpoint`:协议、地址、思考字段);一种也不会说的(如 `realtime`)记下协议名(`unsupportedApis`),`ListedModel.usable` 为假,`ModelOptions.merge` 不列出来、服务商的模型数也不算它,用户选不到必然失败的模型。同一种写法里的能力也认:`capabilities.tools.supported`、`capabilities.reasoning.supported`、`limit.context`、`modalities.input`(有 `image/…` 即能看图)。`endpoint` 随模型列表存在 `providers.json` 的 `services[].models[].api` 里(`unsupportedApis` 同处)。建模型时 `ProviderStore.modelFor` 现查服务商记住的列表里这个模型的 `endpoint`,有就按协议选适配器(`ProviderConfig.Kind.of`:Chat Completions → `OpenAiCompatModel`、Messages → `AnthropicModel`、generateContent → `GeminiModel`、Responses → `ResponsesModel`)、用它的地址,没有就照旧按服务商的接口类型和地址;重新列过、地址换了,下一次建模型就用新的。适配器自己接版本路径(Anthropic 接 `/v1/messages`、Gemini 接 `/v1beta/models/…`),列表地址末尾已有的 `/v1`、`/v1beta` 由 `ModelEndpoint.adapterBaseUrl` 去掉,不会重复。Key 都用服务商那一个。兼容接口的思考回传(`OpenAiCompatModel`,不按服务商名字、地址或模型名判断):各家把思考放在 `reasoning_content`、`reasoning`,或 `content` 是分块数组、思考在 `thinking` 块里(文字块是回答);收到的思考记下收到它的地址和位置(`ReasoningVia`,存在 `Part.Thinking.opaque`),带工具的请求里原样放回原处(字段同名;分块的那家整条按分块放回,思考块在前)。只回传从同一个地址收到的,别的地址、别的适配器给的思考不发,不认这些字段的服务商不会收到;不带工具的旁路调用不回传。列表写明了 `reasoning_field`(`reasoning_content` 或 `reasoning`)的,来历不明的思考(旧版本存下的历史)也按它回传。预设「OpenCode Go」就是这样:列表地址 `https://opencode.ai/zen/go/v1`(列表不要 Key),接口类型 OpenAI 兼容只是没写协议时的退路;只写了 `responses` 的模型(地址如 `https://opencode.ai/inference/go/openai/v1`)由 `ResponsesModel` 调用。
-- **Responses 与用 ChatGPT 登录**:`ResponsesModel`(`core/model/ResponsesModel.kt`)调 `POST {base}/responses`,一律 `stream:true`、`store:false`,每次把上下文都放进 `input` 数组:系统提示词放 `instructions`,对话里的系统消息改成 developer 消息,图片是 `input_image`(模型不能看图时换成一句占位),工具是 function 工具(`strict:false`),工具调用和结果是 `function_call` / `function_call_output` 条目。默认只发 `model`、`instructions`、`input`、`tools`、`store`、`stream`、`include`;用户选择思考强度时另发 `reasoning.effort`,温度和输出上限不发(用 ChatGPT 套餐额度时不收)。推理模型的思考请求加密内容(`include: reasoning.encrypted_content`),原样存进这一回合第一个工具调用的 `Part.ToolCall.opaque`,回放时放回工具调用前面(去掉只在服务端有意义的 `id`);服务端说不收 `include` 时去掉再发一次。只有收到 `response.completed`(或 `response.incomplete`:`max_output_tokens` 记为输出被截断)才算成功,`response.failed` / `error` 按 `error.code` 归到 `ModelError`,流在收尾前断开当作网络故障(会重试)。令牌由 `BearerToken` 给:API Key 固定不变;能换新的(ChatGPT)遇到 HTTP 401 先换一个再发一次。用量从 `response.usage`(`input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens`)记进 Token 用量。
-  「用 ChatGPT 登录」(`core/chatgpt/`,接口类型 `ProviderConfig.Kind.ChatGpt`)走 OpenAI 给开源、本机运行的 App 的那条路:公开客户端、没有密钥,授权码 + PKCE(S256),每次登录新生成 state、nonce、校验串。`LoopbackCallback`(`core/oauth/`,和 OpenRouter 共用)在 `127.0.0.1` 上开一个系统挑的空闲端口,只收 `GET /auth/callback` 一次(别的路径回 404,state 对不上的回 400、接着等);回调到了先把登录做完——核对回调、换令牌、验 ID 令牌、看套餐权限,至多 20 秒——再把结果回给浏览器(浏览器那边一直等着这个连接):成功写「登录成功，回到 Mina」,失败写和界面同一句原因,页上的按钮是打开 Mina 的 intent 链接;超时或取消就关掉。授权页 `https://auth.openai.com/api/accounts/authorize` 用系统浏览器打开:第一次用 `client_id=dynamic_agent_client` 注册,带 `agent_name_hint=Mina` 和本机标识 `ext_agent_host_id`(`urn:uuid:…`,每台设备生成一次);回调给出这个账号专属的 client_id,换令牌前就记下(`settings/chatgpt-host.json`,和本机标识放在一起,都不是密钥),之后换令牌、刷新、再登录都用它(再登录带上次的 ID 令牌和邮箱当提示,退出登录后不带 ID 令牌)。`scope` 是 `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`,`resource` 是 `https://api.openai.com/v1`。换令牌(`/api/accounts/oauth/token`,表单)后验 ID 令牌:按 `/.well-known/jwks.json` 验 RS256 签名,核对签发方、受众(= client_id)、过期和 nonce;授予的权限里没有 `chatgpt.tokens.use.direct` 就不算登录成功(`signInWithChatGpt` 把这些串起来)。被拒的原因按 `ChatGptAuth.failureOf` 归类,界面和回调页说同一句人话、诊断信息里记下错误代码:返回的不是 JSON 的 403 / 429 是被防护拦下(`SignInFailure.Blocked`,换网络或稍后再试),代码或说明里有 `unsupported_country` / `region` / `territory` 是地区不支持(`SignInFailure.Region`),`invalid_grant` 是登录码过期或用过(`SignInFailure.CodeExpired`),`access_denied` 一类是用户没同意(`SignInFailure.Denied`),代码或说明里说了套餐、权限(`invalid_scope`、`plan`、`subscription`、`scope`)或授予的权限里没有套餐那一项才提 Plus、Pro(`SignInFailure.NoPlanScope`),其余是「ChatGPT 拒绝了这次登录(错误:代码)」(`SignInFailure.Exchange`);授权页带回的 `error` 也这样归,说不出地区、套餐的都算 `SignInFailure.Denied`。登录期间 Mina 在后台、用户在浏览器里输密码和两步验证,安卓会冻结或回收后台进程,本机端口还开着却没人接,浏览器就一直等到超时、授权码也可能过期:所以登录不跑在界面的作用域里,而跑在 App 那一份 `ChatGptSignIns`(`app/settings/ChatGptSignIns.kt`,界面重建、退到后台都不断,同一时刻只有一次),开始时起前台服务 `ChatGptSignInService`(`specialUse`,挂在安静的「任务进度」频道上:「正在等你在浏览器里登录 ChatGPT」,带「取消」),起不来只记一句、登录照常;服务看着 `ChatGptSignIns.running`,登录一结束(成功、失败、取消、超时)就自己停。最近一次登录失败(时间、类别、错误代码、脱敏后的一小段说明)只记在内存里,写进「复制诊断信息」。整份登录(`ChatGptSession`:client_id、身份、令牌、到期时间、授予的权限)当作这家服务商的「Key」,经同一个 `KeyCipher` 加密存在 `provider-keys.json`。访问令牌一小时过期:`ChatGptTokens` 在快到期(不到 5 分钟)或被拒时用刷新令牌换一组新的,新的刷新令牌和访问令牌一起存下,同一时刻只有一个在换;刷新令牌不能再用(`invalid_grant` 等)就清掉令牌、报「登录已失效」,网络或服务端一时出错令牌留着。退出登录先在服务端注销刷新令牌(`/api/accounts/oauth/revoke`),确认不了也清掉本机令牌并说明;服务商、模型和用途都留着,再登录接着用。删掉 ChatGPT 服务商时忘掉 client_id(下次重新注册,可以换账号),本机标识留着。模型列表是 `GET https://api.openai.com/v1/models`(访问令牌),返回的 `models` 表只留 `visibility` 为 `list` 的、按服务端次序,名字取 `slug`、显示名取 `display_name`,`input_modalities`、`context_window`、`supported_reasoning_levels` 给了就填能力;都经 `ResponsesModel` 调用(`chatGptPlan`)。套餐额度的错误:`subscription_sharing_usage_limit_exceeded`(或 HTTP 429)是额度到了上限(`ModelError.ChatGptLimitReached`),`subscription_sharing_user_not_eligible`(或 HTTP 403)是账号不能这样用(`ChatGptNotEligible`),都不重试,任务结局里说清原因和去哪看用量(chatgpt.com/settings/usage);`subscription_sharing_usage_unavailable` 等一时不可用的按 503 稍后重试。界面:添加服务商最上面「用账号登录」一组里的 ChatGPT 一行,点开的面板里是「用你的 ChatGPT 套餐」和「使用 ChatGPT 继续」按钮(写明 Plus、Pro 可用、Mina 不另收费),第一次登录成功后说明一次用量走 ChatGPT 套餐;服务商详情里是账号(邮箱)、管理用量(打开 chatgpt.com/settings/usage)、退出登录或再登录,没有接口类型、地址和 Key。
-- **用账号登录(xAI、OpenRouter)**(`core/oauth/`):和 ChatGPT 并排,在「添加服务商」最上面的「用账号登录 · 不用填 Key」一组(`ui/AccountSignIn.kt`:三行,ChatGPT、xAI / Grok、OpenRouter;已登录的写「已登录」、点进详情,没登录的点开说明面板,点「继续登录」才开始;xAI 有风险提示和「改用 API Key」)。登录都跑在 `ChatGptSignIns` 里(`SignInTarget` 认是哪一家,前台通知用账号登录的那两句),成功后列模型、存下、还没有主模型时选一个,再打开这一家的详情(`ModelSetupUi.signedInProvider`);详情(`ModelsScreen.kt`)是账号、状态、设为主模型、打开对方的账号页、退出或再登录,退出只清本机。失败的类别和错误代码记进诊断信息。本机回调 `LoopbackCallback` 和 `Pkce` 在 `core/oauth/`,ChatGPT 和 OpenRouter 共用;`SignInBrowser` 打开浏览器、回到 Mina、给回调后的结果页。
-  **xAI**(接口类型 `ProviderConfig.Kind.Xai`):登录、加密保存、刷新、调用 xAI 自己的接口四步分开。走设备码(RFC 8628,`DeviceCodeClient`、`awaitDeviceGrant`):用户在浏览器里打开验证页、核对短码,App 按服务端给的间隔轮询换令牌(`slow_down` 再加 5 秒,连着 3 次连不上才算失败);面板上显示同一个短码、有效期和「复制码并重新打开确认页」;验证页的主机不在允许名单里就改开固定的官方页。访问令牌、刷新令牌、设备码不进日志。整份登录(`AccountSession`)按 API Key 同样加密存在 `provider-keys.json`;`AccountTokens` 在快过期或被拒时用刷新令牌换新的,刷新令牌不能再用就清掉、报「xAI 登录已失效」(`ModelError.SignInExpired.account`)。`XaiAuth` 先读 `https://auth.x.ai/.well-known/openid-configuration`,签发方和设备码、令牌地址必须是 https 的 `auth.x.ai`(`OauthUrls`),否则停止。客户端复用 xAI 官方命令行工具的公开登录入口(不是给 Mina 注册的),scope 含 `grok-cli:access` 和 `api:access`;面板在登录前写明复用风险。调用是 `https://api.x.ai/v1` 的 Responses(`ResponsesModel`,`accountLogin`),HTTP 403 是订阅档位不能用这个接口(`ModelError.AccountPlanNotAllowed`,不重试,说明改用 xAI 的 API Key)。
-  **OpenRouter**(`OpenRouterAuth`、`signInWithOpenRouter`):官方 OAuth PKCE。授权页 `https://openrouter.ai/auth` 带本机回调(`http://localhost:<端口>/auth/callback`,监听只绑 127.0.0.1)、S256 校验、`key_label=Mina` 和 state;回调 state 对不上回 400 接着等,没 code 没 state 是用户拒绝;`POST /api/v1/auth/keys`(JSON:code、code_verifier、code_challenge_method)换到一把 OpenRouter Key。按 OpenRouter 预设存成 OpenAI 兼容服务商,Key 照常加密,`Provider.signIn` 记 `openrouter`(存在 `providers.json` 的 `services[].signIn`);授权来的和用户自己填 Key 的各是一家(`findOrAddProvider` 按来历分开),授权不顶掉用户的 Key,界面上写作「OpenRouter（账号登录）」。退出登录删本机的 Key(`ProviderStore.signOutOpenRouter`),提示到 OpenRouter 的 Keys 页面删。说明见 `docs/dev/account-signin.md`(也写了 Claude 订阅、Google 账号、MiniMax 账号为什么不做)。
-- **请求头与会话号**(`core/model/ClientHeaders.kt`):发给模型服务的每个请求(四种协议的适配器 Chat Completions、Messages、generateContent、Responses,一次性和流式,以及 `ModelCatalog` 列模型)都带 `ClientHeaders.of` 给的头,Key(或 ChatGPT 的访问令牌)的头仍由适配器自己加;「用 ChatGPT 登录」也带 `User-Agent`,它没声明会话头,不发会话号。`User-Agent` 是 `Mina/<版本>`(App 用 `BuildConfig.VERSION_NAME` 交给 `ProviderStore`,core 不写版本号)。有的服务商要求每段对话带一个固定的会话号(据此路由、复用提示词缓存,不带就拒绝):预设用 `ProviderPreset.sessionHeader` 声明头名(目前只有「OpenCode Go」的 `x-opencode-session`),连上时记在服务商上(`Provider.sessionHeader`,存在 `providers.json` 的 `services[].sessionHeader`;旧版本存下的没有这一项,读入时按地址对得上的预设补上)。没声明的服务商不发会话号,代码里不按服务商名字判断。会话号是 `ModelSession.of(对话 id)`(UUID v3,不可逆,不把对话 id 本身发出去):`TaskEnvironment` 的三个模型工厂多一个 `ModelSession` 参数,`TaskRun` 按自己的对话建出主、轻量、看图模型,核查、意图判断、结局判定、停止后的交代都用这几个,`TaskService` 起对话标题时也按同一个对话 id 取;同一段对话里每次运行、每个旁路调用的会话号都一样,换一段对话就不同。不属于任何对话的请求(列模型、连接测试)每次用 `ModelSession.fresh()` 的新号。
-- **明文 http**(`res/xml/network_security_config.xml`,清单里 `networkSecurityConfig` 引用):用户自己在本机、局域网跑的模型服务多半只有 http,所以整个 App 允许明文(`base-config cleartextTrafficPermitted="true"`),证书只信系统的。代码里没有别处拒绝 http:`ModelCatalog` 和适配器只要求是合法的 http(s) 地址,添加表单只要求以 `http://` 或 `https://` 开头。添加服务商时,明文 http 又不在本机或局域网(`LocalHosts.isLocal`:localhost、127/8、::1、10/8、172.16/12、192.168/16、169.254/16、fc00::/7、fe80::/10、`.local`)的地址在表单下提醒一句(`AddForm.unencryptedWarning`),不拦着。内置浏览器因此也能直接打开 http 网页:以前系统先拒绝(`ERR_CLEARTEXT_NOT_PERMITTED`)、`WebScreen` 再换 https 重开,现在按原地址打开,那段换 https 的重试只在设备策略或 WebView 仍拒绝明文时才用得上;https 页面里的明文子资源仍按 `MIXED_CONTENT_NEVER_ALLOW` 拒绝。
-- **网络代理**(`core/net/NetProxy.kt`、`ProxyAddress.kt`、`LocalHosts.kt`;设置在 `app/settings/NetProxyStore.kt`):设置首页「基本」组里模型下面一行「网络代理」(`ui/NetProxySettings.kt`,只在这一处改),填 `http://[用户:密码@]主机:端口`,也认 socks5、socks5h、https(`ProxyAddress.parse` 核对,写错了不存),空着是直连。地址可能带账号密码,和服务商的 Key 一样经 `KeyCipher`(安卓密钥库)加密存成 `settings/net-proxy.bin`,不进明文偏好设置、不写日志,界面上只显示协议、主机和端口(`ProxyAddress.toString` 也不带账号密码)。早先它只给容器用、存在 `container-proxy.bin`(另一把密钥):`NetProxyStore` 第一次读时解出来按新的存好、删掉旧文件。
-  - 谁走它:`NetProxy.shared.client(…)` 建的 OkHttp 客户端——`ProviderStore` 的模型客户端(四种适配器一次性和流式、语音转写、连接测试)和列模型、账号登录换令牌的客户端,`UpdateChecker`,内置浏览器的下载(`WebStack`);沙箱命令经环境变量(见第 6 节 sandbox)。不走它的:远程中转(`RelayGateway`)、运行记录导出(`OtlpSender`)。
-  - 怎么走:客户端装的是 `NetProxy.selector`(`ProxySelector`),每个请求现问:`LocalHosts.bypassesProxy`(`isLocal` 那几段,加不带点的机器名、`.lan`/`.home.arpa`/`.internal`、100.64/10)直连,别的走 HTTP 或 SOCKS 代理;SOCKS 时域名交给代理解析(socks5 与 socks5h 一样)。`https://` 代理(先和代理握 TLS)OkHttp 不支持,`ProxyAddress.forApp` 为假,Mina 自己的连接直连、设置页写明只给容器用。流式回复照旧逐段读,代理不改变读法。设置改了 `NetProxyStore` 调 `NetProxy.changed()`:重新解析、清掉各客户端的空闲连接(正在进行的请求照旧走完)。
-  - 账号密码:HTTP 代理由 `NetProxy.authenticator`(OkHttp 的 `proxyAuthenticator`)在代理回 407 时、以及建 https 隧道前带上 `Proxy-Authorization: Basic`;同一请求带过还被拒就不再试。SOCKS 代理只能经全进程一个的 `java.net.Authenticator` 给:`MinaApp` 启动时装上 `NetProxy.socksAuthenticator`,它只回答协议是 SOCKS、主机端口都对上当前代理的询问,别的一律不答。
-  - 报错:`HttpSupport` 连接失败时,走了代理的请求按 `NetProxy.classify` 归类成 `ModelError.Proxy`(`ProxyFailure.Unreachable`:拒绝连接、找不到代理主机、连接超时、建隧道失败、SOCKS 握手出错;`ProxyFailure.AuthFailed`:代理拒了账号密码),HTTP 407 也算后者;读回复时断了之类照旧是 `Network`。`userReason`、试调用(`ModelSetupViewModel.proxyReason`)、列模型(`ListFailure.ProxyUnreachable` / `ListFailure.ProxyAuth`)都说是代理的问题,不说成 Key 或模型不对;连不上可重试,账号密码不对不重试,也不停用模型。
-  - 更新下载:系统下载服务(`DownloadManager`)不走 App 的代理,所以设了代理时 `ApkUpdater` 改由 `ProxiedApkDownload` 经代理在进程里下(先写 `.part`,完整了再改名;进程被杀算失败,重试即可),装的时候经 `UpdateFilesProvider` 给系统安装器只读地址;校验和以前一样。
-  - 内置浏览器(`cap/web/WebProxy.kt`):WebView 支持 `PROXY_OVERRIDE` 时经 androidx.webkit 的 `ProxyController` 给本进程所有 WebView 设上同一个代理,直连规则是 `LocalHosts.BYPASS_RULES` 加简单主机名;HTTP 代理要账号密码时 `WebTab.onReceivedHttpAuthRequest` 只回答当前代理的主机(每个标签至多 3 次)。WebView 不支持、或代理是带账号密码的 SOCKS(内核不支持 SOCKS 认证)时浏览器直连,设置页那一行写明。没设代理时启动不为此加载 WebView。
-- **服务商与模型配置的存储**(`app/settings/ProviderStore.kt`):`Provider` 是一个已连接的服务商(id、名字、接口类型、地址,和最近一次列出的模型),`ProviderConfig` 是挂在它下面的一个模型(记 `providerId`,接口类型、地址照抄服务商的,建模型时 Key 取服务商的)。模型配置是存储内部的一层,用户看不到:选模型时当场建(`ProviderStore.use`),没有用途再用它就删掉(每次改用途、删服务商和读入时整理;Key 按服务商存,删配置不动 Key)。`providers.json` 里 `services` 存服务商(含记住的模型列表)、`providers` 存模型配置、`uses` 存三个用途的选择(`{"use":"model","config":<配置 id>}`、`{"use":"main"}` 或 `{"use":"none"}`);Key 经 `KeyCipher` 加密后存在 `provider-keys.json`,每个服务商一份。旧版本只有模型配置、Key 按配置 id 存:读入时按 `ProviderConnection.keyOf`(接口类型、地址、名字)归成服务商,Key 取组里任一条的,再清掉按配置 id 存的。旧版本的 `roles` 只记显式指定的配置 id:读入时把那时实际生效的分配写成 `uses`——主模型没指定就取第一个配置,看图没指定时主模型能看图就「用主模型」、否则不用,轻量没指定就「用主模型」(都只做一次,已迁移好的不再动,重复执行没有副作用)。删除服务商时它下面的配置和 Key 一起删,用着它的用途退回默认(主模型变成没选,看图不用,轻量用主模型)。
-- **配置模型页**(`app/ui/ModelSetupScreen.kt`,状态在 `ModelSetupViewModel`):上手时的「配置模型」和设置 ›「模型」(`app/ui/ModelsScreen.kt` 只是不带引导的同一页)共用页面和状态,用户只管两块:用途(三张卡,每张写明选了什么:模型名、「用主模型」和主模型是谁、「不用」或未设置)和服务商(每家一行,写明在给哪些用途干活)。上手时服务商在前、没有服务商时添加表单直接摊在页面上,底部「下一步」选好主模型才可点;设置里用途在前,没有底部按钮,改动当场生效。添加服务商选预设或自定义、填 Key 后「测试并保存」:先列一次模型,列得出(或服务不提供列表)后再试一次真调用——按 `ModelOptions.candidates` 的先后(这家自己的模型在前:模型名或显示名里有预设的 `ProviderPreset.familyTokens`,如通义千问的 qwen;再是列表明说能调用工具的;自家的同一档里按模型名里的版本新的在前(`settings/ModelOptions.kt` 的 `ModelVersion`:`x-3.1-pro`、`qwen3`、`claude-4-5`、`4o` 这类版本号,b / k 结尾的参数量、上下文长度不算;同版本正式版在前,`latest` 别名其次,`preview` / `exp` / `beta` 等在后;同一档里没写日期的在前,再按 `-2025-08-07`、`-0827` 这类日期新的在前;读不出版本的排在读得出的后面;不评 flash、pro、lite 哪档好,同版本照列表顺序;别家的模型不按版本排——服务商列表常常老模型在前,老模型可能已下线);其余照列表顺序;明说不会调用工具的、像向量 / 重排 / 语音 / 画图的不试——列表的 `type`、输出模态写明了照它(`ListedModel.chat`),没写看模型名里的词;一个候选都没有就试第一个)给模型一个无参数的工具 `get_time`、请它调用,回复上限 1024 个 token(够一次工具调用连同先想一想的模型的思考;Messages、generateContent 给;Chat Completions 不给,`max_tokens` 和 `max_completion_tokens` 各家认的不同,给错整个请求被拒;Responses 也不给,ChatGPT 套餐那条路不收 `max_output_tokens`),和真实任务走同一条建模型的路(`ProviderStore.probe` 用同一个 `modelFactory`,请求头、会话号照带,会话号用新的),最多等 20 秒(用 ChatGPT 登录不走这张表单,不试:登录本身就核对过了);Key 不对、少了服务商要的请求头在这里就露出来,服务端的报错原样显示、不存。`ProviderStore.probe` 回 `ProbeResult`:回了工具调用(`ToolCalled`)算通过;只回了话(`NoToolCall`)说明接口通、这个模型却不会调用工具。没通过、是那个模型自己的问题(只回了话,或适配器给出 `ModelError.ModelNotAvailable` 这个账号没开通或没权限、`ModelNotFound`、`ToolsUnsupported`)时接着试下一个候选,至多 3 个(`ModelSetupViewModel.PROBE_CANDIDATES`):通过的存为主模型,页面在服务商列表下说一句先试的哪些没通过(`ModelSetupUi.probeNote`);都没通过照样存下服务商(Key 已证明是对的)、不定主模型,说第一个为什么没通过、试了哪些,下面一个「选主模型」,这家记在 `ModelSetupUi.pickToProbe`,在它里面选主模型时先试调用(`ModelSetupUi.probeBeforePick` → `pickManual`),不通在那家下面说原因、不选;再测试或选好主模型时收起。第一个就因为别的原因失败(Key、网络、地址、超时、服务端出错)不存;之后的候选因为别的原因失败就不再试,按都没通过处理。适配器认「这个模型不行」用同一个 `core/model/ModelAccessErrors.kt`:HTTP 400 / 403 / 404 的报错内容里有不支持工具(「does not support tools」…)、这个账号用不了(「not activated」「not authorized to access this model」「does not have access to the model」「Model.AccessDenied」「未开通」「无权限」…,带上服务端原话)、没有这个模型(400 / 403 里的「model_not_found」「model not exist」「not found for API version」…,带上 JSON 报错里的原话)这几类说法时分别给出 `ToolsUnsupported`、`ModelNotAvailable`、`ModelNotFound`,模型已下线(「no longer available」「has been retired」「model … is deprecated」「已下线」…)也算 `ModelNotAvailable`、带原话;HTTP 429 只有说这个账号在这个模型上额度为零(「limit: 0」「"quotaValue": "0"」「doesn't have a free quota tier」)时算 `ModelNotAvailable`(等也没用,换模型才行,试调用接着试下一个),别的 429 照旧是限流或额度用完;其余照各适配器按状态码处理,401 一律是 Key 的问题,404 给出 `ModelNotFound`,同样带上 JSON 报错里的原话(不是 JSON 的不带)。没列出模型(列表接口不存在,或列出来是空的)时不直接存:表单要一个模型名(`AddForm.noList`,输入框的例子按接口类型,`ModelSetupCopy.modelExample`),再测试就用它试调用,通了存成不提供列表的服务商并拿它当主模型,不通不存。表单上随时有「手动填写模型名」(`AddForm.manual`,列模型出错且没手填时自动展开):填了(`AddForm.typedModel`)就只试这一个,列表列得出(有没有它)、列不出、出了别的错(Key 不对、5xx、回的不是 JSON)都照样试,试调用的结论说了算,通了连同列得出的列表一起存;列表里没有的记进 `Provider.typedModels`(随服务商存下,刷新列表不丢,`ModelOptions.ofProvider` 照样列出、`ModelOption.typed` 标「手填」);没手填时列模型出错照旧说原因(Key 不对就说 Key 不对)、不存;试调用回 404 时适配器给出 `ModelError.ModelNotFound(model)`,表单说清是哪个模型、模型名大概长什么样,自定义的还说地址或接口类型可能填错了。自定义填的地址主机名和某个预设一样(`ProviderPresets.forHost`,自己跑的服务除外)时提醒改用那个预设,一点就换、Key 留着;地址就是预设的那个、接口类型却不同时一并说。试调用得到回复的模型名记在 `Provider.verifiedModels`(随服务商存下;旧文件没有,那时不提供列表的不试调用)。都成了才经 `ProviderStore.connect` 存下这家和列表(同接口类型、地址、名字的更新原来那家),名字是预设名;自定义的可以在表单里起名字(`AddForm.name`,至多 `ModelSetupViewModel.MAX_NAME` 个字符(按码点算,emoji 不会被截成半个),不填用 `AddForm.defaultName`:地址的主机名,地址是某家预设的用预设名,输入框的提示里写着这个默认名),同一个地址起不同的名字存成两家(例如同一个中转站的两个 Key),列不出说原因、不存。连上第一家且还没有主模型时自动选它的一个模型。选用途页(在 `app/ui/ModelsScreen.kt`)看图顶上有「用主模型」「不用」、轻量顶上有「用主模型」,下面按服务商分组列全部模型(多时可按名字筛),标签只作参考、不过滤不置灰,每家下面都能手填模型名(不提供列表的、列表里没有要的),手填的先试调用(`ModelSetupViewModel.pickManual`,主模型还要会调用工具),通了才选上、记为核实过(列表里没有的也记为手填),不通在那家下面说原因;其余点一下即生效并返回。不提供列表的服务商里在用、却没核实过的模型(`ModelSetupUi.unverified`),服务商那一行提醒「没测试通过」,详情页有「重新测试」(`ModelSetupViewModel.retest`)。任务里模型调用 404 时,失败原因写明哪个模型不存在、去设置 › 模型检查模型名或改用对应的预设;服务端 JSON 报错里有原话时不断定模型不存在,改为照引原话(「服务端回复：…」)、说可能是模型名不对或服务那边暂时不可用,再给同样的检查建议(引在句中的原话去掉末尾一个句号,ChatGPT 额度、订阅档位两种的「服务端说明」也一样);这个账号用不了的模型写明是哪个、去设置 › 模型换一个或到服务商后台开通;不支持工具的写明换一个会调用工具的(`core/agent/StopRules.kt` 的 `userReason`;这几种轻量模型遇到了,本任务余下的步都用主模型)。服务商详情(同一文件)是连接(状态、接口、地址、Key 可更换)、最多三个模型(在用的在前,标着给哪个用途干活)和「查看全部 N 个模型」、删除(删除前说清哪些用途要重新选);「全部模型」页搜索框固定在顶上,右上角刷新重新列一次。点任一模型从底部弹出「用作」主模型 / 看图模型 / 轻量模型,和选用途页走同一个操作。三个用途的名字、做什么和说明只在 `ModelsCopy` 里写一次。打开选用途页或服务商页时,还没记住列表的服务商(例如旧版本迁移来的)列一次。
-- **Token 用量**(`core/usage/`):在源头记账,不靠各调用方自己记。App 里能调用的模型只从 `ProviderStore.modelFor` 拿(`buildModel` 是它私有的),出去前一律经 `metered` 套上计量(`MeteredModel.kt`):名字、能力照旧,异常原样抛出,逐段文字照常回调;每次调用结束记一笔——服务商 id、当时的服务商名、模型名、用途(`UsagePurpose`,就是拿模型时的 `ModelRole`:「用主模型」的看图、轻量调用记在看图、轻量名下),带用量的记输入(含缓存命中)、输出、缓存命中的 token,没报用量的、抛错的(含取消)只记次数,不估算。主循环、结局判定、意图判断、看图、记忆提取、路线匹配、技能与 App 知识起草等旁路调用因此全都算上;列模型不是对话调用,不记。账本 `UsageLedger` 按 UTC 整点 × 服务商 × 模型 × 用途累计,只存在本机 `files/usage-v1.json`(和其他设置一样是 JSON;键表一份,行是紧凑数组):记账只在内存里加,多线程安全,改动后约 2 秒由后台线程整份原子写出,进程被杀最多丢最后几秒;只留 400 天。统计 `UsageQuery` 是纯函数,本地时区在统计时换算:「24 小时」是滚动的最近 24 个整点(含此刻所在的小时)按小时分,「7 / 30 / 90 天」是含今天的本地日历日、「自定义」是本地起止日期(含两头),按天分,超过 45 天按周分(从第一天起每 7 天一格,`UsageStep`);一个整点桶按它开始的时刻落到本地那天(夏令时那天照样对)。每格带各服务商的 token,供叠起来画。每个服务商有固定的先后(`ProviderUsage.order`:连着的按连接先后,删掉的排在后面、按最早记账的时间),配色按它取主题里的分类色(`MinaColors.series` 三种,其余灰色、在趋势图里归「其他」),换范围、选服务商都不变色;文字一律用 ink 色。服务商删了历史还在,用记账时的名字加「（已删除）」。用途只作为存储的一个维度,界面上不分用途、不显示价钱。设置 ›「Token 用量」一行写近 7 天合计;点进去是一个页面(`app/ui/UsageScreen.kt`,没有下一层):时间(24 小时 / 7 天 / 30 天 / 90 天 / 自定义,下面一行写实际范围,自定义的带「改日期」)、总用量卡(始终是全部服务商:大数字、输入 / 输出 / 缓存命中 / 调用次数),然后三张图——「用量趋势」(按服务商叠起来的柱子,图例、两条虚线网格和右侧刻度,点一根看这一格的合计和各家用量)、「按服务商」横条排行(用量和占比,点一家选中、再点取消,选中时别家变淡、趋势图里别家淡到四分之一)、「按模型」横条排行(上面一排胶囊和服务商排行是同一个选择;选了只列这家的模型,横条是它服务商的颜色,占比按这一排算);页脚写没报用量的次数和「数字以服务商返回的为准」。
-
-## 13. 运行记录
-
-每次运行写一份记录(`app/record/RunStore.kt`):`files/runs/<时间>-<编号>/` 下的 `run.json`、`events.jsonl` 与画面截图,保留最近 30 次。事件类型见 `core/record/RunEvent.kt`(模型回复与用量、工具结果、观察、活动、确认、接管、来源、压缩、结局判定等);写入前由 `Redactor` 遮掉密码框输入和像密钥的字符串。界面上「查看过程」打开时间线(`app/ui/RunTimelineScreen.kt`):顶部是目标、标准、结局、用时,模型调用次数等细节收在「更多详情」里,下面用竖线步骤(`components/StepLine.kt`)逐步列出,点有画面的步骤看当时的画面。任务在跑时对话页的步骤下面就有「运行过程」:编号按卡片所在的对话取(`TaskCenterState.run(对话).runId`,和结束时的 `endedRunIds` 同一个来处,不用服务对外那份显示中的编号);页面顶上结局写「进行中」,每秒重读一次记录、步骤往下长,不自动滚到底;有结束记录或任务已不在(`RunTimelineViewModel` 的 `alive`,进程被杀、记录没写完的那种)就停。
-
-**详细 Trace** 默认关闭。调试版和性能测试版可在「设置 → 开发者选项 → 运行记录」开启，从下一次任务起采集，关闭即停录。四种模型接口的每次主循环请求（含重发）和顶层工具调用各记一个 span。在「查看过程 → 详细 Trace」可对照同一模型相邻请求中首个变化的块，缓存用量未上报与命中为零分开显示。
-
-- 「保存本次 Trace」默认导出只含诊断元数据的 OTLP Protobuf 文件（`.pb`）。勾选「附带脱敏正文」才保存 ZIP，内含同一份 `trace.pb` 和按 span ID 命名的脱敏正文。
-- 在「详细 Trace」点「通过 OTLP/HTTP 发送」，填写完整的 traces 接收地址，可选填鉴权头。确认后只发送默认 `.pb` 的诊断元数据，鉴权值仅用于当次请求。公网地址须用 HTTPS，本机、局域网 IP 和解析到本地地址的 `.local` 名称可用 HTTP。界面显示接收确认、拒收的 span 数或 HTTP 错误，发送失败后仍可在本机查看或保存归档。
-- 遇到「部分记录」，先看根 span 的 `mina.trace.partial_reasons`。要定位截断的块，查看模型 span 上 `mina.trace.truncated` 事件的 `mina.block.path` 和 `mina.truncation.reason`。单次运行的正文预算为 8 MiB，最多记录 1,024 个子 span。
-
-应用私有归档的总容量默认 100 MiB，可在开发者选项中调整。空间不足时先清理最旧的已结束归档，正在录制或导出的归档会保留。
-
-**每件事一份小结**(`core/record/RunMetrics.kt`):`RunMetrics.of(events)` 是纯函数,只看运行记录里的事件;时间都从开始事件算起(之前载入知识、连手机的准备不计)。
-- 总时长到结局事件(没结束的到最后一个事件,结局记 unfinished);结局另带失败类别(结局事件的 `kind`,即 `FailKind` 的小写名)和交出回答后判的结局。办成 = 报了成功(含没能核实的),且没被判成只办了一部分或办不到。
-- **第一次反馈**:开始到用户第一次看到这次运行的实际进展——最早一条真执行了的模型回复到手的时刻(回复事件的 `repliedAtMs`;带调用的回复执行完才记,所以另记到手时刻),这时界面显示它的进度说明、要做的事或回答;或最早一条活动(回放不经模型时第一步做完)。改派掉的轻量模型回复不算;回答逐段显示时第一段字更早,没有记录,不算。
-- **和模型来回**:模型回复事件数(主循环的请求,含改派掉的轻量模型回复);token 是这些回复的用量之和,没报用量的另计次数。旁路调用(意图判断、核查、看图、压缩)和失败重试不发回复事件:运行把 `RunUsageTally` 放进自己的协程上下文,`metered` 套上的模型每次请求顺手加一笔,收尾时记成一条 `RunEvent.ModelCalls`(全部请求、没报用量的次数和 token)。交出回答后的结局判定、记忆提取在这个上下文之外,只进 Token 用量页。
-- **时间去向**:模型思考是各回复的请求耗时之和(重试前失败的请求和退避另记);读屏 / 操作是顶层工具调用(模型调的、回放的)的执行耗时,按唯一执行入口给活动定的种类分(工具声明的风险是只读的算读,其余算操作),没有新加计时点。一批动作、页面脚本的外层调用耗时已含子步:子步里的读计入读,余下算操作,不重复计;等待、问用户、请确认、交给用户这类控制调用不算读也不算操作。其他 = 总时长减这三项:等用户、重试退避、控制调用、核查和其余开销。
-- 运行记录的写线程边写边算(`RunMetrics.Builder`,只留每个工具结果的几个数字),关上时把小结交给 `RunMetricsStore`:`files/run-metrics.jsonl` 一行一份,只留最近 500 份,不随 30 次的运行记录清理;判了结局再补进去。读不出的行跳过,写是整份换上。主循环上没有多一次读写。
-- 界面:「查看过程」顶上一行「共 2 分 13 秒 · 和模型来回 14 次 · 8.6 万 Token · 第一次反馈 3.2 秒」,点开是模型思考 / 读屏 / 操作 / 其他的用时与占比、输入 / 输出 / 缓存命中的 token、步数(`app/ui/RunMetricsUi.kt`;token 的写法和 Token 用量页同一个)。开发者选项 ›「运行统计」按最近 10 / 30 / 100 次或全部算办成率、用时与第一次反馈的中位数、平均来回次数与 token、时间去向(`RunStats`),能把这几次的小结复制或分享成 JSON。
-- 「查看过程」里的「导出用量记录」通过系统文件选择器保存这一轮的用量明细（JSONL），也适用于仍保留的旧记录。每个 `model_reply` 保留步号和原始 Token 计数，同一步的多次回复逐条列出。输入已含缓存命中，缺失的计数表示未知。`compressed` 事件按原顺序保留时间和 `foldedSteps`，旧记录没有给它单独记步号。`model_calls` 是含旁路调用的整次合计。导出只取诊断字段，解析失败的行用 `unreadable_event` 标出原行号。
-- 评测:每题的 `Observed` 带上 `RunMetrics`,`EvalReport` 的汇总多一节「运行小结」(汇总和逐题一行),结果目录另写 `metrics.json`(`EvalReport.metricsJson`)。
-
-## 14. 提示词
-
-模型看到的固定文字都在 `core/src/main/resources/prompts/`,分层与规则见那里的 `README.md`:`system/`(身份与通用准则)、`capabilities/`(每种能力一段,只在那组工具展开后拼进去)、`tools/`(每个工具的说明)、`entries/`(入口工具在那一组收着时的短说明)、`feedback/`(工具结果与主循环的反馈)、`roles/`(核查、结局判定、记忆提取、技能草稿等内部角色)。系统提示词由 `SystemPrompt`(`core/agent/SystemPrompt.kt`)在任务开始时拼好,只在展开一组工具时重拼(段落按固定的先后);全部文字有金样测试,收着、只开手机、只开网页、全开四种情形的全貌和大小在 `prompt-surface/layers/`。
-
-## 15. 界面与可见性
-
-- **样式**:颜色(浅色、深色两套,跟随系统)、字号、尺寸、圆角、动效时长都是令牌,在 `app/ui/theme/`(`Theme.kt` 的 `MinaTheme`、`Colors.kt`、`Tokens.kt`);线条图标在 `app/ui/theme/Icons.kt`;分组卡片、列表行、开关、按钮、顶栏、玻璃输入栏等通用组件在 `app/ui/components/`。页面只从这里取色和取组件,不写死色值。玻璃输入栏在安卓 12 起做背景模糊,更早的系统用不透明底。
-- **导航**(`app/ui/MainActivity.kt`、`app/ui/Navigation.kt`):对话页是根页面,其余页面(设置、模型、记忆与技能、定时任务、浏览器、运行过程、来源、手机操作向导、上手的欢迎与配置模型)压进页面栈 `NavStack`,返回键和页面上的返回按钮都退回上一页(从侧栏进的回到打开着的侧栏,从设置进的回设置)。各页面只通过回调进出。
-- **侧栏**(`app/ui/ChatDrawer.kt`):对话页左上角菜单从左边滑出。顶部是标志、Mina 和就绪状态;入口有新对话、定时任务、记忆与技能、浏览器、设置;下面是「进行中」(当前对话和别的有任务在跑的对话,并行时可切过去;段标题右边「后台屏 ›」进后台屏页 `app/ui/ScreensScreen.kt`:每个在跑的任务一张卡,写它在做什么、正在用哪个 App(任务每做一件事才经已连着的内置助手重查一次最上面的 App,不轮询)、状态,点卡片回到它的对话,「看画面」在卡内展开实时画面(只在展开时订阅,复用胶囊的限速),点画面放大到整屏、可捏合缩放;不写屏号、像素这类开发用的东西;数据取自各任务自己的流,并行时没在显示的屏也看得到)、「置顶」(置顶了的对话,最近置顶的在前)和「最近」的对话(`drawerSections`);每个对话只列在一段里:置顶的对话有任务在跑时列在进行中(也带图钉),跑完回到置顶。别的对话有任务在跑时菜单按钮上有小圆点。长按一条存过的对话(振一下;无障碍里是「对话操作」)在原地弹出菜单(`app/ui/ConversationMenu.kt` 的 `LongPressMenu()`,对话页长按消息也用它):整屏变暗,安卓 12 起后面的对话页和侧栏还模糊(更早的系统只变暗);那一行在原来的位置「抬起」成一张略放大、带阴影的白卡(内容和侧栏里那一行一样),下面接一张窄一点、左边对齐的白卡,依次是「置顶」(置顶了的是「取消置顶」)、「改名」、红字「删除」,文字在左、图标在右,项与项之间细线隔开。下面放不下(行靠近底部、键盘弹着)就放到那一行上面,两边都放不下时把那一行往上挪、菜单接在下面,都不越出状态栏、导航栏和键盘(`placeMenu`)。点外面、按返回收起(倒着放一遍出现的动画);关了动画时出现、收起都直接到位,不缩放。菜单开着时后面的内容不给无障碍读,菜单带面板标题「对话操作」和「收起」操作,每项可聚焦、读得出名字。菜单画在对话页同一层里、盖住整个屏幕,位置按长按那一行在窗口里的坐标摆。还没存进列表的新对话不响应长按。**改名**弹出输入框,里面是现在的标题(整段选中),去掉两头空白后保存,空的存不了;写进 `.title`(`ConversationStore.rename`,不管有没有标题都换)。起好的标题只在还没有标题时写(`setTitle`),所以后台起标题晚到也盖不掉用户改的名字;侧栏、悬浮胶囊卡片顶上「接着「…」聊」都随 `ConversationStore.changes` 换成新名字。**置顶**写一个 `.pin`(置顶的时间,`ConversationStore.setPinned`),取消置顶删掉它;对话列表带上置顶时间(`ConversationSummary.pinnedAt`),不改对话的改动时间,取消后回到「最近」里原来的位置;置顶的标题前有个小图钉。删掉的对话不再改名、置顶。**删除**弹出确认「删除这个对话？」,写明对话标题;它有任务在跑或排队时写明会停掉,绑着定时任务时写明几条会一起删除;右边红字「删除」、左边「取消」(和别处删东西的确认同一个样子)。换不了对话时(任务进行中、没开并行)点不开,长按照样能用(说明写在第一段存着的对话上面)。确认后侧栏当场不再列它(`ChatViewModel.deleted`),删的是屏上这个对话就换成新的空对话、不再跟它的任务;其余在后台由 `ConversationDeleter`(`app/chat/ConversationDeleter.kt`)做:先删 `trigger.threadId` 是它的定时任务(不让它们再开始新任务),再经 `TaskService.cancel` 停掉它所有在跑、排队的任务并等它收尾(最多 15 秒,收尾时存进的「已停止」那一轮也在删的范围里),然后删它的工作区(附件 `inbox/`、用户发来的屏幕 `screens/`、任务写的文件;按句柄删、不跟进链接,拿着树锁的共享许可、和重置互斥),最后 `ConversationStore.delete` 删对话文件、`.title`、`.pin` 和写到一半的临时文件、挪到一边的损坏文件。之后才到的补写(后台起好的标题、收尾后补的结局和交代)不把它写回来;有人再往这个编号里存进一轮就当重新开始,侧栏重新列出。运行记录(运行过程、运行统计)是全局的,不删;导出到下载目录的文件是用户的,不删。
-- **对话页**(`app/ui/ChatScreen.kt`,文字在 `app/ui/ChatCopy.kt`):顶栏是「Mina」和此刻在做什么(正在操作哪个 App / 等你处理),右上角新对话。空对话是按时段的问候和一列示例,点了直接发出。任务进行中是一行状态(转圈、当前进展、用时)加一条竖线步骤(有具体动作的步骤右边一个小箭头,点开在行下逐条列出这一步做的事:动作的界面说法 · 对象 · 结果,和运行过程页同一套说法,`Exchange.stepActions`、`ChatCopy.actionLine`;不露工具名和错误码),在后台操作手机时下面一行小字;要你处理(接管、提问、确认、暂停、锁屏、被拦下)时进度停在当前步(橙点、「已暂停」),下面一张白卡写清要你做什么和按钮。完成后过程收成一行「做了 N 步 · 用时 · 查看过程」(进时间线),回答按 Markdown 排在很淡的灰底上(左下尾角,和用户的蓝色气泡对称),下面是「来源」胶囊(点开看原文和画面)和文件卡片。长按一条消息(完成的回答、插话前已说完的回复、停止后补的交代,或用户自己的蓝色气泡;振一下,无障碍里是「消息操作」)弹出和侧栏同一个样子的原地菜单(`LongPressMenu()`,见下面侧栏一条;对话页的部分在 `app/ui/MessageMenu.kt`):后面变暗(安卓 12 起还模糊),那条消息原地抬起成带阴影的一张(回答是白卡,用户的话还是蓝气泡;很长的回答只抬起开头半屏),下面是「复制」「引用」「选择文字」,用户的话靠右、菜单也靠右。**复制**把整条的纯文字放进剪贴板并提示「已复制」:回答去掉 Markdown 符号(`MarkdownModel.toPlainText`:段落、标题、代码照原文,列表每项一行带「• 」或「1. 」,引用行带「> 」,表格格子用制表符隔开,分隔线不要),用户的话去掉附件、屏幕、引用那几行;上面的「没能核实」提示、来源胶囊、文件卡片、照片格子、查看过程都不算。**选择文字**让那一条换回 `SelectionContainer`(提示一句「长按文字就能选择」):再长按就是系统的选择把手和复制条,可以只选一段;直到换对话前它都这样,别的消息照旧弹菜单。正在长出来的回答、被插话打断的那段不弹菜单也不能选。选择把手在单独的弹出窗口里,拖把手不会带出侧栏;长按之后接着拖选的移动由选区消费,侧栏的横划和列表的竖滚都不跟着动,没长按的横划、竖滚照旧。回答里的链接照旧点开。**引用**把那条的纯文字放到输入栏上方一张小条(左边一道蓝线、最多两行、右边 ×「去掉引用」,`ChatUi.quote`),随下一句话发出去,发出后小条消失;换对话、开新对话时清掉;只有引用没写话时不发(带着附件时可以)。引用写在用户这句话的最前面(`core/agent/QuoteMessage.kt`):第一行标明引的是谁的话,`> [Quoting your earlier reply]`(Mina 的回答)或 `> [Quoting my earlier message]`(用户自己的话),接着每行「> 」开头是引的内容(最多 1000 字,多的截掉加「…」),空一行后是这次说的话,附件行照旧接在最后。这句话原样存进 `Turn.userText`(插话存进 `Turn.steers`)、交给任务,不加新字段:新任务、插话(任务在跑时)、回答提问都一样,模型直接看到引的是什么,之前轮次的上文里也带着;旧对话的话没有那一行,照原样显示。对话页把引的那条画成气泡上方一小块淡色(最多两行),对话标题、侧栏、通知里称呼这句话时不带引用(`ChatCopy.plainTitle`、`ScreenCopy.plain`)。悬浮胶囊的卡片不做这些:它在无障碍浮层窗口里,平时不抢焦点,选择把手和系统复制条在那里出不来或不可靠;它顶上称呼任务的那一句同样不带引用。输入栏是玻璃胶囊,任务进行中照常可以输入,作为插话(输入框灰字说明)。屏上的轮次以 `ConversationStore` 存下的为准:它写过哪个对话就在 `ConversationStore.changes` 里发出那个对话的编号,不管是谁写的(这里、悬浮胶囊、定时任务);`ChatViewModel` 收到屏上这个对话的就重读,按运行编号和这里跟过的那几轮合并(用这里那份,带步骤和用时,不重复),正在跟的那一问一答留在最后;侧栏开着时也随它重读对话列表。对话页重新看得见时(回到前台、从别的页面回来,`ChatViewModel.refresh`)再补一遍,并接上这个对话里别处开始、这里没在跟的任务(原话用任务自己的,别处插的话也挂上);不用等回到前台,屏上这个对话里别处开始的任务一有状态就接上,在跑时就有那句话和步骤。服务先把任务登记进任务列表(`publishRuns`)再显示它(`TaskRun.show`),界面收到状态时原话已经取得到;接上时还没取到原话的,任务列表一更新就补上。并行开关关着时界面也按状态带的对话编号认,别的对话的任务不接到屏上这个对话里;服务换去显示别的对话刚开始的任务时,这里正在跟的任务让服务显示回来。
-- **对话页的附件**(`app/ui/ChatAttachments.kt`、`AttachSources.kt`,纯逻辑在 `AttachmentMessage.kt`,附件行的写法在 `core/agent/AttachmentLines.kt`):输入栏左边的「＋」点开的是输入栏下面的面板,占键盘那块位置、和键盘一样高(没见过键盘时用默认高度),开面板收键盘,再点「＋」(转成 ×)或点输入框就收起、换成键盘,两者互换时输入栏不上下跳;返回先收面板。面板上面一排相机(系统相机拍照,照片先写进缓存里的 `camera/`,不要相机权限)、相册(系统照片选择器,不要权限)、文件(系统文件选择器),下面四列「最近的照片」(媒体库里新加的在前,缩略图在后台按格子大小读)。读照片的权限第一次打开面板时问一次(安卓 13 起读照片,14 起可以只给部分照片,12 及以前读外部存储);没给时那块是一句说明和「允许访问照片」(选过不再询问时去 App 信息),只给了部分时列出给了的、旁边能改范围。选中的照片带序号,照片和文件一起最多 9 个,挂在输入栏上方一排(照片缩略图、文件小卡片,× 去掉);有字或有附件就能发,可以只发附件。发送时才把它们复制进对话工作区的 `/workspace/inbox/`(`Attachments.importInto`,和以前一样每个不超过 200 MB),消息末尾每个一行「附件:<路径>(<大小>)」交给任务——模型拿到的还是这几行路径,图片照旧由沙箱的读文件工具交给看图;附件要沙箱,设备不支持沙箱时没有「＋」。对话页按这几行把用户的消息画成照片格子(1 张保持比例的一大张,2 张并排,3 张起三列)和文件卡片(按扩展名配色的类型角标、名字、大小),写的话另起一个气泡,路径那几行不显示;旧对话里的消息同样这么画。点照片或卡片时从工作区(经文件闸门)复制一份到缓存里的 `viewing/`,交给文件查看页(图片可缩放),看不了的类型交给别的 App;这两个缓存目录由 `AttachFilesProvider` 给出 content:// 地址,不对外导出、用到时临时授权,工作区本身不开放。对话标题、侧栏里只发了附件的消息叫「照片」「3 张照片」「合同.pdf」之类(`ChatCopy.plainTitle`)。悬浮胶囊的卡片不变。
-- **相机声明与刷新率**(`AndroidManifest.xml`):拍照附件走系统相机,manifest 里声明用到相机、但不是必需(`required="false"`),没有相机的设备照常安装。有的系统按 APK 特征给应用分类,不声明时 Mina 可能被当成游戏、限制刷新率,所以这条声明要留着,`ManifestProvidersTest` 守着它。
-- **文件查看页**(`app/ui/viewer/FileViewerActivity.kt`,界面在 `FileViewerScreen.kt`):对话里的文件卡片点开后在这里看,单独一个 Activity,别处也能用 `FileViewer.open` 打开。类型先看内容提供方给的 MIME,认不出再看扩展名(`ViewerKinds`,`app/ui/viewer/ViewerKind.kt`):网页用一个新建的 WebView(脚本打开、可缩放,不经过网页能力那套浏览器);Markdown 用对话里同一个 `MarkdownText`;PDF 用系统的 `PdfRenderer` 按屏宽逐页画,只画看得见的页,可双指缩放,底部显示页码;图片按比例铺满、可缩放拖动;文本类等宽显示、可选中。文本和 Markdown 最多读前 1 MB,超出时顶上一句「文件较大，只显示前面一部分」。顶栏右边是「分享」和「用其他应用打开」;读不出来时说一句并给「用其他应用打开」。其他类型不进这页,直接交给系统的选择面板。
-- **小画面**(`app/ui/AgentPip.kt`):对话页上一个可拖动的悬浮小窗,平时停在右下角、输入栏上方,实时显示 Mina 正在操作的虚拟屏或网页画面(只看不操作);绿色细边表示在干活,橙色呼吸光表示需要你。它是 App 内的浮层,不是系统画中画。网页画面来自网页显示上挂着的当前标签;只在后台临时标签里读网页(`web_read_page` 带地址)时网页显示上没有标签,`TaskRun` 按 `WebPreview` 不算在网页上(`webOpen` 为 false、不放画面),小窗不因此出来,悬浮胶囊也按对话卡片显示,一打开看得见的页面就照常显示。手机这边,虚拟屏建好不等于有画面:只用系统命令、事件工具的任务屏是空的,`TaskRun` 在目标 App 第一次打开到屏上时才置 `appShown`(`TaskEnvironment.agentAppShown`),小窗按 `TaskEnvironment.previewOpen`(打开过 App 或在用内置浏览器)出现,不会整段任务都是一块黑。展开后左上角「这个任务不再显示小画面」(`ChatViewModel.closePip`,`PipUi.closed`):这个任务结束前只剩右下角一个「显示画面」小按钮,点它再打开(`reopenPip`);换下一个任务、接上别的任务时清掉。关着时接管开始也不自动展开;要你处理时小按钮变成橙色呼吸的「等你处理」,点了滚到要你处理的那张卡片。没有设置开关;想看所有屏走侧栏的后台屏页。
-- **悬浮胶囊**(`app/capsule/`):用户在别的 App 里时,一颗 Mina 图标浮在屏幕右上角、状态栏下面,说后台此刻最要紧的那件事;平时只是一颗(约 40dp),有事要告诉你时才展开成一行字的胶囊。浮层借无障碍服务画(`app/cap/phone/a11y/OverlayHost.kt`:无障碍浮层窗口,不要「显示在其他应用上层」权限;在 Activity 之外给 Compose 配上生命周期、状态保存与 ViewModel 的宿主;平时不抢焦点,要打字时可切成能接收键盘;服务断开时 `ScreenAccessibility` 把它加的窗口一起拆掉;加不上就返回空,不报错)。显示什么由纯逻辑 `CapsuleModel` 定:开关关着、无障碍服务不在或浮层画不出来、Mina 自己的界面在前台(`AppForeground` 数看得见的 Activity)、屏幕关着或锁着(`DeviceStateWatcher`)时不显示;否则按优先级只说一件——你在处理(App 已挪到主屏,顶部正中一条「你来处理 · 不做了 · 处理好了」,两个按钮就是取消任务和交还)、需要你接管 / 同意 / 回答、等条件、干活中、办好了 / 没办成 / 已停止。一颗上的状态:干活中外圈一段蓝弧绕着转(关了动画时是一整圈不动),等条件灰圈,要你处理整颗变橙、外圈一呼一吸,好几件事时角上写件数,办好了绿勾、没办成和已停止灰色角标,空闲(「一直显示」没任务)什么都没有;干活中换了一步不展开。展开成胶囊只有两种时候:有要你处理的、而你还没在卡片里看过它(一直停着,不缩、不淡,直到打开卡片或那件事不再要你;打开卡片时看到的那几件——同一件事、同一个等待——记为看过,收起后回到橙色的一颗,来了新的或另一个等待才再展开),和刚办完(「办好了 · 点开看结果」等,展开 4 秒后缩回一颗带着结果角标,一共停 10 秒后消失,「一直显示」时回到图标;在卡片里看过的直接是一颗;对话删掉了时,它刚结束的那件马上消失,卡片也不再接着它)。好几件事时胶囊上写「共 N 件」,有要你处理的写「1 件要你处理 · 共 2 件」;文字先用 `Running.narration`,再用 `reason`,回放和批量执行写成「照着路线做 3/7」(读屏时一颗的说法是 `CapsuleCopy.describe`,如「Mina 在干活：……，点开看详情」)。同一件事同一个状态里每句至少停 1.5 秒(这期间只留最后一句),胶囊只变宽不变窄,换了状态、展开或缩回才重新定宽;一行最宽到屏幕的 60%。一颗和胶囊是同一块底,宽度在两者之间慢慢变,图标贴着停靠的那一边不动(关了动画时直接换)。`CapsuleContent` 是不带状态的胶囊界面,`CapsuleController` 把任务状态、开关、前台、屏幕和服务接到模型上,按结果加、挪、拆窗口。点一颗或胶囊都展开卡片(`CapsuleCardContent.kt`,不带状态;内容由纯逻辑 `CapsuleCards` 定,见 `app/capsule/CapsuleCardModel.kt`):卡片只说一件事,没有列表,也不在卡片里切换:先是刚在卡片里发了话的那个对话的任务(好看到回答),否则按要你处理(接管、同意、回答)、进行中、刚结束的先后取第一件;同时还有别的事,到 Mina 的对话页看。选出的那件按此刻的状态(不按经过)选卡片:还没结束、此刻在操作 App 或网页(有自己的虚拟屏 `TaskRun.displayId`,或正在用内置浏览器 `TaskRun.webOpen`)的是任务卡片,别的——纯聊天、已经结束的(包括操作过 App、办完回了话的)、空闲时——都是对话卡片(`CapsuleCards.taskCard`)。任务卡片里干活中是最近三步(和对话页的步骤同一套推法,`ChatViewModel.reduce`)、用时;任务还在进行(干活中、Mina 问你、等条件)时,停止和对话页输入栏一样是输入框右边的黑色停止键;要你接管是为什么(付款时列出商品、金额、地址)、我来处理(带这次等待的编号,和通知上的一样)、停止,排在别的接管后面时写「先处理完另一件的接管，再处理这件」、不给我来处理,排在最前、后面还有的写「处理好这件后，还有 N 件等你」(先后读的是几个任务共用的 `TakeoverQueue`,排队一变就重读;同样要紧的几件里先说队里排在前面的,前面那件交还后下一件马上成为胶囊上的「需要你」);要你同意和对话页的确认卡片同一套字和申报编号,同意 / 不同意,另有「这个任务都允许」「以后都允许」,底线操作只给「只同意这一次」;Mina 问你给了选项就列成按钮(作为回答);等条件说为什么,能继续时给继续;底下是「回到 Mina 看完整过程」。对话卡片是那个对话的来回(`app/capsule/CapsuleThread.kt` 的 `CapsuleThreads` 排,`LazyColumn` 画):和对话页同一份记录(`ConversationStore` 记下的轮次,接上还没记进去的、这个对话里此刻的任务,按运行记录编号去重),你说的话是右边的小气泡,Mina 的回答是去掉标记的全文(`CapsuleCards.answerText`),旧的在上;插话打断的那段回复和对话页一样排在那句插话前面,淡色、下面一行「被你的新消息打断」;插话之前已经说完的回复也排在它前面,照回答的样子;还没交给模型的插话排在正在写的回答后面;操作过 App 或网页的那一轮(从那一轮的运行记录里读它的活动对象,记录已清掉的当作纯聊天)只收成一行「✓ 购物 · 办好了」「12306 · 没办成」再接回答,不放步骤、画面和来源;纯聊天在回答时字跟着长出来,输入框右边是停止键,要你回答、同意时那一问在来回里、按钮固定在下面。先排最近 10 轮,滚到顶再往前排 10 轮(每条按运行记录编号定 key,列表停在原处);打开时最新那句你说的话停在可见区域顶上,往下长的字只在你本来就在底部时跟着往下(同对话页)。底下是输入框和「回到 Mina」。按钮都走 `TaskService` 现有的动作(取消、继续、接管、回答、同意、不同意),带着那件事的任务编号;「回到 Mina」和点通知同一个入口 `TaskService.openAppIntent`。点卡片外面、收起按钮或返回收回成一颗(还有没看过的要你处理时是胶囊);展开着时模型停表,用户正看着的结果不会被收走,收起后接着走剩下的时间;App 交到你手上时卡片收起,换成顶部那一条。一颗和卡片各在一个浮层窗口里、各待各的位置(卡片那个收起时是空的,没有大小):展开时卡片在自己的窗口里从那一颗的方位缩放、淡入(约 240 毫秒;先等卡片排好版再起步,这之前一颗还在原处),一颗那个窗口随之空出来;收起时卡片缩回那一颗的方位、淡掉,一颗同时在边上冒出来(都在 `app/capsule/CapsuleCardContent.kt` 的同一段动效里,只动图层,关了动画时直接到位)。不让一个窗口在两处之间来回挪,因为安卓会把窗口的单纯挪动做成滑过去的动画;也不逐帧改窗口大小(每变一次窗口都要重排、换画布,一卡一卡)。一颗和胶囊之间的宽度也只在画的时候变:布局一下到两者里宽的那个,画完才缩。干活中、要你接管、等条件时左边放虚拟屏小画面(那件事自己的 `TaskRun.frames`:手机是虚拟屏的帧,网页是内置浏览器的帧,和应用内画中画同一个来源;没有画面的任务不放),只在卡片展开、看着那件事时才收,每秒至多 5 张,和上一张一样的不推(`previewFrames`,在 `app/capsule/CapsulePreview.kt`);点一下放大,再点一下或点外面回来。胶囊可以拖(`OverlayHost` 的窗口按整块屏幕摆、只有内容那么大,拖动在窗口根上按屏幕坐标算,移过触摸阈值才算拖,按着的按钮随之取消,不会当成点按),松手贴到最近的左边或右边(离边 12dp,避开状态栏、刘海和底部手势条,范围由 `OverlayHost.area` 读系统栏);停在哪边、高度占可摆范围的比例记在 `FeatureFlags`,下次和转屏后按比例摆回;「你来处理」那一条在顶部正中,只能上下拖。卡片宽度不变、左右居中。对话卡片固定高、不随内容变:屏幕高度的 58%,输入法弹出时收到它上面(中间那段变矮,输入框照样看得见);任务卡片按内容高、下面不留空,中间那段取左边小画面(按画面的宽高比)和右边文字里高的那个,没有画面时就是右边文字那么高,最高和对话卡片一样,再长的文字在右边那段里滚。两种卡片中间放不下都在里面滚,按钮和输入框固定在下面。卡片的位置按上边记:上边在可摆范围里的比例(范围按最高的卡片算,高矮不同的卡片同一个比例上边对齐),换卡片(任务卡片和对话卡片互换)或内容变高变矮时上边不动,一下到位(窗口跟着内容大小只变一次,不逐帧变),往下放不下(手势条、输入法)时往上挪到刚好放下。卡片按着标题栏上下拖(`OverlayWindow.draggable` 给一块把手,只有按在里面才拖,中间上下滑是滚动;同样移过触摸阈值才算拖,不会点到收起按钮),松手夹在状态栏、刘海和手势条之内,上边的比例另记一份在 `FeatureFlags`(以前按固定高卡片记的比例正好是它的上边比例,照样读),下次展开和转屏后按它摆回。算法是纯函数 `CapsuleDocking` 和 `CardDocking`(在 `app/capsule/CapsuleDock.kt`)。读屏时胶囊上多一个「移到屏幕另一边」代替拖动,卡片的按钮、小画面、收起和返回都有说法。卡片底部有输入框(要你接管、要你同意时没有):在跑、等条件时是「补充或改要求…」,交给那件事(和对话页任务进行中插话同一条路,`TaskService.start` 带上这句话的编号);Mina 问你时是「回答 Mina…」(选项按钮照留);办完后是「接着说…」,在同一个对话里接着说;没有任务时(开关是「一直显示」)点 Mina 图标是空闲的对话卡片:接着用户此刻在 App 里的那个对话(`ConversationStore.current`,由 `ChatViewModel` 在开新对话、切换对话、在一个新对话里开口时说一声,选择在纯逻辑 `CapsuleIdle` 里:没有记录时接着最近那个,新开还没说话的对话是新对话;它在的那个对话比别的对话里已结束、还挂着的结果优先);顶上「接着「<最近对话标题>」聊 · 新对话」,中间是那段对话的来回(新对话时是空的),输入框「想让 Mina 做什么？」。后两种和在对话页里发一样开一个任务(记进那个对话;别的任务在跑时排上,不丢),之后卡片跟着那个对话的任务,回答在对话卡片里长出来;那件事打开了 App 就换成任务卡片。输入框平时只是一行提示,点了才让浮层能接收键盘(`OverlayWindow.setFocusable`),发出、收起、点外面、按返回时马上还回去;输入法弹出时让开它(输入法窗口的位置由 `OverlayHost.imeTop` 从无障碍的窗口列表里读,窗口一变就重读,不论输入法是对着哪个 App 弹的):卡片、一颗和展开的胶囊都挪到它上面,输入法收起后回原处。不碰它 3 秒,一颗淡到约 40%(外圈和角标保持实色),碰到、拖动或状态、件数变了马上恢复;展开的胶囊、要你处理、「你来处理」那一条和卡片不淡(规则是纯逻辑 `CapsuleFade`)。转屏时按记下的边和高度比例重新摆;全屏播放时不特殊处理。开关在设置 ›「悬浮胶囊」(在 `app/ui/SettingsSubPages.kt`):关闭 / 有任务时显示 / 一直显示(默认,随时能双击胶囊发这一屏),存在 `FeatureFlags`;没选过的(含旧版本升级上来的)按默认。
-
-- **此刻的屏幕**(双击胶囊):双击一颗或胶囊,把用户此刻在主屏上看着的那一屏发给单击会展开的那张卡片里的对话;之后和在卡片里发一句话完全一样(在跑时插话、Mina 问你时作为回答、办完接着说、空闲时接着最近的对话或开新对话,同一个 `CapsuleController.submit`),然后展开卡片看回答。单击要等安卓的双击时限(`ViewConfiguration.getDoubleTapTimeout`)过去才展开,单击双击的判断是纯逻辑 `DoubleTap`;读屏软件里另有「把此刻的屏幕发给 Mina」。那张卡片没有输入框(要你接管、同意)时没有地方可发,双击就和单击一样。显不显示照旧跟着悬浮胶囊的开关,没有另外的开关;Mina 自己在前台、锁屏时胶囊本来就不在。卡片输入框左边有截屏按钮:截下来挂在输入框上面(缩略图、「你此刻的屏幕」、App · 时刻、× 不要),可以补一句再发,只发它就和双击一样。
-  截屏:浮层窗口不拆,只把里面的内容藏起来(`OverlayWindow.hiddenWhile`),等藏起来的那一帧画好交给系统(帧提交回调)、再过两个刷新(合成器换上它)才截;卡片的输入框开着时先收起、等输入法下去。截图用无障碍服务的 `takeScreenshot` 截主屏(`ScreenAccessibility.takeMainScreenshot`,太快时等一秒再截),截完马上把浮层显示回来、一颗上闪一下,同一时刻读主屏上 App 窗口的无障碍树(状态栏、导航栏、输入法、浮层不算)。整理在后台(`MainScreenCapture.build`):屏上的字先用树里有名字的元素,树不够用(和任务读屏同一套 `TreeAdequacy`)时认画面上的字(`PhoneOcr`),只补树里没有的、去掉认错的行和状态栏、导航条那几条里的字;只是把框在里面的几段字连起来的元素(一行设置项的整行)不单列,留里面那几段;每行带中心点(0–999,树里元素的像素中心也换算过来),从上到下、同一行从左到右(`core/userscreen/UserScreenText.kt`)。防截屏的页面(截图报安全窗口错误,或截出来几乎全黑而屏上有 App 窗口)不留画面,只记下是哪个 App、截不到。前台是 Mina 自己时不截。
-  存放:跟着对话放在那个对话的工作区里(`/workspace/screens/<编号>.jpg` 和 `.json`,`app/chat/UserScreenFiles.kt`,经工作区文件闸门读写、写时拿着树锁的许可),和附件同一处,工作区删掉时一起没了;沙箱里的命令也读得到这张图。消息本身是普通的一句话:单独一行 `[[screen:<编号>]]`,其余是附言(`core/userscreen/UserScreenMessage.kt`),照常存进对话、作为插话或回答,从相册或文件选的图片照旧是附件那一行,两者不混。对话页和卡片按它画成截图气泡(`app/ui/ScreenMessage.kt`:缩略图、「你此刻的屏幕 · App · 时刻」,附言另起一个气泡;不让截图的是一行「没截到」),对话标题、侧栏、通知里称它为附言或「你此刻的屏幕」(`ScreenCopy.plain`)。
-  给模型(`core/agent/UserScreenTurns.kt`,文字在 `UserScreenPrompt` 和 `feedback/loop.md` 的 `user_screen.*`):这句话换成「用户刚截下他正在看的屏幕(App,时刻),没有附言 / 附言:…」(不让截图时照实说没截到),主模型看得到图时截图接在这句话里;紧跟一段 `user_screen` 上下文(不进预算、压缩时保留):编号、App 和包名、时刻、屏上的字(套不可信标记),没有附言时再带上按屏幕猜意图的规矩——只是回答、读、查就直接做;要往别处写或改东西(记一笔、发出、发布、预订、付款、删除、改设置)先用 ask_user 一句话问一次、给选项(卡片里是按钮),答应了再做;不知道用户用哪个 App 做这类事一并问,能记忆时记下来。有附言的照常办,不另加规则;不可逆操作的确认照旧。只发屏幕没说话时不问意图判断(没有话可判)。之前几轮里的屏幕只剩一行(App、时刻、屏上开头几个字和编号),要再看用 `view_user_screen`:按编号给 App、时刻和字,主模型看得到图时附截图,看不到图而配了看图模型时带着问题问看图模型那张存下的截图(角色提示词 `user_screen`);这次的话或之前几轮里带着屏幕时才提供。屏上的字记进证据账本(回答来源);判结局、提取记忆读换好的那句;带屏幕的话不记经验路线。
-- **通知**:任务进行、需要接管、需要回答、结果都有通知;接管按钮在通知上。「需要你处理」和「任务结果」两个频道建成高重要程度(弹出),「任务进度」保持安静;胶囊正显示在亮着的屏幕上时,「需要你」照发但安静地进通知栏(用系统的分组提醒规则:这条放进一个没有摘要的组、只让摘要提醒,系统就不响也不弹横幅,和系统自己的静音通知同一个做法;不换频道、不新建频道),锁屏、胶囊关着或画不出来时照旧弹出;结果频道换过 id(`task_result_v2`,旧的启动时删除),各处都经 `TaskService.ensureChannels` 建频道。状态监控检查这两个频道有没有被调低,调低了就提示,修复按钮直接打开该频道的系统设置页,打不开退回应用通知总页;手机操作上手时通知允许后也检查一次。设置 ›「通知」页(在 `app/ui/SettingsSubPages.kt`)只看状态、去系统里改,不在 Mina 里放通知开关:顶上是通知总开关(没允许时「去打开」,安卓 13 起先请求权限,否则打开应用通知页),下面「需要你处理」「任务结果」「任务进度」三个频道各一行,写明什么时候发和现在是「会弹出」「只进通知栏」还是「已关闭」,点一行打开该频道的系统设置页(与上面同一套跳转与降级)。状态判断是纯函数 `NotificationOverview.of`(`app/settings/NotificationOverview.kt`):按频道重要程度,`IMPORTANCE_NONE` 为已关闭、不低于 `IMPORTANCE_HIGH` 为会弹出、其余只进通知栏;「需要你处理」「任务结果」不是会弹出就标出(进度安静或关闭不算异常),总开关关着时三行都是已关闭;首页「基本」里的「通知」一行右侧显示总体状态(正常 / 有 N 项不会弹出 / 已关闭),手机操作页的「通知」一行也进这一页。频道重要程度由 `SystemStatusMonitor` 读进 `SystemStatus`,从系统设置回来时随 `refresh` 更新。
-- **其他页面**:设置(`app/ui/SettingsScreen.kt`):顶上一张总状态卡(沿用 `Prerequisites.check`,一切正常是「一切就绪」,有问题变成提示并带修复按钮),下面四组——基本(模型入口与当前主模型、Token 用量、手机操作、应用访问、干活时、悬浮胶囊、通知)、隐私与数据(记忆与技能、网站登录)、高级(文件与计算环境、记住的操作路线、恢复与修复、开发者选项)、关于 Mina(有新版时写「x 可更新」带红点)。各项点进去是子页面(`app/ui/SettingsSubPages.kt` 里的手机操作、干活时、悬浮胶囊、文件与计算环境、记住的操作路线、恢复与修复,以及 `DeveloperOptionsScreen`;由设置页自己切换;模型页和配置模型页走 `NavStack`);「恢复与修复」页是手机操作的三个授权开关(默认打开,拨动直接执行、不再确认,说明写在开关下面;还没配好手机操作时显示打开并提示先完成设置),不支持的系统(低于安卓 13)和沙箱不支持的设备相应的入口不显示。工程开关(`app/settings/FeatureFlags.kt`)在开发者选项里,分「速度」(先读元素必要时看图、操作后带回屏幕变化、有把握时连做几步、直接打开要去的页面、简单步骤交给轻量模型)和「实验」(照着上次的做法做、不同对话同时进行、长任务的摘要分条写)两组,开发者选项仅在调试版和性能测试版显示，其中可设置详细 Trace 的开关与存储上限;首次安装或升级后打开一次「先读元素,必要时看图」「操作后带回屏幕变化」「有把握时连做几步」(之后用户手动关掉就保持关闭),其余默认关;发布版同样生效,只是设置里看不到这些开关。另有记忆与技能、计划、手机助手设置向导。记忆与技能页(`MemoryScreen`、`SkillsSection`)分「记忆」(按事实、偏好、做法分组,点一行升起面板:改一改、置顶、删除)、「技能」(开关即启用与停用)、「待确认」(待批准的做法、新技能草稿、App 知识草稿)三段,开关与全部清除放在最后;来源页(`SourceScreen`)每条来源有截图时只显示截图(点开全屏放大),没有截图的(后台读的网页正文、文件、命令输出等)显示原文摘录,与许可证页(`LicensesScreen`)和它们用同一套顶栏、分组与行。
-- **关于与检查更新**:关于页(`app/ui/AboutScreen.kt`,文字在 `AboutCopy`)从设置首页或侧栏最底下「关于 Mina」进(侧栏底部一行「设置」靠左、「关于 Mina」靠右,走 `NavStack` 的 `Route.About`)。顶上版本号、Beta 标记(`BuildConfig.BETA`)和构建编号(`BuildConfig.GIT_HASH`,编译时取当前提交的短哈希,没有 git 时为 dev);下面检查更新与更新记录;联系作者(作者的微信二维码 `res/drawable-nodpi/wechat_qr.jpg`,面板上请加好友时备注 Mina,长按或「保存二维码」存进相册 Pictures/Mina;「加入 X 群聊」打开 `MinaLinks.X_GROUP`;界面是英文时 X 群聊放在上面、微信码在下,`AboutCopy.X_GROUP_FIRST` 按 App 实际显示的语言判断)、反馈问题(去 GitHub 提问题,问题模板预先填好机型、安卓版本、Mina 版本三行;复制诊断信息;在微信或 X 群聊里说,打开联系作者面板);关注作者、开源仓库与使用说明;数据说明;页脚「基于 Apache-2.0 开源许可发布」点进许可证页(`Route.License`:许可证原文 `assets/licenses/Apache-2.0.txt`,下面列第三方组件)。对外地址都在 `app/about/HarnessLinks.kt`。检查更新(`app/about/UpdateChecker.kt`)没有自己的服务器,只问 GitHub 的 releases/latest 接口(不登录、短超时),连不上、限流、读不懂都算没查到;每次打开 App(`MainActivity.onStart`)都悄悄查一次,只挡住连着来的(离上次自动检查不到两分钟的不查,`UpdateSchedule.MIN_GAP_MS`;开查前先记下时间,同时进来的不会查两遍),失败不提示、没有横幅,手动点「检查更新」才提示结果。查到的版本存在 `files/update-v1.json`,比当前新时侧栏、设置首页、关于页带红点;有 APK 附件时,更新面板里「下载更新」交给系统 DownloadManager 在后台下载(`app/about/ApkUpdater.kt`):只接受官方仓库 `releases/download/` 下的 HTTPS 地址(`ApkIntegrity.requireOfficialUrl`),文件放在本应用外部专属目录 `Download/updates/`,同一时间只留一个,保留任务编号以便重开后继续看进度,可删除、失败重试;下载通知只在下载中显示(完成通知一点会绕过校验直接打开安装包,所以不留)。下载完成后点「安装更新」,首次需要允许安装未知应用,授权返回后继续;打开系统安装器前依次检查:大小与发布附件的 SHA-256(接口的 `digest` 字段,有才验,对不上就拒绝)、包名、版本号比已装的高、签名证书和已装的一致(或已装的证书在新包的签名历史里);没通过的删掉文件并说明原因(`ApkRejected`)。系统安装器再验签名并要求确认。更新装上后,下次启动清掉留下的安装包(`MinaApp` 里 `dropInstalled`)。没有 APK 附件时仍打开发布页。
-- **诊断信息**:用户主动点「复制诊断信息」(引导页底部一直有、失败时出错的那一步里也有;关于页 › 反馈问题的第四项)才收集,先在底部面板(`app/ui/DiagnosticsSheet.kt`)里整段给用户看,点「复制」才进剪贴板、点「分享」才交给系统分享面板,什么都不自动发出。收集(`app/about/DiagnosticsCollector.kt`)只读现成的状态:系统状态、内置助手的状态和最近一次配对或连接失败的原文(`BuiltinShellEngine.lastError`)、找连接端口时各来源给了几个候选、扫本机时几个端口开着几个像 adbd、有没有用户填的端口(`AdbConnectPort` 报给 `BuiltinShellManager.lastConnectCandidates`,只有个数,不写地址和端口号)、自动恢复那几项、模型配置、运行小结、检查更新;引导页的步骤用引导页自己的输入(`setupInputs`,含用户确认过的步骤)交给同一个 `PhoneSetupFlow` 算,不另算一遍。写成文字(`app/about/Diagnostics.kt`,纯函数)时分段顺序固定、英文键:App、Device、Phone control、Recovery、Models、Recent runs、Update;服务商只写接口类型和主机名,运行只写相对时间、结局、失败类别、步数和模型,不写 Key、登录、任务目标、回答和屏幕内容;最后整段过一遍脱敏(IP 连端口、端口号、邮箱、像凭据的「名=值」,再交给 `Redactor`)。GitHub 问题模板最后一段只提示用户可以去哪里复制后粘贴,不自动带上。
-- **兼容性自检**(设置 › 恢复与修复 › 兼容性自检,`app/ui/SelfCheckScreen.kt`):用户点「开始自检」,大约一分钟把这台手机上能用什么查一遍,出一份能复制、能贴到 GitHub 的报告。纯逻辑在 `core/selfcheck/`:各项(`SelfCheck`:设备、权限、内置助手、虚拟屏、打开 App、读屏、点按和打字、持续运行、主屏不受打扰、内置浏览器、沙箱、另一份 App)按顺序跑,每项写明先要过哪几项,有一项失败或被跳过,依赖它的就跳过并写明缺哪一项(部分可用不算没过);每项有自己的时限(5–25 秒),整次另有 90 秒的总时限,用完了余下的记为跳过;出错按失败记,不中断后面的项;取消时正在跑的和后面的都记为跳过,最后总会调一次 `SelfCheckPort.release`(`SelfCheckRunner`)。每项的结论是「状态 + 一行英文事实 + 给界面的一种大白话(`Advice`)」;报告(`SelfCheckReport`)只有版本、机型、系统版本、处理器架构、内存、屏幕尺寸、有没有无线调试和每项一行,英文键,最后整段过「复制诊断信息」那一套脱敏(`Diagnostics.sanitize`),不写账号、App 列表、用户的内容和序列号。安卓那边的实现是 `AndroidSelfCheck`(`app/selfcheck/`),手机几项走任务用的同一套:进程里共用的助手连接(`SharedShell`)、`AgentDisplay` 建屏、`AndroidScreen` 打开页面和 `tapRef`、`typeText`、`scroll`、`back`,结果反映的就是 Agent 真正的行为。在虚拟屏上操作的是 Mina 自己的测试页 `SelfCheckTargetActivity`(计数按钮、输入框、能滚动的一列行、一直在跳的数字和来回变色的横条,写明是 Mina 的测试页):和电脑连接的服务一样只对 shell 这一级开放:清单里导出,但要求调用方持有 INTERACT_ACROSS_USERS_FULL(shell 和系统有,普通 App 拿不到),没有 intent-filter,单独一个任务、不进最近任务(`ManifestProvidersTest` 守着),开到主屏上时自己马上关掉。`AndroidScreen.openOwnPage` 经 `IHarnessShell.startSystemAction` 把它的组件交给助手,助手认出这个组件(`SystemIntents.OWN_PAGE_CLASS`,包名还得是 Mina 的)后以 shell 身份直接启动到 Mina 的屏(和打开 App 同一条路:startActivityAsUser 带启动屏,不行退回 `am start --display`);shell 启动不受安卓后台启动页面的限制,Mina 在不在前台都开得出来。没加新的助手接口。系统设置只经普通的 `openApp` 打开、核对开在 Mina 的屏上而不在主屏,然后返回一次离开,不点里面任何东西。持续运行一项盯着测试页 15 秒:虚拟屏的实时画面 3 秒不变、或控件树里跳动的数字 3 秒不变就算停了。主屏一项对比开跑时和各个节点主屏最上面的任务。内置浏览器一项另建一套网页显示和标签池(不给网站列表,访问不记进网站登录),打开随 App 打包的本地页 `app/src/main/assets/selfcheck/page.html`(经 WebViewAssetLoader,不联网),走 `WebScreen` 的读页和按编号点按再核对。沙箱一项只在 arm64 上跑 `echo ok` 和一行 Python;运行环境没准备好算部分可用,不为自检现装。另一份 App 只数能用的另一份用户有几份(`appCopyUsers`,私密空间不算),不列 App。离开这一页就取消,虚拟屏、测试页、网页标签和助手连接当场放掉;有任务在跑时不让开始。跑完后整段报告显示在页上,「复制报告」只复制;「去 GitHub 反馈」复制报告并打开新建问题页,选好设备反馈模板 `.github/ISSUE_TEMPLATE/device-report.yml`、只预填标题(`[兼容性] Android 版本 型号`),报告由用户粘贴,不放进地址(地址有长度上限)。真机上整套跑一遍的测试是 `SelfCheckDeviceTest`。
-- **首次上手**:欢迎(`app/ui/WelcomeScreen.kt`)→ 配置模型 → 手机操作(`PhoneSetupScreen`,编号清单,可跳过;连接成功后清单保留、全部打勾,顶上一行「已经设置好了」,底部主按钮「开始使用」,点了才进对话,从设置进来的是「完成」)。走哪几步由 `Onboarding`(`app/ui/Onboarding.kt`)按「看过没有」判断:还没有主模型、也没在上手流程里配过模型时才走前两步(已配过模型的直接跳过);手机操作沿用原来的判断(系统够新、还没就绪、引导没看过)。
-- **界面语言**(`app/i18n/`):界面文字都是安卓字符串资源,英文是默认(`res/values/`),简体中文在 `res/values-zh/`,繁体中文在 `res/values-b+zh+Hant/`(安卓按文字体系匹配,`values-zh` 对繁体系统不生效),另有日语、韩语、西班牙语、葡萄牙语、俄语、印尼语(`values-ja`、`values-ko`、`values-es`、`values-pt`、`values-ru`、`values-in`;印尼语沿用安卓的旧语言代码 in)。各份条目和英文一一对应(`StringResourcesTest` 核对条目、占位符、各语言复数要写的数量词,繁体对照简体,以及英文和不用汉字的语言里没留下中文),所以系统是这些语言时显示对应的译文、其他语言的系统显示英文。设置 ›「语言」可选跟随系统或其中一种(`AppLanguage`;各项名字用它自己的语言写,「跟随系统」按当前语言写;语言标签是 zh-Hans、zh-Hant、en、ja、ko、es、pt、ru、id,中文以外按语言代码认、不看地区,安卓 Locale 给的旧代码 in 等先换成现行代码再比,中文标签没写文字体系时按 ICU 的 `ULocale.addLikelySubtags` 补出来,Hant 是繁体、别的中文是简体,以前选「中文」存下的 zh-Hans 是简体中文):安卓 13 起交给系统的「应用语言」(`LocaleManager`,清单里 `android:localeConfig` 列出这些语言,系统设置里能改的是同一个值,系统负责记住和重建界面);安卓 11、12 记在本地,经 `AppLanguage.wrap` 套到各 Activity 的 `attachBaseContext` 和悬浮胶囊的 Compose 宿主,换了之后重建当前界面。Compose 里直接用 `stringResource`;界面以外算文字的地方(状态文案、通知、任务服务、胶囊的数据、工具的说法)用 `tr` / `trPlural`(`app/i18n/UiText.kt`),取的是按 App 语言的资源,JVM 单测里换成直接读资源文件的 `ResFileTexts`(断言中文的测试装 `ChineseTexts`)。数量用复数资源,日期、星期、月份按 `uiLocale()` 写。工具的说法以工具声明里的中文 label 为键查资源(`ToolLabels.TOOL_LABELS`)。只翻界面:内置的 App 知识、技能、提示词照旧是中文;模型写的回答、提问、标题跟着用户说话的语言。
-
-## 16. 语音输入
-
-原生豆包流式语音识别 2.0 可在语音转文字页单独配置，实时上传 PCM 并返回中间全文；凭据独立加密，不经方舟聊天模型路径。协议、生命周期与测试限制见 [doubao-asr.md](doubao-asr.md)。
-
-按住说话有两处入口:对话页输入框和悬浮胶囊。两处只经 `VoiceSource`(`voice/VoiceInput.kt`,App 里是 `VoiceInput`)拿会话,界面测试换成假的;识别和转写的逻辑都在 `app/voice/`,界面只管手势、画面和接线。
-
-- **`voice/` 包的职责**:`SpeechChoice` 是用户的选择(自动、手机自带、不用、某服务商的某个模型)和它在设置里的存取(`SpeechSettings`,一个键一段 JSON,读不出来当自动)。`SpeechResolver` 把选择、手机能力(`SystemCapability`)、现有服务商对起来,得出这次的引擎 `SpeechEngineSpec`。`SpeechSession` 是一次会话的接口,只发 `SpeechEvent`(音量、中间结果、转文字中、最终结果、失败);两种实现:`SystemSpeech`(手机自带识别,边说边出字)和 `ProviderSpeech`(用 `PcmRecorder` 录音,松开后把整段 `Wav` 交给 `Transcriber`)。`HoldToTalk` 是按住说话的状态机(按下、上滑取消、松开、到点收尾),不碰界面和手势,输入框和胶囊共用。手还按着时会话自己先结束了(自带识别一段说完不再重开、中途出错但已听到字),结果先留着、界面照旧显示听到的字,等手指离开按那时的落点处理:停在取消上就丢掉,否则才交出去,所以想取消时不会把字填进去或发出去;按着时出错不等松开就提示,只有停在取消上时才先留着、松开在取消上就不提示。`Segments` 把识别服务按段结束又重开的各段拼起来,`Restarts` 决定空段后要不要重开、隔多久。
-- **引擎只在 `SpeechResolver` 里选**:界面和 `VoiceInput` 不自己判断用谁。选「自动」(没选过)时,手机自带识别能用就用它;自带的系统说有、但在这台手机上试过不响应时,给出 `Unavailable(SystemNoResponse)` 让界面照实说、指去设置,**不会悄悄改用要花钱的服务商模型**。选了服务商模型就用它,服务商被删了给 `Why.ProviderGone`。`Unavailable` 的各种原因由界面换成「还不能语音输入」的说明,按钮直达设置里的选择页。
-- **手机自带识别不响应的兜底**:系统只能说有没有这个识别服务,理不理要试了才知道。`SystemSpeech` 开始听后 3 秒(`NO_RESPONSE_MS`,留出识别服务进程冷启动的时间)一个回调都没有,这次报「没有响应」收尾;松开后再等 2 秒(`FINAL_WAIT_MS`)仍没有最终结果也按同一套收尾:回过话用已听到的字,一个回调都没有就是不响应,不会停着不结束;同一次会话不响应只记一次。连着两次(`SpeechSettings.SILENT_STRIKES`)都这样才记成「没响应」(`SpeechSettings.noteSystemSilent`,次数也存在设置里,一次卡住多半只是冷启动慢),中间任何一次回了话就重新数(`noteSystemAnswered`)。记上之后 `SpeechResolver` 不再把它当可用,设置页的标签显示「没响应」。用户在设置里选「自动」或「手机自带」时记号和次数都清掉,换了识别服务、更新过系统的手机可以再试。
-- **换一个识别服务再试**:系统默认的识别服务可能只给系统自己的语音助手用,对别的 App 一个回调都不给。手机上登记了不止一个识别服务时(`SystemSpeech.services`),默认的不回话、手还按着,就点名试下一个,对别的 App 开放的先试,一次最多试 `SystemSpeech.MAX_ATTEMPTS` 个(`SystemSpeech.attempts`);点名试通的那个记下(`SpeechSettings.systemService`),下次先试它。只有一个服务时它就是默认的,不再点名重试。诊断信息的 `[Speech]` 一段列出选择、自带识别的情况和手机上登记的识别服务(组件名、开不开放、要的权限)。
-- **服务商转文字与记住的方式**:`Transcriber` 按 `TranscribeMethod` 发请求,只按协议、不按模型名特判,报错走和对话模型同一套 `ModelHttp` 映射。五种形态:音频转写接口上传文件(`TranscribeMethod.AudioTranscriptions`)、对话接口里裸 base64 的 `input_audio` 加一句转写指令(`TranscribeMethod.ChatInputAudio`)、同样但 `data` 用 data URI(`TranscribeMethod.ChatInputAudioUri`)、Gemini 的 inline 数据(`TranscribeMethod.GeminiInline`)、对话接口里 data URI 的 `input_audio` 且只发音频不带指令(`TranscribeMethod.ChatInputAudioOnly`)。选模型时 `detect` 拿一秒静音依次试(Gemini 只试自己那种;其他从第一种试到最后一种),第一个通过的就是这个模型的方法,存进 `SpeechChoice.Provider.method`,之后每次转写直接用它。`TranscribeMethod.ChatInputAudioOnly` 放最后,因为通用模型也会对只有音频的请求回 2xx(把录音当聊天),排前面会被误选。只有「接口不是这么用的」(找不到、回的格式不对)才换下一种;Key 或额度的问题再试也没用,直接抛。枚举只能往后加、不能改名或删,旧设置才读得回来。设置页(`ui/SpeechModelScreen.kt`)选模型即触发试转,通了才选上并返回;列表里只列名字像语音模型的(`looksLikeSpeech`),没有的可以手填模型名。
-- **对话输入框**(`ui/VoiceHold.kt`):手势盖在**没聚焦**的输入框上,点一下照旧聚焦弹键盘,按住约 300 毫秒才开始听;输入框已聚焦时不装这个手势,长按仍是系统自己的选字、粘贴;这时输入框和发送键之间多一颗话筒,按住它才听,点一下只提示「按住说话」。按着往上滑过 80dp 是「松开取消」。松开后说的话**只填进输入框、不发送**,由用户改了再发;服务商那条路松开当下就显示「转文字…」,转好再填;转写最多等 30 秒(`ProviderSpeech.TRANSCRIBE_TIMEOUT_MS`),超时按网络不通提示,不会一直转圈。松开后还在转(或自带识别还在收尾)时可以再按住,上一段丢掉、重新开始听,胶囊也一样。按得太短(从手指按下算不到 0.5 秒)当误触,不去转,免得白花额度。离开页面、转屏、App 到后台都丢掉这一段。
-- **悬浮胶囊**(`capsule/CapsuleVoice.kt`、`CapsuleController` 的 `talkHold` 与 `CapsuleTalk`):长按走 `cap/phone/a11y/OverlayHost.kt` 的 `OverlayHold`,手指按下后不动满 400 毫秒才算长按(`HoldGesture` 判断,先移过触摸阈值就是拖,之后不再算长按),`start/move/end/cancel` 回调给控制器。按着时整屏压暗,胶囊旁边浮出面板和「取消」「改一改」两个落点;松开在别处就直接发给它此刻对着的那件事(接着聊的对话、等回答的一次运行等),拖到「改一改」打开卡片接着改,拖到「取消」丢掉。读屏用户用「说话」操作:点一下开始、再点一下发出,没有手指所以只能发出。胶囊上说着话时它换成「你来处理」那一条(或不能再说),这段话直接丢掉、麦克风放开。录音发生在无障碍服务的悬浮窗手势里,按着时手指就在屏幕上,不另起前台服务。
-- **60 秒封顶**:输入框和胶囊都是一次最多听 60 秒(`MAX_MS`),到点当松开处理,不会憋着不发;输入框最后 10 秒卡片右下角倒数。`HoldToTalk.tick` 到点调 `release`,因为录音到点自己停、不另外通知,不收尾字就丢了。
-- **录音权限**:只在第一次按住时才要(`RECORD_AUDIO`)。输入框里:没有权限时弹系统框;拒过且系统不再弹框时,改弹说明,按钮直达系统里 Mina 的权限页。已经允许录音、识别服务仍报没有权限,或报录音出错(`ERROR_AUDIO`,`SpeechFailure.AudioError`)时,改弹另一则说明:快捷设置里的麦克风使用总开关(安卓 12 起)有没有关、系统权限管理里 Mina 的麦克风有没有被单独关掉,也可能正被别的应用占用;按钮仍打开系统里 Mina 的应用详情。识别服务报客户端出错、开始听时抛错、服务商那条路的录音起不来,照旧只提示麦克风可能被别的应用占着。胶囊里:没有权限不开始,弹一条提示、点开回 Mina(`capsule_voice_need_mic`)去授权。`VoiceInput.start` 在没权限、引擎用不了时返回只发一个 `Failed` 的会话,界面按同一套失败处理,不用各自判断。
-
-`content-transcribe` 技能是 Agent 转写**音频文件**,和这里的语音输入是两件事,互不依赖。
-
-## 17. 应用访问
-
-按包名限制标准手机工具可以读取和操作的 App，规则和边界见 [`app-access.md`](app-access.md)。
-
-- **策略**(`core/access/AppAccess.kt`):没有设置的应用默认允许，分类不决定权限。空阻止列表不因包名缺失而拒绝；非空时归属未知则短暂等待并重读一次，仍未知返回 `app_access_unverified`。文件不可用返回 `app_access_unavailable`，由用户在设置中重置。
-- **门禁**(`core/uistate/AppAccessScreenPort.kt`):包装任务的手机端口，保护读屏结果与显式目标；`ActionExecutor` 在动作前后检查，拒绝以工具结果交回模型。`ScreenPort` 的每个成员都在门禁里显式写出、不用 `by` 委托，测试逐个成员核对「转交给里面的端口」且「除几个不碰 App 界面的之外都被检查」，端口以后加成员不会漏检。Android 端口只提供窗口归属（`AndroidScreen.accessPackages`），自己只在门禁看不到目标的地方看名单：没指定 App 的链接和系统动作由谁接、开到用户主屏上的 App；不向下转型读取设置实现。`ScreenSession` 按权限 revision 清除旧元素引用、截图与定位缓存。
-- **开销**:名单为空时什么也不多做（不问窗口、系统提示词里也没有应用访问那一段）。名单非空时读屏直接用读到的这一屏里的窗口归属核对，不另问窗口；其余读取和动作的核对结果在窗口没变（无障碍的窗口变动计数没变）、名单没变时最多沿用 1 秒，同一次读屏紧接着的截图和任务预览的一帧帧画面因此不必每次都问窗口。
-- **提示词**:应用访问的规则在 `prompts/capabilities/app-access.md`，只在名单非空（或设置读不出来）时接在手机一段后面；任务进行中才禁用的，拒绝结果自带的说明照样告诉模型下一步怎么做。
-- **存储与界面**(`app/settings/AppAccessStore.kt`、`app/ui/AppAccessScreen.kt`):进程共享、原子写入；打开设置页不上传列表，刷新分类前确认发送应用名称和包名。`AppClassifier` 复用现有模型配置，失败不改变权限。页面、分类和分享文案支持英文、简体和繁体。
-- **主动分享**(`app/cap/phone/a11y/ScreenShareConsent.kt`、`ShareChoice.kt`):用户可允许仅分享屏幕、允许此应用或取消；独立分享许可不解除自动操作限制，采集前后复核来源与权限。敏感授权界面只能由用户操作。
-- **边界**:shell 命令、沙箱、电脑接入（MCP）不受此门禁限制；脚本内调用标准手机工具仍受检查。模型遇到受限应用应重新评估路线，确实需要时说明「设置 › 应用访问」中的允许位置。

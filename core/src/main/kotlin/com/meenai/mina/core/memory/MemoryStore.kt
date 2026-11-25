@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** 一次变更;[undoToken] 交给 [MemoryStore.undo] 可恢复到变更之前。 */
+/** One change; [undoToken] is handed over to [MemoryStore.undo] to restore to before the change. */
 sealed interface Change {
     val undoToken: String
 
@@ -13,18 +13,19 @@ sealed interface Change {
     data class Forgot(val before: MemoryItem, override val undoToken: String) : Change
 }
 
-/** 整份读写;加密落盘由 app 层实现。 */
+/** The entire copy is read and written; encrypted disk transfer is implemented by the app layer. */
 interface MemoryPersistence {
     fun load(): List<MemoryItem>
     fun save(items: List<MemoryItem>)
 }
 
-/** [code]:`sensitive`|`too_long`|`memory_full`|`not_found`|`unavailable`(记忆文件暂时读不出)。 */
+/** [code]:`sensitive`|`too_long`|`memory_full`|`not_found`|`unavailable` (the memory file cannot be read temporarily). */
 class MemoryRejected(val code: String) : Exception(code)
 
 /**
- * 记忆的唯一写入口。所有写方法共用一把锁:并行任务的写入串行化。
- * 写入前过 [SensitiveFilter];每次变更整份落盘;撤销令牌只在内存里保留最近 [UNDO_KEEP] 个。
+ * The only writing port of memory. All write methods share the same lock: write serialization for
+ * parallel tasks. [SensitiveFilter] has been written before; the entire disk is changed every time; the
+ * revocation token only keeps the latest [UNDO_KEEP] in the memory.
  */
 class MemoryStore(
     private val persistence: MemoryPersistence,
@@ -33,15 +34,16 @@ class MemoryStore(
     val limit: Int = 500,
 ) {
     private val lock = Any()
-    // 读不出(密钥库一时不可用)时先当空的用,但不许写:写了就会用空表盖掉真正的记忆文件
+    // When it cannot be read (the keystore is temporarily unavailable), it will be used as empty, but
+    // writing is not allowed: if written, the real memory file will be overwritten with an empty table.
     @Volatile private var loaded = false
     private val _items = MutableStateFlow(tryLoad() ?: emptyList())
     val items: StateFlow<List<MemoryItem>> = _items.asStateFlow()
 
-    /** 记忆文件这次读到了没有;false 时写入一律拒绝(`unavailable`),[reloadIfNeeded] 下次再试。 */
+    /** Have the memory files been read this time? If false, writing will be rejected (`unavailable`), [reloadIfNeeded] and try again next time. */
     val available: Boolean get() = loaded
 
-    /** 之前没读出来就再读一次(每个任务开始、每次写入前调用);读到返回 true。 */
+    /** If it has not been read before, read it again (called at the beginning of each task and before each write); if it is read, it returns true. */
     fun reloadIfNeeded(): Boolean = synchronized(lock) {
         if (loaded) return true
         val got = tryLoad() ?: return false
@@ -55,7 +57,7 @@ class MemoryStore(
         null
     }
 
-    // 插入顺序即新旧顺序,超出时丢最旧的
+    // The insertion order is the order of old and new. If it exceeds the order, the oldest is discarded.
     private val undos = LinkedHashMap<String, Change>()
 
     fun add(kind: MemoryKind, content: String, keywords: List<String>, source: MemorySource): Result<Change.Added> = synchronized(lock) {
@@ -75,8 +77,9 @@ class MemoryStore(
     }
 
     /**
-     * [keywords]/[source] 为 null 时沿用原值。做法被新的非手写来源(模型提取、memory_save)改动后要重新批准;
-     * 用户在设置里改(manual)或不带来源的改动保持原状态。
+     * When [keywords]/[source] is null, the original value is used. Practices must be re-approved after
+     * being modified by new non-handwritten sources (model extraction, memory_save); changes made by
+     * users in settings (manual) or without sources remain in their original state.
      */
     fun update(id: String, content: String, keywords: List<String>?, source: MemorySource?): Result<Change.Updated> = synchronized(lock) {
         if (!reloadIfNeeded()) return Result.failure(MemoryRejected("unavailable"))
@@ -103,8 +106,9 @@ class MemoryStore(
     }
 
     /**
-     * 令牌未知、过期或已用过 → false。更新的撤销只在条目仍是这次改后的样子时才做(之后又被改过/忘掉 → false),
-     * 免得把后来的改动一并抹掉。落盘失败时抛出,令牌保留可重试。
+     * The token is unknown, expired, or used → false. The undo of the update is only done when the entry
+     * is still as it was after this change (it was later changed/forgotten → false), so as not to erase
+     * all subsequent changes. Thrown when the placement fails, the token is retained and can be retried.
      */
     fun undo(token: String): Boolean = synchronized(lock) {
         val change = undos[token] ?: return false
@@ -112,7 +116,8 @@ class MemoryStore(
         val next = when (change) {
             is Change.Added -> cur.filter { it.id != change.item.id }
             is Change.Updated -> {
-                // 只看这次改动的字段;之后的使用计数、置顶不算「又被改过」,恢复时也保留
+                // Only look at the fields that were changed this time; subsequent usage counts and pins
+                // are not considered "changed again" and will be retained when restoring.
                 val now = cur.find { it.id == change.item.id }
                 if (now == null || now.content != change.item.content || now.keywords != change.item.keywords || now.source != change.item.source) return false
                 val restored = change.before.copy(useCount = now.useCount, lastUsedAt = now.lastUsedAt, pinned = now.pinned)
@@ -147,7 +152,7 @@ class MemoryStore(
         commit(_items.value.map { if (it.id in set) it.copy(useCount = it.useCount + 1, lastUsedAt = now) else it })
     }
 
-    /** 用户要全部清除:读不出的原文件也一并用空表覆盖,这正是用户的意思。 */
+    /** The user wants to clear all: the original files that cannot be read are also overwritten with empty tables, which is exactly what the user wants. */
     fun clearAll(): Unit = synchronized(lock) {
         undos.clear()
         loaded = true
@@ -161,14 +166,15 @@ class MemoryStore(
         return null
     }
 
-    // 换行、连续空白压成一个空格:记忆块按行编号,内容里不能有换行
+    // Line breaks, continuous blanks are pressed into one space: memory blocks are numbered according to
+    // lines, and there cannot be line breaks in the content.
     private fun clean(content: String) = WHITESPACE.replace(content.trim(), " ")
 
     private fun cleanKeywords(keywords: List<String>) =
         keywords.map(::clean).filter { it.isNotEmpty() }.distinct().take(MAX_KEYWORDS)
 
     private fun commit(next: List<MemoryItem>) {
-        // 兜底:任何写入都不能在没读到原文件时发生
+        // Bottom line: No writing can occur without reading the original file.
         check(loaded) { "memory not loaded" }
         persistence.save(next)
         _items.value = next

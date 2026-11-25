@@ -1,14 +1,14 @@
 package com.meenai.mina.core.uistate
 
-/** 站点知识、App 知识里 `pace` 说的这个网站或 App 对浏览快慢的要求(App 里的节奏见 [com.meenai.mina.core.cap.phone.AppPacing])。 */
+/** `pace` in site knowledge and app knowledge talks about the browsing speed requirements of this website or app (see [com.meenai.mina.core.cap.phone.AppPacing] for the rhythm in the app). */
 enum class PlacePace {
-    /** 没有特别说法。 */
+    /** There is no special statement. */
     NORMAL,
-    /** 这个网站或 App 限制浏览快慢(看得太快、太多会被拦):每页停得更久、一个任务里看的页、屏更少。 */
+    /** This website or app limits the browsing speed (if you browse too fast, you will be blocked): each page will be paused longer, pages viewed in one task, and the screen will be smaller. */
     CAREFUL;
 
     companion object {
-        /** 站点知识头部的值(`careful`;不写为 null)。 */
+        /** The value of the site knowledge header (`careful`; not written as null). */
         fun of(value: String?): PlacePace = if (value == "careful") CAREFUL else NORMAL
     }
 }

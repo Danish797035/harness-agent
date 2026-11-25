@@ -2,39 +2,47 @@ package com.meenai.mina.core.memory
 
 import com.meenai.mina.core.agent.TokenEstimate
 
-/** [message] 为 null 表示这次没有记忆可带;[usedIds] 是块里实际列出的条目,顺序同列表。 */
+/** [message] is null, which means there is no memory to bring this time; [usedIds] is the items actually listed in the block, and the order is the same as the list. */
 data class MemoryBlock(val message: String?, val usedIds: List<String>)
 
 /**
- * 每个任务的记忆块:作为一条用户消息放在对话上文之后、任务原文之前。
+ * Memory block for each task: placed as a user message after the conversation above and before the
+ * original task text.
  *
- * 两种给法:
- * - [Mode.Relevant]:置顶的 + 过阈值的检索结果(已批准的做法单列且有上限),总长受 [MAX_TOKENS] 约束。记忆多的老做法。
- * - [Mode.Full]:一条不落全给(做法仍受 [MAX_PROCEDURES] 约束),总长受 [FULL_MAX_TOKENS] 约束。
+ * Two ways to give:
+ * - - [Mode.Relevant]: Top search results + search results that exceed the threshold (approved practices
+ * are listed separately and have an upper limit), and the total length is subject to [MAX_TOKENS]. An
+ * old practice with many memories.
+ * - - [Mode.Full]: If you don’t give up one item, you will get all (the method is still subject to
+ * [MAX_PROCEDURES]), and the total length is subject to [FULL_MAX_TOKENS].
  *
- * 产品的默认是 [Mode.Auto]:记忆加起来没超过 [FULL_MAX_TOKENS] 就全量注入(做法也全给),超了才退回检索。
- * 记忆本来就不多(几十条、几千字),而现在的模型上下文动辄几十万;全量注入不会漏,
- * 前缀还固定,命中上下文缓存后比"每次检索出来的都不一样"更便宜。
- * 但记忆涨到几万字以后全塞会把上下文吃光,所以保留检索这条退路。
+ * The default of the product is [Mode.Auto]: if the total memory does not exceed [FULL_MAX_TOKENS], the
+ * full amount will be injected (the method will also be given), and it will be returned for retrieval if
+ * the total memory exceeds [FULL_MAX_TOKENS]. The memory is not much (dozens of items, thousands of
+ * words), but the current model context often costs hundreds of thousands; full injection will not leak,
+ * the prefix is fixed, and it is cheaper to hit the context cache than "retrieval is different every
+ * time". But when the memory grows to tens of thousands of words, the context will be eaten up when the
+ * memory is full, so retrieval is retained as a retreat.
  */
 object MemoryContext {
     const val MAX_TOKENS = 800
-    /** 全量注入的总上限;超过就说明该退回检索了(见 [Mode.Auto])。 */
+    /** The total upper limit of full injection; if it is exceeded, it means it is time to return to the search (see [Mode.Auto]). */
     const val FULL_MAX_TOKENS = 4_000
     const val MAX_PINNED = 5
     const val MAX_RELEVANT = 8
     const val MAX_PROCEDURES = 3
     const val MIN_SCORE = 0.5
 
-    /** [Relevant]:只带置顶与检索到的;[Full]:全量(超预算时丢最旧的);[Auto]:能全量就全量,否则退回 [Relevant]。 */
+    /** [Relevant]: pinned plus retrieved memories only; [Full]: all memories (dropping oldest when over budget); [Auto]: uses Full if within budget, otherwise falls back to [Relevant]. */
     enum class Mode { Relevant, Full, Auto }
 
     private const val FACTS_HEADER = "Memories about the user (things the user told you; may be out of date; when they conflict with what the user says now, follow what they say now):"
     private const val PROCEDURES_HEADER = "Ways of doing things the user approved (when they conflict with what the user says now, follow what they say now):"
 
     /**
-     * [rewrite]:做法里提到的旧工具名换成现在的(见 LegacyNames.rewrite);默认原样。
-     * [mode] 默认保持老的检索行为;产品路径(AgentLoop)显式传 [Mode.Auto]。
+     * [rewrite]: Replace the old tool name mentioned in the method with the current one (see
+     * LegacyNames.rewrite); the default is as is. [mode] keeps the old retrieval behavior by default;
+     * the product path (AgentLoop) is explicitly passed to [Mode.Auto].
      */
     fun build(
         items: List<MemoryItem>,
@@ -46,14 +54,15 @@ object MemoryContext {
         val active = items.filter { it.status == MemoryStatus.active }
         if (active.isEmpty()) return MemoryBlock(null, emptyList())
         if (mode == Mode.Full) full(active, rewrite)?.let { return it }
-        // Auto:装得下就一条不落全给;装不下(记忆已经很多)退回检索,不硬塞几万字进上下文
+        // Auto: If you can fit it in, just give it all; if you can’t fit it in (you already have a lot
+        // of memories), return to search, and don’t cram tens of thousands of words into the context.
         if (mode == Mode.Auto) fullIfFits(active, rewrite)?.let { return it }
 
         val query = listOfNotNull(goal, lastUserTurn).joinToString("\n")
         val ranked = MemoryIndex(active).search(query, limit = active.size)
         val score = ranked.associate { it.first.id to it.second }
 
-        // 做法的上限把置顶的也算在内
+        // The upper limit of the method includes the top ones.
         var procedures = 0
         fun procedureFits(m: MemoryItem) = m.kind != MemoryKind.procedure || procedures < MAX_PROCEDURES
 
@@ -73,7 +82,8 @@ object MemoryContext {
             relevant += item
         }
 
-        // 保留优先级从高到低:置顶(按分数)在前,相关(按分数)在后;超长从末尾去掉
+        // Keep the priority from high to low: top (according to score) first, relevant (according to
+        // score) last; super long ones are removed from the end.
         val keep = (pinned + relevant).toMutableList()
         while (keep.isNotEmpty()) {
             val (message, ids) = render(keep, rewrite)
@@ -84,8 +94,10 @@ object MemoryContext {
     }
 
     /**
-     * 全量:置顶的在前,其余按更新时间倒序;做法最多 [MAX_PROCEDURES] 条。
-     * 超 [FULL_MAX_TOKENS] 时先丢最旧的普通条目,再丢做法;全丢光了还超就返回 null(交给检索)。
+     * Full quantity: top ones first, others in descending order of update time; maximum number of
+     * methods is [MAX_PROCEDURES]. When [FULL_MAX_TOKENS] is exceeded, the oldest common entry is
+     * discarded first, and then the method is discarded; if all are lost, null is returned (leaved to
+     * retrieval).
      */
     private fun full(active: List<MemoryItem>, rewrite: (String) -> String): MemoryBlock? {
         val (allFacts, allProcedures) = ordered(active)
@@ -100,8 +112,10 @@ object MemoryContext {
     }
 
     /**
-     * 装得下才全量;装不下返回 null,由调用方退回检索。
-     * 做法也一条不落:按更新时间截前几条会丢掉和这次任务相关的那条(截断只在检索里按相关度做)。
+     * Only the full amount can be loaded; if it cannot be loaded, null will be returned, and the caller
+     * will return to retrieval. The method is consistent: cutting off the first few items based on the
+     * update time will discard the ones related to this task (truncation is only done based on relevance
+     * in the search).
      */
     private fun fullIfFits(active: List<MemoryItem>, rewrite: (String) -> String): MemoryBlock? {
         val (facts, procedures) = ordered(active, maxProcedures = Int.MAX_VALUE)

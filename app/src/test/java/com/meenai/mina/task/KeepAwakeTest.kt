@@ -42,7 +42,7 @@ class KeepAwakeTest {
         runCurrent()
         assertFalse(lock.held)
 
-        // 用户处理完、任务继续跑:重新常亮
+        // After the user has finished processing, the task continues to run: turn on again
         awake.onState(TaskState.Running(2, ""))
         assertTrue(lock.held)
     }
@@ -80,12 +80,13 @@ class KeepAwakeTest {
         awake.onState(TaskState.Running(1, ""))
         awake.close()
         assertFalse(lock.held)
-        // 任务结束后迟到的状态发布不能把锁重新拿回来
+        // Late status release after the task ends cannot get the lock back.
         awake.onState(TaskState.Running(2, ""))
         assertFalse(lock.held)
     }
 
-    // 两个任务各持一份:第一个开始时拿锁,最后一个结束时才放
+    // Each of the two tasks holds a copy: the first one takes the lock at the beginning and releases it
+    // at the end of the last one.
     @Test
     fun refCountedAcrossRuns() = runTest {
         val lock = FakeLock()
@@ -107,7 +108,7 @@ class KeepAwakeTest {
         assertFalse(lock.held)
     }
 
-    /** 屏幕只保持开着,不锁在全亮:用户不操作时由系统照常调暗。 */
+    /** The screen only remains on, not locked at full brightness: it is dimmed by the system as usual when the user is not operating. */
     @Suppress("DEPRECATION")
     @Test
     fun screenLockLetsTheSystemDim() {

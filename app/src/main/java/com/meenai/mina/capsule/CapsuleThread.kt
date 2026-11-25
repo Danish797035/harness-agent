@@ -14,45 +14,52 @@ import com.meenai.mina.ui.steerLabel
 import com.meenai.mina.ui.steersAroundDraft
 
 /**
- * 对话卡片里的一条。[key] 在同一个对话里不变(有运行记录编号时按它,没有时按这一轮在对话里的位置):
- * 往上加载更早的几轮、正在进行的那一轮记进对话后,列表都据此停在原处。
+ * An item in the conversation card. [key] remains stable within the same conversation (by run record
+ * ID when available, otherwise by this turn's position in the conversation): the list uses it to hold
+ * its scroll position when loading earlier turns above or saving the active turn.
  */
 sealed interface ThreadItem {
     val key: String
 
-    /** 你说的话(原话和任务进行中插的话):右边的小气泡;[note] 是插的话下面那行去向(「已收到，下一步处理」),没有为 null。 */
+    /** What you said (original words and words inserted during the task): the small bubble on the right; [note] is the destination of the line below the inserted words ("Received, next step"), if not, it is null. */
     data class User(override val key: String, val text: String, val note: String? = null) : ThreadItem
 
-    /** 一行小字:操作过 App 或网页的那一轮收成的一行(「✓ 微信 · 办好了」),或纯聊天没办成、停了、还在想时那一行。 */
+    /** A line of small print: a line of results from the round of operations on an app or web page ("✓ WeChat · Done"), or a line of pure chatting that failed, stopped, and is still thinking about it. */
     data class Note(override val key: String, val text: String, val kind: CapsuleKind) : ThreadItem
 
     /**
-     * Mina 的回答全文(原样的 Markdown,卡片里排版);[streaming] 时还在往下写。
-     * [cut] 时是被插话打断的那段(和对话页一样淡色,下面一行「被你的新消息打断」)。
+     * The full text of Mina's answer (original Markdown, formatted in the card); [streaming] is still
+     * being written. [cut] is the section interrupted by interruption (the same light color as the
+     * conversation page, with the following line "Interrupted by your new message").
      */
     data class Answer(override val key: String, val text: String, val streaming: Boolean = false, val cut: Boolean = false) : ThreadItem
 }
 
-/** 对话卡片的来回,旧的在上、新的在下;[hasEarlier] 时往上还有更早的几轮没加载;[title] 是对话的标题(第一句话)。 */
+/** The dialogue cards go back and forth, with the old ones at the top and the new ones at the bottom; when [hasEarlier] goes up, there are earlier rounds that have not been loaded; [title] is the title (first sentence) of the dialogue. */
 data class ChatThread(val items: List<ThreadItem>, val hasEarlier: Boolean = false, val title: String? = null) {
-    /** 打开时停在哪一条:最新的那句你说的话放在可见区域顶上,从这一问一答读起;没有你说的话时从头。 */
+    /** Which one to stop at when opening it: put the latest sentence you said at the top of the visible area, and start reading from this question and answer; if there is nothing you said, start from the beginning. */
     val anchor: Int get() = items.indexOfLast { it is ThreadItem.User }.coerceAtLeast(0)
 }
 
-/** 已经记进对话的一轮,连同它操作过的 App 和网站([places],从运行记录里读;纯聊天、记录已清掉时为空)。 */
+/** A round of conversation has been recorded, together with the apps and websites it has operated ([places], read from the running record; empty when it is pure chat and the record has been cleared). */
 data class PastTurn(val turn: Turn, val places: List<String> = emptyList())
 
 /**
- * 对话卡片的来回怎么排(纯逻辑):已经记进对话的几轮(和对话页同一份 [com.meenai.mina.chat.ConversationStore])在前,
- * 还没记进去的、这个对话里此刻的任务接在后面。操作过 App 的那一轮只留一行和回答,不放步骤、画面和来源。
- * 先只排最近 [PAGE] 轮,滚到顶再往前多排 [PAGE] 轮。
+ * How to arrange the back and forth of dialogue cards (pure logic): The rounds that have been recorded
+ * in the dialogue (the same [com.meenai.mina.chat.ConversationStore] as the dialogue page) are in the
+ * front, and the tasks that have not yet been recorded in the dialogue at the moment are in the back.
+ * For the round where the app was used, only one line and answer are left, leaving no steps, pictures
+ * and sources. First, only the nearest [PAGE] wheel is arranged, then roll to the top and then move
+ * forward to arrange more [PAGE] wheels.
  */
 object CapsuleThreads {
     const val PAGE = 10
 
     /**
-     * [past] 是这个对话记下的全部轮次,排最后 [shown] 轮;[live] 是还没记进去的任务(见 [liveTail]),
-     * [livePlaces] 给出它们操作过的 App 和网站;[summarizing] 是停止后交代还在写的那几次运行(运行编号)。
+     * [past] is all the rounds recorded in this conversation, ranking the last [shown] round; [live] is
+     * the task that has not been recorded (see [liveTail]), [livePlaces] gives the apps and websites
+     * they have operated; [summarizing] is the several runs (run numbers) that are still being written
+     * after stopping.
      */
     fun build(
         past: List<PastTurn>, shown: Int, live: List<CardRun>, summarizing: Set<String> = emptySet(),
@@ -66,8 +73,11 @@ object CapsuleThreads {
     }
 
     /**
-     * 卡片里这个对话([conversationId])还没记进对话的任务:记进去的一轮带着同一个运行记录编号([recorded] 里有),就用记下的那份;
-     * 没开起记录就结束的(排队中被取消)只看记下的那份。结束了的在前(先结束的在上),进行中的在后。
+     * The conversation in the card ([conversationId]) has not yet been recorded as a conversation task:
+     * the recorded round has the same running record number ([recorded]), use the recorded copy; if the
+     * record ends before starting (cancelled in the queue), only the recorded copy will be used. The
+     * ones that are finished come first (those that finish first are at the top), and the ones that are
+     * in progress are last.
      */
     fun liveTail(runs: List<CardRun>, conversationId: String, recorded: Set<String>): List<CardRun> {
         val mine = runs.filter { r ->
@@ -77,7 +87,7 @@ object CapsuleThreads {
         return ended.reversed() + active
     }
 
-    /** 记下的一轮:你说的话(和插的话)、操作过 App 时那一行、回答或没办成的原因;停了的是停止后补上的交代。 */
+    /** The round of writing down: what you said (and what you interrupted), the line when you operated the app, the answer or the reason why it was not done; the things that were stopped are the explanations that were added after the stop. */
     fun pastItems(index: Int, t: PastTurn, summarizing: Set<String> = emptySet()): List<ThreadItem> {
         val turn = t.turn
         val base = turn.runId?.let { "r$it" } ?: "p$index"
@@ -91,7 +101,9 @@ object CapsuleThreads {
             CapsuleKind.Failed -> turn.outcome
             else -> Conversation.stopSummary(turn).orEmpty()
         }
-        // 原话,再是插的话;插话之前已经说完的、被它打断的那段回复排在它前面(和对话页一样)
+        // The original words are followed by the interjected words; the reply that has been said before
+        // the interjection and was interrupted by it is ranked in front of it (same as the conversation
+        // page)
         val users = listOfNotNull(turn.userText.takeIf(String::isNotBlank)?.let { ThreadItem.User("$base-u0", it) }) +
             turn.steers.withIndex().filter { it.value.isNotBlank() }.flatMap { (i, text) ->
                 listOfNotNull(
@@ -103,12 +115,15 @@ object CapsuleThreads {
         return users + ended(base, kind, t.places, answer, pending = kind == CapsuleKind.Cancelled && turn.runId in summarizing)
     }
 
-    /** 还没记进对话的一件:在进行时回答跟着写出来,等你回答、同意时是那一问,结束了和记下的一样。 */
+    /** One thing that has not yet been recorded in the conversation: write down the answer as it goes on, wait for you to answer and agree with the question, and end it as written down. */
     fun liveItems(r: CardRun, places: List<String>, summarizing: Set<String> = emptySet()): List<ThreadItem> {
         val run = r.run
         val base = run.runId?.let { "r$it" } ?: "l${run.key}"
-        // 原话,再是进行中插的话(带着去向,和对话页同一套说法);插话之前已经说完的、被它打断的那段回复排在它前面。
-        // 还没交给模型的插话排在正在写的回答后面(和对话页一样,见 steersAroundDraft)
+        // The original words, and then the words inserted in progress (with the destination, the same
+        // statement as the conversation page); the reply that has been finished before the interruption
+        // and was interrupted by it is ranked in front of it. Interruptions that have not yet been
+        // handed to the model are queued after the answer being written (same as the dialogue page, see
+        // steersAroundDraft)
         fun steer(n: SteerNote) = listOfNotNull(
             n.finished?.takeIf(String::isNotBlank)?.let { ThreadItem.Answer("$base-f${n.id}", it) },
             n.interrupted?.takeIf(String::isNotBlank)?.let { ThreadItem.Answer("$base-c${n.id}", it, cut = true) },
@@ -129,7 +144,8 @@ object CapsuleThreads {
                     is CardContent.Held -> ThreadItem.Note("$base-a", c.why, r.kind)
                     else -> run.exchange?.draft?.takeIf(String::isNotBlank)
                         ?.let { ThreadItem.Answer("$base-a", it, streaming = true) }
-                        // 还没写出字:说此刻在做什么(在 App 里时那一行已经说了)
+                        // Haven’t written the words yet: Tell me what you are doing at the moment (that
+                        // line has already been said in the app)
                         ?: ThreadItem.Note("$base-a", r.line, r.kind).takeIf { note == null && r.line.isNotBlank() }
                 }
                 listOfNotNull(note, answer)
@@ -139,8 +155,9 @@ object CapsuleThreads {
     }
 
     /**
-     * 结束的一轮:操作过 App 时那一行(纯聊天只在没办成、停了时有一行),再是回答全文。
-     * [pending] 时停止后的交代还在写:那一行下面一行「正在整理已做的事…」。
+     * The ending round: the line when the app was operated (pure chat only has a line when it is not
+     * completed or stopped), and then the full text of the answer. When [pending], the explanation after
+     * stopping is still written: the line below that line is "organizing what has been done...".
      */
     private fun ended(base: String, kind: CapsuleKind, places: List<String>, answer: String, pending: Boolean = false): List<ThreadItem> {
         val line = when {
@@ -157,14 +174,14 @@ object CapsuleThreads {
         )
     }
 
-    /** 操作过 App 的那一轮收成的一行:「✓ 微信、淘宝 · 办好了」「12306 · 没办成」;最多列两处。 */
+    /** A line for the harvest of the round in which the App was operated: "✓ WeChat, Taobao · Done" "12306 · Not done"; a maximum of two places can be listed. */
     fun appLine(places: List<String>, kind: CapsuleKind): String {
         val where = places.take(2).joinToString(tr(R.string.list_sep)) + if (places.size > 2) tr(R.string.and_more) else ""
         val mark = if (kind == CapsuleKind.Done) "✓ " else ""
         return "$mark$where · ${CapsuleCards.status(kind)}"
     }
 
-    /** 这一轮实际操作过的 App 和网站(活动的对象是包名或「网站 域名」的),按先后去重;包名换成 App 名。 */
+    /** Apps and websites that have been actually operated in this round (the objects of the activity are package names or "website domain names") are deduplicated in order; the package names are replaced with App names. */
     fun places(acts: List<RunEvent.Activity>, appLabel: (String) -> String): List<String> =
         acts.mapNotNull { a ->
             val t = a.target?.trim().orEmpty()
@@ -175,6 +192,6 @@ object CapsuleThreads {
             }
         }.distinct()
 
-    /** 运行记录里网页那一屏的对象写成「网站 <域名>」。 */
+    /** The object on the screen of the web page in the running record is written as "website <domain name>". */
     private const val SITE_PREFIX = "Site "
 }

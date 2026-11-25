@@ -11,26 +11,30 @@ import kotlin.math.roundToInt
 
 const val DOUBLE_TAP_UNSUPPORTED = "double_tap_unsupported"
 
-/** 两次点击之间的间隔:够短才会被认成双击(安卓的双击时限是 300 毫秒)。 */
+/** The interval between two clicks: short enough to be recognized as a double click (Android's double-click time limit is 300 milliseconds). */
 const val DOUBLE_TAP_GAP_MS = 120L
 
-/** 滑动手势的默认时长。 */
+/** The default duration of the swipe gesture. */
 const val DEFAULT_SWIPE_MS = 400L
 
-/** 与 tap 的换算互逆:n = round(p*999/(size-1)),夹在 0–999。 */
+/** The conversion to tap is reciprocal: n = round(p*999/(size-1)), sandwiched between 0–999. */
 fun normalize(p: Int, size: Int): Int {
     if (size <= 1) return 0
     return min(999, max(0, (p * 999.0 / (size - 1)).roundToInt()))
 }
 
 /**
- * 屏幕上的一个元素。ref 形如 "@e3";center 为像素(端口内部用,交给模型前换成 0–999);bounds 为 [l,t,r,b],已归一到 0–999。
- * [hint]:输入框里显示的是提示语/预置词(name 就是它),不是已经输入的内容。
- * [focused]:有输入焦点(回车、空格作用在它上面)。
- * [secret]:密码框。
- * [placeholder]:输入框自己的提示语(打了字之后也还在,和此刻显示的 [name] 无关);没有为 null。
- * [searchField]:控件按自己的语义就是搜索框(网页的 type=search、role=searchbox、回车键标成搜索;安卓的搜索框控件)。
- * [states]:控件此刻为真的状态([UiStates] 里的名字:选中、勾上、展开、按下、不可用);判动作效果时开关一拨就看得出。
+ * An element on the screen. ref is in the shape of "@e3"; center is a pixel (used internally in the
+ * port, and is changed to 0-999 before being handed to the model); bounds is [l,t,r,b], which has been
+ * normalized to 0-999. [hint]: What is displayed in the input box is the prompt/preset word (name is
+ * it), not the content that has been entered. [focused]: There is input focus (carriage return and space
+ * act on it). [secret]: Password box. [placeholder]: The prompt of the input box itself (it is still
+ * there after typing, and has nothing to do with the [name] displayed at the moment); if not, it is
+ * null. [searchField]: The control is a search box according to its own semantics (the type=search,
+ * role=searchbox, and enter key of the web page are marked as search; the search box control of
+ * Android). [states]: The control is in the true state at the moment (the name in [UiStates]: selected,
+ * hooked, expanded, pressed, unavailable); when judging the action effect, you can see it by flipping
+ * the switch.
  */
 data class UiElement(
     val ref: String,
@@ -45,18 +49,18 @@ data class UiElement(
     val scrollable: Boolean,
     val hint: Boolean = false,
     val focused: Boolean = false,
-    /** 网页上页面声明给这个控件的快捷键(aria-keyshortcuts、accesskey 换成 Alt+键),写法同 web_interact 的 key。 */
+    /** The shortcut keys declared for this control on the web page (aria-keyshortcuts, accesskey are replaced by Alt+keys) are written in the same way as the key of web_interact. */
     val keyShortcuts: List<String> = emptyList(),
     val secret: Boolean = false,
     val placeholder: String? = null,
     val searchField: Boolean = false,
     val states: Set<String> = emptySet(),
 ) {
-    /** 无名字且不可交互的节点对模型没有信息量。 */
+    /** Unnamed and non-interactive nodes have no information about the model. */
     val meaningful: Boolean get() = name.isNotBlank() || clickable || editable || scrollable
 }
 
-/** 控件状态的名字,手机与网页共用。 */
+/** The name of the control state, shared by mobile phones and web pages. */
 object UiStates {
     const val CHECKED = "checked"
     const val SELECTED = "selected"
@@ -67,12 +71,15 @@ object UiStates {
 }
 
 /**
- * [changedDuringRead]:读这份列表的前后界面不一致(页面自己在动),列表可能和屏幕对不上。
- * [protected]:当前页面受系统防截屏保护,画面看不到。
- * [hasWindow]:屏上有 App 窗口(根节点读不读得到都算);为 false 且没有元素时才是真正的空屏。
- * [web]:网页读屏时的页面信息;手机读屏时为空。
- * [unreadableApp]:读不到窗口内容(安全窗口、启动画面、显示在别处),但端口按焦点窗口或最上面的任务知道前台是哪个 App 时,
- * 它的包名;读得到或不知道时为 null。有它时「没有元素」不等于「没打开 App」。
+ * [changedDuringRead]: The interface before and after reading this list is inconsistent (the page is
+ * moving by itself), and the list may not match the screen. [protected]: The current page is protected
+ * by the system against screenshots and the screen cannot be seen. [hasWindow]: There is an App window
+ * on the screen (it doesn’t matter whether the root node is readable or not); when it is false and there
+ * are no elements, the screen is truly empty. [web]: Page information when reading the web page; empty
+ * when reading the screen on the mobile phone. [unreadableApp]: The window content (security window,
+ * startup screen, displayed elsewhere) cannot be read, but when the port knows which App is in the
+ * foreground according to the focus window or the top task, its package name; it is null when it can be
+ * read or is not known. With it, "no element" does not mean "the app is not open".
  */
 data class ScreenSnapshot(
     val snapshotId: String,
@@ -85,27 +92,35 @@ data class ScreenSnapshot(
     val hasWindow: Boolean = true,
     val web: WebInfo? = null,
     val unreadableApp: String? = null,
-    /** 手机无障碍窗口的完整可见层级;网页和测试端口可不提供。 */
+    /** The full visibility level of mobile accessibility windows; web and test ports may not be provided. */
     val windows: List<UiWindowTree> = emptyList(),
-    /** 上一个动作过后才开到用户主屏上、读这一屏前刚挪回来的 App(见 [OpenedElsewhere]);没有为 null。 */
+    /** The App that was opened to the user's home screen after the previous action and moved back just before reading this screen (see [OpenedElsewhere]); if not, it is null. */
     val opened: OpenedElsewhere? = null,
 )
 
 /**
- * 动作让一个 App 开到了 Mina 的屏以外、用户的主屏上(App 不是从自己在 Mina 屏上的页面里打开它,系统就放到了主屏)。
- * [packageName] 那个 App(系统问打开哪一个时是问的那个窗口所在的包),[app] 它的显示名。
- * [pulledBack]:已挪到 Mina 的屏、在最上面;为 false 时它留在用户的主屏上没动(用户正用着的那个 App,或系统在问用户)。
- * [inProfile]:这个 App 装了两份(分身、工作资料)时开的是哪一份,[MAIN_PROFILE] 本来那份、[OTHER_PROFILE] 另一份;只装了一份或看不出为 null。
- * [picker]:开出来的是系统问「用哪一个打开」的窗口(同一 App 装了两份、几个 App 都能打开等)。它从不挪:留给用户在自己屏上选,
- * 选之前任务停着等;[app] 是问的那个 App 的名字(认得出时)。
- * [closed]:用户把那个问题关了,什么也没打开。[byUser]:选出来的 App 要用户亲手处理,用户在自己屏上处理完、点了继续。
- * [needsUser]:冒到主屏上的是要用户亲手处理的弹窗(登录验证、账号确认、付款确认一类),留在主屏给他们点。
+ * The action causes an App to be opened outside the Mina screen and onto the user's home screen (the
+ * system does not open the App from its own page on the Mina screen, so the system puts it on the home
+ * screen). [packageName] That App (when the system asks which one to open, it asks about the package
+ * where the window is located), [app] its display name. [pulledBack]: It has been moved to Mina's screen
+ * and is at the top; when it is false, it remains on the user's home screen (the App the user is using,
+ * or the system is asking the user). [inProfile]: When two copies of this app are installed (avatar,
+ * work information), which one is opened? [MAIN_PROFILE] The original copy, [OTHER_PROFILE] the other
+ * one; if only one copy is installed or cannot be seen, it is null. [picker]: What opens is a window
+ * where the system asks "Which one to use to open it?" (the same app is installed twice, several apps
+ * can be opened, etc.). It never moves: it leaves the user to make a selection on their own screen, and
+ * the task waits until the selection is made; [app] is the name of the App in question (when
+ * recognized). [closed]: The user closed that question and nothing was opened. [byUser]: The selected
+ * App requires users to process it manually. After processing it on their own screen, the user clicks to
+ * continue. [needsUser]: The pop-up windows that appear on the home screen require users to handle them
+ * personally (such as login verification, account confirmation, payment confirmation, etc.), and leave
+ * them on the home screen for them to click.
  */
 data class OpenedElsewhere(
     val packageName: String, val app: String?, val pulledBack: Boolean, val inProfile: String? = null, val picker: Boolean = false,
     val closed: Boolean = false, val byUser: Boolean = false, val needsUser: Boolean = false,
 ) {
-    /** 此刻还在用户的主屏上(用户正用着,或系统正在问用户)。 */
+    /** It is still on the user's home screen at this moment (the user is using it, or the system is asking the user). */
     val onUserScreen: Boolean get() = !pulledBack && !closed && !byUser
 
     fun toJson(): JsonObject = buildJsonObject {
@@ -126,33 +141,41 @@ data class OpenedElsewhere(
     }
 }
 
-/** 从当前任务的虚拟屏收到的界面事件；通知事件可以来自整台设备。 */
+/** Interface events received from the virtual screen of the current task; notification events can come from the entire device. */
 data class ScreenEvent(val type: String, val packageName: String?, val text: String?)
 
-/** 本机 OCR 从当前屏幕图像读出的文字行，边界采用与无障碍元素相同的 0–999 坐标；[confidence] 是识别给的 0–1 置信度，没有为 null。 */
+/** Lines of text read by native OCR from the current screen image, bounded by the same 0–999 coordinates as accessible elements; [confidence] is the 0–1 confidence given by the recognition, or null. */
 data class VisibleTextLine(val text: String, val bounds: List<Int>, val confidence: Float? = null)
 
-/** 内置助手以 Android shell 身份执行命令的结果。 */
+/** The result of a built-in helper executing a command as the Android shell. */
 data class SystemCommandResult(val exitCode: Int, val output: String)
 
-/** 输入后读回输入框的核对结果;读不回来(密码框、读不到节点)为 UNKNOWN。 */
+/** Read back the verification result of the input box after input; if it cannot be read back (password box, node cannot be read), it will be UNKNOWN. */
 enum class Verification(val wire: String) { MATCH("match"), MISMATCH("mismatch"), UNKNOWN("unknown") }
 
 sealed interface ActionResult {
     /**
-     * 动作已发出。其余字段是端口事后核实到的事实,null/false 表示没有核实或不适用:
-     * [changed] 动作前后界面是否变化;[appSwitched] 前台已不是目标 App 时的当前包名;
-     * [relocated] 编号已过期、按原元素特征在新界面里找回后执行,[relocatedTo] 是找回的元素现在的名字;
-     * [switchedByTarget] 新前台是目标 App 在自己的任务里打开的(如分享到另一个 App),不是外来打断;[verification] 输入回读结果;
-     * [hint] 端口对这次结果的补充说明(例如为什么核实不了),原样转给模型;
-     * [secret] 输入的目标是密码框(运行记录据此不记原文);
-     * [settled] 网页有 DevTools 时动作后等到了网络空闲且页面安静为 true,到上限还没静下来为 false,其余为 null;
-     * [coveredBy] 打开的 App 已在最上面,但另一个包的窗口盖在它上面(权限弹窗、账号选择器)时那个包;
-     * [chooser] 打开 App 后系统先问「打开哪一个」(同一 App 装了两份等),选好之前 App 还没到前台;
-     * [opened] 这个动作让一个 App 开到了用户的主屏上(见 [OpenedElsewhere]);
-     * [inProfile] 刚到前台的 App 装了两份时开的是哪一份(见 [OpenedElsewhere.inProfile]):系统问过打开哪一个之后,
-     * 以及目标 App 列出过另一份、或要的就是另一份时每次都报;[profileUser] 是此刻屏上那一份所属的用户编号,
-     * [requestedUser] 是打开时要的那份用户(要的是本来那份为 null)。
+     * The action has been issued. The remaining fields are the facts verified by the port afterwards,
+     * null/false means no verification or not applicable: [changed] Whether the interface before and
+     * after the action has changed; [appSwitched] The current package name when the frontend is no
+     * longer the target App; [relocated] The number has expired and is retrieved according to the
+     * original element characteristics and executed in the new interface. [relocatedTo] is the current
+     * name of the retrieved element; [switchedByTarget] The new frontend is the target App Opened in its
+     * own task (such as sharing to another App), it is not an external interruption; [verification]
+     * inputs the readback result; [hint] port's supplementary explanation of the result (for example,
+     * why it cannot be verified) is transferred to the model as it is; [secret] input target is the
+     * password box (the original text is not recorded in the running record accordingly); [settled]
+     * waits until the network is idle and the page is quiet after the action when the webpage has
+     * DevTools. true, if it has not settled down to the upper limit, it is false, and the rest is null;
+     * [coveredBy] The opened App is already on the top, but the window of another package covers it
+     * (permission pop-up window, account selector), that package; [chooser] After opening the App, the
+     * system first asks "Which one to open" (the same App is installed twice, etc.), and the App has not
+     * come to the foreground before selecting it; [opened] This action allows an App to be opened on the
+     * user's home screen (see [OpenedElsewhere]); [inProfile] Which one was opened when two copies of
+     * the App were installed at the front desk (see [OpenedElsewhere.inProfile]): after the system asks
+     * which one to open, and when the target App lists another copy, or wants another copy;
+     * [profileUser] is the user number of the one on the screen at this moment, [requestedUser] It is
+     * the user's copy requested when opening (the original copy requested is null).
      */
     data class Ok(
         val changed: Boolean? = null,
@@ -172,144 +195,165 @@ sealed interface ActionResult {
         val requestedUser: Int? = null,
     ) : ActionResult
 
-    /** 引用已过期时 reason 为 "ref_expired"。[hint] 是端口的补充说明(例如盖住目标的是什么),原样附在错误说明后。 */
+    /** Reason is "ref_expired" when the reference has expired. [hint] is a supplementary description of the port (such as what is covering the target), which is appended to the error description as it is. */
     data class Failed(val reason: String, val hint: String? = null) : ActionResult
 }
 
-/** 打开 App 时这个 App 正被另一个任务用着(同一个 App 同时只能在一块屏上)。 */
+/** When the app is opened, the app is being used by another task (the same app can only be on one screen at the same time). */
 const val APP_IN_USE_BY_OTHER_TASK = "app_in_use_by_other_task"
 
-/** [ScreenPort.awaitAppFree] 的结果。 */
+/** The result of [ScreenPort.awaitAppFree]. */
 enum class AppWait {
-    /** 放开了,可以打开了。 */
+    /** Let go, you can open it. */
     Free,
-    /** 等到时限仍被占着。 */
+    /** The time limit is still occupied. */
     TimedOut,
-    /** 占着它的任务正在等这个任务手里的 App:等下去谁也等不到,没有等。 */
+    /** The task occupying it is waiting for the App in the hand of this task: no one can wait if you wait, there is no waiting. */
     WouldDeadlock,
-    /** 这个端口不和别的任务争 App,没什么可等。 */
+    /** This port does not compete with other tasks for the App, so there is nothing to wait for. */
     Unsupported,
 }
 
-/** Agent 观察和操作手机屏幕的唯一入口,由 Android 模块实现。 */
+/** The only entrance for Agent to observe and operate the mobile phone screen is implemented by the Android module. */
 interface ScreenPort {
     val appAccess: com.meenai.mina.core.access.AppAccessPolicy get() = com.meenai.mina.core.access.AppAccessPolicy.ALLOW
 
-    /** 仅核对窗口归属,不读取屏幕内容。空屏可用;有窗口但归属未知时拒绝。 */
+    /** Only checks the window ownership and does not read the screen content. Available if the screen is empty; rejected if there is a window but its ownership is unknown. */
     suspend fun checkAppAccess() {}
 
     suspend fun snapshot(): ScreenSnapshot
 
-    /** 读一屏但不登记编号(模型手里的 ref 不受影响);不可逆判定用。 */
+    /** Read one screen but do not register the number (the ref in the model's hand is not affected); used for irreversible determination. */
     suspend fun peek(): ScreenSnapshot = snapshot()
     suspend fun screenshotPng(): ByteArray?
-    /** 可选的本机文字识别；null 表示当前画面不可读或端口没有 OCR。 */
+    /** Optional native text recognition; null means the current screen is unreadable or the port does not have OCR. */
     suspend fun readVisibleText(): List<VisibleTextLine>? = null
     suspend fun tapRef(ref: String, snapshotId: String): ActionResult
     suspend fun tapXY(x: Int, y: Int): ActionResult
-    /** 双击(两次点击间隔在系统认双击的时限内);不支持的端口报 double_tap_unsupported。 */
+    /** Double-click (the interval between two clicks is within the time limit for double-click recognition by the system); unsupported ports report double_tap_unsupported. */
     suspend fun doubleTapRef(ref: String, snapshotId: String): ActionResult = ActionResult.Failed(DOUBLE_TAP_UNSUPPORTED)
     suspend fun doubleTapXY(x: Int, y: Int): ActionResult = ActionResult.Failed(DOUBLE_TAP_UNSUPPORTED)
     suspend fun typeText(ref: String?, snapshotId: String?, text: String): ActionResult
     suspend fun clearText(ref: String?, snapshotId: String?): ActionResult
 
     /**
-     * 往这一点([x],[y] 为像素)上的输入框里打字:先点它,点出了拿着焦点的输入框就照常打,树里看不到输入框时经剪贴板粘贴、
-     * 比打字前后屏上的字核对;粘贴后前后一点没变为 point_not_typed(那一点多半不是输入框,或没拿到焦点)。
-     * 默认先点再按焦点打字,不另核对那一点。
+     * Type into the input box at this point ([x], [y] is pixels): click it first, click on the input box
+     * with focus, and then type as usual. If the input box is not visible in the tree, paste it with the
+     * clipboard and check the words on the screen before and after typing; after pasting, the point
+     * before and after does not become point_not_typed (that point is probably not an input box, or does
+     * not have the focus). By default, you click first and then press the focus to type, without
+     * checking that point.
      */
     suspend fun typeAt(x: Int, y: Int, text: String): ActionResult =
         tapXY(x, y).let { if (it is ActionResult.Ok) typeText(null, null, text) else it }
 
-    /** 清空这一点上的输入框,做法同 [typeAt]。 */
+    /** Clear the input box at this point, the method is the same as [typeAt]. */
     suspend fun clearAt(x: Int, y: Int): ActionResult =
         tapXY(x, y).let { if (it is ActionResult.Ok) clearText(null, null) else it }
     suspend fun scroll(ref: String?, snapshotId: String?, down: Boolean): ActionResult
     suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = DEFAULT_SWIPE_MS): ActionResult
 
     /**
-     * 停留时顺手轻轻滚一下([fraction] 个屏幕或视口高度,正为往下),不点任何东西。网页走和往下滚一样的原生输入、不移动指针;
-     * 手机在占了大半屏的那块可滚动内容上慢慢划一小段。这会儿不便滚(有弹框、输入法开着、输入框拿着焦点、看不到可滚的内容)时不滚,
-     * 返回 false;滚了为 true。默认不滚。
+     * When staying, scroll gently ([fraction] screen or viewport height, right down) without clicking
+     * anything. The web page uses the same native input as scrolling down, without moving the pointer;
+     * the phone slowly draws a small section on the scrollable content that takes up more than half of
+     * the screen. If it is inconvenient to scroll at this moment (there is a pop-up box, the input
+     * method is open, the input box has the focus, and no scrollable content is visible), it will not
+     * scroll and will return false; if it scrolls, it will be true. The default is not to roll.
      */
     suspend fun idleScroll(fraction: Double): Boolean = false
-    /** 多点手势；每条路径是按时间先后排列的像素点，所有手指同时移动。 */
+    /** Multi-point gestures; each path is a sequence of pixels arranged in time, with all fingers moving simultaneously. */
     suspend fun gesture(paths: List<List<Pair<Int, Int>>>, durationMs: Long): ActionResult = ActionResult.Failed("unsupported")
     suspend fun back(): ActionResult
     suspend fun pressKey(keyCode: Int): ActionResult
     suspend fun openApp(packageName: String, cold: Boolean = false): ActionResult
 
     /**
-     * 打开装在另一份用户 [userId] 里的那份 [packageName](分身、工作资料,见 [appCopies]);其余同 [openApp]。
-     * 那份用户不能用、或那里没装这个 App 时失败 copy_not_found。不支持的端口返回 unsupported。
+     * Open the copy of [packageName](avatar, work information, see [appCopies]) installed in another user's copy of
+     * [userId]; the rest are the same as [openApp]. The copy_not_found failed when the user cannot use
+     * it or the App is not installed there. Unsupported ports return unsupported.
      */
     suspend fun openAppCopy(packageName: String, userId: Int, cold: Boolean = false): ActionResult = ActionResult.Failed("unsupported")
 
     /**
-     * [packageName](另一份用户 [userId] 里的那份;null 是本来那份)正被另一个任务用着时([APP_IN_USE_BY_OTHER_TASK]),
-     * 最多等 [timeoutMs] 到它放开。只是等,不打开:等到了调用方再打开一次。占着它的任务自己正在等这个任务手里的
-     * App(互相等,谁也等不到)时不等,当场返回 [AppWait.WouldDeadlock]。不和别的任务争 App 的端口返回 [AppWait.Unsupported]。
+     * When [packageName] (the one in another user's [userId]; null is the original one) is being used by
+     * another task ([APP_IN_USE_BY_OTHER_TASK]), it can wait up to [timeoutMs] until it is released.
+     * Just wait, don't open: wait until the caller arrives and open it again. The task occupying it is
+     * waiting for the App in the hand of this task (waiting for each other, no one can wait), and
+     * returns [AppWait.WouldDeadlock] on the spot. The App's port does not compete with other tasks and
+     * returns [AppWait.Unsupported].
      */
     suspend fun awaitAppFree(packageName: String, userId: Int?, timeoutMs: Long): AppWait = AppWait.Unsupported
 
     /**
-     * 在 Agent 的屏上打开一个链接或安卓设置页([action] 为 null 时按 VIEW 打开 [uri]);[packageName] 限定由哪个 App 打开。
-     * 失败原因:link_unresolved(没有 App 能打开)、invalid_link、app_in_use_by_user。不支持的端口返回 unsupported。
+     * Open a link or Android settings page on the Agent's screen (press VIEW to open [uri] when [action]
+     * is null); [packageName] limits which app opens it. Failure reasons: link_unresolved (no App can be
+     * opened), invalid_link, app_in_use_by_user. Unsupported ports return unsupported.
      */
     suspend fun openLink(action: String?, uri: String?, packageName: String?): ActionResult = ActionResult.Failed("unsupported")
 
     /**
-     * 把一段文字分享给 [packageName](ACTION_SEND text/plain),在 Agent 的屏上打开它的分享页;只打开,不发出。
-     * 这个 App 没有收文字分享的页面时失败 cannot_share;其余和 [openApp] 一样(建屏、用户正在用、系统问打开哪一个)。不支持的端口返回 unsupported。
+     * Share a piece of text to [packageName] (ACTION_SEND text/plain) and open its sharing page on the
+     * Agent's screen; it is only opened but not sent. This App fails cannot_share when there is no text
+     * sharing page; the rest is the same as [openApp] (screen creation, the user is using it, and the
+     * system asks which one to open). Unsupported ports return unsupported.
      */
     suspend fun shareText(packageName: String, text: String): ActionResult = ActionResult.Failed("unsupported")
 
     /**
-     * 经安卓标准接口做一个系统动作(见 [SystemAction]):先查有没有 App 接,没有报 not_supported;有就在 Agent 的屏上交给它
-     * (第一次用时建屏,用户正在主屏用那个 App 时不打开)。不支持的端口返回 unsupported。
+     * Perform a system action through the Android standard interface (see [SystemAction]): first check
+     * if there is an App connected, if not, it will report not_supported; if there is, hand it over to
+     * the Agent's screen (the screen is created when you use it for the first time, and it will not be
+     * opened when the user is using that App on the home screen). Unsupported ports return unsupported.
      */
     suspend fun systemAction(action: SystemAction): SystemActionResult = SystemActionResult(ActionResult.Failed("unsupported"))
 
     /**
-     * 把编号 [ref] 那个滚轮(或滚轮里的一项)转到显示 [value]:在端口里一次做完(能输入就输入,能无障碍滚就一格格滚,
-     * 都不行就按一格多高拖),每做几下读回一次。不支持的端口报 unsupported。
+     * Turn the scroll wheel (or an item in the scroll wheel) with the number [ref] to display [value]:
+     * Complete it once in the port (enter it if you can, scroll one grid if you can, or drag it one grid
+     * higher if it doesn't work), and read it back every few times. Unsupported ports are reported as
+     * unsupported.
      */
     suspend fun setWheel(ref: String, snapshotId: String, value: String): WheelOutcome =
         WheelOutcome(false, null, null, 0, "none", error = "unsupported")
     suspend fun waitStable(timeoutMs: Long): Boolean
     /**
-     * 等这块屏的下一次界面变化,最多 [timeoutMs];等到返回 true。事件驱动的端口在有界面事件(无障碍事件、页面变动)时醒来,
-     * 不支持的端口等满时限返回 false,由调用方按间隔重读。
+     * Wait for the next interface change of this screen, up to [timeoutMs]; wait until it returns true.
+     * Event-driven ports wake up when there are interface events (accessibility events, page changes),
+     * unsupported ports return false when the timeout expires, and are reread by the caller at
+     * intervals.
      */
     suspend fun awaitChange(timeoutMs: Long): Boolean { delay(timeoutMs.coerceAtLeast(0)); return false }
-    /** 等待事件驱动的界面条件；condition: appear/disappear/activity/stable。 */
+    /** Wait for event-driven interface conditions; condition: appear/disappear/activity/stable. */
     suspend fun waitFor(condition: String, value: String?, timeoutMs: Long): Boolean = false
-    /** 监听虚拟屏的界面事件，或全局通知；仅在调用期间订阅。 */
+    /** Listen to interface events of the virtual screen, or global notifications; subscribe only during the call. */
     suspend fun nextEvent(kind: String, packageName: String?, timeoutMs: Long): ScreenEvent? = null
-    /** 在一段时间内持续收集事件；单次订阅不会漏掉两次事件间的变化。 */
+    /** Collect events continuously over a period of time; a single subscription will not miss changes between events. */
     suspend fun watchEvents(kind: String, packageName: String?, durationMs: Long, maxEvents: Int): List<ScreenEvent> =
         listOfNotNull(nextEvent(kind, packageName, durationMs))
-    /** 直接经任务持有的 shell 助手执行命令。 */
+    /** Execute commands directly via the task-holding shell helper. */
     suspend fun systemCommand(command: String): SystemCommandResult? = null
-    suspend fun listApps(): List<Pair<String, String>> // 包名, 显示名
+    suspend fun listApps(): List<Pair<String, String>> // package name, display name
 
-    /** 也装在这台手机另一份用户里(分身、工作资料等)的 App:包名 → 那几份用户的名字。查不到或不支持时为空。 */
+    /** Apps that are also installed in another user of this phone (avatar, work profile, etc.): package name → the names of those users. Empty if not found or not supported. */
     suspend fun otherProfiles(): Map<String, List<String>> = emptyMap()
 
-    /** 能打开的另一份 App(装在分身、工作资料一类的另一份用户里,规则见 [AppCopies]);查不到或不支持时为空。 */
+    /** Another App that can be opened (installed in another user such as a clone or work profile, see [AppCopies] for rules); empty if it cannot be found or is not supported. */
     suspend fun appCopies(): List<AppCopy> = emptyList()
 
     /**
-     * 任务结束时这份 App 怎么办(见 [AfterTaskMarks]):只记下,此刻什么也不动。不支持的端口(没有任务结束时的去留)为 null。
+     * What to do with this app at the end of the mission (see [AfterTaskMarks]): Just write it down,
+     * nothing is moving at this moment. Unsupported ports (no destination at the end of the task) are
+     * null.
      */
     val afterTask: AfterTaskMarks? get() = null
 
-    /** 屏幕诊断;端口不支持时为 null,由调用方按元素列表粗判。 */
+    /** Screen diagnosis; if the port is not supported, it will be null, and it will be roughly judged by the caller based on the element list. */
     suspend fun checkScreen(): ScreenCheck? = null
 
-    /** 当前页面是否受系统防截屏保护。 */
+    /** Whether the current page is protected by the system's anti-screenshot protection. */
     suspend fun isProtected(): Boolean = false
 
-    /** 此刻画面缩成的亮度格子(判动作效果用,见 [FrameGrid.sample]);没有画面、端口不支持时为 null。要便宜:不编码图片。 */
+    /** The brightness grid that the screen is reduced to at this moment (used to determine the action effect, see [FrameGrid.sample]); it is null when there is no screen or the port does not support it. Be cheaper: don't encode images. */
     suspend fun frameGrid(): FrameGrid? = null
 }

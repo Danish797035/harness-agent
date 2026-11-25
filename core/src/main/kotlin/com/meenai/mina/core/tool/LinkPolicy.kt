@@ -2,9 +2,10 @@ package com.meenai.mina.core.tool
 
 
 /**
- * open_link 能打开什么。分发器执行前查一次,外壳服务启动前再查一次。
- * 设置页只认安卓原版公开的 `android.settings.*` 动作;链接拒绝文件与脚本类协议,
- * 网页链接必须指定 App(否则会落到浏览器里)。
+ * What open_link can open. Check once before the dispatcher is executed and again before the shell
+ * service starts. The settings page only recognizes the `android.settings.*` action disclosed by the
+ * original Android version; the link rejects files and script protocols, and the web link must specify
+ * the App (otherwise it will fall into the browser).
  */
 object LinkPolicy {
     const val APP_DETAILS = "android.settings.APPLICATION_DETAILS_SETTINGS"
@@ -19,11 +20,11 @@ object LinkPolicy {
 
     private val BLOCKED_SCHEMES = setOf("intent", "file", "content", "javascript")
     private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*):")
-    /** 安卓包名的形状;分发器检查 package / app 参数也用它。 */
+    /** The shape of the Android package name; it is also used by the dispatcher checking the package / app parameters. */
     val PACKAGE = Regex("^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$")
     private const val MAX_URI = 2000
 
-    /** null = 允许;否则是给模型看的错误说明。 */
+    /** null = allowed; otherwise an error message to the model. */
     fun check(action: String?, uri: String?, pkg: String?): String? {
         if (action == null && uri == null) return "Give uri, or action for an Android settings page."
         if (pkg != null && !PACKAGE.matches(pkg)) return "package must be an Android package name."

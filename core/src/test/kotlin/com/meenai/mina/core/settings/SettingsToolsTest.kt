@@ -9,7 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 看设置是只读的一件,改设置是会写的另一件;用户没允许时两件都不出现。 */
+/** The setting is read-only, and the setting is writable. If the user does not allow it, neither will appear. */
 class SettingsToolsTest {
     private val values = mutableMapOf("appearance" to "system")
     private val port = object : SelfConfig {

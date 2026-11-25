@@ -1,30 +1,31 @@
 package com.meenai.mina.voice
 
 /**
- * 按住期间识别服务自己结束一段后重开,把各段拼起来。
- * 中日文段之间直接相连,其他文字(英文等)段之间加一个空格。纯逻辑,不碰系统。
+ * During the press and hold period, the recognition service ends by itself for a period and then
+ * restarts to put the segments together. Chinese and Japanese paragraphs are directly connected, and a
+ * space is added between paragraphs in other texts (English, etc.). Pure logic, no touching the system.
  */
 class Segments {
     private var done = ""
     private var pending = ""
 
-    /** 当前这一段的中间结果;返回到此刻的全文。 */
+    /** The intermediate result of the current paragraph; return to the full text at this moment. */
     fun partial(text: String): String {
         pending = text.trim()
         return full()
     }
 
-    /** 当前这一段识别完了,[text] 是这一段的最终文字。 */
+    /** The current paragraph has been recognized, and [text] is the final text of this paragraph. */
     fun segmentDone(text: String) {
         done = join(done, text.trim())
         pending = ""
     }
 
-    /** 已完成的各段加上还没完成那段的中间结果;松开后等不到最终结果时就用它。 */
+    /** The completed sections plus the intermediate results of the unfinished section; use it after releasing it when you cannot wait for the final result. */
     fun full(): String = join(done, pending).trim()
 
     companion object {
-        /** 末尾这么多个字(按码点)还可能被识别服务改掉,界面上画得淡一些。 */
+        /** So many characters at the end (by code points) may be changed by the recognition service, and the interface will be painted lighter. */
         private const val TAIL = 4
 
         fun split(full: String): SpeechEvent.Partial {
@@ -41,10 +42,10 @@ class Segments {
             else -> "$a $b"
         }
 
-        /** 紧跟前文、前面不加空格的标点。 */
+        /** Punctuation that immediately follows the previous text and is not preceded by a space. */
         private const val ATTACHED = ",.!?;:)"
 
-        /** 本身是空白,或属于不用空格分词的文字(汉字、假名及其全角标点)。 */
+        /** It is a blank space itself, or it is a text that does not use spaces as participles (kanji, kana and full-width punctuation). */
         private fun noSpace(cp: Int): Boolean {
             if (Character.isWhitespace(cp)) return true
             when (Character.UnicodeScript.of(cp)) {

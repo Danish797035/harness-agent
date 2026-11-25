@@ -12,10 +12,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 有的安卓版本给 App 装的 seccomp 策略对新系统调用(io_uring、clone3、faccessat2、epoll_pwait2、rseq……)
- * 发 SIGSYS,有的直接放行。两种平台上沙箱里的程序都不能被信号杀掉:被拦下的调用收到「不支持」(ENOSYS)
- * 走自己的退路,放行的调用拿到内核自己的结果;带路径的调用无论哪种都必须按沙箱内的路径判断。
- * 全部经产品路径 AndroidSandbox.run → minarun → PRoot。
+ * Some Android versions install the seccomp policy for the App to send SIGSYS to new system calls
+ * (io_uring, clone3, faccessat2, epoll_pwait2, rseq...), and some allow it directly. Programs in the
+ * sandbox on both platforms cannot be killed by signals: blocked calls receive "Not Supported" (ENOSYS)
+ * and take their own retreat, and released calls get the kernel's own results; calls with paths must be
+ * judged according to the path in the sandbox. All via product path AndroidSandbox.run → minarun →
+ * PRoot.
  */
 @RunWith(AndroidJUnit4::class)
 class SandboxSyscallFallbackDeviceTest {
@@ -45,7 +47,7 @@ class SandboxSyscallFallbackDeviceTest {
         assertEquals("read:written", r.output.trim())
     }
 
-    /** musl 的 faccessat(…, AT_EACCESS) 先试 faccessat2;答案必须和真实权限一致。 */
+    /** musl's faccessat(..., AT_EACCESS) tries faccessat2 first; the answer must be consistent with the real permissions. */
     @Test fun effectiveAccessChecks() {
         val script = """
             import os
@@ -66,11 +68,13 @@ class SandboxSyscallFallbackDeviceTest {
     }
 
     /**
-     * 进程活着,每个调用都返回 -1:平台拦下的答 ENOSYS;平台放行的由内核按这里的无效参数报错(EINVAL)。
-     * io_uring_setup 由 PRoot 自己答 ENOSYS(io_uring 的路径操作不经系统调用,PRoot 无法转换),与平台无关。
+     * The process is alive, and each call returns -1: ENOSYS if blocked by the platform; if the platform
+     * releases it, the kernel will report an error (EINVAL) according to the invalid parameter here.
+     * io_uring_setup is answered by PRoot itself ENOSYS (the path operation of io_uring is not called by
+     * the system and cannot be converted by PRoot), and has nothing to do with the platform.
      */
     @Test fun trappedSyscallsReturnEnosys() {
-        // io_uring_setup, clone3, epoll_pwait2, rseq(arm64 编号)
+        // io_uring_setup, clone3, epoll_pwait2, rseq(arm64 number)
         val script = """
             import ctypes, errno
             libc = ctypes.CDLL(None, use_errno=True)

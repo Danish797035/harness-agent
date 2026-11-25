@@ -7,7 +7,7 @@ import com.meenai.mina.about.CheckStatus
 import com.meenai.mina.about.HarnessLinks
 import com.meenai.mina.about.UpdateState
 
-/** 关于页的文字,以及「检查更新」一行、设置首页「关于 Mina」一行、侧栏入口上的提示怎么显示。 */
+/** How to display the text on the about page, the "Check for Updates" line, the "About Mina" line on the setting homepage, and the prompts on the sidebar entrance. */
 object AboutCopy {
     val TITLE: String get() = tr(R.string.settings_about)
     val TAGLINE: String get() = tr(R.string.about_tagline)
@@ -40,7 +40,7 @@ object AboutCopy {
     val DIAGNOSTICS_COPIED: String get() = tr(R.string.diagnostics_copied)
     val DIAGNOSTICS_LOADING: String get() = tr(R.string.diagnostics_loading)
 
-    /** 界面是英文时交流群面板先放 X 群聊、再放微信群码;中文界面微信在前。按 App 实际显示的语言(资源里的 ui_locale)算,不看系统语言。 */
+    /** When the interface is in English, the communication group panel will put the X group chat first and then the WeChat group code; in the Chinese interface, WeChat will come first. Calculate based on the language actually displayed by the App (ui_locale in the resources), regardless of the system language. */
     val X_GROUP_FIRST: Boolean get() = uiLocale().language != "zh"
 
     val FOLLOW: String get() = tr(R.string.about_follow)
@@ -68,11 +68,11 @@ object AboutCopy {
     fun available(version: String): String = tr(R.string.about_available, version)
     fun updateTitle(version: String): String = tr(R.string.about_update_title, version)
 
-    /** 「当前 0.1.0 Beta · 2026-11-05 发布」;不知道发布日期时只写当前版本。 */
+    /** "Current 0.1.0 Beta · Released on 2026-11-05"; if you don't know the release date, just write the current version. */
     fun updateSub(current: String, beta: Boolean, date: String?): String =
         tr(R.string.about_current, current + if (beta) " $BETA" else "") + (date?.let { tr(R.string.about_released_on, it) } ?: "")
 
-    /** 「检查更新」一行右边:正在查转圈,有新版写版本号带红点,查过一次写结果;从没查过什么都不写。 */
+    /** On the right side of the "Check for Updates" line: Checking circles, if there is a new version, write the version number with a red dot, check once and write the result; if you have never checked, write nothing. */
     data class CheckValue(val text: String?, val dot: Boolean = false, val spinner: Boolean = false, val highlight: Boolean = false)
 
     fun checkValue(s: UpdateState): CheckValue = when {
@@ -83,11 +83,11 @@ object AboutCopy {
         else -> CheckValue(null)
     }
 
-    /** 设置首页「关于 Mina」一行右边:有新版写「x 可更新」带红点,不然写当前版本号。 */
+    /** Set the right side of the "About Mina" line on the homepage: If there is a new version, write "x can be updated" with a red dot, otherwise write the current version number. */
     fun settingsValue(updateVersion: String?, versionName: String): CheckValue =
         if (updateVersion != null) CheckValue(available(updateVersion), dot = true, highlight = true)
         else CheckValue(versionName.takeIf { it.isNotEmpty() })
 
-    /** 侧栏「关于 Mina」上的红点。 */
+    /** The red dot on the "About Mina" sidebar. */
     fun drawerDot(s: UpdateState): Boolean = s.hasUpdate
 }

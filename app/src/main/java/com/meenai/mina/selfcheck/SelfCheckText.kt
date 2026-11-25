@@ -3,9 +3,12 @@ package com.meenai.mina.selfcheck
 import java.util.Locale
 
 /**
- * 自检认自检页上的文字时用的比法。读屏给的文字不一定和页面上写的一字不差:按钮默认会被系统主题显示成全大写,
- * 读屏读到的就是大写;空白也可能多一个、少一个,或者换成不断行空格。所以先把两边都规整一遍再比:
- * 前后空白去掉、中间的空白并成一个普通空格、大小写不分。
+ * The comparison used by the self-test when recognizing the text on the self-test page. The text
+ * provided by the screen reader may not be exactly the same as what is written on the page: the button
+ * will be displayed in all caps by the system theme by default, and the text read by the screen reader
+ * will be in uppercase; there may be one more or less blank space, or it may be replaced by continuous
+ * spaces. So first straighten both sides and then compare: remove the leading and trailing blanks, merge
+ * the middle blanks into an ordinary space, and do not distinguish between upper and lower case.
  */
 internal object SelfCheckText {
     private val SPACES = Regex("[\\s\\p{Z}]+")
@@ -17,8 +20,10 @@ internal object SelfCheckText {
     fun contains(text: String, part: String): Boolean = normalize(text).contains(normalize(part))
 
     /**
-     * 带一个数字的文字(「点了 %d 次」「计时 %d」「第 %d 行」)。[template] 是把数字换成 [sentinel] 后的整句;
-     * 认的时候数字前后两段照上面的比法比,中间只能是数字。
+     * Text with a number ("clicked %d times" "timer %d" "line %d"). [template] is the whole sentence
+     * after replacing the numbers with [sentinel]; when recognizing the numbers, compare the two
+     * paragraphs before and after the numbers according to the comparison method above, and the middle
+     * can only be numbers.
      */
     class Numbered(template: String, sentinel: String) {
         private val parts = normalize(template).split(normalize(sentinel))

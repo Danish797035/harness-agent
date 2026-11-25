@@ -5,38 +5,53 @@ import kotlin.random.Random
 import com.meenai.mina.core.uistate.PlacePace
 
 /**
- * 网页上一页一页往下看的节奏(纯逻辑,不碰时钟和页面):人打开一页总要看一会儿才翻下一页、点开下一条。
- * 每来一页新内容([noteLoad]:打开了新地址,或往下滚时页面自己又拉来一批内容)按这个网站最近看过几页定下这一页要停留多久;
- * 之后要换页的动作(打开同站网址、点击、后退、往下滚、按键)之前先问 [waitBefore]:这一页还没停够就补足余下的时间。
+ * The rhythm of reading from page to page on a web page (pure logic, without touching the clock and the
+ * page): When people open a page, they always have to look at it for a while before turning to the next
+ * page and clicking on the next item. Every time a new page of content comes ([noteLoad]: a new address
+ * is opened, or the page pulls in a batch of content by itself when scrolling down), determine how long
+ * the page should stay based on the recently viewed pages of the website; before changing pages (open
+ * the same site URL, click, back, scroll down, press the button), ask [waitBefore]: Before the page has
+ * stopped enough, make up for the remaining time.
  *
- * - 一个网站里的第一页不停(刚到这个网站,第一个动作照常);
- * - 从第二页起,停留时长在 [Limits.firstDwellMs] 里随机取,最近 [Limits.windowMs] 里看得越多,上下限各加一截([Limits.perPageMs]),
- *   都不超过 [Limits.maxDwellMs];
- * - 停留从那一页来的时刻算起,模型自己想、读页面花掉的时间都算在内,只补不够的部分;
- * - 网站按可注册域名认(www.example.com 和 m.example.com 是同一个);去另一个网站不等,那边从第一页算起。
- * - 站点知识说这个网站限制浏览快慢([PlacePace.CAREFUL])时,这个网站的页按 [careful] 的范围停留(更久)。
- * - 一个任务里同一个网站来的页数有上限([Limits.pageCap]),到了之后 [capReached] 为真,调用方不再换页;
- *   用户答过话([userAnswered])后重新计数。上限只管浏览:本任务在这个网站上做过对外动作([outwardDone],发送、提交一类)之后,
- *   这个网站在本任务余下的时间里不再设上限(成批联系、投递要能做到网站自己的上限),停留照旧。
+ * - - The first page in a website does not stop (when you first arrive at this website, the first action
+ * is as usual);
+ * - - Starting from the second page, the length of stay is randomly selected in [Limits.firstDwellMs].
+ * The more you have viewed in [Limits.windowMs] recently, the upper and lower limits will be increased
+ * by one ([Limits.perPageMs]).
+ * None exceed [Limits.maxDwellMs];
+ * - - Starting from the moment when the stay comes from that page, the time spent by the model thinking
+ * and reading the page is included, and only the insufficient part is made up;
+ * - - The website is identified by the registrable domain name (www.example.com and m.example.com are
+ * the same); if you go to another website, it will start from the first page.
+ * - - When the site knowledge says that this website limits the browsing speed ([PlacePace.CAREFUL]),
+ * the pages of this website will stay in the range of [careful] (longer).
+ * - - There is an upper limit on the number of pages from the same website in a task ([Limits.pageCap]).
+ * After reaching the limit, [capReached] becomes true and the caller will no longer change pages;
+ * The count will be restarted after the user answers ([userAnswered]). The upper limit is only browsing:
+ * After this task has performed external actions on this website ([outwardDone], sending, submitting,
+ * etc.), this website will no longer set an upper limit for the remaining time of this task (batch
+ * contact and delivery must be able to meet the website's own upper limit), and the stay will remain the
+ * same.
  *
- * [Off] 从不等待,也不设页数上限(测试、不需要节奏的调用方用它)。
+ * [Off] never waits and does not set an upper limit on the number of pages (use it for testing and
+ * callers that do not need rhythm).
  */
 class PagePacing(private val random: Random?, val limits: Limits = Limits(), val careful: Limits = Limits.CAREFUL) {
-    /** 时长单位毫秒。 */
+    /** The duration unit is milliseconds. */
     data class Limits(
-        /** 一个网站的第二页的停留范围。 */
+        /** The range of stay on the second page of a website. */
         val firstDwellMs: LongRange = 4_000L..7_000L,
-        /** 之后每多一页,上下限各加多少(下限、上限)。 */
+        /** For each additional page after that, add the upper and lower limits by the amount (lower limit, upper limit). */
         val perPageMs: Pair<Long, Long> = 600L to 1_000L,
-        /** 停留的上限:一页再多也不超过它。 */
+        /** The upper limit of stay: no more than one page will exceed it. */
         val maxDwellMs: Long = 12_000L,
-        /** 算「最近看过几页」的时间窗。 */
+        /** Calculate the time window of "how many pages have been viewed recently". */
         val windowMs: Long = 10 * 60_000L,
-        /** 一个任务里(用户答话之间)同一个网站最多来多少页。 */
+        /** The maximum number of pages from the same website in one task (between user responses). */
         val pageCap: Int = 20,
     ) {
         companion object {
-            /** 限制浏览快慢的网站:每页停得更久、页数上限更低。 */
+            /** Websites that limit browsing speed: each page pauses longer and the page limit is lower. */
             val CAREFUL = Limits(firstDwellMs = 10_000L..16_000L, perPageMs = 600L to 1_000L, maxDwellMs = 30_000L, pageCap = 12)
         }
     }
@@ -45,18 +60,19 @@ class PagePacing(private val random: Random?, val limits: Limits = Limits(), val
 
     private val loads = ArrayDeque<Load>()
 
-    /** 本任务里(上次用户答话以来)各网站来过几页;不随时间窗清掉。 */
+    /** How many pages have been visited by each website in this task (since the last time the user answered); they will not be cleared with the time window. */
     private val pages = HashMap<String, Int>()
 
-    /** 本任务里做过对外动作的网站:页数上限对它们不再算;用户答话也不清。 */
+    /** Websites that have taken external actions in this task: the page limit no longer counts for them; user responses are also unclear. */
     private val outward = HashSet<String>()
 
-    /** 有节奏(不是 [Off])。 */
+    /** Rhythmic (not [Off]). */
     val paced: Boolean get() = random != null
 
     /**
-     * 网站在 [site] 上来了一页新内容(主机名或网址都行);返回这一页定下的停留时长。
-     * [pace] 是站点知识对这个网站浏览快慢的说法。
+     * The website has a new page of content on [site] (either host name or URL); return to the set
+     * duration of this page. [pace] is what site knowledge says about the browsing speed of this
+     * website.
      */
     @Synchronized
     fun noteLoad(site: String, nowMs: Long, pace: PlacePace = PlacePace.NORMAL): Long {
@@ -71,31 +87,31 @@ class PagePacing(private val random: Random?, val limits: Limits = Limits(), val
         return dwell
     }
 
-    /** 本任务里(上次用户答话以来)[site] 上来过几页。 */
+    /** In this task (since the last time the user answered) [site] has come up a few pages. */
     @Synchronized
     fun pagesOn(site: String): Int = key(site)?.let { pages[it] } ?: 0
 
-    /** 按 [pace] 的页数上限。 */
+    /** Press the upper page limit of [pace]. */
     fun capFor(pace: PlacePace): Int = limitsFor(pace).pageCap
 
-    /** [site] 上来的页已到上限:再换页之前要先停下(用户答应了再看)。做过对外动作的网站([outwardDone])、[Off] 恒为 false。 */
+    /** [site] The number of uploaded pages has reached the upper limit: you must stop before changing the page again (read after the user agrees). Websites that have taken external actions ([outwardDone]) and [Off] are always false. */
     @Synchronized
     fun capReached(site: String, pace: PlacePace = PlacePace.NORMAL): Boolean =
         random != null && key(site)?.let { it in outward } != true && pagesOn(site) >= capFor(pace)
 
-    /** 本任务在 [site] 上做了一次对外动作(发送、提交):这个网站余下的时间里不再设页数上限。 */
+    /** This task has an external action (send, submit) on [site]: there will no longer be a page limit on this website for the rest of the time. */
     @Synchronized
     fun outwardDone(site: String) {
         key(site)?.let(outward::add)
     }
 
-    /** 用户答过话(回答了追问、交回了接管):各网站的页数重新算。 */
+    /** The user answered the question (answered the follow-up question and handed in the acceptance): The number of pages on each website was recalculated. */
     @Synchronized
     fun userAnswered() = pages.clear()
 
     /**
-     * 在 [site] 上要做一个可能换页的动作之前还要等多久:最近一页来自这个网站且还没停够时是余下的时间,否则 0。
-     * [Off] 恒为 0。
+     * How long to wait before doing a possible page change on [site]: the remaining time if the latest
+     * page is from this website and has not stopped enough, otherwise 0. [Off] is always 0.
      */
     @Synchronized
     fun waitBefore(site: String?, nowMs: Long): Long {
@@ -106,7 +122,7 @@ class PagePacing(private val random: Random?, val limits: Limits = Limits(), val
         return (last.dwellMs - (nowMs - last.atMs)).coerceIn(0, last.limits.maxDwellMs)
     }
 
-    /** 在 [site] 上已经为最近这一页停够了(调用方等完了):这一页之后的动作不再等。 */
+    /** On [site], it has stopped enough for the latest page (the caller has finished waiting): actions after this page no longer wait. */
     @Synchronized
     fun served(site: String) {
         val key = key(site) ?: return
@@ -115,7 +131,7 @@ class PagePacing(private val random: Random?, val limits: Limits = Limits(), val
 
     private fun limitsFor(pace: PlacePace) = if (pace == PlacePace.CAREFUL) careful else limits
 
-    /** 第 [n] 页(n ≥ 2)按 [l] 的停留时长。 */
+    /** Page [n] (n ≥ 2) Press the dwell time of [l]. */
     private fun dwellFor(n: Int, l: Limits): Long {
         val r = random ?: return 0
         val extra = (n - 2).toLong()
@@ -134,10 +150,10 @@ class PagePacing(private val random: Random?, val limits: Limits = Limits(), val
     }
 
     companion object {
-        /** 从不等待。 */
+        /** Never wait. */
         val Off = PagePacing(null)
 
-        /** 像人看网页的节奏;[random] 可换成固定种子(测试)。 */
+        /** Like the rhythm of people reading web pages; [random] can be replaced with a fixed seed (test). */
         fun human(random: Random = Random.Default, limits: Limits = Limits(), careful: Limits = Limits.CAREFUL) =
             PagePacing(random, limits, careful)
     }

@@ -29,7 +29,7 @@ class WheelMathTest {
         assertFalse(WheelMath.matches(null, "9"))
     }
 
-    /** 选中那一项的无障碍名字常带状态词或单位:「已选中，21」「Selected, 21」「21 (selected)」「21点」。 */
+    /** The accessible name of the selected item often contains status words or units: "Selected, 21", "Selected, 21", "21 (selected)", "21 points". */
     @Test fun valueIsFoundInsideLabelsWithStateWords() {
         assertEquals(21, WheelMath.number("已选中，21"))
         assertEquals(21, WheelMath.number("Selected, 21"))
@@ -43,7 +43,7 @@ class WheelMathTest {
         assertTrue(WheelMath.matches("已选中，下午", "下午"))
         assertTrue(WheelMath.matches("下午 (selected)", "下午"))
         assertFalse(WheelMath.matches("已选中，上午", "下午"))
-        // 报给模型的值只留值那一段
+        // The value reported to the model only leaves the value segment
         assertEquals("21", WheelMath.clean("已选中，21"))
         assertEquals("21", WheelMath.clean("Selected, 21"))
         assertEquals("21", WheelMath.clean("21 (selected)"))
@@ -52,15 +52,17 @@ class WheelMathTest {
         assertEquals(null, WheelMath.clean(null))
     }
 
-    /** 真机上的时钟:24 小时的时、分两个滚轮都循环,选中项叫「已选中，21」,上下是 20、22。 */
+    /** The clock on the real machine: the 24-hour hour and minute wheels both cycle. The selected item is called "Selected, 21", and the up and down numbers are 20 and 22. */
     @Test fun stepsFromASelectedLabelWithStatePrefix() {
         val near = listOf("20", "已选中，21", "22")
-        // 看不出循环时按数差走(往回 14 格,循环的滚轮也到得了)
+        // If you can't see the loop, just follow the number difference (go back 14 spaces, and the loop
+        // wheel can be reached)
         assertEquals(-14, WheelMath.stepsTo(near, 1, "7"))
-        // 之前看出过 0–23 循环,或眼前就看得到 23 → 0:走近的一边,往前 10 格
+        // Have seen the 0–23 cycle before, or can see 23 → 0 right in front of you: the side you are
+        // approaching, 10 blocks forward
         assertEquals(10, WheelMath.stepsTo(near, 1, "7", knownModulus = 24))
         assertEquals(10, WheelMath.stepsTo(listOf("18", "19", "20", "已选中，21", "22", "23", "0"), 3, "7"))
-        // 分:21 → 25 往前 4 格
+        // Minutes: 21 → 25 4 spaces forward
         assertEquals(4, WheelMath.stepsTo(near, 1, "25"))
         assertEquals(1, WheelMath.stepsTo(listOf("Selected, 21", "22"), 0, "22"))
         assertEquals(-1, WheelMath.stepsTo(listOf("20点", "21点", "22点"), 1, "20"))
@@ -69,13 +71,16 @@ class WheelMathTest {
     @Test fun selectedItemPrefersTheSelectedFlag() {
         val items = listOf(WheelMath.Item("20", 100, 100), WheelMath.Item("已选中，21", 100, 180, selected = true), WheelMath.Item("22", 100, 260))
         assertEquals(1, WheelMath.selectedIndex(items, 260, 80))
-        // 没有标着选中的:中线上的
+        // Nothing marked selected: on the center line
         assertEquals(2, WheelMath.selectedIndex(items.map { it.copy(selected = false) }, 260, 80))
     }
 
     /**
-     * 原版数字滚轮有时只报上下两格(39、41),中间那一格没报出来:不能拿离中线最近的邻居(39)当选中的,
-     * 那样停在 40 也读成 39。各项带着高度时只认盖住中线的;没有就按上下两项推出中间的。
+     * The original number wheel sometimes only reports the upper and lower grids (39, 41), and the
+     * middle grid is not reported: you cannot select the neighbor (39) closest to the center line,
+     * otherwise it will read 39 if it stops at 40. When each item has a height, only the one covering
+     * the center line will be recognized; if not, press the upper and lower items to push out the middle
+     * line.
      */
     @Test fun missingCenterItemIsNotReplacedByANeighbour() {
         val pair = listOf(WheelMath.Item("39", 100, 100, height = 120), WheelMath.Item("41", 100, 340, height = 120))
@@ -148,7 +153,7 @@ class WheelMathTest {
 
     @Test fun selectedIsTheItemOnTheCenterLine() {
         assertEquals(2, WheelMath.selected(listOf(100, 200, 300, 400, 500), 310, 100))
-        // 没有正对中线的(整个滚轮在别处)
+        // Not facing the center line (the entire roller is elsewhere)
         assertEquals(-1, WheelMath.selected(listOf(100, 200), 900, 100))
         assertEquals(-1, WheelMath.selected(emptyList(), 0, null))
     }
@@ -157,12 +162,13 @@ class WheelMathTest {
         val visible = listOf("上午", "下午")
         assertEquals(1, WheelMath.stepsTo(visible, 0, "下午"))
         assertEquals(-1, WheelMath.stepsTo(visible, 1, "上午"))
-        // 数字:目标在眼前按位置,不在按数差(循环看得出来就走近的一边)
+        // Number: The target is in the position in front of you, not the difference in number (loop to
+        // the side you can see and approach)
         assertEquals(2, WheelMath.stepsTo(listOf("07", "08", "09", "10", "11"), 2, "11"))
         assertEquals(31, WheelMath.stepsTo(listOf("07", "08", "09", "10", "11"), 2, "40"))
         assertEquals(-19, WheelMath.stepsTo(listOf("58", "59", "00", "01", "02"), 2, "41"))
         assertEquals(-31, WheelMath.stepsTo(listOf("07", "08", "09", "10", "11"), 2, "40", increasingForward = false))
-        // 文字列表、目标不在眼前:不知道
+        // Text list, target not in sight: don’t know
         assertNull(WheelMath.stepsTo(listOf("北京", "天津", "上海"), 1, "广州"))
         assertNull(WheelMath.stepsTo(listOf("07"), 5, "9"))
     }
@@ -172,7 +178,7 @@ class WheelMathTest {
         assertEquals(listOf(400, 400, 200), WheelMath.drags(10, 100, 450))
         assertEquals(listOf(-200), WheelMath.drags(-2, 100, 400))
         assertEquals(emptyList<Int>(), WheelMath.drags(0, 100, 400))
-        // 一次至少拖一格
+        // Drag at least one space at a time
         assertEquals(listOf(100, 100), WheelMath.drags(2, 100, 50))
     }
 
@@ -186,7 +192,8 @@ class WheelMathTest {
         fun items(vararg t: String, x: Int = 500, gap: Int = 100) = t.mapIndexed { i, s -> WheelMath.Item(s, x, 200 + i * gap) }
         assertTrue(WheelMath.looksLikeWheel(items("08", "09", "10", "11", "12"), 400, 600))
         assertTrue(WheelMath.looksLikeWheel(items("上午", "下午", "晚上"), 400, 600))
-        // 靠左排的设置项、太长的文字、重复的、太少的、间距乱的都不算
+        // Setting items on the left row, text that is too long, repetitive, too few, and with random
+        // spacing are not counted.
         assertFalse(WheelMath.looksLikeWheel(items("Wi-Fi", "蓝牙", "显示", x = 120), 0, 1000))
         assertFalse(WheelMath.looksLikeWheel(items("今天下午三点开会别忘了", "好的", "收到"), 400, 600))
         assertFalse(WheelMath.looksLikeWheel(items("1", "1", "1"), 400, 600))

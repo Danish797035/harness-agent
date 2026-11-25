@@ -19,9 +19,11 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * 整份记忆加密成 `memory/memory.bin`(AES-GCM,密钥由调用方给,正式用 `KeystoreKeyCipher("mina-memory")`)。
- * 写临时文件后原子改名,文件要么是完整密文要么不变。
- * 解不开(密钥丢了)或内容坏了:不覆盖,改名另存,从空开始,[brokenNotice] 给界面提示用。
+ * The entire memory is encrypted into `memory/memory.bin` (AES-GCM, the key is given by the caller,
+ * officially `KeystoreKeyCipher("mina-memory")`). After writing the temporary file, the name is changed
+ * atomically, and the file is either completely ciphertext or unchanged. Unable to open (the key is
+ * lost) or the content is damaged: do not overwrite, change the name and save it, start from scratch,
+ * use [brokenNotice] for interface prompts.
  */
 class EncryptedMemoryFile(
     dir: File,
@@ -35,19 +37,21 @@ class EncryptedMemoryFile(
     private val serializer = ListSerializer(MemoryItem.serializer())
 
     private val _brokenNotice = MutableStateFlow<String?>(null)
-    /** 另存的坏文件名;null = 没出过问题。 */
+    /** Bad file name for save; null = No problem. */
     val brokenNotice: StateFlow<String?> = _brokenNotice.asStateFlow()
 
     @Synchronized
     override fun load(): List<MemoryItem> {
         if (!file.exists()) return emptyList()
-        val bytes = file.readBytes() // 读不了是 IO 故障,照常抛出,不当作坏文件处理
+        val bytes = file.readBytes() // Unable to read is an IO failure. It will be thrown as usual and will not be treated as a bad file.
         return try {
             json.decodeFromString(serializer, cipher.decrypt(bytes).toString(Charsets.UTF_8))
         } catch (e: Exception) {
-            // 密钥库一时不可用(没解锁、繁忙)不等于文件坏了:抛出,下次再读,绝不另存
+            // The temporary unavailability of the keystore (not unlocked, busy) does not mean that the
+            // file is broken: throw it, read it again next time, and never save it as another file.
             if (e is UserNotAuthenticatedException || e is KeyStoreException || e is ProviderException) throw e
-            // 密钥失效、认证失败、截断、JSON 坏:都另存,别让下一次写入盖掉
+            // Key invalidation, authentication failure, truncation, and JSON corruption: save them all
+            // and don’t let them be overwritten by the next write.
             moveAside()
             emptyList()
         }
@@ -57,12 +61,13 @@ class EncryptedMemoryFile(
     override fun save(items: List<MemoryItem>) {
         memDir.mkdirs()
         val bytes = cipher.encrypt(json.encodeToString(serializer, items).toByteArray(Charsets.UTF_8))
-        // 先落到磁盘再改名:断电时不会留下改了名却是空的文件
+        // First drop it to the disk and then rename it: no empty files with changed names will be left
+        // when the power is turned off.
         FileOutputStream(tmp).use { it.write(bytes); it.fd.sync() }
         Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
     }
 
-    /** 「全部清除」:删记忆文件(含另存的坏文件)。密钥重建由调用方删别名后做。 */
+    /** "Clear All": Delete memory files (including saved bad files). Key reconstruction is done by the caller after deleting the alias. */
     @Synchronized
     fun wipe() {
         memDir.listFiles()?.forEach { it.delete() }

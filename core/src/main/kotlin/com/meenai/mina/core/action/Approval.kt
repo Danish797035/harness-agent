@@ -5,45 +5,48 @@ import com.meenai.mina.core.run.RunOrigin
 import com.meenai.mina.core.run.RunProvenance
 
 /**
- * 一个动作的风险等级(记进审批记录,核查据此知道任务做过对外的事)。[Read] 只看或只在界面间移动;[Change] 在界面上改东西(点、打字);
- * [External] 把东西交给别人(发送、提交);[Irreversible] 做了收不回(付款、下单、删除);[Unknown] 看不清点的是什么。
+ * The risk level of an action (recorded in the approval record, and verified based on this to know that
+ * the task has done external things). [Read] only sees or moves between interfaces; [Change] changes
+ * things on the interface (clicking, typing); [External] gives things to others (send, submit);
+ * [Irreversible] cannot take back what is done (payment, ordering, deletion); [Unknown] cannot see what
+ * is clicked.
  */
 enum class ActionRisk { Read, Change, External, Irreversible, Unknown;
 
-    /** 会影响屏幕之外的世界(或拿不准会不会)。 */
+    /** Will affect the world outside the screen (or not sure if it will). */
     val outward: Boolean get() = this == External || this == Irreversible || this == Unknown
 }
 
-/** [payment] 为 true 时这一步要花钱(付款、下单,或屏上有应付金额时的对外动作):询问时只有它先问用户。 */
+/** When [payment] is true, this step costs money (payment, ordering, or external actions when there is an amount due on the screen): only it asks the user first when asking. */
 data class Risk(val level: ActionRisk, val payment: Boolean = false, val alwaysAsk: Boolean = false)
 
-/** 用户在确认卡片上的选择:同意这一次,或不同意。 */
+/** The user's choice on the confirmation card: Agree this time, or disagree. */
 enum class ConfirmChoice { Once, Deny;
 
     val approved: Boolean get() = this != Deny
 }
 
-/** 询问 / 自主:此刻是不是自主模式(中途换成自主时,正在跑的任务从下一步起照它)。由设置提供,测试里换成固定值。 */
+/** Ask/Autonomous: Is it in autonomous mode at this moment (when it is switched to autonomous mode midway, the running task will follow it from the next step). Provided by the settings, it is changed to a fixed value in the test. */
 fun interface ApprovalSettings {
-    /** 自主模式:连付款也不先问。 */
+    /** Autonomous mode: Don’t even ask for payment first. */
     fun autonomous(): Boolean
 
     companion object {
-        /** 询问(默认):只有付款先问。 */
+        /** Ask (Default): Only payment will be asked first. */
         val ASK = ApprovalSettings { false }
     }
 }
 
 sealed interface Approval {
-    /** 不用问。 */
+    /** No need to ask. */
     data object Allow : Approval
-    /** 要用户这一次的同意(有一次性同意就核对并用掉它)。 */
+    /** The user's consent is required this time (if there is a one-time consent, check it and use it). */
     data object Ask : Approval
-    /** 本次运行不能向用户要同意，动作必须停下。 */
+    /** This operation cannot ask for user consent, and the action must be stopped. */
     data object Deny : Approval
 }
 
-/** 审批判定:纯函数。只有付款和标了 [Risk.alwaysAsk] 的工具要问;问不到人(无人值守、子任务)或不在手机上(渠道、定时、MCP 发起的)时不做。 */
+/** Review and Determination: Pure function. Only payment and tools marked [Risk.alwaysAsk] need to be asked; the question will not be done when no one is available (unattended, sub-task) or not on the mobile phone (channel, scheduled, MCP initiated). */
 object ApprovalPolicy {
     fun decide(risk: Risk, run: RunProvenance = RunProvenance()): Approval = when {
         risk.alwaysAsk -> if (run.attendance == Attendance.Unattended || run.origin != RunOrigin.Ui) Approval.Deny else Approval.Ask

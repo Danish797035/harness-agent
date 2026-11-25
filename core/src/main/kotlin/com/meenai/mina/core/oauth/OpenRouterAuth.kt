@@ -17,16 +17,18 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** 一次 OpenRouter 授权的随机值:每次新生成。[callbackUrl] 是这次本机监听的回调地址。 */
+/** A random value for an OpenRouter authorization: newly generated each time. [callbackUrl] is the callback address monitored by this machine this time. */
 data class OpenRouterAttempt(val state: String, val verifier: String, val callbackUrl: String) {
     val challenge: String get() = Pkce.challenge(verifier)
 }
 
 /**
- * 用 OpenRouter 账号登录:OpenRouter 官方给第三方应用的 OAuth PKCE。在浏览器里打开授权页,用户同意后带着 `code`
- * 回到本机回调,再用 `code` 和校验串换一把属于这个用户的 API Key。换到的就是普通的 OpenRouter Key,
- * 之后和填 Key 的 OpenRouter 服务商一样用(列模型、调用都走 [API_BASE])。
- * Key 不进日志;异常文字里只有类别和错误代码。
+ * Log in with an OpenRouter account: OpenRouter’s official OAuth PKCE for third-party applications. Open
+ * the authorization page in the browser, and after the user agrees, return to the local callback with
+ * `code`, and then use `code` and the verification string to exchange for an API Key belonging to this
+ * user. What is replaced is an ordinary OpenRouter Key, and then it is used in the same way as the
+ * OpenRouter service provider that fills in the Key ([API_BASE] is used for column models and calls).
+ * Key is not entered into the log; the exception text only contains the category and error code.
  */
 class OpenRouterAuth(
     private val http: OkHttpClient,
@@ -37,7 +39,7 @@ class OpenRouterAuth(
 
     fun newAttempt(callbackUrl: String) = OpenRouterAttempt(Pkce.state(), Pkce.verifier(), callbackUrl)
 
-    /** 授权页地址:回调地址、S256 校验、Key 的名字(预填,用户可改)、state。 */
+    /** Authorization page address: callback address, S256 verification, Key name (pre-filled, user can change), state. */
     fun authorizeUrl(attempt: OpenRouterAttempt): String = authUrl.toHttpUrl().newBuilder()
         .addQueryParameter("callback_url", attempt.callbackUrl)
         .addQueryParameter("code_challenge", attempt.challenge)
@@ -47,8 +49,10 @@ class OpenRouterAuth(
         .build().toString()
 
     /**
-     * 本机回调收不收这一次:state 对得上的收;没带 state、没带 code、带了 `error` 的(用户在授权页拒绝时 OpenRouter 不带 state)也收,
-     * 当作没同意。别的(带 code 却没有或对不上 state,或什么都没带)不收:不是这次发起的,回 400 接着等。
+     * Whether the local callback will be accepted this time: the state will be accepted; if there is no
+     * state, no code, or `error` (OpenRouter does not have state when the user refuses on the
+     * authorization page), it will be accepted as no consent. Others (with code but no or inconsistent
+     * state, or nothing) will not be accepted: it is not initiated this time, return 400 and wait.
      */
     fun accepts(params: Map<String, String>, attempt: OpenRouterAttempt): Boolean {
         val state = params["state"]
@@ -56,7 +60,7 @@ class OpenRouterAuth(
         return params["code"].isNullOrEmpty() && !params["error"].isNullOrEmpty()
     }
 
-    /** 从回调里取出 `code`;没有就是用户没同意(或授权页报了错)。 */
+    /** Take out `code` from the callback; if not, the user did not agree (or the authorization page reported an error). */
     fun readCallback(params: Map<String, String>, attempt: OpenRouterAttempt): String {
         val state = params["state"]
         if (state != null && state != attempt.state) throw AccountSignInException(AccountSignInFailure.Rejected, "state")
@@ -67,8 +71,9 @@ class OpenRouterAuth(
     }
 
     /**
-     * 用 `code` 和校验串换 Key(`POST /api/v1/auth/keys`)。400 是校验方式对不上,403 是 code 或校验串不对、或 code 过期(10 分钟)。
-     * 出错时只带回状态码,不带响应正文。
+     * Use `code` and checksum exchange Key(`POST /api/v1/auth/keys`). 400 means the verification method
+     * does not match, 403 means the code or verification string is incorrect, or the code has expired
+     * (10 minutes). When an error occurs, only the status code is returned, without the response text.
      */
     suspend fun exchange(code: String, attempt: OpenRouterAttempt): String {
         val body = buildJsonObject {
@@ -96,22 +101,24 @@ class OpenRouterAuth(
     companion object {
         const val AUTH_URL = "https://openrouter.ai/auth"
         const val KEYS_URL = "https://openrouter.ai/api/v1/auth/keys"
-        /** 换到的 Key 调用的接口根,和 OpenRouter 预设一样。 */
+        /** The interface root called by the changed Key is the same as the OpenRouter default. */
         const val API_BASE = "https://openrouter.ai/api/v1"
-        /** 用户在 OpenRouter 上管理(删除)Key 的页面。 */
+        /** The page where users manage (delete) Keys on OpenRouter. */
         const val KEYS_PAGE = "https://openrouter.ai/settings/keys"
-        /** 授权页上预填的 Key 名字,用户在 Keys 页上靠它认出是哪一把。 */
+        /** The Key name is prefilled on the authorization page, and the user can use it to identify which key it is on the Keys page. */
         const val KEY_LABEL = "Mina"
-        /** 回调地址用 localhost(OpenRouter 写明本机回调任意端口都可以);监听只绑 127.0.0.1。 */
+        /** Use localhost as the callback address (OpenRouter indicates that any callback port on this machine can be used); the listening address is only tied to 127.0.0.1. */
         const val CALLBACK_HOST = "localhost"
         private val JSON_TYPE = "application/json".toMediaType()
     }
 }
 
 /**
- * 走一遍 OpenRouter 登录:开本机回调 → [openBrowser] 打开授权页 → 等回调 → 换 Key。
- * 换 Key 这一步(至多 [finishTimeoutMs])做完才把结果网页回给浏览器:[page] 收到 null 是成功,否则是失败的原因。
- * 失败抛 [AccountSignInException];取消照常往外抛。返回换到的 API Key。
+ * Go through the OpenRouter login: open the local callback → [openBrowser] open the authorization page →
+ * wait for the callback → change the Key. After the key change step (at most [finishTimeoutMs]) is
+ * completed, the result webpage is returned to the browser: [page] receiving null means success,
+ * otherwise it is the cause of failure. If failed, throw [AccountSignInException]; if canceled, throw
+ * out as usual. Returns the changed API Key.
  */
 suspend fun signInWithOpenRouter(
     auth: OpenRouterAuth,

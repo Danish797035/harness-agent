@@ -47,26 +47,28 @@ import java.net.Inet4Address
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 内置助手的真实现:配对、经本机 adbd 起助手、看门狗。由 [com.meenai.mina.cap.phone.PhoneServices] 建一份,
- * App 启动时由 [start] 开始看着助手;[hub] 是助手交来 Binder 的落点;[consent] 是用户对那几项能力的选择(「自动打开无线调试」看它)。
+ * Real implementation of built-in assistants: pairing, assistant via native adbd, watchdog. Create a
+ * copy by [com.meenai.mina.cap.phone.PhoneServices]. When the App starts, [start] starts looking at the
+ * assistant; [hub] is the point where the assistant hands over the Binder; [consent] is the user's
+ * choice of which capabilities (see it for "automatically turning on wireless debugging").
  */
 class BuiltinShellManager(context: Context, private val hub: HelperHub, private val consent: () -> RecoveryConsent) {
     private val app = context.applicationContext
     private var started = false
 
     private val _scanningPorts = MutableStateFlow(false)
-    /** 正在扫本机找无线调试端口(引导页显示「正在本机查找…」)。 */
+    /** Scanning this machine to find the wireless debugging port (the boot page displays "Searching on this machine..."). */
     val scanningPorts: StateFlow<Boolean> = _scanningPorts.asStateFlow()
 
     private val platform: AndroidPlatform by lazy {
         AndroidPlatform(app, hub, { lastConnectCandidates = it }, { _scanningPorts.value = it })
     }
 
-    /** 最近一次找连接端口时各来源给了几个候选(诊断信息用);这次进程里还没连过为 null。 */
+    /** The last time I looked for a connection port, each source gave me several candidates (used for diagnostic information); this time, it is null as the process has not connected yet. */
     @Volatile var lastConnectCandidates: ConnectCandidates? = null
         private set
 
-    /** 要起助手时替用户打开无线调试:只由 App 自己写系统设置(要起助手时没有别的连接可用)。 */
+    /** Turn on wireless debugging for the user when you want to start the assistant: only the app itself writes the system settings (no other connections are available when you want to start the assistant). */
     val wirelessAutoOn: WirelessDebuggingAutoOn by lazy {
         WirelessDebuggingAutoOn(
             wants = { consent().wants(RecoveryCapability.AutoWirelessDebugging) },
@@ -76,7 +78,7 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
         )
     }
 
-    /** 配对客户端 + 看门狗。 */
+    /** Pairing client + watchdog. */
     val engine: BuiltinShellEngine by lazy {
         BuiltinShellEngine(
             platform, hub.shell, CoroutineScope(SupervisorJob() + Dispatchers.Default), Dispatchers.IO, autoOn = wirelessAutoOn,
@@ -84,8 +86,9 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
     }
 
     /**
-     * 恢复和授权开关用:助手在就经它跑(电脑经 USB 起的助手没有配对的连接也能用);
-     * 不在才每条命令单独连一次已配对的 adbd,跑完就断。
+     * Recovery and authorization switch are used: the assistant is run through it (the assistant can be
+     * used on the computer via USB without a paired connection); otherwise, each command is connected to
+     * the paired adbd separately, and it is disconnected after running.
      */
     val commandRunner = ShellCommandRunner { command ->
         withContext(Dispatchers.IO) {
@@ -94,16 +97,16 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
         }
     }
 
-    /** 「用电脑启动」的脚本:跟着助手在不在重写。 */
+    /** "Start with computer" script: Rewrite it according to the assistant's presence. */
     val usbScript = UsbStartScript(app, hub)
 
-    /** 有人要用助手却没有:看门狗起一个(配对过才行),脚本也备好给电脑用。 */
+    /** Some people want to use an assistant but don't have one: a watchdog is needed (it needs to be paired), and the script is also prepared for the computer. */
     fun need() {
         engine.need()
         usbScript.refresh()
     }
 
-    /** 用户在引导页填了无线调试的端口:下一次连接带上它(只用这一次,连上了就记作缓存),然后重试。 */
+    /** The user fills in the wireless debugging port on the boot page: bring it with you the next time you connect (only use it this time, it will be recorded as cache when connected), and then try again. */
     suspend fun connectWithPort(port: Int) {
         platform.manualPort.set(port)
         engine.retry()
@@ -115,14 +118,16 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
         started = true
         usbScript.start()
         val e = engine
-        // 无线调试一打开就试着连回去;关掉时状态马上变成「无线调试已关」
+        // As soon as wireless debugging is turned on, try to connect back; when it is turned off, the
+        // status immediately changes to "Wireless debugging is turned off"
         app.contentResolver.registerContentObserver(
             DeveloperSettings.wirelessDebuggingUri, false,
             object : ContentObserver(Handler(Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) = e.wirelessDebuggingChanged()
             },
         )
-        // 卡在「没有 Wi-Fi」或无线调试关着时,一连上任意 Wi-Fi(不用能上网)就再试
+        // When stuck on "No Wi-Fi" or wireless debugging is turned off, try again as soon as you are
+        // connected to any Wi-Fi (does not need to be able to access the Internet)
         runCatching {
             app.getSystemService(ConnectivityManager::class.java).registerNetworkCallback(
                 NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
@@ -141,7 +146,7 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
         private val candidates: (ConnectCandidates) -> Unit,
         private val scanning: (Boolean) -> Unit,
     ) : BuiltinShellPlatform {
-        /** 用户填的端口,下一次连接取走。 */
+        /** The port filled in by the user will be taken away from the next connection. */
         val manualPort = AtomicReference<Int?>(null)
         private val scan = LocalPortScan(NioPortScanner(), ::localHosts, { LocalPortScan.parseRange(portRangeText()) })
         private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -163,7 +168,8 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
             prefs.edit().putBoolean("usbStarted", on).apply()
         }
 
-        // 这一项没写过时读出 null:看不清就不拦着
+        // When this item is not written, it is read out. null: If you can’t see it clearly, don’t stop
+        // it.
         override fun wirelessDebugging(): Boolean? =
             Settings.Global.getString(app.contentResolver, DeveloperSettings.ADB_WIFI_ENABLED)?.let { it == "1" }
 
@@ -181,10 +187,11 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
 
         override suspend fun launchHelper() {
             val tls = AndroidAdb.tls(AndroidAdb.identity(app))
-            // 助手每次交接前都核对 Mina 的签名
+            // The assistant checks Mina’s signature before each handover.
             val command = HelperHandoff.command(app.applicationInfo.sourceDir, app.packageName, Process.myUid(), ownCertPin(app))
             val connection = connect(tls)
-            // 流开着 sh 就一直等;交接到了(或超时)再关,交接结果仍由引擎从 HelperHub 判断
+            // If the stream is open, sh will wait; if the handover is reached (or times out) and then
+            // closed, the handover result will still be judged by the engine from HelperHub.
             val before = hub.shell.value
             connection.use {
                 val stream = it.exec(command)
@@ -198,7 +205,7 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
                 ::tlsPort, finder, portCache, report = candidates, scan = scan, manual = { manualPort.getAndSet(null) }, scanning = scanning,
             ).connect { host, port -> AdbConnection.open(host, port, tls) }
 
-        /** 扫端口时只扫本机自己:127.0.0.1 和 Wi-Fi 上的 IPv4 地址。 */
+        /** When scanning ports, only scan the machine itself: 127.0.0.1 and the IPv4 address on Wi-Fi. */
         private fun localHosts(): List<String> = listOf(LOCALHOST) + runCatching {
             val cm = app.getSystemService(ConnectivityManager::class.java)
             @Suppress("DEPRECATION")
@@ -207,11 +214,12 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
                 .mapNotNull { (it.address as? Inet4Address)?.hostAddress }
         }.getOrDefault(emptyList())
 
-        /** 系统分配临时端口的范围;有的系统不让 App 读,读不到就扫默认的一段。 */
+        /** The system allocates a range of temporary ports; some systems do not allow the app to read it, and if it cannot read it, it scans the default section. */
         private fun portRangeText(): String? = runCatching { File(PORT_RANGE_FILE).readText() }.getOrNull()
 
         override fun stopHelper() {
-            // destroy 会让助手进程当场退出,这一调用多半以 DeadObjectException 结束
+            // destroy will cause the helper process to exit on the spot, and this call will most likely
+            // end with a DeadObjectException
             runCatching { hub.shell.value?.destroy() }
         }
 
@@ -229,10 +237,10 @@ class BuiltinShellManager(context: Context, private val hub: HelperHub, private 
     }
 
     companion object {
-        /** 内置助手从安卓 12 起启用;旧系统使用不带较新屏幕标志的兼容路径。 */
+        /** The built-in assistant is enabled starting with Android 12; older systems use the compatibility path without the newer screen flags. */
         const val MIN_SDK = Build.VERSION_CODES.S
         private const val PREFS = "builtin_shell"
-        /** 安卓原版 adbd 把无线调试的连接端口写在这个系统属性里;读不到时靠缓存、mDNS、扫本机端口和用户填的端口。 */
+        /** The original Android adbd writes the wireless debugging connection port in this system property; if it cannot be read, it relies on cache, mDNS, scanning the local port and the port filled in by the user. */
         private const val TLS_PORT_PROPERTY = "service.adb.tls.port"
         private const val LOCALHOST = AdbConnectPort.LOCALHOST
         private const val PORT_RANGE_FILE = "/proc/sys/net/ipv4/ip_local_port_range"

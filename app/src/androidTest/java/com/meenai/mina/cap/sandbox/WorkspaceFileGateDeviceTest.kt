@@ -15,7 +15,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/** 按句柄的安卓实现跑同一套关口规则,另加只在真机上测得了的:FIFO 不阻塞、检查之后再换文件也碰不到外面。 */
+/** The Android implementation of the handle runs the same set of pass rules, plus what was only measured on a real machine: the FIFO is not blocked, and the file cannot be changed after checking and cannot touch the outside. */
 @RunWith(AndroidJUnit4::class)
 class WorkspaceFileGateDeviceTest : WorkspaceFileGateContract() {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -33,7 +33,7 @@ class WorkspaceFileGateDeviceTest : WorkspaceFileGateContract() {
         assertTrue("took ${System.currentTimeMillis() - begin} ms", System.currentTimeMillis() - begin < 3_000)
     }
 
-    /** 打开之后把目录换成指向外面的链接:句柄上的读写仍是原来那个文件,外面的文件不受影响。 */
+    /** After opening, change the directory to an external link: the read and write on the handle are still the original file, and the external files are not affected. */
     @Test fun swapAfterOpenDoesNotRedirect() {
         File(ws, "d").mkdirs(); File(ws, "d/a.txt").writeText("inside")
         gate.openRead(ws, "d/a.txt").use { g ->
@@ -48,7 +48,7 @@ class WorkspaceFileGateDeviceTest : WorkspaceFileGateContract() {
         assertEquals("x", File(ws, "e-old/new.txt").readText())
     }
 
-    /** /proc/self/fd 读出的根目录与文件路径同出一源,/data/user/0 与 /data/data 的写法差别不影响判断。 */
+    /** The root directory and file path read by /proc/self/fd come from the same source. The difference in writing between /data/user/0 and /data/data does not affect the judgment. */
     @Test fun realPathsComeFromTheHandle() {
         File(ws, "x.txt").writeText("1")
         gate.openRead(File(context.dataDir, ws.relativeTo(context.dataDir).path), "x.txt").use { assertEquals(1L, it.size) }

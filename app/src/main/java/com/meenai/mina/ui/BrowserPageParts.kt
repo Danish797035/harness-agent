@@ -87,8 +87,10 @@ internal val MiniShape = RoundedCornerShape(8.dp)
 internal val InitialSmall = TextStyle(fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
 
 /**
- * 网站的方块:有存下的网站图标就画在白底上;没有时是按主机名定的底色加名字的第一个字。
- * 图标文件在后台读,读过的留在进程里的小缓存里(按文件和保存时间)。
+ * Website square: If the website icon is saved, it is drawn on a white background; sometimes it is a
+ * background color determined by the host name plus the first character of the name. The icon file is
+ * read in the background, and the read data is kept in a small cache in the process (according to file
+ * and saving time).
  */
 @Composable
 fun SiteTile(face: SiteFace, size: Dp, shape: Shape, initialStyle: TextStyle) {
@@ -122,8 +124,11 @@ private fun rememberSiteIcon(face: SiteFace): ImageBitmap? {
 }
 
 /**
- * 网页的顶栏:关闭(回起始页)、地址栏、刷新(加载时是停止),下面一条 2dp 的进度条。
- * 地址栏平时只显示锁和网站名(搜索结果页是搜的词),电脑版时带一个「电脑版」小标签;点了展开成完整网址可改,右边「取消」收回。
+ * The top bar of the web page: close (return to the home page), address bar, refresh (stop when
+ * loading), and a 2dp progress bar below. The address bar usually only displays the lock and website
+ * name (the search results page shows the search terms). For the computer version, there is a small
+ * label "PC version"; click to expand it to the complete URL to change it, and "Cancel" on the right to
+ * take it back.
  */
 @Composable
 fun BrowserPageBar(
@@ -198,7 +203,7 @@ private fun AddressPill(page: BrowserPage, face: SiteFace?, modifier: Modifier, 
 
 private val TagText = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold)
 
-/** 展开的地址栏:完整网址全选着,键盘上是「前往」。 */
+/** Expanded address bar: The complete URL is selected, and "Go" is on the keyboard. */
 @Composable
 private fun AddressEditor(url: String, modifier: Modifier, onGo: (String) -> Unit) {
     val c = MinaTheme.colors
@@ -223,7 +228,7 @@ private fun AddressEditor(url: String, modifier: Modifier, onGo: (String) -> Uni
     }
 }
 
-/** 网页下面的工具栏:后退、前进、起始页、分享、更多。 */
+/** Toolbar below the web page: back, forward, start page, share, and more. */
 @Composable
 fun BrowserToolbar(
     page: BrowserPage,
@@ -250,7 +255,7 @@ fun BrowserToolbar(
     }
 }
 
-/** 「给 Mina 登录」的横幅:说明这次用的是 Mina 办事时的那一版,登录完点「登录好了」。 */
+/** The banner of "Log in for Mina": It means that this time you are using the version that Mina works on. After logging in, click "Log in". */
 @Composable
 fun LoginBanner(desktop: Boolean, onDone: () -> Unit) {
     val c = MinaTheme.colors
@@ -271,8 +276,10 @@ fun LoginBanner(desktop: Boolean, onDone: () -> Unit) {
 }
 
 /**
- * 「更多」面板:顶上是这个网站(图标、名字、主机名),下面刷新、复制链接、在其他浏览器里打开、加入常用网站(已在常用时是从常用移除)、
- * 换成电脑版 / 换回手机版(这个网站下次也这样)。点任何一项先关面板再做。
+ * "More" panel: The top is the website (icon, name, host name), the bottom is refreshing, copying the
+ * link, opening it in other browsers, adding frequently used websites (it has been removed from the
+ * commonly used website), switching to the computer version / switching back to the mobile version (the
+ * same will happen next time for this website). Close the panel before clicking any item.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

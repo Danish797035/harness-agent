@@ -5,12 +5,13 @@ import java.net.Proxy
 import java.net.URI
 
 /**
- * 一个网络代理地址,形如 `协议://[用户:密码@]主机:端口`:协议是 http、https、socks5、socks5h 之一,后面不带路径。
- * [toString] 不带账号密码,写进日志、显示在界面上都不会泄露。
+ * A network proxy address, in the form of `protocol://[user:password@]host:port`: the protocol is one of http, https,
+ * socks5, and socks5h, without a path behind it. [toString] does not have an account password, and it
+ * will not be leaked when written in the log or displayed on the interface.
  */
 class ProxyAddress private constructor(
     val scheme: String,
-    /** 主机名或 IP;IPv6 不带方括号。 */
+    /** Hostname or IP; IPv6 without square brackets. */
     val host: String,
     val port: Int,
     val user: String,
@@ -20,14 +21,15 @@ class ProxyAddress private constructor(
     val hasCredentials: Boolean get() = user.isNotEmpty()
 
     /**
-     * Mina 自己的连接(调模型、下更新、内置浏览器)能不能走它。https 代理要先和代理本身握 TLS,
-     * 这些连接用的网络库不支持,只有容器里的命令(curl 等)用得上。
+     * Can Mina's own connection (model adjustment, update, built-in browser) be able to use it? The
+     * https proxy must first master TLS with the proxy itself. The network library used for these
+     * connections does not support it. Only the commands in the container (curl, etc.) can be used.
      */
     val forApp: Boolean get() = scheme != "https"
 
     fun javaProxy(): Proxy = Proxy(if (socks) Proxy.Type.SOCKS else Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
 
-    /** 给人看的写法:协议、主机、端口,不带账号密码。 */
+    /** Written for people to see: protocol, host, port, without account and password. */
     val display: String get() = "$scheme://${if (host.contains(':')) "[$host]" else host}:$port"
 
     override fun toString(): String = display
@@ -35,7 +37,7 @@ class ProxyAddress private constructor(
     companion object {
         val SCHEMES = setOf("http", "https", "socks5", "socks5h")
 
-        /** 解析代理地址;空串或写法不对为 null。 */
+        /** Parse the proxy address; if the string is empty or written incorrectly, it will be null. */
         fun parse(text: String): ProxyAddress? {
             val v = text.trim()
             if (v.isEmpty() || v.any { it.isWhitespace() }) return null
@@ -51,7 +53,7 @@ class ProxyAddress private constructor(
             return ProxyAddress(scheme, host, u.port, user, password)
         }
 
-        /** 空串(不用代理),或能解析的代理地址。 */
+        /** Empty string (no proxy), or a proxy address that can be resolved. */
         fun valid(text: String): Boolean = text.isBlank() || parse(text) != null
     }
 }

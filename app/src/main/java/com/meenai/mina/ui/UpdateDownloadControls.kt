@@ -109,7 +109,7 @@ internal fun UpdateDownloadControls(release: ReleaseInfo) {
 internal fun UpdateDownloadActions(
     state: ApkDownloadState,
     busy: Boolean,
-    /** 上次操作没成时的说明;为空时显示安装提示。 */
+    /** Instructions when the last operation failed; when empty, the installation prompt is displayed. */
     error: Int?,
     onDownload: () -> Unit,
     onInstall: () -> Unit,

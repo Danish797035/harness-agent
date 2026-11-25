@@ -3,8 +3,9 @@ package com.meenai.mina.core.knowledge
 import com.meenai.mina.core.net.UrlHost
 
 /**
- * 选渠道用的事实:已装的包名、在 Mina 里登录着的站点主机名、内置浏览器能不能用、
- * 最近在 Mina 里碰到过人机验证或访问拦截的站点主机名。
+ * Facts to use when selecting a channel: installed package names, site hostnames logged into Mina,
+ * whether the built-in browser can be used, and site hostnames that have recently encountered
+ * human-computer authentication or access blocking in Mina.
  */
 data class ChannelFacts(
     val installed: Set<String>,
@@ -13,15 +14,17 @@ data class ChannelFacts(
     val challengedSites: Set<String> = emptySet(),
 )
 
-/** 给任务开头的一行「可用渠道」:代码只给事实,选哪条由模型按网页规则决定。 */
+/** Give the line "available channels" at the beginning of the task: the code only gives facts, and which one to choose is determined by the model according to the rules of the web page. */
 object ChannelAdvisor {
     private const val HEADER = "Available channels: "
-    /** 只列排在前面的几个,和每任务至多注入的参考资料份数相当。 */
+    /** Only the top few are listed, which is equivalent to the maximum number of reference materials injected into each task. */
     private const val MAX_CHANNELS = 3
 
     /**
-     * 例:「可用渠道:小红书 — App:已安装(com.xingin.xhs),有 App 做法;网页:xiaohongshu.com,有网页做法,在 Mina 里登录过(m.xiaohongshu.com)」。
-     * [entries] 按匹配顺序,只取前 [MAX_CHANNELS] 个渠道。没有可说的为 null。
+     * Example: "Available channels: Xiaohongshu - App: installed (com.xingin.xhs), with App practices;
+     * web page: xiaohongshu.com, with web page practices, logged in in Mina (m.xiaohongshu.com)".
+     * [entries] According to the matching order, only the first [MAX_CHANNELS] channels are taken.
+     * Nothing to say is null.
      */
     fun line(entries: List<KnowledgeEntry>, skills: GuideCatalog?, facts: ChannelFacts): String? {
         val parts = entries.groupBy { it.service }.mapNotNull { (name, same) -> channel(name, same, skills, facts) }.take(MAX_CHANNELS)
@@ -31,7 +34,7 @@ object ChannelAdvisor {
 
     private fun channel(name: String, same: List<KnowledgeEntry>, skills: GuideCatalog?, facts: ChannelFacts): String? {
         val packages = same.flatMap { it.packages }.distinct()
-        // App 条目关联的站点名就是站点的主域名
+        // The site name associated with the App entry is the main domain name of the site
         val domains = same.flatMap { it.domains + if (it.surface == Surface.Android) it.related else emptyList() }.map { it.trim().lowercase().removePrefix("www.") }.filter { it.isNotEmpty() }.distinct()
         val app = if (packages.isEmpty()) null else {
             val state = packages.firstOrNull { it in facts.installed }?.let { "app: installed ($it)" } ?: "app: not installed"

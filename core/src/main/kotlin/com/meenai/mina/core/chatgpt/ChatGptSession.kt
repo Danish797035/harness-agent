@@ -12,8 +12,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * 一个 ChatGPT 账号的登录:注册给出的 [clientId]、核对过的身份([sub]、[email])和令牌。
- * 整份按 API Key 的方式加密保存。退出登录后令牌清空([signedIn] 为假),注册和身份留着,再登录沿用同一个 client_id。
+ * Login of a ChatGPT account: [clientId], verified identity ([sub], [email]) and token given during
+ * registration. The entire copy is encrypted and saved using API Key. After logging out, the token is
+ * cleared ([signedIn] is false), the registration and identity are retained, and the same client_id is
+ * used when logging in again.
  */
 @Serializable
 data class ChatGptSession(
@@ -28,7 +30,7 @@ data class ChatGptSession(
 ) {
     val signedIn: Boolean get() = accessToken.isNotEmpty() || refreshToken.isNotEmpty()
 
-    /** 用户同意了用套餐额度调用。 */
+    /** The user agreed to use the package quota to make calls. */
     val planUsage: Boolean get() = ChatGptAuth.PLAN_SCOPE in scopes
 
     fun signedOut() = copy(accessToken = "", refreshToken = "", idToken = "", expiresAtMs = 0)
@@ -44,9 +46,13 @@ data class ChatGptSession(
 }
 
 /**
- * 调用时用的访问令牌:快过期(不到 [refreshAheadMs])或被拒了([BearerToken.get] 的 fresh)就用刷新令牌换一组新的,
- * 新的刷新令牌和访问令牌一起存下([save])。同一时刻只有一个在换(刷新令牌换一次就作废,并发换会互相顶掉)。
- * 刷新令牌已不能用:清掉令牌、抛 [ModelError.SignInExpired](要重新登录);网络或服务端一时出错照常抛,令牌留着。
+ * The access token used when calling: if it is about to expire (less than [refreshAheadMs]) or is
+ * rejected (fresh of [BearerToken.get]), use the refresh token to exchange for a new one, and the new
+ * refresh token and the access token are saved together ([save]). Only one is being exchanged at the
+ * same time (the refresh token is invalidated once it is exchanged, and concurrent exchanges will
+ * override each other). The refresh token is no longer available: clear the token and throw
+ * [ModelError.SignInExpired] (to log in again); if there is a temporary error on the network or server,
+ * throw it away as usual and keep the token.
  */
 class ChatGptTokens(
     private val auth: ChatGptAuth,
@@ -84,7 +90,8 @@ class ChatGptTokens(
                     save(s.signedOut())
                     throw ModelError.SignInExpired()
                 }
-                // 客户端配置不对等:重试没用,但也不是令牌失效,不清
+                // The client configuration is not equivalent: retrying is useless, but it does not mean
+                // that the token has expired, unclear
                 throw ModelError.Auth()
             }
             is TokenResult.Failed -> throw r.error
@@ -93,10 +100,14 @@ class ChatGptTokens(
 }
 
 /**
- * 走一遍登录:开本机回调 → [openBrowser] 打开授权页 → 等回调 → 核对 → 换令牌 → 验 ID 令牌 → 看有没有授予套餐额度。
- * 回调到了以后的这几步(至多 [finishTimeoutMs])做完,才把结果网页回给浏览器:[page] 收到 null 是成功,否则是失败的原因。
- * [clientId] 是以前注册过的(第一次为 null,注册成功后经 [onRegistered] 交出,换令牌前就该存下);
- * [previous] 是上次的登录(用来带上 ID 令牌和邮箱,省掉选账号)。失败抛 [SignInException]。
+ * Go through the login process: Open the local callback → [openBrowser] Open the authorization page →
+ * Wait for the callback → Check → Change token → Verify ID token → See if the package quota has been
+ * granted. After the callback is completed in the next few steps (at most [finishTimeoutMs]), the result
+ * web page is returned to the browser: [page] receiving null means success, otherwise it is the cause of
+ * failure. [clientId] is the one registered before (null for the first time, handed over by
+ * [onRegistered] after successful registration, and should be saved before changing the token);
+ * [previous] is the last login (used to bring the ID token and email, eliminating the need to select an
+ * account). Throw [SignInException] on failure.
  */
 suspend fun signInWithChatGpt(
     auth: ChatGptAuth,
@@ -124,7 +135,7 @@ suspend fun signInWithChatGpt(
     return outcome!!.getOrThrow()
 }
 
-/** 做完回调之后的几步,至多 [timeoutMs]:超时算连不上;别的异常都归成 [SignInException];取消照常往外抛。 */
+/** In the few steps after completing the callback, at most [timeoutMs]: timeout is not considered connected; other exceptions are classified as [SignInException]; if canceled, they will be thrown out as usual. */
 private suspend fun finishSignIn(timeoutMs: Long, block: suspend () -> ChatGptSession): Result<ChatGptSession> = try {
     Result.success(withTimeout(timeoutMs) { block() })
 } catch (e: TimeoutCancellationException) {

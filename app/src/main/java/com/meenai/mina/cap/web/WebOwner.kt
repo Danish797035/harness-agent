@@ -3,13 +3,13 @@ package com.meenai.mina.cap.web
 import android.content.Context
 import com.meenai.mina.cap.web.cdp.WebDevtools
 
-/** 网页在进程里的那一份 DevTools 会话入口、站点登记表、标签总数上限与留在后台的那一页:由 App 给出,设置页和各任务共用。 */
+/** The DevTools session entrance, site registration form, upper limit of the total number of tags, and the page left in the background of the web page in the process: are given by the App, and the settings page is shared with each task. */
 interface WebOwner {
     val webDevtools: WebDevtools
     val webSites: SiteRegistry
-    /** 各任务的标签池共用的标签总数上限。 */
+    /** The upper limit of the total number of tags shared by the tag pools of each task. */
     val tabBudget: TabBudget
-    /** 任务结束后留在后台接着运行的那一页(全局至多一页)。 */
+    /** The page that remains in the background and continues to run after the task is completed (at most one page globally). */
     val pageKeeper: PageKeeper
 
     companion object {

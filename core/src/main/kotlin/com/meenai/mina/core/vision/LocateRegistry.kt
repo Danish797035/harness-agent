@@ -2,12 +2,14 @@ package com.meenai.mina.core.vision
 
 import java.util.UUID
 
-/** 0–999 归一化坐标,与 tap 同一坐标系。 */
+/** 0–999 Normalized coordinates, the same coordinate system as tap. */
 data class Point(val x: Int, val y: Int)
 
 /**
- * find_visually 找到的点:按 (ref, snapshotId) 登记,只留最近 [capacity] 个(先进先出),
- * 记下找到时那张截图的哈希,tap 时据此判断画面变没变。任何写操作后由调用方 [clear]。
+ * find_visually found points: press (ref, snapshotId) to register, leaving only the most recent
+ * [capacity] (first in, first out), record the hash of the screenshot when found, and use this to
+ * determine whether the screen has changed when tapping. Any write operation is followed by the caller
+ * [clear].
  */
 class LocateRegistry(private val capacity: Int = 20) {
     private class Entry(val point: Point, val hash: Long)
@@ -15,7 +17,7 @@ class LocateRegistry(private val capacity: Int = 20) {
     private var next = 1
     private val entries = LinkedHashMap<String, Entry>()
 
-    /** 返回 (ref, snapshotId),形如 ("@v3", "loc_…")。编号在一次任务里不复用。 */
+    /** Returns (ref, snapshotId), in the form of ("@v3", "loc_..."). The number is not reused within a mission. */
     fun put(x: Int, y: Int, hash: Long): Pair<String, String> {
         val ref = "@v${next++}"
         val snapshotId = "loc_${UUID.randomUUID()}"
@@ -28,7 +30,7 @@ class LocateRegistry(private val capacity: Int = 20) {
 
     fun clear() = entries.clear()
 
-    /** [snapshotId] 是这里登记过、还留着的点的。 */
+    /** [snapshotId] is the order that has been registered here and is still retained. */
     fun has(snapshotId: String): Boolean = entries.keys.any { it.startsWith("$snapshotId|") }
 
     private fun key(ref: String, snapshotId: String) = "$snapshotId|$ref"

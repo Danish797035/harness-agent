@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
 
-/** web_script 的「不读值的输入框」和读屏脚本 page.js 是同一条规则:两边的 autocomplete 清单要一致。 */
+/** The "unreadable value input box" of web_script and the screen reading script page.js have the same rule: the autocomplete lists on both sides must be consistent. */
 class PageScriptSecretRuleTest {
     private val pageJs = File("src/main/assets/web/page.js").readText()
 

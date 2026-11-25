@@ -33,7 +33,7 @@ class WebDownloadsTest {
     private lateinit var ws: File
     private val cookieCalls = mutableListOf<String>()
 
-    /** 测试服务器在本机:只放行它自己,别的地址照真机规则(本机、局域网都不许)。 */
+    /** The test server is on the local machine: only itself is allowed, and other addresses follow the rules of the real machine (not allowed on the local machine or the LAN). */
     private fun allowServer(url: String): String? =
         if (url.startsWith(server.url("/").toString())) null else DownloadAddressPolicy.refusal(url)
 
@@ -93,13 +93,14 @@ class WebDownloadsTest {
         assertEquals("report.pdf", WebDownloads.fileName("attachment; filename*=UTF-8''report.pdf; filename=\"old.pdf\"", "https://a/b", null))
         assertEquals("季度报告.pdf", WebDownloads.fileName("attachment; filename*=UTF-8''%E5%AD%A3%E5%BA%A6%E6%8A%A5%E5%91%8A.pdf", "https://a/b", null))
         assertEquals("invoice.pdf", WebDownloads.fileName(null, "https://a.example.com/x/invoice.pdf?token=1", null))
-        // 控制字符、双向控制符(能把 exe 伪装成 pdf)、开头的点、反斜杠路径都去掉
+        // Remove control characters, bidirectional control characters (can disguise exe as pdf), leading
+        // dots, and backslash paths
         assertEquals("evilfdp.exe", WebDownloads.fileName("attachment; filename=\"evil‮fdp.exe\"", "https://a/b", null))
         assertEquals("a b.txt", WebDownloads.fileName("attachment; filename=\"a\u0000\u0007 b.txt\"", "https://a/b", null))
         assertEquals("x.sh", WebDownloads.fileName("attachment; filename=\"..\\\\..\\\\x.sh\"", "https://a/b", null))
         assertEquals("env", WebDownloads.fileName("attachment; filename=\".env\"", "https://a/b", null))
         assertEquals("download", WebDownloads.fileName("attachment; filename=\"..\"", "https://a.example.com/", null))
-        // 名字太长按字节截短,保留扩展名
+        // If the name is too long, it will be truncated by bytes and the extension will be retained.
         val long = WebDownloads.fileName("attachment; filename=\"${"文".repeat(200)}.pdf\"", "https://a/b", null)
         assertTrue(long, long.endsWith(".pdf") && long.toByteArray().size <= 200)
     }
@@ -151,7 +152,7 @@ class WebDownloadsTest {
         assertFalse(File(ws, "downloads/missing.pdf").exists())
     }
 
-    /** 只有 TLS / 握手一类的错误才改由页面去取,而且换路前地址规则照样过;普通连不上不换。 */
+    /** Only errors such as TLS/handshake are retrieved from the page, and the address rules are still passed before changing the path; generally, if the connection cannot be made, the change is not performed. */
     @Test
     fun pageFallbackOnlyForTlsFailures() {
         val host = "127.0.0.1"
@@ -159,7 +160,7 @@ class WebDownloadsTest {
         val d = WebDownloads(ws, JVM_GATE, SandboxTree(), OkHttpClient(), { null }, scope, addressRefusal = local, dns = Dns.SYSTEM)
         var asked = 0
         val viaPage: suspend (Long) -> Pair<ByteArray, String?>? = { asked++; "%PDF".toByteArray() to "application/pdf" }
-        // 一个只回明文的端口:用 https 连它是握手失败
+        // A port that only returns clear text: the handshake fails when connecting to it using https
         val plain = java.net.ServerSocket(0, 1, java.net.InetAddress.getByName(host))
         val answering = Thread {
             runCatching { while (true) plain.accept().use { it.getOutputStream().write("HTTP/1.1 400 Bad Request\r\n\r\n".toByteArray()) } }
@@ -167,7 +168,7 @@ class WebDownloadsTest {
         val tls = d.awaitDone(d.start("https://$host:${plain.localPort}/a.pdf", "UA", null, null, null, viaPage = viaPage))
         plain.close(); answering.interrupt()
         assertEquals(tls.error, "done", tls.status); assertEquals(1, asked)
-        // 端口上没人听:普通的网络错误,带上出错类型,不换路
+        // No one listens on the port: ordinary network error, with error type, no path change
         val closed = MockWebServer().apply { start() }.let { s -> s.url("/b.pdf").toString().also { s.shutdown() } }
         val net = d.awaitDone(d.start(closed, "UA", null, null, null, viaPage = viaPage))
         assertEquals("failed", net.status); assertEquals(1, asked)
@@ -196,27 +197,29 @@ class WebDownloadsTest {
         assertEquals("too_large", big.list().single { it.file == refused }.error)
     }
 
-    /** 页面在链接上给的名字(<a download>)对每种下载都用上,清洗规则照旧;响应头里的名字优先,网址最后。 */
+    /** The name (<a download>) given by the page on the link is used for each download, and the cleaning rules remain the same; the name in the response header takes precedence, and the URL last. */
     @Test
     fun pageGivenNamesReachEveryDownloadPath() {
         val d = downloads()
-        // blob: 与 data: 没有响应头,也不拿网址当名字:用页面给的
+        // blob: and data: have no response headers, and do not use the URL as the name: they are given
+        // by the page.
         assertEquals("/workspace/downloads/report.csv", d.save("blob:https://a.example.com/1", null, "text/csv", "a".toByteArray(), suggested = "report.csv"))
         assertEquals("/workspace/downloads/note.txt", d.dataUrl("data:text/plain;base64,aGVsbG8=", null, suggested = "note.txt"))
-        // 页面给的名字照样清洗:去掉路径
+        // The name given on the page is still cleaned: remove the path
         assertEquals("/workspace/downloads/x.sh", d.save("blob:https://a.example.com/2", null, null, "a".toByteArray(), suggested = "../../x.sh"))
-        // http:页面给的名字排在网址之前、响应头之后
+        // http: The name given by the page is ranked before the URL and after the response header.
         server.enqueue(MockResponse().setBody("1"))
         server.enqueue(MockResponse().setBody("2"))
         assertEquals("/workspace/downloads/月报.pdf", d.start(server.url("/dl?id=1").toString(), "UA", null, "application/pdf", null, suggested = "月报.pdf"))
         assertEquals("/workspace/downloads/from-header.pdf",
             d.start(server.url("/dl?id=2").toString(), "UA", "attachment; filename=\"from-header.pdf\"", null, null, suggested = "page.pdf"))
-        // 先问页面要名字再登记:问的这一会儿 awaitNamed 等着,问完就数得到
+        // Ask the page for your name first and then register: waitNamed waits while asking, and you will
+        // get it after asking.
         val before = d.count()
         d.withPageName({ kotlinx.coroutines.delay(100); "later.bin" }) { name -> d.save("blob:https://a.example.com/3", null, null, "b".toByteArray(), name) }
         runBlocking { d.awaitNamed(2_000) }
         assertEquals(listOf("/workspace/downloads/later.bin"), d.since(before).map { it.file })
-        // 页面问不到(出错)也照样下载,用别的名字
+        // Even if the page cannot be asked (an error occurred), download it anyway and use another name.
         val before2 = d.count()
         d.withPageName({ error("page gone") }) { name -> d.save("blob:https://a.example.com/4", null, "text/csv", "c".toByteArray(), name) }
         runBlocking { d.awaitNamed(2_000) }
@@ -237,7 +240,7 @@ class WebDownloadsTest {
 
     @Test
     fun everyRedirectHopIsChecked() {
-        // 跳到局域网、本机别的端口:不跟
+        // Jump to LAN and other ports of this machine: do not follow
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "http://192.168.1.1/router.cfg"))
         server.enqueue(MockResponse().setResponseCode(301).setHeader("Location", "http://127.0.0.1:1/x"))
         val d = downloads()
@@ -246,7 +249,8 @@ class WebDownloadsTest {
         val b = d.awaitDone(d.start(server.url("/b.bin").toString(), "UA", null, null, null))
         assertEquals("blocked_redirect", b.error)
         assertTrue(File(ws, "downloads").list()!!.isEmpty())
-        // 同一服务器上的跳转照常跟,并按跳转后的地址带 Cookie
+        // The jump to the same server will follow as usual, and the cookie will be carried according to
+        // the address after the jump.
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/final/c.txt"))
         server.enqueue(MockResponse().setBody("ok"))
         val c = d.awaitDone(d.start(server.url("/c.txt").toString(), "UA", null, null, null))
@@ -316,7 +320,7 @@ class WebDownloadsTest {
         server.enqueue(MockResponse().setBody("new"))
         val d = downloads()
         val path = d.start(server.url("/a.txt").toString(), "UA", null, null, null)
-        assertEquals("/workspace/downloads/a (2).txt", path) // 已有的名字从不覆盖
+        assertEquals("/workspace/downloads/a (2).txt", path) // Existing names are never overwritten
         d.awaitDone(path)
         assertEquals("keep", private.readText())
     }

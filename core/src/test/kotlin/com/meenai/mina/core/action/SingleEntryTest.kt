@@ -5,15 +5,16 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 执行入口的边界:[com.meenai.mina.core.tool.ActionPass] 的构造函数是 internal,App 模块造不出来;
- * core 里由这里守着只有 core.action 造它、只有 core.action 调不可逆判定与同意核对。
- * 包依赖只能单向:core.action 和 core.guard 不依赖调度它们的 core.agent。
+ * Boundary of execution entry: The constructor of [com.meenai.mina.core.tool.ActionPass] is internal,
+ * and the App module cannot create it; in the core, only core.action can create it, and only core.action
+ * can adjust the irreversible judgment and agreement check. Package dependencies can only go one way:
+ * core.action and core.guard do not depend on core.agent which schedules them.
  */
 class SingleEntryTest {
     private val action = File("src/main/kotlin/com/meenai/mina/core/action").canonicalPath + File.separator
     private val roots = listOf(File("src/main/kotlin"), File("../app/src/main/java"))
 
-    /** 源码里的代码行(整行注释不算;行内的字符串、网址照常算)。 */
+    /** Lines of code in the source code (whole lines of comments are not counted; strings and URLs within the lines are counted as usual). */
     private fun codeLines(): List<Triple<File, Int, String>> = roots.filter { it.isDirectory }.flatMap { root ->
         root.walkTopDown().filter { it.isFile && it.extension == "kt" }.flatMap { f ->
             f.readLines().mapIndexedNotNull { i, line ->

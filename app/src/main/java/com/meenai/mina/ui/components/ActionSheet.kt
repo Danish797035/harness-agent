@@ -16,12 +16,13 @@ import androidx.compose.ui.unit.dp
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 操作面板里的一项;[destructive] 为真时文字用出错红。 */
+/** An item in the operation panel; when [destructive] is true, the text is in error red. */
 class SheetAction(val label: String, val destructive: Boolean = false, val onClick: () -> Unit)
 
 /**
- * 点一行后从底部升起的操作面板:顶上一行说明是在对什么操作,下面每项一行。
- * 点任何一项都会先执行它、再关掉面板。
+ * The operation panel that rises from the bottom after clicking on a line: the top line explains what
+ * operation is being performed, and the bottom line has one line for each item. Clicking on any item
+ * will execute it first and then close the panel.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

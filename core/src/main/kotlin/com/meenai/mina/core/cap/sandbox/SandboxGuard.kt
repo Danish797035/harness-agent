@@ -13,14 +13,14 @@ import com.meenai.mina.core.guard.Severity
 import com.meenai.mina.core.guard.actionSignature
 import com.meenai.mina.core.guard.OffScreenGuard
 
-/** 一个任务里沙箱命令累计最多跑这么久。 */
+/** The maximum number of sandbox commands that can be run in a task is this long. */
 const val SANDBOX_BUDGET_MS = 30 * 60_000L
 private val SANDBOX_COMMANDS = setOf(RunCommand.name, RunBundledScript.name)
 private const val SANDBOX_LOOP_WARN = 3
 private const val SANDBOX_LOOP_STOP = 5
 private const val SANDBOX_LOOP_HINT = "This exact command has failed several times in a row. Do not repeat it unchanged: read the error, then try a different approach."
 
-/** 沙箱命令的守卫(每次任务一份):同一条命令原样重复且失败的次数,和累计运行时长。屏幕守卫不看沙箱工具。 */
+/** Guards of sandbox commands (one for each task): the number of times the same command is repeated and failed, and the cumulative running time. Screen guards don't look at sandbox tools. */
 class SandboxGuard(private val budgetMs: Long = SANDBOX_BUDGET_MS) : OffScreenGuard {
     private var usedMs = 0L
     private var lastSignature: String? = null
@@ -29,7 +29,7 @@ class SandboxGuard(private val budgetMs: Long = SANDBOX_BUDGET_MS) : OffScreenGu
     override var stop: GuardVerdict? = null
         private set
 
-    /** 时长用完时代替执行的结果;没用完为 null。 */
+    /** The result of the replacement execution when the time runs out; if not, it is null. */
     override fun exhausted(tool: String): JsonObject? {
         if (tool !in SANDBOX_COMMANDS || usedMs < budgetMs) return null
         return buildJsonObject {
@@ -39,7 +39,7 @@ class SandboxGuard(private val budgetMs: Long = SANDBOX_BUDGET_MS) : OffScreenGu
         }
     }
 
-    /** 命令的时限不超过剩下的时长,一条命令不会把累计时长冲过上限。参数不对的原样交给工具层去拒。 */
+    /** The time limit of the command does not exceed the remaining time, and a command will not exceed the upper limit of the cumulative time. If the parameters are incorrect, leave them to the tool layer for rejection. */
     override fun capTimeout(call: Part.ToolCall, args: JsonObject): Part.ToolCall {
         if (call.name !in SANDBOX_COMMANDS || args.isEmpty()) return call
         val leftSec = ((budgetMs - usedMs) / 1000).coerceAtLeast(1)

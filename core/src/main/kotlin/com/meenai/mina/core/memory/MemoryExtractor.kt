@@ -19,11 +19,13 @@ import kotlinx.serialization.json.contentOrNull
 enum class NoteKind { added, updated, forgot, pending }
 
 /**
- * 结果卡片下的一行。只带种类和编号,不带记忆内容:对话文件是明文,内容每次从加密的记忆里现取([text])。
- * [undoToken] 交给 [MemoryStore.undo];[pendingId] 是待批准的做法(「好」= approve,「不要」= 撤销或删除)。
+ * A row below the results card. Only contains type and number, without memory content: the conversation
+ * file is plain text, and the content is fetched from the encrypted memory each time ([text]).
+ * [undoToken] is handed over to [MemoryStore.undo]; [pendingId] is pending approval ("OK" = approve,
+ * "Don't" = revoke or delete).
  */
 data class MemoryNote(val kind: NoteKind, val memoryId: String, val undoToken: String?, val pendingId: String?) {
-    /** [item] 是 [memoryId] 此刻的那条;已经不在了(删掉、清空)时写「一条已删除的记忆」。 */
+    /** [item] is the one at the moment of [memoryId]; when it is no longer there (deleted, cleared), write "a deleted memory". */
     fun text(item: MemoryItem?): String {
         val content = item?.content ?: DELETED
         return when (kind) {
@@ -40,8 +42,10 @@ data class MemoryNote(val kind: NoteKind, val memoryId: String, val undoToken: S
 }
 
 /**
- * 任务结束后的一次单独调用(轻量模型,不带工具):只看用户本次说的话和相关的已有记忆,给出增改删。
- * 模型给的每一条都由代码再校验一遍;模型出错或回复不合格时什么也不做,不影响任务结局。
+ * A separate call after the task (lightweight model, without tools): only look at what the user said
+ * this time and related existing memories, and provide additions, modifications and deletions. Every
+ * item given by the model is checked again by the code; if the model makes an error or the response is
+ * unqualified, nothing will be done, and the outcome of the task will not be affected.
  */
 class MemoryExtractor(private val model: ChatModel) {
     suspend fun extract(utterances: List<String>, related: List<MemoryItem>, store: MemoryStore, source: (String) -> MemorySource): List<Change> {
@@ -72,7 +76,7 @@ class MemoryExtractor(private val model: ChatModel) {
             }
             "update" -> {
                 val t = target ?: return null
-                // 一次性参数不能把长期偏好改掉
+                // One-time parameters cannot change long-term preferences
                 if (ONE_OFF.containsMatchIn(quote)) return null
                 val content = str("content")?.takeIf(::fromUser) ?: return null
                 store.update(t.id, content, keywords.takeIf { it.isNotEmpty() }, source(quote)).getOrNull()
@@ -105,11 +109,11 @@ class MemoryExtractor(private val model: ChatModel) {
 
         val PROMPT: String by lazy { Prompts.role("memory_extract") }
 
-        /** 与这次说的话相关的已有记忆(待批准的也给,免得重复提出同一条做法)。 */
+        /** Existing memories related to what was said this time (those awaiting approval will also be given to avoid repeating the same approach). */
         fun related(utterances: List<String>, items: List<MemoryItem>): List<MemoryItem> =
             MemoryIndex(items).search(utterances.joinToString("\n"), MAX_RELATED, includePending = true).map { it.first }
 
-        /** 变更翻成结果卡片下的提示行。 */
+        /** Change the prompt line under the result card. */
         fun notes(changes: List<Change>): List<MemoryNote> = changes.map { c ->
             when (c) {
                 is Change.Added ->
@@ -122,10 +126,11 @@ class MemoryExtractor(private val model: ChatModel) {
             }
         }
 
-        /** 回复里第一个能读的 JSON 对象(见 [ModelJson]);不合格返回 null。 */
+        /** The first readable JSON object in the reply (see [ModelJson]); returns null if unqualified. */
         internal fun parse(text: String): List<JsonObject>? {
             val obj = ModelJson.firstObject(text) ?: return null
             return (obj.field("ops", "operations") as? JsonArray)?.mapNotNull { it as? JsonObject }
         }
     }
 }
+

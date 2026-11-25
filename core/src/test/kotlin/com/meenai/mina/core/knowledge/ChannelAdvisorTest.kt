@@ -18,7 +18,7 @@ class ChannelAdvisorTest {
             "Available channels: 小红书 — app: installed (com.xingin.xhs), known way to do it in the app; web: xiaohongshu.com, known way to do it on the web",
             ChannelAdvisor.line(listOf(xhs), skills, ChannelFacts(setOf("com.xingin.xhs"), emptySet(), true)),
         )
-        // 没有网页做法时只给域名
+        // When there is no webpage method, only the domain name is given
         assertEquals(
             "Available channels: 小红书 — app: installed (com.xingin.xhs); web: xiaohongshu.com",
             ChannelAdvisor.line(listOf(xhs), testCatalog(), ChannelFacts(setOf("com.xingin.xhs"), emptySet(), true)),
@@ -26,7 +26,8 @@ class ChannelAdvisorTest {
     }
 
     @Test fun appEntryBringsItsLinkedSite() {
-        // App 条目只带包名,关联的站点名就是主域名;另一份站点条目归到同一个服务下
+        // The App entry only carries the package name, and the associated site name is the primary
+        // domain name; the other site entry is placed under the same service
         val app = entry("xhs", "小红书", listOf("com.xingin.xhs")).copy(related = listOf("xiaohongshu.com"))
         val site = entry("xiaohongshu.com", "小红书", domains = listOf("xiaohongshu.com")).copy(surface = Surface.Web, related = listOf("xhs"))
         assertEquals(
@@ -46,7 +47,7 @@ class ChannelAdvisorTest {
     @Test fun webUnavailableOmitsWeb() {
         assertEquals("Available channels: 小红书 — app: installed (com.xingin.xhs), known way to do it in the app",
             ChannelAdvisor.line(listOf(xhs), skills, ChannelFacts(setOf("com.xingin.xhs"), emptySet(), false)))
-        // 只有网页的条目,浏览器不可用时没有可说的
+        // Only entries for web pages, nothing to say when the browser is unavailable
         assertNull(ChannelAdvisor.line(listOf(entry("web", domains = listOf("example.com"))), skills, ChannelFacts(emptySet(), emptySet(), false)))
     }
 

@@ -28,9 +28,11 @@ import java.time.ZoneId
 const val VIEW_USER_SCREEN = "view_user_screen"
 
 /**
- * 再看用户发来的一屏(按编号,这个对话里的都行):App、时刻、屏上的字;主模型看得到图时附上截图,
- * 看不到图而有看图模型时,带着问题问看图模型那张截图(和读屏用的是同一个看图模型,只是看的是存下的那张,不是此刻的屏)。
- * 只在这次的话或之前几轮里带着用户的屏幕时提供。
+ * Look at the screen sent by the user (by number, everything in this conversation will work): App, time,
+ * and words on the screen; when the main model can see the picture, attach a screenshot. When the main
+ * model cannot see the picture and there is a picture model, ask the picture model which screenshot (the
+ * same picture model is used as the screen reader, but it is the saved one, not the current screen).
+ * Provided only this time or during previous rounds with the user's screen.
  */
 internal object ViewUserScreen : AgentTool {
     override val verb = Verb.ViewUserScreen
@@ -86,7 +88,7 @@ internal object ViewUserScreen : AgentTool {
         return ToolExecution(content, images = if (sees) listOf(png!!) else emptyList(), observations = listOf(seen))
     }
 
-    /** 屏上的字,一行一个,前面是中心点。 */
+    /** The words on the screen are one per line, with the center point in front. */
     fun textOf(screen: UserScreen): String = screen.lines.joinToString("\n") { "(${it.x},${it.y}) ${it.text}" }
 
     private inline fun <T> read(block: () -> T?): T? =

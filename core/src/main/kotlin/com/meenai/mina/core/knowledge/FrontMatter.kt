@@ -1,6 +1,6 @@
 package com.meenai.mina.core.knowledge
 
-/** 解析 APP.md 的头部:`key: value`、`key: [a, b]`、带引号字符串。值为 String 或 List<String>。 */
+/** Parse the header of APP.md: `key: value`, `key: [a, b]`, quoted strings. Value is String or List<String>. */
 object FrontMatter {
     fun parse(md: String): Pair<Map<String, Any>, String> {
         val text = md.removePrefix("﻿").replace("\r\n", "\n")
@@ -22,7 +22,7 @@ object FrontMatter {
         return map to lines.drop(end + 1).joinToString("\n").trim()
     }
 
-    // 引号内的逗号不分隔
+    // Commas within quotes are not delimited
     private fun splitList(s: String): List<String> {
         val out = mutableListOf<String>()
         val cur = StringBuilder()

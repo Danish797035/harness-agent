@@ -14,19 +14,23 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
 
-/** 「常用网站」里的一格:打开时去的主机名、在 Mina 里是否登录着(这个网站的任一主机名登录着就算)。 */
+/** One box in "Frequently Used Websites": the host name when opening, and whether it is logged in in Mina (it does not matter if any host name of this website is logged in). */
 data class FavoriteSite(val host: String, val loggedIn: Boolean)
 
-/** 用户对「常用网站」的改动:自己加的([pinned],按加入的先后)和从里面移除的([hidden])。 */
+/** Changes made by users to "frequently used websites": those added by themselves ([pinned], in order of addition) and those removed from it ([hidden]). */
 data class FavoriteEdits(val pinned: List<String> = emptyList(), val hidden: Set<String> = emptySet())
 
 /**
- * 浏览器页「常用网站」:用户自己加的网站在前,后面是站点登记表里的网站(Agent 和用户访问过的;登录过的在前)。
- * 同一网站(同一可注册域名)只占一格,打开时去其中最短的主机名。
+ * Browser page "frequently used websites": websites added by the user are first, followed by websites in
+ * the site registration list (those visited by the Agent and the user; those logged in first). The same
+ * website (the same registrable domain name) only occupies one space. When opening, go to the shortest
+ * host name among them.
  *
- * 只记用户的改动,不动站点登记表:从常用里移除只是不显示,登录状态、Cookie 和 Agent 用的登记都照旧
- * (退出登录在设置页「网站登录」里做);再加回来就又显示。
- * 存在 App 私有目录的一个 JSON 文件里;文件坏了就从空表重新开始。
+ * Only the user's changes are recorded, and the site registration form is not moved: it is not displayed
+ * when removed from the general menu, and the login status, cookie and agent registration are still the
+ * same (log out in the "Website Login" of the settings page); it is displayed again when added back. It
+ * is stored in a JSON file in the App's private directory; if the file is damaged, start over from the
+ * empty table.
  */
 class BrowserFavorites(dir: File) {
     private val file = File(dir, FILE)
@@ -34,7 +38,7 @@ class BrowserFavorites(dir: File) {
 
     val edits: StateFlow<FavoriteEdits> = _edits.asStateFlow()
 
-    /** 加入常用:放到自己加的最后;以前移除过的这个网站重新显示。 */
+    /** Add frequently used: Put it at the end of what you add; the website that has been removed before will be redisplayed. */
     @Synchronized
     fun add(host: String) {
         val h = norm(host) ?: return
@@ -43,7 +47,7 @@ class BrowserFavorites(dir: File) {
         save(FavoriteEdits(e.pinned.filter { siteKey(it) != site } + h, e.hidden - site))
     }
 
-    /** 从常用移除:自己加的去掉,登记表里来的不再显示。 */
+    /** Remove from common use: remove the ones added by yourself, and those from the registration list will no longer be displayed. */
     @Synchronized
     fun remove(host: String) {
         val h = norm(host) ?: return
@@ -70,7 +74,8 @@ class BrowserFavorites(dir: File) {
             put("pinned", JsonArray(e.pinned.map(::JsonPrimitive)))
             put("hidden", JsonArray(e.hidden.sorted().map(::JsonPrimitive)))
         }.toString()
-        // 先写临时文件再改名,写到一半被杀不会留下半个文件
+        // Write the temporary file first and then rename it. If it is killed in the middle of writing,
+        // half of the file will not be left.
         val tmp = File(file.parentFile, "$FILE.tmp")
         tmp.writeText(json)
         if (!tmp.renameTo(file)) {
@@ -80,7 +85,7 @@ class BrowserFavorites(dir: File) {
     }
 
     companion object {
-        /** 网格至多这么多格网站(再加一格「＋」,一行四个正好三行)。 */
+        /** The grid can have at most this many cells (plus one "+" cell, so four in a row are exactly three rows). */
         const val LIMIT = 11
         private const val FILE = "browser_favorites.json"
 
@@ -90,10 +95,10 @@ class BrowserFavorites(dir: File) {
             return WebUrlPolicy.host(if ("://" in s) s else "https://$s")
         }
 
-        /** 同一网站的标记:可注册域名,拿不准时是主机名本身。 */
+        /** The mark of the same website: the registrable domain name, sometimes the host name itself. */
         fun siteKey(host: String): String = WebUrlPolicy.registrable(host) ?: host
 
-        /** 合成网格:自己加的在前(按加入先后),再按登记表的顺序;同一网站一格,移除过的不显示,至多 [limit] 格。 */
+        /** Synthetic grid: Add the ones you add first (in the order of adding), then follow the order of the registration form; there is one grid for the same website, and the removed grids will not be displayed, up to [limit] grids. */
         fun combine(edits: FavoriteEdits, registry: List<SiteEntry>, limit: Int = LIMIT): List<FavoriteSite> {
             val bySite = registry.groupBy { siteKey(it.host) }
             fun loggedIn(site: String) = bySite[site].orEmpty().any { it.loggedInByUser }
@@ -111,13 +116,13 @@ class BrowserFavorites(dir: File) {
             return out.values.take(limit)
         }
 
-        /** [host] 所在的网站在 Mina 里是否登录着(登记表里这个网站的任一主机名登录着)。 */
+        /** Is the website where [host] is logged in in Mina (any host name of this website in the registration table is logged in). */
         fun loggedIn(registry: List<SiteEntry>, host: String): Boolean {
             val site = siteKey(host)
             return registry.any { it.loggedInByUser && siteKey(it.host) == site }
         }
 
-        /** [host] 所在的网站在不在 [sites] 里。 */
+        /** Is the website where [host] is located in [sites]? */
         fun contains(sites: List<FavoriteSite>, host: String): Boolean {
             val site = siteKey(host)
             return sites.any { siteKey(it.host) == site }

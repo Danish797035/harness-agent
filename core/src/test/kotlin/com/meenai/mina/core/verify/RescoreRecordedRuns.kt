@@ -7,13 +7,18 @@ import java.io.File
 import java.time.ZoneId
 
 /**
- * 离线重算:用现在的 [Grounding] 重新核对录下来的运行(不调模型)。没设目录时跳过。
+ * Offline recalculation: Recheck the recorded run with the current [Grounding] (without adjusting the
+ * model). Skip if no directory is set.
  *
- *   MINA_RESCORE_DIR=/path/to/runs ./gradlew :core:test --tests '*RescoreRecordedRuns*' --rerun
+ * MINA_RESCORE_DIR=/path/to/runs./gradlew:core:test --tests '*RescoreRecordedRuns*' --rerun
  *
- * 递归找目录下所有 events.jsonl;每次核查(verifier 事件)按 [RecordedVerifications] 配上它核的那次 finish(不论先后)取回答,
- * 证据用核查之前的全部读屏文字和工具结果里的全部字符串(不含那次 finish 自己的),相对日期按那次核查的时刻换算(时区取
- * MINA_RESCORE_ZONE,没设用本机的)。结果写到 <目录>/rescore.tsv:运行、当时的结论与理由、现在的兜底结论、找不到的事实。
+ * Recursively search for all events.jsonl in the directory; each verification (verifier event) presses
+ * [RecordedVerifications] with the finish it verified (regardless of the order) to get the answer. The
+ * evidence uses all the screen reading text before verification and all the strings in the tool results
+ * (excluding the finish itself), and the relative date is converted according to the time of that
+ * verification (the time zone is MINA_RESCORE_ZONE, not the local one). The result is written as
+ * <Contents>/rescore.tsv: operation, conclusions and reasons at that time, current conclusions, and facts that
+ * cannot be found.
  */
 class RescoreRecordedRuns {
     @Test fun rescore() {

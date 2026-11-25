@@ -15,12 +15,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 服务商列出的一个模型。能力字段为 null 表示接口没给,由调用方沿用自己的初值,这里不猜。
+ * A model listed by the service provider. If the capability field is null, it means that the interface
+ * is not provided, and the caller will use its own initial value. I won’t guess here.
  *
- * 有的服务商一个 Key 下的模型走不同的接口协议,列表里给每个模型写明协议和地址(`api` 表)。
- * [endpoint] 是其中 Mina 会说的那一种,调用这个模型时按它选适配器和地址;为 null 时按服务商的接口类型。
- * [unsupportedApis] 是写明了、但 Mina 一种也不会说的协议名:这样的模型调用必然失败,不给选(见 [usable])。
- * [chat] 是接口说没说它是对话模型(`type` 是 chat / embedding / rerank…,或输出模态里有没有文字);没说为 null。
+ * Some service providers use different interface protocols for models under one Key, and the protocol
+ * and address (`api` table) are written for each model in the list. [endpoint] is the one that Mina will
+ * say. When calling this model, select the adapter and address according to it; when it is null, select
+ * the interface type of the service provider. [unsupportedApis] is a protocol name that is clearly
+ * stated, but Mina cannot say it: such a model call must fail and will not be selected (see [usable]).
+ * [chat] is an interface, but it does not say it is a dialogue model (`type` is chat / embedding /
+ * rerank..., or whether there is text in the output modal); it is null if it is not said.
  */
 data class ListedModel(
     val id: String,
@@ -32,42 +36,48 @@ data class ListedModel(
     val endpoint: ModelEndpoint? = null,
     val unsupportedApis: List<String> = emptyList(),
     val chat: Boolean? = null,
-    /** 服务商明确给出的思考档位;null 表示未知,空列表表示没有可选档位。保留服务商的顺序。 */
+    /** The thinking gear clearly given by the service provider; null means unknown, and the empty list means there is no optional gear. Keep the order of service providers. */
     val reasoningEfforts: List<String>? = null,
     /**
-     * 服务商写明这个模型接受的思考方式(Anthropic 列表 `capabilities.thinking.types` 里支持的那几种,
-     * 如 `adaptive`、`enabled`、`disabled`);null 表示没说。
+     * The service provider specifies the thinking methods accepted by this model (those supported in the
+     * Anthropic list `capabilities.thinking.types`, such as `adaptive`, `enabled`, `disabled`); null
+     * means not mentioned.
      */
     val thinkingTypes: List<String>? = null,
     /**
-     * 接口写明了这个模型能走哪几种协议(有的聚合服务用 `supported_endpoints` 给出,如 `/chat/completions`、
-     * `/messages`);null 表示没说。用不在其中的接口类型调用必然失败,见 [ModelProtocol.ofPath]。
+     * The interface specifies which protocols this model can use (some aggregation services are given as
+     * `supported_endpoints`, such as `/chat/completions`, `/messages`); null means not mentioned.
+     * Calling with an interface type that is not among them must fail, see [ModelProtocol.ofPath].
      */
     val protocols: List<ModelProtocol>? = null,
 ) {
     val usable: Boolean get() = endpoint != null || unsupportedApis.isEmpty()
 }
 
-/** 模型列表里 `api` 表认得的接口协议;[wire] 是表里的键名。 */
+/** `api` in the model list represents the recognized interface protocol; [wire] is the key name in the table. */
 enum class ModelProtocol(val wire: String) {
-    /** OpenAI Chat Completions,由 [OpenAiCompatModel] 调用。 */
+    /** OpenAI Chat Completions, called by [OpenAiCompatModel]. */
     ChatCompletions("chat-completions"),
-    /** Anthropic Messages,由 [AnthropicModel] 调用。 */
+    /** Anthropic Messages, called by [AnthropicModel]. */
     Messages("messages"),
-    /** Gemini generateContent,由 [GeminiModel] 调用。 */
+    /** Gemini generateContent, called by [GeminiModel]. */
     GenerateContent("generate-content"),
-    /** OpenAI Responses,由 [ResponsesModel] 调用。排在最后:同一个模型也写了前几种的,照旧用前几种。 */
+    /** OpenAI Responses, called by [ResponsesModel]. Ranked last: the same model has also written the first few, so the first few are still used. */
     Responses("responses");
 
     companion object {
         fun of(wire: String?): ModelProtocol? = entries.firstOrNull { it.wire == wire }
 
         /**
-         * 按端点路径认协议:有的聚合服务用 `supported_endpoints` 给每个模型能走哪些端点(`/chat/completions`、
-         * `/messages`、`/responses`、`/v1beta/models/{模型}:generateContent`),只写路径不写协议名。认不出为 null。
+         * Identify the protocol by endpoint path: Some aggregation services use `supported_endpoints` to
+         * indicate which endpoints each model can reach (`/chat/completions`, `/messages`, `/responses`,
+         * `/v1beta/models/{model}:generateContent`), and only write the path but not the protocol name. Not
+         * recognized is null.
          *
-         * 只认 `…:generateContent` 这一种 Gemini 生成端点:裸的 `/models`(或 `/v1/models`、`/provider/v1/models`)
-         * 是列模型的端点,列得出来不等于调得动,按它认定「能生成」会让不该试的模型被试一次,所以宁可认不出。
+         * Only the `…:generateContent` Gemini generation endpoint is recognized: the bare `/models` (or
+         * `/v1/models`, `/provider/v1/models`) is the endpoint of the column model. Being listed does
+         * not mean that it can be adjusted. If it is determined as "can be generated", the model that
+         * should not be tried will be tested once, so it is better not to recognize it.
          */
         fun ofPath(path: String?): ModelProtocol? {
             val p = path?.trim()?.trimEnd('/')?.lowercase() ?: return null
@@ -83,14 +93,17 @@ enum class ModelProtocol(val wire: String) {
 }
 
 /**
- * 一个模型单独指定的接口:协议、列表里给的地址([baseUrl],是这个协议的根,如 `…/anthropic/v1`),
- * 以及兼容接口把思考内容放在哪个字段([reasoningField],如 `reasoning_content`;没说为 null)。
+ * A model individually specifies the interface: the protocol, the address given in the list ([baseUrl],
+ * which is the root of this protocol, such as `…/anthropic/v1`), and the field in which the compatible
+ * interface puts the thinking content ([reasoningField], such as `reasoning_content`; it is not said to
+ * be null).
  */
 data class ModelEndpoint(val protocol: ModelProtocol, val baseUrl: String, val reasoningField: String? = null) {
     /**
-     * 交给适配器的 Base URL。适配器自己接版本路径:[AnthropicModel] 接 `/v1/messages`、[GeminiModel] 接
-     * `/v1beta/models/…`,所以列表地址末尾已带的这一段去掉,免得重复;Chat Completions 只接 `/chat/completions`、
-     * Responses 只接 `/responses`,原样用。
+     * Base URL passed to the adapter. The adapter itself connects to the version path: [AnthropicModel]
+     * connects to `/v1/messages`, [GeminiModel] connects to `/v1beta/models/…`, so the paragraph at the
+     * end of the list address is removed to avoid duplication; Chat Completions only connects to
+     * `/chat/completions`, and Responses only connects to `/responses`. Use them as they are.
      */
     val adapterBaseUrl: String
         get() {
@@ -103,7 +116,7 @@ data class ModelEndpoint(val protocol: ModelProtocol, val baseUrl: String, val r
         }
 }
 
-/** 列模型为什么失败;[text] 是给人看的原因。 */
+/** Why the column model failed; [text] is the reason for people to see. */
 enum class ListFailure(val text: String) {
     BadUrl("接口地址不对,要以 http:// 或 https:// 开头"),
     Auth("API Key 无效或没有权限"),
@@ -118,7 +131,7 @@ enum class ListFailure(val text: String) {
     ;
 
     companion object {
-        /** 请求没发成:代理那一段的问题照实说,别的算连不上。 */
+        /** The request was not sent: report proxy failures as such and treat anything else as unreachable. */
         fun of(e: Throwable): ListFailure = when ((e as? ModelError.Proxy)?.failure) {
             ProxyFailure.Unreachable -> ProxyUnreachable
             ProxyFailure.AuthFailed -> ProxyAuth
@@ -135,21 +148,30 @@ sealed interface ModelListResult {
 }
 
 /**
- * 用各家公开的「列出模型」接口取可用模型:
- * - OpenAI 兼容:`GET {base}/models`(Bearer)。只给 id 的照实返回;带 `context_length`、
- *   `architecture.input_modalities`、`supported_parameters` 等字段的(部分聚合服务会给)才填能力。
- *   也认另一种写法:`capabilities.tools.supported`、`capabilities.reasoning.supported`、`limit.context`、
- *   `modalities.input`(有 `image/…` 即能看图),以及按协议给地址的 `api` 表(见 [ListedModel.endpoint])。
- *   用 ChatGPT 账号列出的是 `models` 表:名字在 `slug`、显示名在 `display_name`,只留 `visibility` 为 `list` 的、保持服务端的次序;
- *   给了 `input_modalities`、`context_window`、`supported_reasoning_levels` 的照填。
- * - Anthropic:`GET {base}/v1/models`,按 `after_id` 翻页;`max_input_tokens` 是上下文,
- *   `capabilities.image_input` / `capabilities.thinking` 是看图和推理。不给工具调用信息。
- *   思考档位按 `capabilities.effort` 和 `capabilities.thinking.types` 逐项照填(见 [anthropicEfforts])。
- * - Gemini:`GET {base}/v1beta/models`,按 `pageToken` 翻页;只留能 `generateContent` 的,
- *   `inputTokenLimit` 是上下文,`thinking` 是推理。不给工具调用和看图信息,也不给思考档位。
+ * Use the public "list model" interface to get the available models:
+ * - - OpenAI compatible: `GET {base}/models`(Bearer). Only return the id truthfully; with
+ * `context_length`,
+ * `architecture.input_modalities`, `supported_parameters` and other fields (some aggregation services
+ * will provide) the ability to fill in only. There are also other ways of writing:
+ * `capabilities.tools.supported`, `capabilities.reasoning.supported`, `limit.context`,
+ * `modalities.input` (you can see the picture if you have `image/…`), and the `api` table that gives
+ * addresses according to the protocol (see [ListedModel.endpoint]). What is listed using the ChatGPT
+ * account is the `models` table: the name is in `slug`, the display name is in `display_name`, only
+ * `visibility` is left as `list`, and the order of the server is maintained; `input_modalities`,
+ * `context_window`, and `supported_reasoning_levels` are filled in accordingly.
+ * - - Anthropic: `GET {base}/v1/models`, press `after_id` to turn the page; `max_input_tokens` is the
+ * context,
+ * `capabilities.image_input` / `capabilities.thinking` is about looking at pictures and reasoning. Does
+ * not give tool call information. The thinking gears are filled in according to `capabilities.effort`
+ * and `capabilities.thinking.types` one by one (see [anthropicEfforts]).
+ * - - Gemini: `GET {base}/v1beta/models`, press `pageToken` to turn the page; only `generateContent` is
+ * left,
+ * `inputTokenLimit` is context, `thinking` is inference. It does not provide tool calling and image
+ * viewing information, nor does it provide thinking gear.
  */
 class ModelCatalog(private val http: OkHttpClient) {
-    // 各方法的 headers:每个请求都带的头(见 [ClientHeaders]);Key 的头由这里自己加
+    // Headers of each method: the headers carried by each request (see [ClientHeaders]); the Key header
+    // is added here.
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun openAiCompat(baseUrl: String, apiKey: String?, headers: Map<String, String> = emptyMap()): ModelListResult = run {
@@ -197,7 +219,8 @@ class ModelCatalog(private val http: OkHttpClient) {
     }
 
     private fun openAiModel(o: JsonObject): ListedModel? {
-        // 用 ChatGPT 账号列模型时(`models` 表)名字在 `slug`、显示名在 `display_name`,只留 `visibility` 为 list 的
+        // When using the ChatGPT account list model (`models` table), the name is in `slug`, the display
+        // name is in `display_name`, and only `visibility` is left in the list
         o.str("visibility")?.let { if (it != "list") return null }
         val id = (o.str("id") ?: o.str("slug"))?.takeIf { it.isNotBlank() } ?: return null
         val arch = o["architecture"] as? JsonObject
@@ -216,12 +239,14 @@ class ModelCatalog(private val http: OkHttpClient) {
                 ?.trim()?.takeIf { it.isNotEmpty() }
         }?.distinct()
         val api = o.obj("api")
-        // 有的聚合服务不给 `api` 表,改用 `supported_endpoints` 写这个模型能走哪几个端点
+        // Some aggregation services do not provide the `api` table and use `supported_endpoints`
+        // instead. Which endpoints can be used to write this model?
         val protocols = (o["supported_endpoints"] as? JsonArray)
             ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(ModelProtocol::ofPath) }
             ?.distinct()
             ?.takeIf { it.isNotEmpty() }
-        // 一个模型可能写了几种协议:按 Chat Completions、Messages、generateContent、Responses 的次序取第一种会说的
+        // A model may write several protocols: Take the first one in the order of Chat Completions,
+        // Messages, generateContent, and Responses
         val endpoint = api?.let { a ->
             ModelProtocol.entries.firstNotNullOfOrNull { p ->
                 val e = a.obj(p.wire) ?: return@firstNotNullOfOrNull null
@@ -247,7 +272,8 @@ class ModelCatalog(private val http: OkHttpClient) {
             chat = when (o.str("type")?.lowercase()) {
                 in CHAT_TYPES -> true
                 in NON_CHAT_TYPES -> false
-                // 只出图、出声音的不是对话模型;出文字的不另记
+                // Those that only produce pictures and sounds are not dialogue models; those that
+                // produce text are not separately recorded.
                 else -> outputs?.takeIf { "text" !in it }?.let { false }
             },
         )
@@ -270,9 +296,11 @@ class ModelCatalog(private val http: OkHttpClient) {
     }
 
     /**
-     * Anthropic 模型可选的思考档位:只在它接受自适应思考(`adaptive`,档位放 `output_config.effort`)时给,
-     * 档位是 `capabilities.effort` 里标了支持的那几级;也接受关掉思考(`disabled`)的,前面加一档 `none`。
-     * 只接受按预算思考(`enabled` + `budget_tokens`)或不分档位的,没有可选档位。
+     * The optional thinking gears of the Anthropic model: only given when it accepts adaptive thinking
+     * (`adaptive`, the gear is `output_config.effort`), the gears are the supported levels marked in
+     * `capabilities.effort`; it also accepts turning off thinking (`disabled`), with a gear `none` in
+     * front. Only those who think based on budget (`enabled` + `budget_tokens`) or regardless of grade
+     * are accepted. There is no optional grade.
      */
     private fun anthropicEfforts(effort: JsonObject?, types: List<String>): List<String> {
         val levels = effort?.takeIf { it.bool("supported") == true }?.supportedKeys().orEmpty()
@@ -281,7 +309,7 @@ class ModelCatalog(private val http: OkHttpClient) {
         return listOfNotNull("none".takeIf { "disabled" in types }) + levels
     }
 
-    /** `{"a":{"supported":true},"b":{"supported":false},"supported":true}` 里标了支持的子项:`[a]`。 */
+    /** `{"a":{"supported":true},"b":{"supported":false},"supported":true}` is marked with supported subkeys: `[a]`. */
     private fun JsonObject.supportedKeys(): List<String> = keys.filter { (this[it] as? JsonObject)?.bool("supported") == true }
 
     private fun geminiModel(o: JsonObject): ListedModel? {
@@ -317,7 +345,7 @@ class ModelCatalog(private val http: OkHttpClient) {
 
     private fun failureFor(status: Int, body: String): ModelListResult.Failed = when {
         status == 401 || status == 403 -> ModelListResult.Failed(ListFailure.Auth)
-        // Gemini 对无效 Key 回 400 INVALID_ARGUMENT,原因写在内容里
+        // Gemini returns 400 INVALID_ARGUMENT for invalid Key, the reason is written in the content
         status == 400 && (body.contains("API_KEY_INVALID") || body.contains("API key not valid")) -> ModelListResult.Failed(ListFailure.Auth)
         status == 402 || body.contains("insufficient_quota") -> ModelListResult.Failed(ListFailure.Quota)
         status == 429 -> ModelListResult.Failed(ListFailure.RateLimited)
@@ -336,11 +364,11 @@ class ModelCatalog(private val http: OkHttpClient) {
     private fun JsonObject.int(k: String): Int? = (this[k] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
 
     private companion object {
-        /** 翻页上限:防止服务端一直给下一页。 */
+        /** Page turning upper limit: prevent the server from always giving the next page. */
         const val MAX_PAGES = 10
-        /** Anthropic 的 `capabilities.effort` 按字母排;界面按由浅到深排,不认得的排最后。 */
+        /** Anthropic's `capabilities.effort` are arranged alphabetically; the interfaces are arranged from shallower to deeper, with those you don't recognize last. */
         val EFFORT_ORDER = listOf("low", "medium", "high", "xhigh", "max")
-        /** 列表里 `type` 一项的写法:是对话模型的,和不是的(向量、重排、画图、语音、审核)。 */
+        /** The way to write `type` in the list: it is a dialogue model, and it is not (vector, rearrangement, drawing, speech, review). */
         val CHAT_TYPES = setOf("chat", "llm", "language", "text", "vlm", "code")
         val NON_CHAT_TYPES = setOf(
             "embedding", "embeddings", "rerank", "reranker", "image", "images", "video", "audio", "tts", "stt", "asr",

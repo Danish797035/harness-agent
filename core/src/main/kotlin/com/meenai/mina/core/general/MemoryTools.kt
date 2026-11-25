@@ -32,7 +32,7 @@ import kotlinx.serialization.json.put
 
 private const val MEMORY_SEARCH_LIMIT = 8
 
-/** 记忆和用户本次说过的话都给了才提供。 */
+/** It is provided only after the memory and what the user has said this time are given. */
 private fun memoryOn(ctx: ToolContext) = ctx.config.memory != null && ctx.config.utterances != null
 
 internal object MemorySearch : AgentTool {
@@ -55,7 +55,7 @@ internal object MemorySearch : AgentTool {
         }
     }
 
-    /** 记忆里的是用户以前说的:作为用户给的事实交给核查。 */
+    /** What is in the memory is what the user said before: the facts given by the user are submitted for verification. */
     override fun observations(o: JsonObject, r: ToolExecution, log: EvidenceLog): List<Observation> {
         if (r.content["ok"] != JsonPrimitive(true)) return emptyList()
         return listOfNotNull((r.content["memories"] as? JsonArray)?.takeIf { it.isNotEmpty() }?.let { list ->
@@ -65,7 +65,7 @@ internal object MemorySearch : AgentTool {
     }
 }
 
-/** 只改 Mina 自己的记忆,不动屏幕和外部世界。 */
+/** Only Mina's own memory is modified, leaving the screen and the outside world untouched. */
 internal object MemorySave : AgentTool {
     override val verb = Verb.MemorySave
     override val risk = Risk.Read
@@ -89,10 +89,12 @@ internal object MemorySave : AgentTool {
         val quote = a.str("quote", max = 1000)!!
         val keywords = a.strList("keywords", 0, MemoryStore.MAX_KEYWORDS, itemMax = 30) ?: emptyList()
         val utterances = ctx.config.utterances!!
-        // 引文要出自用户本次说的话;屏幕和网页上的字不能当成用户说的
+        // The quotation must come from what the user said this time; the words on the screen and web
+        // page cannot be regarded as what the user said.
         if (!utterances.contains(quote)) return fail("quote_not_from_user",
             Feedback["memory.quote_not_from_user"], recoverable = false)
-        // 引文对上了,内容里的具体值(地址、号码、名字)也得是用户说过的,不能从屏幕上补
+        // The citations are correct, and the specific values (address, number, name) in the content
+        // must also be what the user has said and cannot be filled in from the screen.
         if ((listOf(content) + keywords).any { utterances.unsupportedSpecifics(it, quote).isNotEmpty() }) return fail("content_not_from_user",
             Feedback["memory.content_not_from_user"], recoverable = false)
         val store = ctx.config.memory!!
@@ -113,3 +115,4 @@ internal object MemorySave : AgentTool {
         )
     }
 }
+

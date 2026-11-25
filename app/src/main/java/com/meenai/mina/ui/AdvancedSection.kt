@@ -50,8 +50,10 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
- * 设置 › 文件与计算环境 的文案(纯函数,便于测试)。运行环境对用户是看不见的实现细节(产品决定):
- * 字面上只说「脚本」「处理文件」「运行环境」,不出现沙箱、Linux、PRoot、Alpine 等技术名词。
+ * Copywriting for Settings › Files and Computing Environment (pure function, easy for testing). The
+ * implementation details of the running environment are invisible to users (product decisions):
+ * literally only "scripts", "processing files" and "running environment" are mentioned, and technical
+ * terms such as sandbox, Linux, PRoot, and Alpine do not appear.
  */
 object SandboxCopy {
     val NETWORK_TITLE: String get() = tr(R.string.sandbox_network)
@@ -67,8 +69,10 @@ object SandboxCopy {
     val CLEAR_ALL_BODY: String get() = tr(R.string.sandbox_usage_clear_all_body)
 
     /**
-     * 代理那一行的说明(代理在 设置 › 网络代理 里改,这里只引过来看):没设是直连;设了写主机和端口
-     * (不带账号密码,这一行随时看得到);联网关着时说要先允许联网才生效。
+     * Description of the proxy line (the proxy can be changed in Settings › Network Proxy, and is only
+     * referenced here): If it is not set, it is a direct connection; if it is set, write the host and
+     * port (without the account and password, this line can be seen at any time); when the network is
+     * turned off, it says that the Internet must be allowed first before it will take effect.
      */
     fun proxySub(proxy: String, networkAllowed: Boolean): String = when {
         proxy.isBlank() -> tr(R.string.sandbox_proxy_sub)
@@ -78,7 +82,7 @@ object SandboxCopy {
 
     fun clearBody(w: WorkspaceUsage): String = tr(R.string.sandbox_usage_clear_body, workspaceTitle(w))
 
-    /** 工作区那一行的名字:对话标题;对话已经删了的写明。 */
+    /** The name of the line in the workspace: conversation title; if the conversation has been deleted, indicate it. */
     fun workspaceTitle(w: WorkspaceUsage): String = w.title?.let(ChatCopy::plainTitle)?.takeIf(String::isNotBlank) ?: tr(R.string.sandbox_usage_deleted_chat)
 
     fun usageRows(u: SandboxUsage): List<Pair<String, Long>> = listOf(
@@ -88,7 +92,7 @@ object SandboxCopy {
         tr(R.string.sandbox_usage_workspaces) to u.workspacesTotal,
     )
 
-    /** 字节数按人看得懂的单位写。 */
+    /** The number of bytes is written in human-readable units. */
     fun size(bytes: Long): String = when {
         bytes >= 1L shl 30 -> "%.1f GB".format(Locale.ROOT, bytes.toDouble() / (1L shl 30))
         bytes >= 1L shl 20 -> "%.1f MB".format(Locale.ROOT, bytes.toDouble() / (1L shl 20))
@@ -99,7 +103,7 @@ object SandboxCopy {
     val RESET_TITLE: String get() = tr(R.string.sandbox_reset_title)
     val RESET_BODY: String get() = tr(R.string.sandbox_reset_body)
 
-    /** 「重置运行环境」下面的一行:平时说明会怎样,准备中或准备失败时如实说。 */
+    /** The line below "Reset the operating environment": explain what will happen in normal times, tell the truth when preparing or when preparation fails. */
     fun resetSubtitle(s: SandboxStatus): String = when (s) {
         is SandboxStatus.Installing -> tr(R.string.runtime_preparing)
         is SandboxStatus.Broken -> tr(R.string.sandbox_broken, s.reason)
@@ -108,8 +112,11 @@ object SandboxCopy {
 }
 
 /**
- * 接上真实状态的「文件与计算环境」页内容:联网开关读写 [SandboxState];代理读 [NetProxyStore](在设置首页改,这里只显示);
- * 已用空间进页面时在后台读一遍,清理经 [SandboxUsageReader](有任务在跑的对话不清);重置后马上在后台重新准备。
+ * Connected to the real status of the "File and Computing Environment" page content: network switch read
+ * and write [SandboxState]; agent read [NetProxyStore] (changed on the settings home page, only
+ * displayed here); read the used space in the background when entering the page, clean up
+ * [SandboxUsageReader] (the dialogue with tasks running is unclear); immediately prepare again in the
+ * background after reset.
  */
 @Composable
 fun AdvancedSettings() {
@@ -153,7 +160,7 @@ fun AdvancedSettings() {
     )
 }
 
-/** 不带状态的「文件与计算环境」页内容,便于测试。不支持的设备整组不显示。 */
+/** The content of the "Files and Computing Environment" page without status is convenient for testing. The entire group of unsupported devices is not displayed. */
 @Composable
 fun AdvancedSection(
     status: SandboxStatus,
@@ -161,9 +168,9 @@ fun AdvancedSection(
     isolationIssue: Boolean,
     onNetworkChange: (Boolean) -> Unit,
     onReset: () -> Unit,
-    /** 网络代理(设置 › 网络代理),空串表示不用。 */
+    /** Network proxy (Settings › Network proxy), an empty string means not using it. */
     proxy: String = "",
-    /** 已用空间;还没读出来为 null(这一组先不显示)。 */
+    /** Used space; it is null if it has not been read yet (this group will not be displayed yet). */
     usage: SandboxUsage? = null,
     onClearWorkspace: (WorkspaceUsage) -> Unit = {},
     onClearAll: () -> Unit = {},
@@ -178,7 +185,8 @@ fun AdvancedSection(
             MinaSwitch(networkAllowed, onNetworkChange, Modifier.testTag("sandbox-network"))
         }
         Note(SandboxCopy.NETWORK_EXPLAIN, if (networkAllowed) MinaTheme.colors.warn else MinaTheme.colors.ink3)
-        // 代理在设置首页改(Mina 自己的连接也走它);这里的命令只在允许联网时拿到它
+        // The proxy is changed on the settings home page (Mina's own connection also uses it); the
+        // command here only gets it when the Internet is allowed.
         ListRow(MinaIcons.Globe, SandboxCopy.PROXY_TITLE, SandboxCopy.proxySub(proxy, networkAllowed))
         if (isolationIssue) Note(SandboxCopy.ISOLATION_UNAVAILABLE, MinaTheme.colors.bad)
         ListRow(MinaIcons.Close, tr(R.string.sandbox_reset), SandboxCopy.resetSubtitle(status), titleColor = MinaTheme.colors.bad, tone = TileTone.Bad,
@@ -223,8 +231,9 @@ private fun Note(text: String, color: Color) {
 }
 
 /**
- * 已用空间:合计、运行环境、技能、对话的工作区各占多少;下面按对话列出工作区(大的在前),点一行清掉它(先确认),
- * 有任务在跑的对话写明暂时不能清;最后一行清空所有工作区。
+ * Used space: Total, running environment, skills, and dialogue workspaces. List the workspaces by
+ * dialogue below (larger first). Click a line to clear it (confirm first). Dialogues with tasks running
+ * indicate that they cannot be cleared temporarily; the last line clears all workspaces.
  */
 @Composable
 private fun UsageGroup(u: SandboxUsage, onClear: (WorkspaceUsage) -> Unit, onClearAll: () -> Unit) {

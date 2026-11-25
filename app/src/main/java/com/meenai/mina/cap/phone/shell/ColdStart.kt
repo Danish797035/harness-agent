@@ -1,8 +1,9 @@
 package com.meenai.mina.cap.phone.shell
 
 /**
- * launch_app cold=true 时能不能结束进程。结束进程会连带清掉这个 App 在任何屏上的状态,
- * 所以只要它在 Mina 的屏以外还有任务(哪怕在后台),就不结束,改为普通启动。
+ * Can the process be terminated when launch_app cold=true? Ending the process will also clear the status
+ * of the App on any screen, so as long as it has tasks outside Mina's screen (even in the background),
+ * it will not end and will be started normally.
  */
 enum class ColdStart {
     RESTART, WARM, IN_USE;

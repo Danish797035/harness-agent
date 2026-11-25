@@ -12,8 +12,10 @@ import com.meenai.mina.ui.ExchangeStatus
 import com.meenai.mina.ui.StatusCopy
 
 /**
- * 卡片里的一件事:[kind]/[line] 和胶囊上那件事的说法一致;[startedAt] 在跑、等条件时有(显示用时);
- * [ahead]/[behind] 是接管队里排在它前面、后面还有几件(主屏一次只交一个 App)。
+ * One thing in the card: [kind]/[line] is consistent with the thing on the capsule; [startedAt] is there
+ * when running and waiting for conditions (the time is displayed); [ahead]/[behind] is there are several
+ * things in front of and behind it in the takeover team (only one App is handed in at a time on the main
+ * screen).
  */
 data class CardRun(
     val run: CapsuleRun,
@@ -25,17 +27,23 @@ data class CardRun(
 )
 
 /**
- * 卡片此刻显示什么:卡片只说一件事,不是列表(怎么挑见 [CapsuleCards.of])。那件此刻在操作 App 或网页就是任务卡片([Detail]),
- * 否则是那个对话的对话卡片([Chat]);没有任务(开关是「一直显示」)时也是对话卡片,不带任务。
+ * What does the card show at the moment: The card only says one thing, not a list (how to pick
+ * [CapsuleCards.of]). The thing that is operating the App or web page at the moment is the task card
+ * ([Detail]), otherwise it is the conversation card ([Chat]) of that conversation; when there is no task
+ * (the switch is "always displayed"), it is also the conversation card without tasks.
  */
 sealed interface CardView {
-    /** 任务卡片:小画面、步骤、要你做的事和按钮。 */
+    /** Task card: small screen, steps, things you need to do and buttons. */
     data class Detail(val run: CardRun, val content: CardContent) : CardView
 
     /**
-     * 对话卡片:[conversationId] 那个对话的来回(见 [ChatThread])。带着 [run] 时是那件事所在的对话,[content] 是它此刻的样子
-     * (要你回答、同意时按钮固定在对话下面)。不带任务时是空闲卡片:接着用户此刻在的那个对话([current]),没有记录时接着最近的
-     * 那个([title] 是它的标题);[fresh] 时是新对话;没有任何对话时 [conversationId] 为 null,只能开新对话。
+     * Dialogue Card: [conversationId] The back and forth of that dialogue (see [ChatThread]). When [run]
+     * is used, it is the dialogue where the thing is located, and [content] is what it looks like at the
+     * moment (the button is fixed below the dialogue when you are asked to answer or agree). When there
+     * is no task, it is an idle card: it follows the conversation the user is currently in ([current]),
+     * and when there is no record, it follows the latest one ([title] is its title); when [fresh], it is
+     * a new conversation; when there is no conversation, [conversationId] is null, and only a new
+     * conversation can be opened.
      */
     data class Chat(
         val conversationId: String?,
@@ -44,70 +52,79 @@ sealed interface CardView {
         val title: String? = null,
         val fresh: Boolean = false,
         /**
-         * 用户此刻在 App 里就在这个对话(见 [CapsuleIdle]):别的对话里已结束、还挂着的那件不把卡片抢过去。
-         * 兜底那张「接着最近对话」是 false。
+         * The user is currently in this conversation in the App (see [CapsuleIdle]): the other
+         * conversation has ended and is still hanging, so don’t grab the card. The card at the bottom of
+         * the page "Continue recent conversations" is false.
          */
         val current: Boolean = false,
     ) : CardView {
-        /** 卡片里列哪个对话、发出去的话进哪个对话:空闲卡片的新对话时为 null(由调用方新开一个)。 */
+        /** Which conversation is listed in the card, and which conversation will be entered if the message is sent: null when there is a new conversation on an idle card (a new one will be opened by the caller). */
         val target: String? get() = if (fresh) null else conversationId
     }
 
-    /** 留在后台运行的那一页:实时画面、还剩多久自动关、来自哪个对话,「打开对话」「关闭网页」。没有输入框。 */
+    /** The page left running in the background: real-time screen, how long it takes to close automatically, which conversation it comes from, "open conversation" and "close web page". There is no input box. */
     data class Kept(val page: KeptPage) : CardView
 }
 
-/** 卡片底部输入框里的话交给谁:插话给在跑的任务、回答 Mina 的提问、同一个对话接着说、空闲时开始说。 */
+/** To whom should the words in the input box at the bottom of the card be given: interrupt running tasks, answer Mina's questions, continue the same conversation, and start talking when you are free. */
 enum class CardInputKind { Steer, Answer, Continue, Start }
 
 data class CardInput(val hint: String, val kind: CardInputKind)
 
-/** 详情里按状态放的内容;按钮都转成任务服务现有的动作。 */
+/** The contents placed according to the status in the details; buttons are converted into existing actions of the task service. */
 sealed interface CardContent {
-    /** 干活中:做过的步骤(最多 [CapsuleCards.STEPS] 步),最后一步是此刻在做的;停止在输入框右边。 */
+    /** While working: the steps that have been done (at most [CapsuleCards.STEPS] steps), the last step is being done at the moment; it stops on the right side of the input box. */
     data class Working(val steps: List<String>) : CardContent
 
     /**
-     * 要你接管:[need] 是那一句「需要你:…」,[body] 是为什么(模型写的话,付款时加上商品、金额、地址);
-     * 排在别的接管后面时 [canTakeOver] 为 false,[queueLine] 写明先后。
+     * Want you to take over: [need] is the sentence "Need you:...", [body] is why (if written in the
+     * model, add the product, amount, and address when paying); when it is ranked behind other
+     * takeovers, [canTakeOver] is false, and [queueLine] indicates the order.
      */
     data class Takeover(val need: String, val body: String, val queueLine: String?, val canTakeOver: Boolean) : CardContent
 
-    /** 要你同意一次花钱的操作(只能同意这一次):和对话页的确认卡片同一套字和编号 [key]。 */
+    /** You are asked to agree to a money-spending operation (you can only agree to this once): the same set of words and number [key] as the confirmation card on the conversation page. */
     data class Confirm(val title: String, val body: String, val key: Int) : CardContent
 
-    /** Mina 问你:给了 [options] 就列成按钮;没有选项的回答在 Mina 里打字(卡片里的输入下一步再做)。 */
+    /** Mina asks you: If you give [options], it will be listed as a button; if there are no options, type the answer in Mina (the input in the card will be done next). */
     data class Question(val prompt: String, val options: List<String>) : CardContent
 
-    /** 等条件:为什么停;[resumable] 时给「继续」。 */
+    /** Wait for conditions: why stop; give "continue" when [resumable]. */
     data class Held(val why: String, val resumable: Boolean) : CardContent
 
-    /** 办好了 / 没办成 / 已停止:回答在对话卡片的来回里。 */
+    /** Done/Not Done/Stopped: The answer is in the back and forth of the dialogue card. */
     data class Result(val kind: CapsuleKind) : CardContent
 }
 
-/** 卡片内容的纯逻辑:挑哪一件、任务卡片还是对话卡片,每种状态放什么,步骤取哪几条。 */
+/** The pure logic of the card content: which item to choose, task card or dialogue card, what to put in each state, and which steps to take. */
 object CapsuleCards {
-    /** 干活中最多带几步(只为限住内存):卡片里那段和小画面一样高,放不下的旧步骤往上滚着看。 */
+    /** Take a few steps at most during work (just to limit the memory): the section in the card is as high as the small screen. Scroll up to see the old steps that cannot be placed. */
     const val STEPS = 50
 
     val QUEUED_AHEAD: String get() = tr(R.string.card_queued_ahead)
 
     /**
-     * 展开时显示哪一件(只一件,没有列表,也不在卡片里切换;同时有别的事,到 Mina 的对话页看):
-     * 先是刚在卡片里发了话的那个对话([follow])的任务(进行中的优先),好让用户在卡片里看到回答;
-     * 否则按 [runs] 的先后取第一件——[CapsuleModel.cardRuns] 已排成要你处理(接管、同意、回答)在前,再是进行中的,
-     * 最后是刚结束、还没消失的;一件都没有时,任务结束后留下的那一页还在后台运行([kept])就是它的卡片,
-     * 再没有是 [idle](为 null 就收起)。选出的那件是任务卡片还是对话卡片见 [taskCard]。
+     * Which item is displayed when expanded (only one item, no list, and not switched in the card; if
+     * there are other things at the same time, go to Mina's conversation page to see): First, the task
+     * of the conversation ([follow]) that was just sent in the card (the priority in progress), so that
+     * the user can see the answer in the card; otherwise, according to the order of [runs], take the
+     * first item - [CapsuleModel.cardRuns] The ones that have been arranged for you to process (take
+     * over, agree, answer) are first, then the ones in progress, and finally the ones that have just
+     * ended and have not disappeared; when there are none, the page left after the task is still running
+     * in the background ([kept]) is its card, and the remaining ones are [idle]. Whether the selected
+     * item is a task card or a dialogue card is shown in [taskCard].
      *
-     * [idle] 是用户此刻在的那个对话([CardView.Chat.current])时,别的对话里已结束、还挂着的结果不把卡片抢过去:
-     * 否则在对话页新开一个对话,点开胶囊看到的还是上一个对话的结果卡片。
+     * When [idle] is the conversation ([CardView.Chat.current]) that the user is in at the moment, the
+     * card will not be grabbed for results that have ended and are still pending in other conversations:
+     * otherwise, if you open a new conversation on the conversation page and click on the capsule, you
+     * will still see the result card of the previous conversation.
      */
     fun of(runs: List<CardRun>, follow: String? = null, idle: CardView.Chat? = null, kept: KeptPage? = null): CardView? {
         val pick = follow?.let { f ->
             runs.firstOrNull { it.run.conversationId == f && it.kind.active } ?: runs.firstOrNull { it.run.conversationId == f }
         } ?: runs.firstOrNull()
-        // 只顶掉「别的对话里已结束、还挂着」的那件;一件都没有时留下来那页照旧是它的卡片(见 kept 一路)
+        // Only remove the item that "has ended in other conversations and is still hanging"; if there is
+        // no item left, the page that remains will still be its card (see "kept")
         val elsewhere = idle?.current == true && pick != null && !pick.kind.active && pick.run.conversationId != idle.conversationId
         if (elsewhere) return idle
         pick ?: return kept?.let(CardView::Kept) ?: idle
@@ -116,8 +133,10 @@ object CapsuleCards {
     }
 
     /**
-     * 按此刻的状态,不按经过:还没结束、此刻在操作 App 或网页([CapsuleRun.onScreen])的是任务卡片;
-     * 别的(纯聊天、已经结束的,包括操作过 App、办完回了话的)都是对话卡片。
+     * Press the current status, do not press the process: those that have not yet ended and are
+     * currently operating apps or web pages ([CapsuleRun.onScreen]) are task cards; others (pure chats,
+     * those that have ended, including those who have operated apps and responded to conversations after
+     * completing tasks) are conversation cards.
      */
     fun taskCard(r: CardRun): Boolean = r.kind.active && r.run.onScreen
 
@@ -126,7 +145,7 @@ object CapsuleCards {
     val HINT_CONTINUE: String get() = tr(R.string.card_hint_continue)
     val HINT_START: String get() = tr(R.string.chat_empty_prompt)
 
-    /** 卡片底部有没有输入框、交给谁:要你接管、要你同意时没有(先处理那件事);空闲卡片是开始说。 */
+    /** Is there an input box at the bottom of the card? Who should I hand it to? When I want you to take over or when I want your consent (deal with that matter first); the free card is the beginning. */
     fun input(card: CardView): CardInput? = when (card) {
         is CardView.Chat -> card.content?.let(::inputFor) ?: CardInput(HINT_START, CardInputKind.Start).takeIf { card.run == null }
         is CardView.Detail -> inputFor(card.content)
@@ -141,8 +160,10 @@ object CapsuleCards {
     }
 
     /**
-     * 卡片输入框里的话(连同截下的屏幕)进哪个对话:任务卡片、带着任务的对话卡片是那件事所在的对话;空闲卡片是它接着的对话,
-     * 选了新对话或还没有任何对话时为 null(由调用方新开一个)。
+     * The words in the card input box (together with the screenshot) enter which dialogue: the task card
+     * and the dialogue card with the task are the dialogues where the thing is; the idle card is the
+     * dialogue it follows, and it is null when a new dialogue is selected or there is no dialogue yet (a
+     * new one is opened by the caller).
      */
     fun conversationOf(card: CardView): String? = when (card) {
         is CardView.Detail -> card.run.run.conversationId
@@ -150,7 +171,7 @@ object CapsuleCards {
         is CardView.Kept -> card.page.conversationId
     }
 
-    /** 任务还在进行(干活中、Mina 问你、等条件)时输入框右边的停止键停哪件;别的时候为 null。 */
+    /** When the task is still in progress (working, Mina asks you, etc.), which item should the stop key on the right side of the input box stop? Otherwise, it is null. */
     fun stopKey(card: CardView): String? {
         val (run, content) = when (card) {
             is CardView.Detail -> card.run to card.content
@@ -176,7 +197,8 @@ object CapsuleCards {
             )
             is TaskState.WaitingConfirmation -> (ex?.status as? ExchangeStatus.NeedsConfirmation)
                 ?.let { CardContent.Confirm(it.title, it.body, it.key) }
-                // 还没推出这一问一答时(刚开始跟)用包名代替 App 名
+                // Before this Q&A was launched (just started following), the package name was used
+                // instead of the app name.
                 ?: CardContent.Confirm(
                     ConfirmationCopy.title(s.request), ConfirmationCopy.detail(s.request, s.request.app),
                     ConfirmationNotifier.requestKey(s),
@@ -190,14 +212,14 @@ object CapsuleCards {
         }
     }
 
-    /** 最近 [STEPS] 步(旧的在前):实际做过的事(和对话页的步骤同一套说法),此刻在做的那句和最后一步不同时接在后面。 */
+    /** The most recent [STEPS] step (oldest first): what was actually done (the same statement as the steps on the dialogue page), the sentence you are doing at the moment is different from the last step, and comes after. */
     fun steps(ex: Exchange?, line: String): List<String> {
         val done = ex?.steps.orEmpty().map { it.text }
         val all = if (line.isNotBlank() && done.lastOrNull() != line) done + line else done
         return all.takeLast(STEPS)
     }
 
-    /** 卡片顶上的小字说这件事在什么状态。 */
+    /** The small print on the top of the card says what status the thing is in. */
     fun status(kind: CapsuleKind): String = when (kind) {
         CapsuleKind.HandedOver -> tr(R.string.capsule_handed_over)
         CapsuleKind.NeedTakeover -> tr(R.string.takeover_title)
@@ -213,7 +235,7 @@ object CapsuleCards {
         CapsuleKind.Idle -> "Harness Agent"
     }
 
-    /** 这种内容旁边放不放虚拟屏小画面(还要那件事真有画面):干活中、要你接管、等条件时放。 */
+    /** Whether to place a small virtual screen image next to this kind of content (it also needs to be a real picture): when working, asking you to take over, and waiting for conditions. */
     fun showsScreen(content: CardContent): Boolean =
         content is CardContent.Working || content is CardContent.Takeover || content is CardContent.Held
 }

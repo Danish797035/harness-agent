@@ -4,28 +4,30 @@ import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.prompt.Feedback
 import com.meenai.mina.core.tool.Verb
 
-/** 循环发给模型的一条提醒:来源标签和正文(由 [ContextBuilder.notice] 包成上下文)。 */
+/** A reminder sent to the model in a loop: source tag and text (packaged into context by [ContextBuilder.notice]). */
 internal data class Notice(val source: String, val text: String)
 
-/** 回合策略看的快照:第几步、步数上限。 */
+/** A snapshot of the round strategy: the number of steps and the upper limit of the number of steps. */
 internal data class TurnSnapshot(val step: Int, val maxSteps: Int)
 
-/** 和基础提示词同一条规则:要的结果缺了要用的功能、条目或值是做不成;只有问「有没有」时,App 的搜索明确说没有才是答案。 */
+/** The same rule as the basic prompt words: if the desired result is missing the function, item or value to be used, the answer cannot be obtained; only when asking "Is it available?", the App's search will clearly say that it is not available. */
 internal val ANSWER_OR_FAILURE: String get() = Feedback["answer_or_failure"]
 
 /**
- * 回合策略:每步开头要不要先提醒(中途自查)、回复是空的(或被输出上限截断)时提醒还是结束、核对没对上时怎么提醒、
- * 步数用完后最后一轮说什么、给哪些工具。纯函数,只看传进来的东西。
- * 不带调用的回复本身就是回答,这里不管;只有空回复会被提醒,而且只提醒一次。
+ * Round strategy: whether to remind at the beginning of each step (self-check midway), whether to remind
+ * or end when the reply is empty (or truncated by the output limit), how to remind when the check is not
+ * correct, what to say in the last round after the number of steps is used up, and what tools to give.
+ * Pure functions only look at what is passed in. The reply without the call itself is the answer and is
+ * not ignored here; only the empty reply will be reminded, and only once.
  */
 internal object TurnPolicy {
-    /** 中途自查:步数用到这些比例时提醒一次,找遍了就如实放弃。步数太少的任务不提醒。 */
+    /** Self-examination midway: remind once when these ratios are used for steps, and give up after searching them all. Tasks with too few steps will not be reminded. */
     private val PROGRESS_CHECKS = listOf(0.5, 0.75)
     private const val PROGRESS_CHECK_MIN_STEPS = 10
-    /** 步数用完后的最后一轮只给放弃这一个工具,回答用文字写。 */
+    /** In the last round after the number of steps is used up, only this tool is given up, and the answer is written in text. */
     val FINAL_VERBS = setOf(Verb.EndNotDone)
 
-    /** 这一步发给模型之前先加的提醒;没有为 null。 */
+    /** The reminder is added before sending it to the model in this step; if not, it is null. */
     fun beforeStep(s: TurnSnapshot): Notice? {
         if (s.maxSteps < PROGRESS_CHECK_MIN_STEPS) return null
         val used = s.step - 1
@@ -35,14 +37,17 @@ internal object TurnPolicy {
     }
 
     /**
-     * 回复里没有调用也没有字([truncated]:字被输出上限截断了,不是完整的回答)。[already] 为 true 表示这样的回复刚提醒过一次:
-     * 这次不再提醒,返回 null,任务就此结束。
+     * There is no call and no words in the reply ([truncated]: the words are truncated by the output
+     * upper limit, not a complete answer). [already] is true, indicating that such a reply has just been
+     * reminded once: no more reminders this time, null is returned, and the task ends.
      */
     fun afterEmpty(already: Boolean, truncated: Boolean): Notice? =
         if (already) null else Notice(Feedback["nudge_source"], Feedback[if (truncated) "truncated_reply" else "empty_reply"])
 
     /**
-     * 回答核对没对上,退回一次时的提醒:[gaps] 是读到的材料里找不到的那几处,[objections] 是核查模型判没做成的理由,分开说。
+     * Reminder when the answer is not correct in the verification and is returned once: [gaps] refers to
+     * the few places that cannot be found in the materials I read, and [objections] refers to the
+     * reasons why the verification model was not completed. Let’s talk about them separately.
      */
     fun unconfirmed(gaps: List<String>, objections: List<String> = emptyList()): Notice {
         val findings = listOfNotNull(
@@ -52,20 +57,20 @@ internal object TurnPolicy {
         return Notice(Feedback["unconfirmed_source"], Feedback.format("unconfirmed_nudge", "findings" to findings))
     }
 
-    /** 回答的正文不是用户那句的语言([m] 是两边的语族,见 [ReplyLanguage]):退回一次,整段改写成用户的语言。 */
+    /** The text of the answer is not in the language of the user's sentence ([m] is the language family on both sides, see [ReplyLanguage]): return it once and rewrite the entire paragraph into the user's language. */
     fun language(m: ReplyLanguage.Mismatch): Notice =
         Notice(Feedback["language_source"], Feedback.format("language_nudge", "answer" to m.answer.display, "user" to m.user.display))
 
-    /** 回复正文里漏出了对 [tool] 的调用(见 [LeakedToolCall]):退回一次,经工具接口重新调用,或用文字回答。 */
+    /** The call to [tool] (see [LeakedToolCall]) is leaked in the reply text: return it once, call it again through the tool interface, or answer in text. */
     fun leakedToolCall(tool: String): Notice =
         Notice(Feedback["leaked_call_source"], Feedback.format("leaked_call_nudge", "tool" to tool))
 
-    /** 用户同意了、或回答了([what]),之后却什么也没做就要交回答:提醒一次照做,或说清为什么不做。 */
+    /** The user agrees or answers ([what]), but then does nothing and needs to submit an answer: remind him to do it once, or explain clearly why he did not do it. */
     fun followUp(what: String): Notice = Notice(Feedback["followup_source"], Feedback.format("followup_nudge", "what" to what))
 
-    /** 步数用完后最后一轮之前的提醒。 */
+    /** Reminder after running out of steps and before the last round. */
     fun finalTurn(): Notice = Notice(Feedback["final_source"], Feedback["final_turn"])
 
-    /** 最后一轮给模型的工具:只有放弃;做完了就直接用文字回答。 */
+    /** The tools given to the model in the last round: give up; answer directly in words after finishing. */
     fun finalTools(specs: List<ToolSpec>, verbOf: (String) -> Verb?): List<ToolSpec> = specs.filter { verbOf(it.name) in FINAL_VERBS }
 }

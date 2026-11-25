@@ -18,21 +18,24 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * 模型改 Mina 自己设置的唯一入口(App 实现,核心只认这几个键)。
+ * The model is changed to the only entrance set by Mina (App implementation, the core only recognizes
+ * these keys).
  *
- * 能改什么由 App 定:**模型与 Key、删除数据一律不给**——前者等于让模型换掉自己的脑子、花用户的钱,
- * 后者不可逆。给的都是可逆的偏好项。
+ * What can be changed is determined by the App: Models and Keys, and deletion of data are not allowed -
+ * the former is equivalent to letting the model replace its own brain and cost the user money, while the
+ * latter is irreversible. All given are reversible preference items.
  *
- * 用户没开「允许 Mina 改自己的设置」时这个工具根本不提供,所以模型碰不到它。
+ * When the user does not turn on "Allow Mina to change its own settings", this tool is not available at
+ * all, so the model cannot touch it.
  */
 interface SelfConfig {
-    /** 现在能改哪些项、各自是什么值。 */
+    /** Which items can be changed now and what are their respective values. */
     fun options(): List<Option>
 
-    /** 改一项;[value] 必须在 [Option.choices] 里。成功返回 null,否则是一句原因。 */
+    /** Change one item; [value] must be in [Option.choices]. Returns null if successful, otherwise a reason. */
     fun set(key: String, value: String): String?
 
-    /** 一项设置;[label] 是给人看的名字,[value] 是现在的值,[choices] 是可选的几个值(空的表示自由文本)。 */
+    /** A setting; [label] is the name that people can see, [value] is the current value, [choices] is several optional values (empty means free text). */
     data class Option(val key: String, val label: String, val value: String, val choices: List<String> = emptyList())
 }
 
@@ -42,7 +45,7 @@ const val SETTINGS_SET = "settings_set"
 private fun port(ctx: ToolContext): SelfConfig =
     ctx.config.selfConfig ?: error("settings tools are only offered when the user allows it")
 
-/** 列出 Mina 自己能改的设置:键、给人看的名字、现在的值、可选值。只读。 */
+/** List the settings that Mina can change: keys, visible names, current values, and optional values. Read only. */
 internal object SettingsList : AgentTool {
     override val verb = Verb.SettingsList
     override val label = "Read settings"
@@ -65,12 +68,12 @@ internal object SettingsList : AgentTool {
     }
 }
 
-/** 改 Mina 自己的一项设置;键和值都得来自 [SettingsList]。 */
+/** Change one of Mina's own settings; both keys and values must come from [SettingsList]. */
 internal object SettingsSet : AgentTool {
     override val verb = Verb.SettingsSet
     override val label = "Change a setting"
     override val risk = Risk.Write
-    /** 不动屏幕:改的是 Mina 自己的设置,和当前任务的屏无关。 */
+    /** Don't move the screen: What is changed is Mina's own setting, which has nothing to do with the screen of the current task. */
     override val offScreen = true
 
     override fun available(ctx: ToolContext) = ctx.config.selfConfig != null

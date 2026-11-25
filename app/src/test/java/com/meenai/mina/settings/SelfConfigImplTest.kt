@@ -8,7 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** settings_list / settings_set 的白名单:只给能随手改回去的偏好;模型、Key、删数据一律不在其中。 */
+/** The whitelist of settings_list / settings_set: only gives preferences that can be changed back easily; models, keys, and deleted data are not included. */
 class SelfConfigImplTest {
     private fun flags() = FeatureFlags(FeatureFlagsCapsuleTest.MemoryPrefs())
 
@@ -20,7 +20,8 @@ class SelfConfigImplTest {
     @Test fun modelsKeysAndAnythingThatDeletesDataAreNotOffered() {
         val keys = SelfConfigImpl(flags()).options().map { it.key }
         assertTrue(keys.none { k -> listOf("model", "key", "delete", "reset", "clear").any { it in k } })
-        // 容器的联网与代理会让数据离开手机,也要用户自己在设置里决定
+        // The networking and proxying of the container will allow the data to leave the phone, and the
+        // user must decide in the settings.
         assertTrue("container_network" !in keys)
     }
 

@@ -66,7 +66,7 @@ class ChatGptAuthTest {
 
     private fun query(url: String): Map<String, String> = url.toHttpUrl().let { u -> u.queryParameterNames.associateWith { u.queryParameter(it)!! } }
 
-    // ---------- 授权地址与 PKCE ----------
+    // ---------- Authorized address and PKCE ----------
 
     @Test fun eachAttemptHasFreshRandomValuesAndAnS256Challenge() {
         val a = auth.newAttempt("http://127.0.0.1:1/auth/callback")
@@ -106,7 +106,7 @@ class ChatGptAuthTest {
         assertEquals("a@b.test", q["login_hint"])
     }
 
-    // ---------- 回调 ----------
+    // ---------- Callback ----------
 
     @Test fun callbackChecksStateAndClientId() {
         val a = auth.newAttempt("r")
@@ -118,7 +118,7 @@ class ChatGptAuthTest {
         expect(SignInFailure.NoClientId) { auth.readCallback(mapOf("state" to a.state, "code" to "c"), a, null) }
     }
 
-    // ---------- 换令牌 ----------
+    // ---------- Exchange token ----------
 
     @Test fun exchangeAndRefreshPostTheDocumentedForms() = runTest {
         val tokens = """{"access_token":"at","refresh_token":"rt","id_token":"it","token_type":"Bearer","expires_in":3600,
@@ -203,7 +203,7 @@ class ChatGptAuthTest {
         assertFalse(auth.revoke("client-1", "rt"))
     }
 
-    // ---------- ID 令牌 ----------
+    // ---------- ID Token ----------
 
     @Test fun idTokenIsVerifiedAgainstJwksAndClaims() = runTest {
         server.enqueue(jwks())
@@ -215,13 +215,13 @@ class ChatGptAuthTest {
         expectSuspend(SignInFailure.IdToken) { auth.verifyIdToken(jwt(claims(exp = clock / 1000 - 3600)), "client-1", "n") }
         val stranger = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
         expectSuspend(SignInFailure.IdToken) { auth.verifyIdToken(jwt(claims(), key = stranger), "client-1", "n") }
-        // 不认识的 kid:再取一次 JWKS,还是没有就不认
+        // Unknown kid: Take JWKS again, if you still don’t have it, don’t recognize it.
         server.enqueue(jwks())
         expectSuspend(SignInFailure.IdToken) { auth.verifyIdToken(jwt(claims(), kid = "k2"), "client-1", "n") }
         assertEquals(2, server.requestCount)
     }
 
-    // ---------- 访问令牌 ----------
+    // ---------- Access token ----------
 
     private fun session(expiresAt: Long = clock + 3_600_000) = ChatGptSession(
         clientId = "client-1", sub = "user-1", email = "a@b.test", accessToken = "at", refreshToken = "rt", idToken = "it",
@@ -238,7 +238,7 @@ class ChatGptAuthTest {
         assertEquals("at2", tokens.get(false))
         assertEquals("rt2", stored!!.refreshToken)
         assertEquals(clock + 3_600_000, stored!!.expiresAtMs)
-        // 被拒了就换,哪怕还没到期
+        // If rejected, change it, even if it hasn’t expired yet
         server.enqueue(MockResponse().setBody("""{"access_token":"at3","expires_in":3600}"""))
         assertEquals("at3", tokens.get(true))
         assertEquals("rt2", stored!!.refreshToken)
@@ -265,7 +265,7 @@ class ChatGptAuthTest {
         assertNull(ChatGptSession.fromJson("not json"))
     }
 
-    // ---------- 本机回调 ----------
+    // ---------- Native callback ----------
 
     @Test fun loopbackBindsLocalhostAndHandlesOneCallback() = runBlocking {
         LoopbackCallback.open().use { cb ->
@@ -295,9 +295,9 @@ class ChatGptAuthTest {
         assertTrue("关掉之后端口不再收连接", refused)
     }
 
-    // ---------- 整个登录 ----------
+    // ---------- Entire login ----------
 
-    /** 授权服务:换令牌时按这次的 nonce 签一张 ID 令牌;[scope] 是授予的权限。 */
+    /** Authorization service: When changing tokens, sign an ID token according to this nonce; [scope] is the granted permission. */
     private fun authServer(nonce: () -> String, scope: String) {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
@@ -310,7 +310,7 @@ class ChatGptAuthTest {
         }
     }
 
-    /** 「浏览器」:读授权地址,带着授权码和 [extra] 跳回回调地址;回调页的内容放进 [shown]。 */
+    /** "Browser": Read the authorization address, jump back to the callback address with the authorization code and [extra]; put the content of the callback page into [shown]. */
     private fun browser(
         seen: MutableMap<String, String>,
         shown: java.util.concurrent.CompletableFuture<String> = java.util.concurrent.CompletableFuture(),
@@ -334,7 +334,8 @@ class ChatGptAuthTest {
             auth, "urn:uuid:h", clientId = null, previous = null,
             openBrowser = browser(seen, shown) { q -> "code=c1&state=${q["state"]}&client_id=issued-1" },
             onRegistered = { registered = it },
-            // 网页在换完令牌、验完 ID 令牌之后才给出:这时 JWKS 和换令牌都已请求过
+            // The webpage will be given after the token is exchanged and the ID token is verified: at
+            // this time, JWKS and the token exchange have been requested.
             page = { f -> "result=${f?.reason ?: "ok"} requests=${server.requestCount}" }, now = { clock },
         )
         assertEquals("result=ok requests=2", shown.get(5, java.util.concurrent.TimeUnit.SECONDS))

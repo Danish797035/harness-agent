@@ -42,7 +42,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 真实对话页与任务服务;脚本模型延迟取消收尾,让消息稳定停在尚未交给模型的阶段。 */
+/** Real dialogue page and task service; the script model delays the cancellation of the ending, allowing the message to stably stop at the stage that has not yet been handed over to the model. */
 @RunWith(AndroidJUnit4::class)
 class SteerEditingDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -158,7 +158,9 @@ class SteerEditingDeviceTest {
         shot("processed-menu")
     }
 
-    // 电脑追加的插话只归当前任务:手机上长按只有复制、引用、选择文字,撤回也被拒,照常交给模型
+    // Interjections added by the computer only belong to the current task: long pressing on the mobile
+    // phone can only copy, quote, and select text. Undoing will also be rejected and will be handed over
+    // to the model as usual.
     @Test fun remoteSteersOfferNoWithdrawOrEdit() {
         val started = app.remoteTasks.start("请核对今天的资料", conversation)
         val task = (started as com.meenai.mina.core.remote.StartOutcome.Started).task

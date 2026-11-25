@@ -60,8 +60,9 @@ class OpenAiCompatModelTest {
     }
 
     /**
-     * 非流式请求写明 `stream:false`、要一份 JSON;流式请求要 SSE。省掉 `stream` 时有的兼容端点(本地、局域网上的
-     * 自建服务一类)照样回 SSE,客户端按 JSON 解析就只看到 `data: …`。
+     * Non-streaming requests state `stream:false` and require a JSON; streaming requests require SSE.
+     * When you omit `stream`, some compatible endpoints (such as local and self-built services on the
+     * LAN) still return to SSE. When the client parses according to JSON, it will only see `data: …`.
      */
     @Test fun nonStreamRequestAsksForJsonInsteadOfEvents() = runTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""))
@@ -71,7 +72,7 @@ class OpenAiCompatModelTest {
         assertEquals("application/json", req.getHeader("Accept"))
     }
 
-    /** 服务端不听 `stream:false`、照样回 SSE 时:按流读完再拼,不当成坏 JSON。 */
+    /** When the server does not listen to `stream:false` and still returns to SSE: read it according to the stream and then spell it, it should not become bad JSON. */
     @Test fun readsEventStreamReplyToANonStreamRequest() = runTest {
         val events = listOf(
             """{"choices":[{"delta":{"content":"先看"}}]}""",
@@ -87,7 +88,7 @@ class OpenAiCompatModelTest {
         assertEquals(StopReason.ToolUse, r.stopReason)
     }
 
-    /** 整份回复已经收全,只是没发 `[DONE]`:照常说完,不当成流提前断了。 */
+    /** The entire reply has been received, but it has not been sent. `[DONE]`: Finish as usual, it should not be regarded as the stream being cut off early. */
     @Test fun eventStreamWithoutDoneStillFinishes() = runTest {
         server.enqueue(
             MockResponse().setHeader("Content-Type", "text/event-stream")
@@ -98,7 +99,7 @@ class OpenAiCompatModelTest {
         assertEquals(StopReason.EndTurn, r.stopReason)
     }
 
-    /** 没有参数的工具,有的适配器给 `""`:当成 `{}`,免得调用方按 JSON 解析失败。 */
+    /** For tools without parameters, some adapters treat `""`: as `{}` to prevent the caller from failing to parse JSON. */
     @Test fun blankToolCallArgumentsBecomeEmptyObject() = runTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"get_time","arguments":""}}]}}]}"""))
         val r = model().complete("s", user, tools)
@@ -146,18 +147,20 @@ class OpenAiCompatModelTest {
         val rl = errorFor(MockResponse().setResponseCode(429).setHeader("retry-after", "2")) as ModelError.RateLimited
         assertEquals(2000L, rl.retryAfterMs)
         assertTrue(errorFor(MockResponse().setResponseCode(429).setBody("""{"error":{"message":"Rate limit reached, limit: 60"}}""")) is ModelError.RateLimited)
-        // 这个模型额度为零(Gemini 的 OpenAI 兼容入口回数组):换模型才行
+        // This model's quota is zero (Gemini's OpenAI compatible entry returns the array): just change
+        // the model.
         val zero = errorFor(MockResponse().setResponseCode(429).setBody("""[{"error":{"code":429,"message":"Quota exceeded for metric: free_tier_requests, limit: 0","status":"RESOURCE_EXHAUSTED"}}]"""))
         assertTrue(zero is ModelError.ModelNotAvailable)
         assertTrue(errorFor(MockResponse().setResponseCode(400).setBody("context_length_exceeded")) is ModelError.ContextTooLong)
         assertTrue(errorFor(MockResponse().setResponseCode(400).setBody("exceeds the maximum context")) is ModelError.ContextTooLong)
         assertEquals("m", (errorFor(MockResponse().setResponseCode(404)) as ModelError.ModelNotFound).model)
-        // 网关回的 404 不一定是模型名不对:带上它 JSON 里的原话;HTML 页不当原话
+        // The 404 returned by the gateway does not necessarily mean that the model name is wrong: bring
+        // its original words in JSON; the HTML page does not contain the original words.
         val gateway = errorFor(MockResponse().setResponseCode(404).setBody("""{"error":{"type":"not_found_error","message":"none of group/rpa's models is ready"}}""")) as ModelError.ModelNotFound
         assertEquals("none of group/rpa's models is ready", gateway.detail)
         assertEquals("", (errorFor(MockResponse().setResponseCode(404).setBody("<html><body>404 Not Found</body></html>")) as ModelError.ModelNotFound).detail)
         assertEquals(503, (errorFor(MockResponse().setResponseCode(503)) as ModelError.Server).status)
-        // 这个账号没开通这个模型:不当成 Key 或请求的问题
+        // This account has not activated this model: it is not a key or request issue
         val na = errorFor(MockResponse().setResponseCode(400).setBody("""{"code":"InvalidParameter","message":"The product is not activated."}""")) as ModelError.ModelNotAvailable
         assertEquals("m", na.model)
         assertEquals("The product is not activated.", na.detail)
@@ -197,7 +200,7 @@ class OpenAiCompatModelTest {
     private val endpoint get() = server.url("/v1/chat/completions").toString()
     private fun texts(parts: List<Part>) = parts.map { if (it is Part.Thinking) it.text else it }
 
-    /** 任何地址收到的 reasoning_content:带工具的请求原样放回同一个字段;别处来的思考不发;不带工具不回传。 */
+    /** Reasoning_content: requests with tools received by any address are returned to the same field as they are; thoughts from elsewhere are not sent; requests without tools are not sent back. */
     @Test fun reasoningContentReceivedHereIsReplayedWithTools() = runTest {
         val m = model()
         server.enqueue(ok("""{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"reasoning_content":"先找入口","tool_calls":[{"id":"c1","type":"function","function":{"name":"phone_tap","arguments":"{}"}}]}}]}"""))
@@ -208,7 +211,7 @@ class OpenAiCompatModelTest {
         val history = user + listOf(
             Message(Role.Assistant, first.parts, Author.Mina),
             Message(Role.Tool, listOf(Part.ToolResult("c1", "done", false)), Author.Mina),
-            // 来历不明的(别的适配器给的、旧版本存下的)不发
+            // Unknown sources (given by other adapters, saved from old versions) will not be sent.
             Message(Role.Assistant, listOf(Part.Thinking("别处想的"), Part.Text("已打开")), Author.Mina),
             Message(Role.User, listOf(Part.Text("再看一下")), Author.User),
         )
@@ -226,7 +229,7 @@ class OpenAiCompatModelTest {
         assertFalse("reasoning_content" in body()["messages"]!!.jsonArray[2].jsonObject)
     }
 
-    /** 思考在 `reasoning` 字段里收到的,放回 `reasoning`(不改成 reasoning_content)。 */
+    /** Thinking received in the `reasoning` field, puts back `reasoning` (without changing it to reasoning_content). */
     @Test fun reasoningFieldIsReplayedUnderItsOwnName() = runTest {
         val m = model()
         server.enqueue(ok("""{"choices":[{"finish_reason":"tool_calls","message":{"content":"","reasoning":"想想","tool_calls":[{"id":"c1","type":"function","function":{"name":"phone_tap","arguments":"{}"}}]}}]}"""))
@@ -241,7 +244,7 @@ class OpenAiCompatModelTest {
         assertFalse("reasoning_content" in assistant)
     }
 
-    /** 另一个地址收到的思考(换了服务商)不发给这一家:它可能不认这个字段。 */
+    /** Thoughts received at another address (changed service provider) are not sent to this one: it may not recognize this field. */
     @Test fun reasoningReceivedFromAnotherEndpointIsNotSent() = runTest {
         val elsewhere = Part.Thinking("那边想的", ReasoningVia.ReasoningContent.tag("https://other.example/v1/chat/completions"))
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""))
@@ -249,14 +252,14 @@ class OpenAiCompatModelTest {
         val assistant = body()["messages"]!!.jsonArray[2].jsonObject
         assertFalse("reasoning_content" in assistant)
         assertFalse("reasoning" in assistant)
-        // 同一个地址收到的就发
+        // If you receive it at the same address, it will be sent.
         val here = Part.Thinking("这边想的", ReasoningVia.ReasoningContent.tag(endpoint))
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""))
         model().complete("s", user + Message(Role.Assistant, listOf(here, Part.Text("next")), Author.Mina), tools)
         assertEquals("这边想的", body()["messages"]!!.jsonArray[2].jsonObject["reasoning_content"]!!.jsonPrimitive.content)
     }
 
-    /** 模型列表写明了思考字段的,来历不明的思考(旧版本存下的历史)也按它回传。 */
+    /** The model list indicates the thought field, and thoughts of unknown origin (the history saved in the old version) are also returned according to it. */
     @Test fun modelsListedWithReasoningContentFieldReplayItWithTools() = runTest {
         val m = OpenAiCompatModel(server.url("/v1").toString().trimEnd('/'), "k", "kimi-k3", caps(), OkHttpClient(), "reasoning_content")
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""))
@@ -265,7 +268,7 @@ class OpenAiCompatModelTest {
         assertEquals("先想", body()["messages"]!!.jsonArray[2].jsonObject["reasoning_content"]!!.jsonPrimitive.content)
     }
 
-    /** `content` 是分块数组:文字块是回答、thinking 块是思考;回放时整条按分块放回,思考块在前。 */
+    /** `content` is a block array: the text block is the answer, and the thinking block is the thinking; during playback, the whole piece is put back into blocks, with the thinking block in front. */
     @Test fun chunkedContentIsParsedAndReplayedAsChunks() = runTest {
         val m = model()
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"先想"},{"type":"text","text":"再想"}]},{"type":"text","text":"答案"}]}}]}"""))
@@ -284,7 +287,7 @@ class OpenAiCompatModelTest {
     @Test fun readsPromptCacheHitTokens() = runTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"hi"}}],"usage":{"prompt_tokens":900,"completion_tokens":10,"prompt_cache_hit_tokens":640,"prompt_cache_miss_tokens":260}}"""))
         assertEquals(Usage(900, 10, 640), model().complete("sys", user, emptyList()).usage)
-        // 缺 prompt_tokens 时用命中 + 未命中之和
+        // When prompt_tokens is missing, the sum of hits + misses is used.
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"hi"}}],"usage":{"completion_tokens":10,"prompt_cache_hit_tokens":640,"prompt_cache_miss_tokens":260}}"""))
         assertEquals(Usage(900, 10, 640), model().complete("sys", user, emptyList()).usage)
     }
@@ -299,7 +302,7 @@ class OpenAiCompatModelTest {
     @Test fun readsReasoningTokensDetails() = runTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"hi"}}],"usage":{"prompt_tokens":500,"completion_tokens":70,"completion_tokens_details":{"reasoning_tokens":64}}}"""))
         assertEquals(Usage(500, 70, 0, reasoningTokens = 64), model().complete("sys", user, emptyList()).usage)
-        // 报得比输出还多的按输出截
+        // If the report is more than the output, press the output button.
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"hi"}}],"usage":{"prompt_tokens":500,"completion_tokens":7,"completion_tokens_details":{"reasoning_tokens":64}}}"""))
         assertEquals(Usage(500, 7, 0, reasoningTokens = 7), model().complete("sys", user, emptyList()).usage)
     }
@@ -311,7 +314,9 @@ class OpenAiCompatModelTest {
         assertEquals(Usage(900, 1, 900), model().complete("sys", user, emptyList()).usage)
     }
 
-    // 显式缓存:系统提示词和最后一条能标的消息上带 cache_control;前面的消息原样,两次请求的开头逐字相同
+    // Explicit caching: The system prompt word and the last message that can be marked are marked with
+    // cache_control; the previous message is unchanged, and the beginning of the two requests is the
+    // same word-for-word.
     @Test fun explicitCachingMarksSystemAndLastMessage() = runTest {
         val m = OpenAiCompatModel(server.url("/v1").toString().trimEnd('/'), "k", "m",
             Capabilities(true, true, 32000, false, promptCaching = PromptCaching.Explicit), OkHttpClient())
@@ -333,7 +338,9 @@ class OpenAiCompatModelTest {
         assertEquals("屏幕", first[3]["content"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content)
         assertEquals("tool", first[3]["role"]!!.jsonPrimitive.content)
 
-        // 下一步:多了一轮;标记挪到新的最后一条,之前那条恢复原样(服务端按内容找开头,标记本身不算内容)
+        // Next step: One more round; the mark is moved to the new last one, and the previous one is
+        // restored to its original state (the server finds the beginning according to the content, and
+        // the mark itself is not counted as content)
         m.complete("SYS", history + Message(Role.Assistant, listOf(Part.ToolCall("c2", "phone_tap", "{}")), Author.Mina) +
             Message(Role.Tool, listOf(Part.ToolResult("c2", "点了", false)), Author.Mina), emptyList())
         val second = body()["messages"]!!.jsonArray.map { it.jsonObject }
@@ -359,7 +366,8 @@ class OpenAiCompatModelTest {
         assertFalse(body().containsKey("reasoning_effort"))
     }
 
-    // 插话打断后:半截回复是一条只有文字的 assistant 消息,不带调用和思考字段;后面两条 user 消息各自原样发出
+    // After the interruption: the half reply is an assistant message with only text, without calling and
+    // thinking fields; the next two user messages are sent as they are.
     @Test fun interruptedReplyIsAPlainAssistantMessageBeforeTheSteer() = runTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"好"}}]}"""))
         model().complete("s", InterruptedHistory.messages, emptyList())

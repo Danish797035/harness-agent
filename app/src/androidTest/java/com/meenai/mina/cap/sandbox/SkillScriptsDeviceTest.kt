@@ -25,8 +25,8 @@ import java.lang.reflect.Proxy
 import com.meenai.mina.core.assembly.toolDispatcher
 
 /**
- * 随 App 打包的可运行脚本在真沙箱里经 run_bundled_script 跑一遍(和模型用的是同一条路)。
- * 需要沙箱已装好;没装就跳过。
+ * The runnable script packaged with the App is run through run_bundled_script in the real sandbox (the
+ * same path is used for the model). The sandbox needs to be installed; skip if not installed.
  */
 @RunWith(AndroidJUnit4::class)
 class SkillScriptsDeviceTest {
@@ -34,7 +34,7 @@ class SkillScriptsDeviceTest {
     private val ws = "skill-scripts-device-test"
     private val sb = AndroidSandbox(context, SandboxState.get(context))
 
-    /** run_bundled_script 不碰屏幕;任何屏幕调用都算测试写错了。 */
+    /** run_bundled_script does not touch the screen; any screen call is a miswritten test. */
     private val noScreen = Proxy.newProxyInstance(ScreenPort::class.java.classLoader, arrayOf(ScreenPort::class.java)) { _, m, _ ->
         throw AssertionError("screen not expected: ${m.name}")
     } as ScreenPort
@@ -58,7 +58,7 @@ class SkillScriptsDeviceTest {
         assertEquals(r.toString(), "0", r.s("exitCode"))
     }
 
-    /** 两页、每页一行文字的最小 PDF(Helvetica,无压缩),由测试当场生成。 */
+    /** The minimum PDF (Helvetica, uncompressed) with two pages and one line of text on each page is generated at the test site. */
     private fun samplePdf(vararg pages: String): ByteArray {
         val objs = mutableListOf<String>()
         val kids = pages.indices.joinToString(" ") { "${3 + it * 2} 0 R" }

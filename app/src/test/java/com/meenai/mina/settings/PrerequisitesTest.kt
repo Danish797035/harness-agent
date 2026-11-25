@@ -114,7 +114,8 @@ class PrerequisitesTest {
         )
     }
 
-    // 修复 1 M4:「需要你」提醒被用户或系统调低时提示,但不挡任务
+    // Fix 1 M4: The "Need You" reminder is prompted when it is turned down by the user or the system,
+    // but it does not block the task.
     @Test
     fun attentionLoweredIsAWarning() {
         val c = Prerequisites.check(ready.copy(attentionLowered = true), hasMainModel = true)
@@ -122,7 +123,8 @@ class PrerequisitesTest {
         assertTrue(c.canStartTask)
     }
 
-    // 「需要你处理」和「任务结果」两个频道各种组合:一处判断,带上是哪个被调低
+    // Various combinations of the two channels "Need Your Handling" and "Task Result": judge in one
+    // place and bring which one has been lowered
     @Test
     fun loweredChannelCombinations() {
         fun problems(attention: Boolean, result: Boolean) =
@@ -134,7 +136,8 @@ class PrerequisitesTest {
         assertTrue(Prerequisites.check(ready.copy(resultLowered = true), hasMainModel = true).canStartTask)
     }
 
-    // 总开关关着时只报「通知未允许」,不重复提示频道
+    // When the main switch is turned off, it will only report "notification not allowed" and will not
+    // remind the channel repeatedly.
     @Test
     fun masterSwitchOffHidesChannelProblems() {
         val c = Prerequisites.check(
@@ -143,7 +146,9 @@ class PrerequisitesTest {
         assertEquals(listOf<Problem>(Problem.NotificationsOff), c.problems)
     }
 
-    // 网页、沙箱任务不需要内置助手:照样能开始,用到手机时才报 phone_unavailable;问题照样列出来提示
+    // Web pages and sandbox tasks do not require built-in assistants: they can still be started, and
+    // will only report phone_unavailable when using a mobile phone; problems will still be listed and
+    // prompted.
     @Test
     fun phoneHelperOnlyNeededForPhoneApps() {
         listOf(
@@ -155,7 +160,7 @@ class PrerequisitesTest {
             assertFalse(c.phoneReady)
             assertEquals(listOf<Problem>(Problem.PhoneHelper(s)), c.problems)
         }
-        // 安卓 12 以下只报系统太旧
+        // Android 12 or below only reports that the system is too old
         assertEquals(
             listOf<Problem>(Problem.SystemTooOld),
             Prerequisites.check(ready.copy(sdkInt = 30, builtinShell = BuiltinShellStatus.NotPaired), hasMainModel = true).problems,

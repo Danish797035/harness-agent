@@ -4,18 +4,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 用到时才建的虚拟屏:任务第一次打开 App、或第一次用系统命令、事件工具时由 [get] 建好,之后一直是同一块;纯对话的任务从头到尾不建。
- * [width]、[height] 是将要建的屏的尺寸,屏还没建时读屏用它们报尺寸。
- * 泛型只为让单元测试能换成假对象,产品里是 [LazyAgentDisplay]。
+ * The virtual screen is built only when it is used: it is built by [get] when the task opens the app for
+ * the first time, or uses the system command or event tool for the first time, and it has been the same
+ * since then; pure dialogue tasks are not built from beginning to end. [width] and [height] are the size
+ * of the screen to be built. Use them to report the size when reading the screen before it is built.
+ * Generics are only used to allow unit testing to be replaced with fake objects. In the product, it is
+ * [LazyAgentDisplay].
  */
 class LazyDisplay<T : Any>(val width: Int, val height: Int, private val create: suspend () -> T) {
     private val lock = Mutex()
     @Volatile private var made: T? = null
 
-    /** 已经建好的屏;还没建时为 null。不会去建。 */
+    /** The screen has been built; it is null if it has not been built yet. Won't build it. */
     val current: T? get() = made
 
-    /** 取屏,第一次调用时建;建失败抛出,下次再调会重试。 */
+    /** Take the screen and build it when it is called for the first time; if it fails to build, it will be thrown. It will try again next time it is called. */
     suspend fun get(): T = made ?: lock.withLock { made ?: create().also { made = it } }
 }
 

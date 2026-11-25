@@ -2,19 +2,20 @@ package com.meenai.mina.core.uistate
 
 enum class ScreenState(val wire: String) {
     NORMAL("normal"),
-    /** 没有窗口或没有可读元素。 */
+    /** There are no windows or readable elements. */
     BLANK("blank"),
-    /** 界面在持续变化,还没加载完。 */
+    /** The interface continues to change and has not finished loading. */
     LOADING("loading"),
-    /** 防截屏页面:画面全黑但有窗口。 */
+    /** Anti-screenshot page: The screen is completely black but there is a window. */
     PROTECTED("protected"),
-    /** 登录、验证码、支付等需要用户亲自处理的页面。 */
+    /** Login, verification code, payment and other pages that need to be handled by the user personally. */
     NEEDS_HUMAN("needs_human"),
 }
 
 /**
- * [takeoverReason] 是建议 hand_to_user 使用的 reason;[cause] 是判定依据的简短说明。
- * 例外:[ScreenDiagnosis.UNSUPPORTED_BROWSER](网站拒绝内置浏览器)不需要人,state 为 NORMAL、needsHuman 为 false,该换路线。
+ * [takeoverReason] is the reason recommended for hand_to_user; [cause] is a short description of the
+ * basis for judgment. Exception: [ScreenDiagnosis.UNSUPPORTED_BROWSER] (site rejects built-in browser)
+ * does not need people, state is NORMAL, needsHuman is false, it is time to change the route.
  */
 data class ScreenCheck(
     val state: ScreenState,
@@ -25,9 +26,12 @@ data class ScreenCheck(
 )
 
 /**
- * 端口采集到的事实。[blackFrames] 是每次界面安静时画面是否全黑的结果,按时间顺序;拿不到画面时为空。
- * [hasWindow] 是有读得到根节点的 App 窗口;[anyWindow] 是有 App 窗口(根节点读不到也算)。
- * [foregroundApp] 是窗口读不到时按焦点窗口或最上面的任务得知的前台 App;不知道为 null。
+ * Facts collected by the port. [blackFrames] is the result of whether the screen is completely black
+ * every time the interface is quiet, in chronological order; it is empty when the screen cannot be
+ * obtained. [hasWindow] has an App window that can read the root node; [anyWindow] has an App window (it
+ * does not count if the root node cannot be read). [foregroundApp] is the foreground App that is known
+ * by pressing the focus window or the top task when the window cannot be read; it is null if it is not
+ * known.
  */
 data class ScreenFacts(
     val currentApp: String?,
@@ -42,10 +46,10 @@ data class ScreenFacts(
 )
 
 object ScreenDiagnosis {
-    /** 屏上一个 App 窗口都没有(虚拟屏刚建好时就是这样)。 */
+    /** There is no App window on the screen (this was the case when the virtual screen was first built). */
     const val NO_WINDOW = "no window"
     const val UNREADABLE_WINDOW = "unreadable window"
-    /** 网页:网站不支持内置浏览器(要求换浏览器或下载 App)。 */
+    /** Web page: The website does not support the built-in browser (requires changing browser or downloading App). */
     const val UNSUPPORTED_BROWSER = "unsupported_browser"
 
     private val CAPTCHA = listOf(
@@ -58,7 +62,7 @@ object ScreenDiagnosis {
         "获取验证码", "发送验证码", "短信验证码", "get code", "send code", "verification code",
     )
 
-    /** 屏上文字里第一个付款字样(确认支付、支付密码一类);没有为 null。 */
+    /** The first payment word in the on-screen text (confirm payment, payment password, etc.); if not, it is null. */
     fun paymentText(texts: List<String>): String? {
         val text = Hant.fold(texts.joinToString("\n")).lowercase()
         return PAYMENT.firstOrNull { it in text }
@@ -69,7 +73,8 @@ object ScreenDiagnosis {
         fun hit(words: List<String>) = words.firstOrNull { it in text }
         fun human(reason: String, cause: String) = ScreenCheck(ScreenState.NEEDS_HUMAN, f.currentApp, true, reason, cause)
 
-        // 页面切换时画面也可能短暂全黑:界面还在变就按加载中处理
+        // The screen may also go completely black for a short time when switching pages: if the
+        // interface is still changing, press Loading.
         if (f.changing && f.blackFrames.any { it }) {
             return ScreenCheck(ScreenState.LOADING, f.currentApp, false, cause = "black frame while the screen keeps changing")
         }
@@ -80,7 +85,8 @@ object ScreenDiagnosis {
             hit(SMS_CODE) != null -> "login" to "verification code text: ${hit(SMS_CODE)}"
             else -> null
         }
-        // 两次安静时都全黑才算防截屏,一次黑可能只是还没画出来
+        // If it is completely black during two quiet times, it is considered to be anti-screenshot. Once
+        // it is black, it may just be that the drawing has not been drawn yet.
         if (f.hasWindow && f.blackFrames.size >= 2 && f.blackFrames.all { it }) {
             return ScreenCheck(ScreenState.PROTECTED, f.currentApp, true, human?.first ?: "other", "secure window: the frame stays black")
         }

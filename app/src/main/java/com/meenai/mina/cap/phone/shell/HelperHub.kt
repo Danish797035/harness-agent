@@ -23,49 +23,52 @@ import java.io.IOException
 import com.meenai.mina.shell.IHarnessShell
 
 /**
- * Mina 进程里内置助手 Binder 的落点。助手经 [HandoffProvider] 交来 Binder,在这里核对后收下;
- * 由 [com.meenai.mina.cap.phone.PhoneServices] 建一份(助手只认一个进程里的一个落点),
- * [BuiltinShellConnection] 和看门狗都看它的 [shell]。
+ * The location of the built-in assistant Binder in the Mina process. The assistant submits it to the
+ * Binder via [HandoffProvider], checks it here and accepts it; a copy is created by
+ * [com.meenai.mina.cap.phone.PhoneServices] (the assistant only recognizes one drop point in a process),
+ * [BuiltinShellConnection] and the watchdog both look at its [shell].
  */
 class HelperHub(context: Context) {
     private val app = context.applicationContext
 
     private val _shell = MutableStateFlow<IHarnessShell?>(null)
-    /** 现在手里的助手接口;助手进程死了就变回 null。 */
+    /** The assistant interface in hand now; it will return to null when the assistant process dies. */
     val shell: StateFlow<IHarnessShell?> = _shell.asStateFlow()
 
     private val _restores = MutableStateFlow<HelperRestoreReport?>(null)
-    /** 助手交接时报来的「Mina 被杀后由它拉起来」的记录(诊断信息用);没拉过为 null。 */
+    /** The record of "Mina was pulled up after being killed" (used for diagnostic information) when the assistant handed over the report; if not pulled, it is null. */
     val restores: StateFlow<HelperRestoreReport?> = _restores.asStateFlow()
 
-    /** 经助手代连本进程的 WebView 调试套接字;助手不在时抛 IOException,助手拒绝或连不上为 null。 */
+    /** The WebView debugging socket of this process is connected through the assistant; IOException is thrown when the assistant is not available, and null when the assistant refuses or cannot connect. */
     fun openDevtoolsSocket(endpoint: String): ParcelFileDescriptor? {
         val sh = shell.value ?: throw IOException("phone helper is not running")
         return sh.openDevtoolsSocket(endpoint)
     }
 
-    /** 交给助手的本进程令牌:Mina 进程一死,助手就从它的死亡通知得知,撤掉 Mina 留下的改动。 */
+    /** The process token given to the assistant: As soon as the Mina process dies, the assistant will know from its death notification and remove the changes left by Mina. */
     private val token = Binder()
     private val nonces: HandoffNonces by lazy { HandoffNonces(PrefsNonceStore(app), SystemClock::elapsedRealtime, System::currentTimeMillis) }
 
-    /** 经 adbd 起新助手前调:这个一次性口令经 exec 流的标准输入交给助手。 */
+    /** New helper prefix via adbd: This one-time password is given to the helper via the standard input of the exec stream. */
     fun issueLaunchNonce(): String = nonces.issueLaunch()
 
-    /** 写进「用电脑启动」脚本的一次性口令(见 [HandoffNonces.usbNonce]);交接走的是同一个 [offer]。 */
+    /** The one-time password written into the "Start with Computer" script (see [HandoffNonces.usbNonce]); the same [offer] is used for handover. */
     fun usbNonce(): String = nonces.usbNonce()
 
-    /** 口令被整体作废的次数(见 [HandoffNonces.resets]):「用电脑启动」脚本跟着它重写。 */
+    /** The number of times the password has been invalidated as a whole (see [HandoffNonces.resets]): the "Start with Computer" script is rewritten accordingly. */
     val nonceResets: StateFlow<Int> get() = nonces.resets
 
-    /** 解除配对:口令全部作废(还活着的助手下次交接会被拒绝并退出),手里的接口也放掉。 */
+    /** Unpairing: All passwords are invalidated (the assistant who is still alive will be rejected and exit next time), and the interface in hand is also released. */
     fun forget() {
         nonces.clear()
         _shell.value = null
     }
 
     /**
-     * 助手来交接。只收 shell(uid 2000)、自报 uid/pid 与调用方一致、跑的是当前这份 APK、口令对的;
-     * 再调一次 Binder 确认它确实在来交接的这个进程里,最后才用掉口令并换发下一枚。
+     * The assistant will hand over. Only the shell (uid 2000) is accepted, the self-reported uid/pid is
+     * consistent with the caller, the current APK is running, and the password is correct; call Binder
+     * again to confirm that it is indeed in the process to be handed over, and finally use the password
+     * and change it to the next one.
      */
     @Synchronized
     fun offer(extras: Bundle?, callingUid: Int, callingPid: Int): Bundle {
@@ -80,7 +83,7 @@ class HelperHub(context: Context) {
         )?.let { return reject(it) }
         val gate = nonces
         val nonce = extras?.getString(HelperHandoff.KEY_NONCE)
-        // 口令不对就不碰对方给的 Binder
+        // If the password is incorrect, don’t touch the Binder given by the other party.
         if (!gate.matches(nonce)) return reject(HelperHandoff.Reject.BadNonce)
         val shell = IHarnessShell.Stub.asInterface(binder!!)
         val ids = runCatching { shell.identity() }.getOrNull()
@@ -93,7 +96,8 @@ class HelperHub(context: Context) {
         } catch (e: Exception) {
             return reject(HelperHandoff.Reject.NoBinder)
         }
-        // 换了新的助手:旧的随后会被新的结束,它的死亡通知因为不是当前这个而被忽略
+        // A new assistant is replaced: the old one will be ended by the new one, and its death
+        // notification will be ignored because it is not the current one.
         _shell.value = shell
         if (extras?.containsKey(HelperHandoff.KEY_RESTORED_AT) == true) {
             _restores.value = HelperRestoreReport(
@@ -127,7 +131,8 @@ class HelperHub(context: Context) {
             prefs.getString("resume", null), prefs.getString("launch", null), prefs.getLong("launchAt", 0),
             prefs.getString("usb", null), prefs.getLong("usbAt", 0),
         )
-        // 同步写:助手拿到新口令后 Mina 可能马上被杀,新进程要认得它
+        // Synchronous writing: Mina may be killed immediately after the assistant gets the new password,
+        // and the new process must recognize it
         override fun save(slots: NonceSlots) {
             prefs.edit().putString("resume", slots.resume).putString("launch", slots.launch).putLong("launchAt", slots.launchAt)
                 .putString("usb", slots.usb).putLong("usbAt", slots.usbAt).commit()
@@ -136,10 +141,14 @@ class HelperHub(context: Context) {
 }
 
 /**
- * 内置助手交接 Binder 的入口。要对 shell 开放所以是 exported,清单里另要求 INTERACT_ACROSS_USERS_FULL
- * (shell 有,普通 App 没有),普通 App 连 provider 都拿不到;真正的把关在 [HelperHub.offer]。
- * 落点是 App 的那一份([PhoneServices.of]):App 对象在 provider 之前就构造好了,但交接调用可能早于或与 Application.onCreate 同时到达;
- * 安全靠 HarnessApp.phone 与 [HelperHub] 里口令都是同步的 lazy(谁先到谁建、只建一次),[HelperHub.offer] 本身也加了锁,不依赖 onCreate 先跑完。
+ * The built-in assistant handovers the entry to Binder. It needs to be open to the shell, so it is
+ * exported. The list also requires INTERACT_ACROSS_USERS_FULL (the shell has it, but the ordinary app
+ * does not). The ordinary app cannot even get the provider; the real check is [HelperHub.offer]. The
+ * landing point is the App part ([PhoneServices.of]): the App object is constructed before the provider,
+ * but the handover call may arrive earlier than or at the same time as Application.onCreate; safety
+ * depends on the fact that the passwords in HarnessApp.phone and [HelperHub] are synchronized and lazy
+ * (whoever arrives first builds it, only builds it once), [HelperHub.offer] itself is also locked, and
+ * does not rely on onCreate to run first.
  */
 open class HandoffProvider : ContentProvider() {
     override fun onCreate() = true

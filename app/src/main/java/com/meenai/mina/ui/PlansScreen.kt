@@ -53,8 +53,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 已保存的定时任务:分「进行中」「已停用」两段,每条三行(做什么、什么时候与下次、上次结果),右边开关。
- * 点一行升起操作面板(看对话、立即执行、改时间、删除)。页面只读账本,修改后让调度器重新布置系统闹钟。
+ * Saved scheduled tasks: divided into two sections: "In progress" and "Disabled", each with three lines
+ * (what to do, when and next time, last result), with a switch on the right. Click on a line to bring up
+ * the operation panel (view dialogue, execute immediately, change time, delete). The page only reads the
+ * ledger, and allows the scheduler to rearrange the system alarm clock after modification.
  */
 @Composable
 fun PlansScreen(context: Context, onBack: () -> Unit, onOpenConversation: (String) -> Unit) {
@@ -65,7 +67,8 @@ fun PlansScreen(context: Context, onBack: () -> Unit, onOpenConversation: (Strin
     var acting by remember { mutableStateOf<TriggerDefinition?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var segment by rememberSaveable { mutableIntStateOf(0) }
-    // 从系统设置回来时重读:刚开了权限,提示就该消失
+    // Reread it when you come back from system settings: As soon as you open the permissions, the prompt
+    // should disappear
     var exact by remember { mutableStateOf(TriggerRuntime.canScheduleExactly(context)) }
     LifecycleResumeEffect(Unit) {
         exact = TriggerRuntime.canScheduleExactly(context)
@@ -170,7 +173,8 @@ private fun PlanRow(plan: TriggerDefinition, last: TriggerWindow?, first: Boolea
     val subtitle = plan.conditionGoal?.let { tr(R.string.plans_condition, it, when_) } ?: when_
     val c = MinaTheme.colors
     val delivered = last?.state == TriggerWindowState.Delivered
-    // 一次性的任务做完后不能再打开;循环的和从没跑过的可以
+    // One-time tasks cannot be opened again after they are completed; cyclic ones and those that have
+    // never been run can be
     val canToggle = plan.enabled || plan.intervalMs != null || plan.calendarTime != null || last == null
     ListRow(
         null, plan.reminderText ?: plan.goal, subtitle, first = first,

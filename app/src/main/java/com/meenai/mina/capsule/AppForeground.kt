@@ -8,12 +8,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Mina 自己的界面(对话页、网页接管页等任一 Activity)此刻是否看得见:数已经 onStart、还没 onStop 的 Activity。
- * 转屏这类重建时旧的先停、新的再起,中间不算离开前台。由 App 在启动时登记,只在主线程回调。
+ * Whether Mina's own interface (dialogue page, web page takeover page, etc. any activity) is visible at
+ * this moment: Count the activities that have onStart and have not yet onStop. When rebuilding such as
+ * screen rotation, the old one is stopped first and the new one is started again, and the middle time
+ * does not count as leaving the front desk. It is registered by the App when it starts and is only
+ * called back on the main thread.
  */
 class AppForeground : Application.ActivityLifecycleCallbacks {
     private var started = 0
-    /** 因为重建而停下、新实例还没起来的个数。 */
+    /** The number of instances that were stopped due to rebuilding and new instances have not been started yet. */
     private var recreating = 0
     private val _visible = MutableStateFlow(false)
     val visible: StateFlow<Boolean> = _visible.asStateFlow()

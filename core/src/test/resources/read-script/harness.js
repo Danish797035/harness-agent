@@ -1,27 +1,33 @@
-// 读脚本前置脚本的测试台:用一套极简的假 DOM(只有测试用到的接口)装上前置脚本,逐条跑用例,把结果按 JSON 打印出来。
-// 用法:node harness.js <前置脚本> <用例 JSON>;用例为 [{name, code, args?, resultChars?, page?}]。
+// Test bench for reading script pre-scripts: Use a set of minimalist fake DOM (only the interfaces used
+// for testing) to install the pre-scripts, run the use cases one by one, and print the results as JSON.
+// Usage: node harness.js <pre-script> <use case JSON>; use case is [{name, code, args?, resultChars?, page?}].
 'use strict';
 const fs = require('fs');
 const prelude = fs.readFileSync(process.argv[2], 'utf8');
 const cases = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const write = process.stdout.write.bind(process.stdout);
 const stringify = JSON.stringify;
-// 浏览器原生的查找方法把选择器变成字符串时不经页面里的全局 String,假 DOM 也先存一份
+// When the browser's native search method turns the selector into a string, it does not go through the
+// global String in the page, and the fake DOM also saves a copy first.
 const asString = String;
 
 const log = { mutations: 0, clicks: 0, navigations: 0, pageCode: 0, requests: [] };
 
-// 假 DOM 的一套接口。同源 iframe 里的节点在浏览器里属于那个框架自己的一套接口(instanceof 认不出主框架的类,方法也是另一份),
-// 所以做成函数:主文档和 iframe 里的文档各用一套
+// A set of interfaces for fake DOM. The nodes in the same-origin iframe belong to that frame's own set
+// of interfaces in the browser (instanceof does not recognize the main frame's class, and the method is
+// also another), so it is made into a function: the main document and the documents in the iframe use
+// one set each.
 const makeDom = () => {
   class EventTarget {}
   class Node extends EventTarget {
     constructor() { super(); this._kids = []; this._attrs = {}; this.parentNode = null; this._text = null; }
-    // 和浏览器一样只有 Node 上一个 getter,对哪种节点都给对的值
+    // Like the browser, there is only one getter on Node, which gives the correct value to any node.
     get nodeType() { return this._nodeType; }
     get parentNode() { return this._parent; }
     set parentNode(p) { this._parent = p; }
-    // 元素的 _text 是它唯一的子文本节点(textarea 里的字就在这里;_cdata 时是 CDATA 段)。字换了就换上一个新节点,旧的脱离文档、字留着
+    // The element's _text is its only child text node (the words in the textarea are here; _cdata is the
+    // CDATA section). If the word is changed, replace it with a new node. The old one will be removed
+    // from the document and the word will remain.
     get childNodes() { return new NodeList(this._text && this._nodeType === 1 ? [this._textNode()] : this._kids); }
     get firstChild() { return this.childNodes[0] || null; }
     _textNode() {
@@ -37,7 +43,8 @@ const makeDom = () => {
     _all() { const out = []; for (const k of this._kids) { out.push(k); out.push(...k._all()); } return out; }
     _match(sel) { return this._all().filter((e) => e._is(sel)); }
   }
-  // 和浏览器一样,查找方法在 Element、Document、DocumentFragment 上,不在 Node 上;选择器参数和浏览器一样先变成字符串
+  // Like the browser, the search method is on Element, Document, DocumentFragment, not Node; the
+  // selector parameter is first changed to a string like the browser
   const finders = {
     querySelectorAll(sel) { return new NodeList(this._match(asString(sel))); },
     querySelector(sel) { return this._match(asString(sel))[0] || null; },
@@ -60,18 +67,19 @@ const makeDom = () => {
     setAttribute(n, v) { log.mutations++; this._attrs[n] = String(v); }
     hasAttribute(n) { return n in this._attrs; }
     closest(sel) { for (let n = this; n && n._nodeType === 1; n = n.parentNode) if (n._is(asString(sel))) return n; return null; }
-    // 同一个属性一直是同一个属性节点(和浏览器一样)
+    // The same attribute is always the same attribute node (same as the browser)
     _attrNode(n) { const m = this._attrNodes || (this._attrNodes = {}); return m[n] || (m[n] = new Attr(this, n)); }
     click() { log.clicks++; }
     focus() { log.mutations++; }
-    // 在页面文档里复制:和浏览器一样经构造器(自定义元素会跑页面代码)
+    // Copy in the page document: go through the constructor like the browser (custom elements will run
+    // the page code)
     cloneNode(deep) {
       const C = this.constructor;
       const c = new C(this.tagName.toLowerCase(), Object.assign({}, this._attrs), this._text);
       if (deep) for (const k of this._kids) { const kc = k.cloneNode(true); c._kids.push(kc); kc.parentNode = c; }
       return c;
     }
-    // 复制进不属于任何窗口的空文档:不经构造器
+    // Copy into an empty document that does not belong to any window: without constructor
     _copy(deep) {
       const c = Object.create(Object.getPrototypeOf(this));
       Object.assign(c, { _kids: [], _attrs: Object.assign({}, this._attrs), parentNode: null, _text: this._text, _nodeType: 1, tagName: this.tagName });
@@ -90,11 +98,12 @@ const makeDom = () => {
   }
   Object.assign(Element.prototype, finders);
   class HTMLElement extends Element {
-    // 不排版时浏览器给的就是子孙的文字;排版出来的(_shown)给的是写出来的字
+    // When typesetting is not done, the browser will give you the text of descendants; when it is
+    // typeset (_shown), it will give you the written words.
     get innerText() { return this._shown != null ? this._shown : this.textContent; }
     get outerText() { return this.innerText; }
   }
-  // 下面几个属性也按子孙的文字算
+  // The following attributes are also calculated according to the text of descendants.
   class HTMLAnchorElement extends HTMLElement {
     get text() { return this.textContent; }
   }
@@ -107,7 +116,8 @@ const makeDom = () => {
     get value() { return this.textContent; }
     get defaultValue() { return this.textContent; }
   }
-  // 选中第几项(_selected)是页面此刻的状态,复制时不带过去
+  // The selected item (_selected) is the current status of the page, and will not be copied when
+  // copying.
   class HTMLSelectElement extends HTMLElement {
     get options() { return new NodeList(this._match('option')); }
     get selectedIndex() { return this._selected != null ? this._selected : this.options.length ? 0 : -1; }
@@ -131,7 +141,8 @@ const makeDom = () => {
   class HTMLIFrameElement extends HTMLElement {
     get contentDocument() { return this._doc || null; }
   }
-  // template 的子节点在 content(一个 DocumentFragment)里:querySelectorAll 找不进去,innerHTML 照样写出来;深复制时一起复制
+  // The child nodes of template are in content (a DocumentFragment): querySelectorAll cannot be found,
+  // and innerHTML is still written out; copied together during deep copy
   class HTMLTemplateElement extends HTMLElement {
     constructor(...a) { super(...a); this._content = new DocumentFragment(); }
     get content() { return this._content; }
@@ -148,7 +159,7 @@ const makeDom = () => {
       return c;
     }
   }
-  // 和浏览器一样 substringData 在 CharacterData 上
+  // Like browsers substringData on CharacterData
   class CharacterData extends Node {
     get data() { return this._data; }
     get nodeValue() { return this.data; }
@@ -159,11 +170,12 @@ const makeDom = () => {
     constructor(owner) { super(); this._nodeType = 3; this.parentNode = owner; this._data = owner._text; }
     get wholeText() { return this.data; }
   }
-  // XML 页面里的 CDATA 段:也是文本节点
+  // CDATA section in XML page: also a text node
   class CDATASection extends Text {
     constructor(owner) { super(owner); this._nodeType = 4; }
   }
-  // 属性删掉以后属性节点脱离元素:ownerElement 为 null,值留在节点上(_kept)
+  // After the attribute is deleted, the attribute node is separated from the element: ownerElement is
+  // null, and the value remains on the node (_kept)
   class Attr extends Node {
     constructor(owner, name) { super(); this._nodeType = 2; this._owner = owner; this._name = name; }
     get name() { return this._name; }
@@ -208,7 +220,7 @@ const makeDom = () => {
   return { EventTarget, Node, Element, HTMLElement, HTMLAnchorElement, HTMLOptionElement, HTMLOutputElement, HTMLSelectElement, HTMLInputElement, HTMLTextAreaElement, HTMLIFrameElement, HTMLTemplateElement, CharacterData, Text, Attr, NamedNodeMap, NodeList, DocumentFragment, ShadowRoot, Document };
 };
 const { EventTarget, Node, Element, HTMLElement, HTMLAnchorElement, HTMLOptionElement, HTMLOutputElement, HTMLSelectElement, HTMLInputElement, HTMLTextAreaElement, HTMLIFrameElement, HTMLTemplateElement, CharacterData, Text, Attr, NamedNodeMap, NodeList, DocumentFragment, ShadowRoot, Document } = makeDom();
-// 页面自己定义的自定义元素:构造时跑页面代码
+// Custom elements defined by the page: run the page code during construction
 class XCard extends HTMLElement { constructor(...a) { super(...a); log.pageCode++; } }
 
 const doc = new Document();
@@ -226,9 +238,11 @@ add(form, new HTMLInputElement('input', { type: 'number', name: 'otp', autocompl
 add(form, new HTMLTextAreaElement('textarea', { name: 'code', autocomplete: 'one-time-code' }, 'otp-in-textarea'));
 const note = add(form, new HTMLTextAreaElement('textarea', { name: 'note' }, 'leave at door'));
 add(form, new XCard('x-card', {}, 'card'));
-// template 里的隐藏字段:不在文档树上,innerHTML 照样写出来
+// Hidden fields in template: not in the document tree, innerHTML is still written out
 add(add(form, new HTMLTemplateElement('template'))._content, new HTMLInputElement('input', { type: 'hidden', name: 'tpl', value: 'tpl-secret' }));
-// 同源 iframe:里面的文档用另一套接口;密码框里是用户打的字(值,不是属性);它是 XML 页面,textarea 里的字是 CDATA 段
+// Same-origin iframe: The documents inside use another set of interfaces; the password box contains the
+// words typed by the user (values, not attributes); it is an XML page, and the words in the textarea are
+// CDATA segments
 const frame = makeDom();
 const frameDoc = new frame.Document();
 const frameBody = new frame.HTMLElement('body');
@@ -239,15 +253,17 @@ add(frameForm, new frame.HTMLInputElement('input', { type: 'hidden', name: 'csrf
 add(frameForm, new frame.HTMLInputElement('input', { type: 'text', name: 'q', value: 'frame-q' }));
 add(frameForm, new frame.HTMLTextAreaElement('textarea', { autocomplete: 'one-time-code' }, 'frame-otp'))._cdata = true;
 add(body, new HTMLIFrameElement('iframe'))._doc = frameDoc;
-// 开放的 shadow root:里面的节点不在文档树上
+// Open shadow root: The nodes inside are not in the document tree
 const host = add(body, new HTMLElement('div'));
 host._shadow = new ShadowRoot(host);
 add(host._shadow, new HTMLInputElement('input', { type: 'password', value: 'shadow-default' }));
 add(host._shadow, new HTMLInputElement('input', { type: 'hidden', value: 'shadow-token' }));
 const shadowCode = add(host._shadow, new HTMLTextAreaElement('textarea', { autocomplete: 'one-time-code' }, 'shadow-otp'));
-// SVG 里也有叫 template 的元素:它没有 content,子节点就在文档树上
+// There is also an element called template in SVG: it has no content, and its child nodes are on the
+// document tree.
 add(add(add(body, new Element('svg')), new Element('template')), new Element('circle'));
-// 链接、选项里的秘密 textarea(页面脚本放进去的):a、option 的 text 一类按子孙的文字算;页面选中的是第二项
+// The secret textarea in links and options (put in by the page script): a. The text of option is counted
+// as descendant text; the second item is selected on the page
 const link = add(body, new HTMLAnchorElement('a'));
 add(link, new HTMLElement('span', {}, 'Link '));
 add(link, new HTMLTextAreaElement('textarea', { autocomplete: 'one-time-code' }, 'otp-in-link'));
@@ -257,13 +273,15 @@ const option = add(select, new HTMLOptionElement('option'));
 add(option, new HTMLElement('span', {}, 'Card '));
 add(option, new HTMLTextAreaElement('textarea', { autocomplete: 'cc-number' }, '4111-in-option'));
 select._selected = 1;
-// 排版出来的元素:innerText 是写出来的字,不含 textarea 里的字;选项除外,它按自己的 text 写出来
+// Typesetting elements: innerText is the written word, excluding the words in the textarea; except for
+// the option, which is written according to its own text
 select._shown = 'One\nCard 4111-in-option';
 const shown = add(body, new HTMLElement('p'));
 add(shown, new HTMLElement('span', {}, 'Code: '));
 add(shown, new HTMLTextAreaElement('textarea', { autocomplete: 'one-time-code' }, 'otp-in-p'));
 shown._shown = 'Code: ';
-// option 带 value 属性时 value 是属性;output 的 value、defaultValue 按子孙的文字算
+// When the option has a value attribute, value is an attribute; the value and defaultValue of the output
+// are calculated according to the text of the descendants.
 const select2 = add(body, new HTMLSelectElement('select'));
 const valued = add(select2, new HTMLOptionElement('option', { value: 'v-attr' }));
 add(valued, new HTMLElement('span', {}, 'Pick '));
@@ -272,21 +290,25 @@ const output = add(body, new HTMLOutputElement('output'));
 add(output, new HTMLElement('span', {}, 'Out '));
 add(output, new HTMLTextAreaElement('textarea', { autocomplete: 'one-time-code' }, 'otp-in-output'));
 
-// 用例的 page:跑之前页面自己做的事(浏览器里是页面脚本),返回跑完后怎么还原
+// Use case page: What the page did before running (the page script in the browser), how to restore it
+// after returning
 const pageActions = {
-  // 「显示密码」:读取世界建起之后把密码框改成 text
+  // "Show password": After loading the world, change the password box to text
   showPassword: () => { pw._attrs.type = 'text'; return () => { pw._attrs.type = 'password'; }; },
-  // 把打进去的字写回 textarea 的初始值:换上一个新的文本节点,旧的脱离文档
+  // Write the typed words back to the initial value of textarea: replace it with a new text node, and
+  // the old one is removed from the document
   typeBack: () => { const old = shadowCode._text; shadowCode._text = 'otp-typed'; shadowCode._textNode(); return () => { shadowCode._text = old; shadowCode._textNode(); }; },
-  // 删掉密码框的 value 属性
+  // Delete the value attribute of the password box
   dropValue: () => {
     const a = pw._attrNode('value');
     a._kept = pw._attrs.value; a._owner = null; delete pw._attrs.value; delete pw._attrNodes.value;
     return () => { pw._attrs.value = a._kept; };
   },
-  // 页面取消选中:selectedIndex 为 -1
+  // Page unchecked: selectedIndex is -1
   unselect: () => { select._selected = -1; return () => { select._selected = 1; }; },
-  // 框后来才变成秘密:加上 autocomplete、改成密码框,把字写进模型拿着的那个节点,再换掉字、删掉 value 属性(节点脱离文档)
+  // The box only became a secret later: add autocomplete, change it to a password box, write the words
+  // into the node held by the model, then replace the words, delete the value attribute (the node is out
+  // of the document)
   lateSecret: () => {
     const n = note._textNode(), a = query._attrNode('value'), text = note._text, value = query._attrs.value;
     note._attrs.autocomplete = 'one-time-code'; n._data = 'late-otp'; note._text = 'later'; note._textNode();
@@ -295,7 +317,9 @@ const pageActions = {
     return () => { delete note._attrs.autocomplete; note._text = text; note._textNode(); query._attrs.type = 'text'; query._attrs.value = value; };
   },
 };
-// 页面上的节点此刻的样子(属性、值、文字,含 template 的内容、shadow root、iframe 里的文档):读完和读之前一比,就知道原件有没有被改过
+// What the nodes on the page look like at the moment (attributes, values, text, including template
+// content, shadow root, documents in iframe): Compare after reading with before reading, you will know
+// whether the original has been modified.
 const pageState = () => {
   const out = [];
   const walk = (n) => {
@@ -316,7 +340,7 @@ const location = new Location();
 Object.defineProperty(location, 'toString', { value: function () { return this.href; } });
 Object.defineProperty(location, 'valueOf', { value: function () { return this; } });
 
-// 会发请求的页面接口:真的被调到就记一笔
+// The page interface that will send requests: If it is really transferred, it will be recorded.
 class XMLHttpRequest { constructor() { log.requests.push({ via: 'xhr' }); } open(m, u) { log.requests.push({ via: 'xhr', method: m, url: u }); } send() {} }
 class WebSocket { constructor(u) { log.requests.push({ via: 'ws', url: u }); } }
 class EventSource { constructor(u) { log.requests.push({ via: 'sse', url: u }); } }
@@ -331,13 +355,13 @@ Object.assign(globalThis, {
   open() { log.navigations++; },
   fetch: async (url, opts) => {
     log.requests.push({ url, method: opts && opts.method, credentials: opts && opts.credentials, redirect: opts && opts.redirect });
-    // 不跟随跳转时浏览器给的是 opaqueredirect 响应
+    // When not following the jump, the browser gives an opaqueredirect response.
     if (url.endsWith('/moved')) return { type: 'opaqueredirect', status: 0, ok: false, url: '', body: null, headers: new Headers() };
     return new Response(stringify({ items: [1, 2], token: 'abc' }), { headers: { 'content-type': 'application/json' } });
   },
 });
 
-// Node 自带的 navigator 只有 getter:换成假的
+// The navigator that comes with Node only has a getter: replace it with a fake one
 Object.defineProperty(globalThis, 'navigator', { value: navigator, configurable: true, writable: true });
 
 (0, eval)(prelude);

@@ -29,8 +29,10 @@ import org.junit.rules.TemporaryFolder
 import javax.crypto.KeyGenerator
 
 /**
- * 「测试并保存」走真的列模型接口和适配器:自定义的 OpenAI 兼容接口,对着一个按路径回话的本地服务。
- * 列表接口 404 时分得出「这家真不提供列表」(手填的模型调得通)和「地址、接口类型填错了」(调用也 404)。
+ * "Test and save" real-life column model interface and adapter: custom OpenAI compatible interface,
+ * facing a local service that talks back by path. When the list interface receives 404, I get "This
+ * company really doesn't provide lists" (the hand-filled model can be adjusted) and "the address and
+ * interface type are filled in wrongly" (the call is also 404).
  */
 class ModelSetupNetworkTest {
     @get:Rule val texts = EnglishTexts()
@@ -41,7 +43,7 @@ class ModelSetupNetworkTest {
     private val server = MockWebServer()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    /** 路径 → 回什么;没写的路径回 404 网页。[chat] 给了时按请求里的模型名回调用接口。 */
+    /** Path → returns something; the unwritten path returns to the 404 web page. [chat] provides a callback interface based on the model name in the request. */
     private val routes = mutableMapOf<String, () -> MockResponse>()
     private var chat: ((model: String) -> MockResponse)? = null
     private val chatModels = mutableListOf<String>()
@@ -113,12 +115,12 @@ class ModelSetupNetworkTest {
         assertEquals(setOf("my-model"), p.verifiedModels)
         assertEquals("my-model", store.configFor(ModelRole.Main)?.model)
         assertFalse(vm.state.value.showForm)
-        // 记下的「核实过」重新读入后还在
+        // The "verified" written down is still there after re-reading it.
         assertEquals(setOf("my-model"), ProviderStore(tmp.root, AesGcmKeyCipher { key }).provider(p.id)?.verifiedModels)
         assertEquals(listOf("/models", "/models", "/chat/completions"), List(server.requestCount) { server.takeRequest().path })
     }
 
-    /** 列表里先是别家的模型:没开通的那个调用回 400,接着试下一个,通了就存下、它当主模型,说清先试的哪个没通过。 */
+    /** First in the list are other models: the one that has not been activated calls back 400, and then tries the next one. If it succeeds, save it and use it as the main model. Please tell which one you tried first failed. */
     @Test fun notActivatedFirstModelFallsBackToTheNext() {
         routes["/models"] = ::thirdPartyFirst
         chat = { model -> if (model == "qwen-plus") toolCall() else notActivated() }
@@ -135,7 +137,7 @@ class ModelSetupNetworkTest {
         assertTrue("qwen-plus" in p.verifiedModels)
     }
 
-    /** 试的几个都没开通:Key 是对的,存下服务商、不定主模型,请用户从列表里选。 */
+    /** None of the ones I tried have been activated: the key is correct, save the service provider and indefinite master models, and ask the user to select them from the list. */
     @Test fun noCandidateActivatedSavesProviderWithoutMain() {
         routes["/models"] = ::thirdPartyFirst
         chat = { notActivated() }
@@ -151,7 +153,7 @@ class ModelSetupNetworkTest {
         assertTrue(s.probeNote.orEmpty(), s.probeNote.orEmpty().endsWith("Tried antdigital/Ling-3.1-flash, qwen-plus, qwen-max; none of them is activated."))
     }
 
-    /** 先试的模型这个账号额度为零(429 里说 limit: 0):不当成限流卡住,接着试下一个,通了存下、它当主模型。 */
+    /** The account limit of the model being tried first is zero (it says limit: 0 in 429): it is not considered to be stuck in the current limit. Then try the next one. If it passes and is saved, it will become the main model. */
     @Test fun quotaZeroFirstModelFallsBackToTheNext() {
         routes["/models"] = {
             MockResponse().setHeader("Content-Type", "application/json").setBody("""{"object":"list","data":[{"id":"paid-only"},{"id":"free-ok"}]}""")
@@ -169,7 +171,7 @@ class ModelSetupNetworkTest {
         assertTrue(note, note.endsWith("The main model is “free-ok”, which passed."))
     }
 
-    /** 真的限流(429 没说额度为零):第一个就因为模型以外的原因失败,不存、不试下一个。 */
+    /** Real current limit (429 does not say the quota is zero): The first one failed due to reasons other than the model, and did not save or try the next one. */
     @Test fun plainRateLimitOnTheFirstModelSavesNothing() {
         routes["/models"] = {
             MockResponse().setHeader("Content-Type", "application/json").setBody("""{"object":"list","data":[{"id":"a"},{"id":"b"}]}""")
@@ -206,7 +208,7 @@ class ModelSetupNetworkTest {
         assertTrue(store.providers.value.isEmpty())
     }
 
-    /** 自定义选 OpenAI Responses:列模型照样 `GET /models`,试调用走 `/responses`(不碰 `/chat/completions`),存下的服务商和主模型都是这种接口。 */
+    /** Custom selection OpenAI Responses: The column model is still `GET /models`, try calling `/responses` (without touching `/chat/completions`), the saved service provider and main model all have this interface. */
     @Test fun customResponsesListsThenProbesTheResponsesEndpoint() {
         routes["/models"] = {
             MockResponse().setHeader("Content-Type", "application/json").setBody("""{"object":"list","data":[{"id":"gpt-x"}]}""")

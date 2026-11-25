@@ -9,20 +9,21 @@ import com.meenai.mina.core.uistate.AppWait
 
 sealed interface StartResult<out R> {
     data class Started<R>(val run: R) : StartResult<R>
-    /** 超出并行上限,排在队里第 [position] 个。 */
+    /** Exceeded the parallel limit, ranked [position] in the queue. */
     data class Queued<R>(val run: R, val position: Int) : StartResult<R>
-    /** 这个对话已经有任务(在跑或在排队):照 M1 规则不收,由对话自己排队。 */
+    /** This conversation already has a task (running or queuing): it will not be accepted according to M1 rules, and the conversation will queue itself. */
     data object AlreadyRunningInConversation : StartResult<Nothing>
 }
 
 /**
- * 按对话索引的运行中任务、并行上限与跨任务的全局锁。上限为 1 时(开关关着)就是 M1 的一次一个。
- * [create] 在登记时建任务对象;R 在产品里是 [TaskRun],测试里换成普通对象。
+ * Running tasks by conversation index, concurrency caps, and global locks across tasks. When the upper
+ * limit is 1 (switch is off), it is M1 one at a time. [create] creates a task object during
+ * registration; R is [TaskRun] in the product, and is replaced with a normal object in the test.
  */
 class TaskCenter<R : Any>(
     private val limit: () -> ParallelLimit,
     private val conversationOf: (R) -> String,
-    /** 任务的唯一编号(通知按钮带着它);同一对话前后两个任务的编号不同。 */
+    /** The unique number of the task (the notification button carries it); the numbers of the two tasks before and after the same conversation are different. */
     private val keyOf: (R) -> String,
     val store: RunStore = MemoryRunStore(),
     val resources: ResourceScheduler = ResourceScheduler(),
@@ -31,7 +32,7 @@ class TaskCenter<R : Any>(
     private val running = mutableListOf<R>()
     private val queued = mutableListOf<R>()
     private val deferred = ArrayDeque<Pair<String, String>>()
-    /** 迁移中的调用方继续从这里拿资源，实际所有权归 [resources]。 */
+    /** The caller during migration continues to take resources from here, and the actual ownership belongs to [resources]. */
     val clipLock get() = resources.clipboard
     val takeoverQueue get() = resources.takeoverQueue
 
@@ -59,29 +60,33 @@ class TaskCenter<R : Any>(
     @Synchronized fun byKey(key: String): R? = runs().firstOrNull { keyOf(it) == key }
 
     /**
-     * 任务 [owner] 要在自己的屏上开 [pkg]:没人占、自己占着、或占着的任务已经不在用它([stillUsed] 为假,
-     * 比如 App 自己关掉了)时占下并返回 true;否则另一个任务正在用,返回 false。查与占在同一把锁里,两个任务同时开同一个 App 只有一个能成。
+     * Task [owner] wants to open [pkg] on its own screen: it is occupied when no one is occupying it, it
+     * is occupied by itself, or the occupied task is no longer using it ([stillUsed] is false, for
+     * example, the app is closed by itself) and returns true; otherwise, if another task is using it,
+     * return false. Checking and accounting are in the same lock. Only one of them can succeed in
+     * opening the same app at the same time.
      */
     @Synchronized
     fun reserve(pkg: String, owner: String, stillUsed: () -> Boolean): Boolean {
         return resources.reserveApp(pkg, owner, { byKey(it) != null }, stillUsed)
     }
 
-    /** 任务 [owner] 此刻能不能占 [pkg](只查不占,规则同 [reserve])。 */
+    /** Can task [owner] occupy [pkg](only check but not occupy, the rules are the same as [reserve]) at this moment? */
     @Synchronized
     fun appFree(pkg: String, owner: String, stillUsed: () -> Boolean): Boolean =
         resources.appFree(pkg, owner, { byKey(it) != null }, stillUsed)
 
     /**
-     * 任务 [owner] 等别的任务放开 [pkg],最多 [timeoutMs](见 [ResourceScheduler.awaitApp]:互相等的不等)。
-     * 挂起着等,不拿这里的锁;在不在跑按开始等那一刻的任务名单认。
+     * The task [owner] and other tasks are released from [pkg], up to [timeoutMs] (see
+     * [ResourceScheduler.awaitApp]: Not equal to each other). Hang and wait, do not take the lock here;
+     * press Run or not to start waiting for the task list at that moment.
      */
     suspend fun awaitApp(pkg: String, owner: String, timeoutMs: Long, free: suspend () -> Boolean): AppWait {
         val active = synchronized(this) { runs().map(keyOf).toSet() }
         return resources.awaitApp(pkg, owner, timeoutMs, { it in active }, free)
     }
 
-    /** 还在排队就移出队伍并返回 true(调用方记为已取消);已经开跑返回 false,由任务自己取消。 */
+    /** If it is still in the queue, it will be removed from the queue and return true (the caller records it as canceled); if it has started running, it will return false and the task will be canceled by itself. */
     @Synchronized
     fun cancelIfQueued(run: R): Boolean {
         if (queued.none { it === run }) return false
@@ -89,7 +94,7 @@ class TaskCenter<R : Any>(
         return queued.removeAll { it === run }
     }
 
-    /** 任务结束(或排队时被取消);返回因此从队里放出来、该开始跑的任务。 */
+    /** The task ends (or is canceled while queuing); returns the task that was released from the queue and should start running. */
     @Synchronized
     fun onEnded(run: R): List<R> {
         if (queued.removeAll { it === run }) return emptyList()
@@ -124,8 +129,10 @@ class TaskCenter<R : Any>(
     }
 
     /**
-     * 收尾边界收到、已经不能注入原 Run 的用户原话:这个对话此刻没有任务就返回 true(调用方当场开始);
-     * 还有就留下返回 false,等它收尾后由 [takeReady] 交出。查与留在同一把锁里,和 [onEnded] 不会错开。
+     * The closing boundary received the original words of the user who can no longer inject the original
+     * Run: If this conversation has no tasks at the moment, it will return true (the caller starts on
+     * the spot); if it is left, it will return false, and it will be handed over by [takeReady] after it
+     * is completed. Check and stay in the same lock, and [onEnded] will not be staggered.
      */
     @Synchronized fun deferOrStart(threadId: String, text: String): Boolean {
         if (byConversation(threadId) == null) return true
@@ -133,7 +140,7 @@ class TaskCenter<R : Any>(
         return false
     }
 
-    /** 留下的话里,所在对话已经没有任务的那些(按到的先后),取走。 */
+    /** Among the words left behind, take away those that no longer have tasks in the conversation (in the order you clicked). */
     @Synchronized fun takeReady(): List<Pair<String, String>> {
         val ready = deferred.filter { (threadId, _) -> byConversation(threadId) == null }
         deferred.removeAll { (threadId, _) -> byConversation(threadId) == null }
@@ -141,5 +148,5 @@ class TaskCenter<R : Any>(
     }
 }
 
-/** 迁移期旧名称，现有调用方和测试仍可逐步转到 TaskCenter。 */
+/** Existing callers and tests can still be gradually moved to TaskCenter under the old name during the migration period. */
 typealias TaskRegistry<R> = TaskCenter<R>

@@ -1,12 +1,14 @@
 package com.meenai.mina.capsule
 
 /**
- * 胶囊上的单击和双击(纯逻辑,时钟由调用方给):单击展开卡片,双击把此刻的屏幕发出去。
- * 按下一下([tap])先不算单击:[timeoutMs] 内又来一下就是双击;到时还没有第二下([settle])才是单击。
+ * Click and double-click on the capsule (pure logic, the clock is given by the caller): click to expand
+ * the card, double-click to send the current screen. Pressing once ([tap]) does not count as a click:
+ * pressing [timeoutMs] again counts as a double-click; then the second press ([settle]) does not count
+ * as a click.
  */
 class DoubleTap(val timeoutMs: Long) {
     enum class Tap {
-        /** 第一下:等 [timeoutMs] 再 [settle]。 */
+        /** The first time: wait for [timeoutMs] and then [settle]. */
         First,
         Double,
     }
@@ -24,7 +26,7 @@ class DoubleTap(val timeoutMs: Long) {
         }
     }
 
-    /** 第一下之后到时了:还在等第二下就是单击(返回 true,只返回一次);已经成了双击或还没到时返回 false。 */
+    /** It's time after the first click: still waiting for the second click (returns true, only returns once); returns false when it has been double-clicked or has not yet arrived. */
     fun settle(now: Long): Boolean {
         val first = firstAt ?: return false
         if (now - first < timeoutMs) return false
@@ -32,7 +34,7 @@ class DoubleTap(val timeoutMs: Long) {
         return true
     }
 
-    /** 不再等(胶囊收起、换成别的样子)。 */
+    /** No more waiting (put the capsule away and change it to something else). */
     fun reset() {
         firstAt = null
     }

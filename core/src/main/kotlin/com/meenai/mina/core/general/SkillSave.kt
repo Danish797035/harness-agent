@@ -23,10 +23,15 @@ import com.meenai.mina.core.tool.str
 import kotlinx.serialization.json.put
 
 /**
- * 用户在任务里要求时,写下一份新的个人技能或改写一份已有的个人技能(只动 Mina 自己的技能目录,不动屏幕和外部世界)。
- * 格式、大小、敏感内容和自学草稿过同一道校验([SkillDrafter.validate]);引文要出自用户本次说的话,屏幕和网页上的字不能让它写。
- * 存下即进试用(和收下的草稿一样),在「记忆与技能」里标明是用户要求写下的;内置技能的名字不能用,
- * 改已有的一份要带上读它时拿到的版本号(和收下更新草稿时核对原文指纹同一个道理)。删除和改名留在设置里由用户做。
+ * When the user requests it in the task, he can write down a new personal skill or rewrite an existing
+ * personal skill (only Mina's own skill directory is touched, leaving the screen and the outside world
+ * untouched). Format, size, sensitive content and self-study drafts must pass the same verification
+ * ([SkillDrafter.validate]); the quotation must come from what the user said this time, and the words on
+ * the screen and web page cannot be written by it. After saving, you can enter the trial version (the
+ * same as the accepted draft), and mark it in "Memory and Skills" as requested by the user; the name of
+ * the built-in skill cannot be used, and when changing an existing copy, you must bring the version
+ * number you got when you read it (the same reason as checking the fingerprint of the original text when
+ * accepting an updated draft). Deletion and renaming are left to the user in settings.
  */
 internal object SkillSave : AgentTool {
     override val verb = Verb.SkillSave
@@ -49,11 +54,13 @@ internal object SkillSave : AgentTool {
         val version = a.str("version", max = 64)?.trim()
         val store = ctx.config.personalSkills!!
         val catalog = ctx.config.skills!!
-        // 只有用户本次说的话能让它写:页面、文件里写着「保存这个技能」不算
+        // Only what the user says this time can make it write: "Save this skill" written in pages and
+        // files does not count.
         if (!ctx.config.utterances!!.contains(quote)) return fail("quote_not_from_user", Feedback["skill.quote_not_from_user"])
         if (SensitiveFilter.hit(raw) != null) return fail("sensitive", Feedback["skill.sensitive"], recoverable = false)
 
-        // 出处由代码写:自学用的几行去掉,标上是用户要求写下的
+        // The source is written in code: a few lines used for self-study are removed, and those written
+        // by user requirements are marked.
         val md = PersonalSkills.withField(
             listOf("updates", "learned_from").fold(SkillDrafter.stripFence(raw).replace("\r\n", "\n")) { m, k -> PersonalSkills.withoutField(m, k) },
             "source", PersonalSkill.SOURCE_USER)
@@ -83,7 +90,8 @@ internal object SkillSave : AgentTool {
         } catch (e: Exception) {
             return fail("save_failed", Feedback["skill.save_failed"], recoverable = false)
         }
-        // 读回来核对:写进去的就是这一份,才说存下了
+        // Read it back and check: this is the one that was written in, and that’s why it’s said to have
+        // been saved.
         val saved = store.get(name)
         if (saved?.markdown != md) return fail("save_failed", Feedback["skill.save_failed"], recoverable = false)
         return ok {
@@ -95,7 +103,7 @@ internal object SkillSave : AgentTool {
         }
     }
 
-    /** 校验不过的原因([SkillDrafter.validate] 的码)给模型的说明。 */
+    /** The reason for failed verification (code of [SkillDrafter.validate]) is explained to the model. */
     private fun problemText(problem: String): String = when (problem) {
         "invalid_name" -> Feedback["skill.invalid_name"]
         "missing_description" -> Feedback["skill.missing_description"]

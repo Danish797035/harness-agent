@@ -1,8 +1,8 @@
 package com.meenai.mina.core.uistate
 
-/** 一个元素自己的上下文,判它做的是什么时只看这些,不看整屏:同一行上的文字(附着的标签、行里的说明)。 */
+/** An element's own context, when judging what it does, only look at these, not the entire screen: text on the same line (attached labels, descriptions in the line). */
 object ElementContext {
-    /** 同一行:中心落在元素的上下范围里,或元素的中心落在它的上下范围里。 */
+    /** Same line: The center falls within the upper and lower range of the element, or the center of the element falls within its upper and lower range. */
     fun row(e: UiElement, s: ScreenSnapshot): List<UiElement> {
         if (e.bounds.size != 4) return emptyList()
         val cy = (e.bounds[1] + e.bounds[3]) / 2

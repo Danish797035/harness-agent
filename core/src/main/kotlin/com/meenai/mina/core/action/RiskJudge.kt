@@ -10,22 +10,24 @@ import kotlinx.serialization.json.contentOrNull
 import com.meenai.mina.core.tool.Verb
 
 /**
- * 一个动作的风险。[hit] 是不可逆判定的结果(不用判或没命中为 null);[screen] 是判定所依据的那一屏,用到时才读。
- * 工具自己声明风险之后换掉实现即可,判定和审批不用改。
+ * The risk of an action. [hit] is the result of irreversible judgment (no judgment or no hit is null);
+ * [screen] is the screen on which the judgment is based, which is read only when used. The tool itself
+ * can declare the risk and replace the implementation, and the judgment and approval do not need to be
+ * changed.
  */
 fun interface RiskJudge {
     fun assess(verb: Verb?, hit: Irreversible?, screen: () -> ScreenSnapshot?): Risk
 }
 
-/** 按现有的不可逆判定和读屏信号分级;花不花钱按动作类别和屏上的金额认,不按 App。 */
+/** According to the existing irreversible judgment and screen reading signal classification; whether to spend money is judged by the action category and the amount on the screen, not by the App. */
 object ClassifiedRisk : RiskJudge {
-    /** 改界面上东西的动作;其余写操作(返回、滑动、打开 App、打开网址)只是在界面间移动。 */
+    /** Change the actions of things on the interface; other writing operations (return, slide, open app, open URL) are just moving between interfaces. */
     private val CHANGE_VERBS = setOf(Verb.Tap, Verb.TypeText, Verb.ClearText, Verb.PressKey, Verb.Upload, Verb.Interact)
 
-    /** 这个动作会改界面上的东西(不只是在界面间移动);不可逆、对外的动作也都是这几种动作做出来的。 */
+    /** This action will change things on the interface (not just moving between interfaces); irreversible and external actions are also made by these actions. */
     fun changesState(verb: Verb?): Boolean = verb in CHANGE_VERBS
 
-    /** 屏上带币种(¥、元、$)的金额:这时提交、删除一类的动作按花钱算(结算页上的「确认」「去支付」);发消息不花钱,不算。 */
+    /** The amount with currency (¥, yuan, $) on the screen: At this time, actions such as submitting and deleting are counted as money ("Confirm" and "Go to Pay" on the settlement page); sending messages does not cost money, so it does not count. */
     private val AMOUNT = Regex("[¥￥$＄]\\s*\\d|\\d+(\\.\\d+)?\\s*元")
 
     override fun assess(verb: Verb?, hit: Irreversible?, screen: () -> ScreenSnapshot?): Risk {
@@ -41,7 +43,7 @@ object ClassifiedRisk : RiskJudge {
         return Risk(level, payment)
     }
 
-    /** 动作落在哪个元素上:带编号的按编号找,打字落在有焦点的输入框,坐标点击取包含该点的最小元素。 */
+    /** Which element the action falls on: Find the numbered element by number, type in the focused input box, and click on the coordinates to get the smallest element containing the point. */
     fun target(verb: Verb?, args: JsonObject, s: ScreenSnapshot): UiElement? {
         fun str(k: String) = (args[k] as? JsonPrimitive)?.contentOrNull
         str("ref")?.let { ref -> return s.elements.firstOrNull { it.ref == ref } }
@@ -52,3 +54,4 @@ object ClassifiedRisk : RiskJudge {
             .minByOrNull { (it.bounds[2] - it.bounds[0]).toLong() * (it.bounds[3] - it.bounds[1]) }
     }
 }
+

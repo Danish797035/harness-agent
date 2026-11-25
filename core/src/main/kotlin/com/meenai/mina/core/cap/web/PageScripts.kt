@@ -10,58 +10,67 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 
 /**
- * 页面脚本(web_script)里 `mina.*` 的调用交给 Mina 的入口。端口只管传话:
- * 每个调用原样交给 [call],返回值(`{ok, value}` 或 `{ok:false, error, message}`)原样交回脚本。
- * 读页面的调用(query、queryAll、text)返回 `{ok:true, read:{…}}`:参数已校验、已计数,由端口在读取世界里照它读。
+ * The call of `mina.*` in the page script (web_script) is handed over to Mina's entrance. The port just
+ * passes the call: each call is handed to [call] unchanged, and the return value (`{ok, value}` or
+ * `{ok:false, error, message}`) is handed back to the script unchanged. The call to read the page
+ * (query, queryAll, text) returns `{ok:true, read:{…}}`: the parameters have been verified and counted,
+ * and the port reads them in the reading world.
  */
 interface ScriptBridge {
-    /** 抛 [ScriptAbort] 结束整个脚本(超上限、要确认、被守卫叫停、页面交给了用户)。 */
+    /** Throw [ScriptAbort] to end the entire script (exceeding the upper limit, requiring confirmation, stopped by the guard, and the page is handed over to the user). */
     suspend fun call(op: String, args: JsonObject): JsonObject
-    /** `mina.log`:不等回复。 */
+    /** `mina.log`: Waiting for reply. */
     fun log(text: String)
 }
 
 class ScriptAbort(val error: String, message: String) : Exception(message)
 
 sealed interface ScriptRun {
-    /** 跑完了;[valueJson] 是返回值的 JSON(没有返回值为 null)。 */
+    /** The run is finished; [valueJson] is the JSON of the return value (no return value is null). */
     data class Done(val valueJson: String?) : ScriptRun
-    /** 整页跳走,脚本停在这里。 */
+    /** The entire page jumps away and the script stops here. */
     data object Navigated : ScriptRun
-    /** [error]:script_error | timeout | devtools_unavailable | no_tab_open,或 [ScriptAbort] 的错误码。[line] 是脚本里的行号(从 1 起)。 */
+    /** [error]:script_error | timeout | devtools_unavailable | no_tab_open, or the error code of [ScriptAbort]. [line] is the line number in the script (starting from 1). */
     data class Failed(val error: String, val message: String, val line: Int? = null) : ScriptRun
 }
 
-/** 页面脚本里一次 `mina.*` 调用。[id] 为 0 表示不等回复(log)。 */
+/** A `mina.*` call in the page script. [id] is 0 indicating unequal reply (log). */
 data class ScriptCall(val id: Int, val op: String, val args: JsonObject)
 
 /**
- * 页面脚本的做法:模型代码拿不到任何页面对象(按构造,不靠禁用清单)。
- * - 脚本世界:一个新的隔离世界,前置脚本只做两件事——用事先存下的 AsyncFunction 编译模型代码,把这个世界全局对象上
- *   (含原型链)所有名字都当成参数遮住、传 undefined,只放行 [ALLOWED_GLOBALS](纯 ECMAScript 内置,碰不到 DOM);
- *   再把能把字符串当代码跑、能拿到全局对象的路(Function 构造器家族、eval、调用栈 API)封掉。模型代码能用的只有 `mina`,
- *   `mina` 的每个调用都是发给 Mina 的 JSON 消息,回来的也只是 JSON。
- * - 读取世界:另一个隔离世界,只装固定的 [READER](Mina 自己写的),按校验过的参数读 DOM、返回纯数据(密码一类的值打码);
- *   模型代码和它不在一个世界,拿不到它手里的任何对象。
+ * How to use page scripts: The model code cannot get any page objects (by structure, not by disabling
+ * the list).
+ * - - Script world: a new isolated world. The pre-script only does two things - compile the model code
+ * with the pre-saved AsyncFunction and upload the world's global object. (Including the prototype chain)
+ * All names are covered as parameters and passed to undefined, and only [ALLOWED_GLOBALS] (pure
+ * ECMAScript built-in, no DOM touch) is allowed; and then the paths that can run strings as code and
+ * obtain global objects (Function constructor family, eval, call stack API) are blocked. The only model
+ * code that can be used is `mina`. Each call to `mina` is a JSON message sent to Mina, and only JSON is
+ * returned.
+ * - - Read the world: another isolated world, only installed fixed [READER] (written by Mina herself),
+ * read the DOM
+ * according to the verified parameters, and return pure data (value coding such as passwords); The model
+ * code is not in the same world as it and cannot get any objects in its hands.
  */
 object PageScriptProtocol {
     const val SOURCE_URL = "mina-script.js"
     const val PRELUDE_URL = "mina-prelude.js"
-    /** 单次 mina.wait 的上限(毫秒)。 */
+    /** The upper limit of a single mina.wait (milliseconds). */
     const val MAX_WAIT_MS = 10_000
     const val WORLD_PREFIX = "mina-script-"
     const val READER_WORLD_PREFIX = "mina-reader-"
-    /** 脚本读到密码一类输入框的值时得到的东西(和运行记录的打码一致)。 */
+    /** What the script gets when it reads the value of an input box such as a password (the same as the coding of the running record). */
     const val SECRET_MASK = "***"
 
     /**
-     * 不读值的输入框:和页面读屏脚本(page.js)同一条规则——密码框、隐藏字段,
-     * 以及 autocomplete 标着密码、银行卡、一次性验证码的。
+     * Input boxes that do not read values: the same rules as the page screen reading script (page.js) -
+     * password boxes, hidden fields, and autocomplete marked passwords, bank cards, and one-time
+     * verification codes.
      */
     val SECRET_AUTOCOMPLETE = listOf("current-password", "new-password", "cc-number", "cc-csc", "cc-exp", "cc-exp-month", "cc-exp-year", "one-time-code")
     val SECRET_INPUT_TYPES = listOf("password", "hidden")
 
-    /** 模型代码里能用的全局名:只有 ECMAScript 本身的值和函数,没有一个能通到 DOM 或全局对象。 */
+    /** Global names available in model code: only ECMAScript's own values and functions, none of which lead to DOM or global objects. */
     val ALLOWED_GLOBALS = listOf(
         "undefined", "NaN", "Infinity", "Object", "Array", "Number", "Boolean", "String", "Symbol", "BigInt", "Date", "RegExp", "Promise",
         "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "JSON", "Math", "Intl", "Reflect", "Proxy",
@@ -71,7 +80,7 @@ object PageScriptProtocol {
         "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURI", "encodeURIComponent", "decodeURI", "decodeURIComponent", "Iterator",
     )
 
-    /** 不能当参数名的(严格模式的保留字);eval 另外封掉。 */
+    /** It cannot be used as a parameter name (a reserved word in strict mode); eval is also blocked. */
     internal val RESERVED = listOf(
         "eval", "arguments", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum",
         "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
@@ -79,7 +88,7 @@ object PageScriptProtocol {
         "interface", "package", "private", "protected", "public", "await", "async", "mina",
     )
 
-    /** 模型代码的第 1 行前面,编译后的源码还有几行(`(async function anonymous(…`、`) {`、`'use strict';`、`return (async () => {`)。 */
+    /** Before the first line of the model code, there are several lines of compiled source code (`(async function anonymous(…`, `) {`, `'use strict';`, `return (async () => {`). */
     private const val LINE_OFFSET = 4
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -87,9 +96,12 @@ object PageScriptProtocol {
     private fun js(v: List<String>): String = v.joinToString(",", "[", "]") { JsonPrimitive(it).toString() }
 
     /**
-     * 装进脚本世界的前置脚本:存下要用的原件,封掉把字符串当代码跑的路,算出要遮住的名字,定义 `__MINARUN`。
-     * 每个 mina 调用带编号放进发件箱,Kotlin 一直挂着一个 [TAKE](等到下一条就交回),结果用 `__minaSettle(id, r)` 回传;
-     * `__minaEnd()` 让之后的调用都失败,挂着的 [TAKE] 交回 null。不用 DevTools 的绑定:绑定要打开 Runtime,开着它页面察觉得到调试器。
+     * Pre-script installed into the script world: save the originals to be used, block the way to run
+     * the string as code, figure out the name to be masked, define `__MINARUN`. Each mina call is put
+     * into the outbox with a number. Kotlin always hangs a [TAKE], and the result is returned as
+     * `__minaSettle(id, r)`; `__minaEnd()` causes subsequent calls to fail, and the hanging [TAKE]
+     * returns null. Binding without DevTools: Binding requires opening Runtime, and the debugger will be
+     * visible on the page when it is opened.
      */
     val PRELUDE: String = """
 (() => {
@@ -100,7 +112,8 @@ object PageScriptProtocol {
   const stringify = JSON.stringify, apply = Reflect.apply, timer = G.setTimeout, freeze = O.freeze;
   const fixed = (o, k, v) => { try { O.defineProperty(o, k, { value: v, writable: false, enumerable: false, configurable: false }); } catch (e) {} };
   const unavailable = function () { throw new TypeError('not available in web_script: the script has no access to the page; use mina.*'); };
-  // 把字符串当代码跑(会在全局作用域里跑,拿得到全局对象)、调用栈 API(拿得到函数和 this)
+  // Run the string as code (it will run in the global scope and get the global object), call the stack
+  // API (get the function and this)
   for (const f of [function () {}, async function () {}, function* () {}, async function* () {}]) fixed(O.getPrototypeOf(f), 'constructor', unavailable);
   fixed(G, 'eval', unavailable);
   fixed(G, 'Function', unavailable);
@@ -108,7 +121,7 @@ object PageScriptProtocol {
 
   const pending = new Map();
   let seq = 0, ended = false;
-  // 发件箱:Kotlin 挂着的 __minaTake 等在 takers 里,来一条交一条
+  // Outbox: __minaTake hanging in Kotlin is waiting in takers, come and send one
   const outbox = [], takers = [];
   const post = (s) => { const t = takers.shift(); if (t) t(s); else outbox.push(s); };
   fixed(G, '__minaTake', () => new Promise((r) => {
@@ -156,7 +169,8 @@ object PageScriptProtocol {
     log: (...xs) => { if (!ended) post(stringify({ id: 0, op: 'log', args: { text: xs.map(str).join(' ') } })); },
   });
 
-  // 这个世界全局对象上(含原型链)的每个名字都遮住,只放行纯 ECMAScript 内置
+  // Every name on the global object of this world (including the prototype chain) is blocked, and only
+  // pure ECMAScript built-in ones are allowed.
   const ALLOWED = new Set(${js(ALLOWED_GLOBALS)});
   const RESERVED = new Set(${js(RESERVED)});
   const names = new Set(['globalThis', 'window', 'self', 'document', 'location', 'top', 'parent', 'frames', 'opener']);
@@ -167,7 +181,8 @@ object PageScriptProtocol {
   const shadow = [...names];
   const blanks = shadow.map(() => undefined);
   fixed(G, '__MINARUN', (code) => {
-    // 模型代码放在里层的箭头函数里:它声明的名字(哪怕和遮住的同名)在自己的作用域里,不和参数冲突
+    // The model code is placed in the inner arrow function: the name it declares (even if it has the
+    // same name as the masked one) is in its own scope and does not conflict with the parameters.
     const fn = new AsyncFunction(...shadow, 'mina', "'use strict';\nreturn (async () => {\n" + code + '\n})();\n//# sourceURL=$SOURCE_URL');
     return apply(fn, undefined, [...blanks, mina]).then((r) => (r === undefined ? null : stringify(r)));
   });
@@ -175,20 +190,23 @@ object PageScriptProtocol {
 //# sourceURL=$PRELUDE_URL
 """.trimStart()
 
-    /** 跑模型代码的表达式(在脚本世界里求值,等 Promise)。 */
+    /** Expressions that run model code (evaluated in the scripting world, etc. Promise). */
     fun run(code: String): String = "globalThis.__MINARUN(${JsonPrimitive(code)})"
 
     /**
-     * 模型代码里不许有 import(按词法查,字符串、注释、正则之外出现就拦):动态 import 在全局作用域里跑模块,拿得到全局对象。
-     * 返回问题说明,没问题为 null。
+     * There is no import allowed in the model code (check lexically, and block if it appears outside of
+     * strings, comments, and regular expressions): Dynamic import runs the module in the global scope
+     * and gets the global object. Returns the problem description, if there is no problem, it will be
+     * null.
      */
     fun codeProblem(code: String): String? =
         if (JsSource.usesImport(code)) "import is not available in page scripts (write the word only inside strings or comments)" else null
 
     /**
-     * 读取世界里固定的读取器:按 `{mode, selector, fields, limit, maxChars}` 读 DOM,只返回纯数据。
-     * mode:one(第一个)、all(列表与总数)、count(个数)、text(合起来的可见文字)、has(页面文字里有没有 [selector] 这段字)。
-     * 密码一类的值和 value 属性打码,on* 属性不给。
+     * Read the fixed reader in the world: press `{mode, selector, fields, limit, maxChars}` to read the
+     * DOM, only pure data will be returned. mode: one (the first), all (list and total), count (number),
+     * text (the combined visible text), has (whether there is the word [selector] in the page text).
+     * Values such as passwords are coded with the value attribute, but the on* attribute is not given.
      */
     val READER: String = """
 (() => {
@@ -246,12 +264,13 @@ object PageScriptProtocol {
 })();
 """.trimStart()
 
-    /** 在读取世界里照 [spec] 读的表达式。 */
+    /** In the reading world, the expression is read as [spec]. */
     fun read(spec: JsonObject): String = "globalThis.__minaRead($spec)"
 
     /**
-     * 兜底:脚本还是发出了请求时,`Network.requestWillBeSent` 的发起调用栈里会有模型脚本或前置脚本。
-     * 看整条栈(含异步的 parent 链)。
+     * Bottom line: When the script still issues a request, there will be a model script or pre-script in
+     * the `Network.requestWillBeSent` initiation call stack. Look at the entire stack (including the
+     * asynchronous parent chain).
      */
     fun requestFromScript(params: JsonObject): Boolean {
         var stack = (params["initiator"] as? JsonObject)?.get("stack") as? JsonObject
@@ -264,16 +283,16 @@ object PageScriptProtocol {
         return false
     }
 
-    /** 兜底:脚本跑着、又没有 mina 动作在做时,主框架要跳转——不是 mina 动作带来的,一律拦下。 */
+    /** Bottom line: When the script is running and there is no mina action, the main frame will jump - if it is not caused by mina action, it will be blocked. */
     fun navigationOutsideAction(params: JsonObject, mainFrameId: String, inAction: Boolean): Boolean =
         !inAction && (params["frameId"] as? JsonPrimitive)?.contentOrNull == mainFrameId
 
     private val SCRIPT_URLS = setOf(SOURCE_URL, PRELUDE_URL)
 
-    /** 取发件箱里下一条消息的表达式(在脚本世界里求值,等 Promise;收尾后交回 null)。 */
+    /** Get the expression of the next message in the outbox (evaluate in the script world, wait for Promise; return null after closing). */
     const val TAKE = "globalThis.__minaTake()"
 
-    /** 发件箱里的一条消息;不是合法的调用为 null。 */
+    /** A message in the outbox; not a valid call is null. */
     fun parseCall(payload: String): ScriptCall? {
         val o = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
         val id = (o["id"] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it >= 0 } ?: return null
@@ -282,7 +301,7 @@ object PageScriptProtocol {
         return ScriptCall(id, op, args)
     }
 
-    /** 回传第 [id] 个调用的结果。结果是 JSON 对象字面量,直接嵌进表达式。 */
+    /** Returns the result of the [id]th call. The result is a JSON object literal, directly embedded in the expression. */
     fun settle(id: Int, result: JsonObject): String = "globalThis.__minaSettle && globalThis.__minaSettle($id, $result)"
 
     const val END = "globalThis.__minaEnd && globalThis.__minaEnd()"
@@ -290,8 +309,10 @@ object PageScriptProtocol {
     private val STACK_LINE = Regex(Regex.escape(SOURCE_URL) + ":(\\d+):\\d+")
 
     /**
-     * `Runtime.evaluate` 的 exceptionDetails → (说明, 脚本里的行号)。行号取调用栈里模型脚本的位置,换算成模型写的第几行(从 1 起);
-     * 语法错没有这样的栈,不报行号。
+     * exceptionDetails of `Runtime.evaluate` → (description, line number in script). The line number is
+     * taken from the position of the model script in the call stack, and converted to the line number
+     * (starting from 1) written by the model; if there is a syntax error, there is no such stack, and
+     * the line number is not reported.
      */
     fun error(details: JsonObject): Pair<String, Int?> {
         val exception = details["exception"] as? JsonObject

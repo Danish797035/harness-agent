@@ -13,10 +13,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 真机:有能用的另一份用户(分身、工作资料)时,把装在那里的一个 App 开到 Mina 的屏上,最上面的任务属于那份用户,主屏不变。
- * 要测哪一个由参数定:`-Pandroid.testInstrumentationRunnerArguments.copyPackage=<包名>`(可再给 copyUser=<用户编号>);
- * 不给就用列出的第一份。系统先问打开哪一个时,由打开那一步自己点选项、认出要的那份。
- * 没有另一份用户、或那里没有要的 App 时跳过。只打开,不在 App 里做任何操作。
+ * Real machine: When there is another user (clone, work profile) available, open an app installed there
+ * on Mina's screen. The top task belongs to that user, and the home screen remains unchanged. Which one
+ * to test is determined by the parameter:
+ * `-Pandroid.testInstrumentationRunnerArguments.copyPackage=<package name>` (you can also give copyUser=<user number>);
+ * if not, use the first one listed. When the system first asks which one to open, you click on the
+ * option to identify the one you want. Skip if there is no other user or the requested App is not there.
+ * Just open it, don't do anything in the app.
  */
 @RunWith(AndroidJUnit4::class)
 class AppCopyDeviceTest {
@@ -47,7 +50,7 @@ class AppCopyDeviceTest {
         assertEquals(copy.userId, shell.userOfTask(top))
         assertEquals(copy.userId, agent.screen.target.value?.userId)
         assertEquals("main screen changed", main, DeviceSupport.mainScreenState(shell))
-        // 不在能用之列的用户一律不启动
+        // Users who are not available will not be started.
         assertEquals(ShellService.START_USER_NOT_ALLOWED, shell.startAppInUser(agent.display.displayId, copy.packageName, 99_999, false))
     }
 }

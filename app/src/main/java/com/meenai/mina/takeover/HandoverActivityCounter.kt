@@ -3,14 +3,19 @@ package com.meenai.mina.takeover
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 
-/** 交回那一刻用户在主屏上做过的事:操作次数和停在哪个页面(取不到为 null)。 */
+/** Return what the user did on the home screen at that moment: the number of operations and the page they stopped on (null if not available). */
 data class HandoverActivity(val inputCount: Int, val stoppedAt: String?)
 
 /**
- * 接管期间数用户在主屏上对 [packageName] 的点击、输入、滚动次数;一次滑动会连着发很多滚动事件,
- * 间隔不到 [MERGE_MS] 的算同一次;同一个输入框连着的文字变化同理。一串连发最长算 [BURST_CAP_MS],
- * 超过的部分另算一次,免得长时间滑动或打字只记 1 次。顺带记下该包最近一次切到的 Activity 简名,取不到页面标题时用。
- * 事件来自无障碍回调所在的协程,读数来自交回的协程,所以加锁。
+ * During the takeover period, count the number of times the user clicks, inputs, and scrolls
+ * [packageName] on the home screen; one swipe will send many scrolling events in succession, and those
+ * with an interval of less than [MERGE_MS] will be counted as one; the same is true for consecutive text
+ * changes in the same input box. The longest string of consecutive messages is counted as
+ * [BURST_CAP_MS], and the excess part is counted separately to avoid long-term swiping or typing and
+ * only remembering it once. By the way, write down the short name of the activity last switched to by
+ * the package, which can be used when the page title cannot be obtained. The event comes from the
+ * coroutine where the accessibility callback is located, and the reading comes from the returned
+ * coroutine, so it is locked.
  */
 class HandoverActivityCounter(val packageName: String) {
     private var count = 0
@@ -28,7 +33,7 @@ class HandoverActivityCounter(val packageName: String) {
         when (eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> count++
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                // 换了输入框就是新的一次
+                // Changing the input box is a new one
                 if (typingSource != source) typingBurst = null
                 typingSource = source
                 typingBurst = advance(typingBurst, timeMs)
@@ -57,8 +62,9 @@ class HandoverActivityCounter(val packageName: String) {
 }
 
 /**
- * 「停在哪」:窗口标题常常只是 App 名,这时用页面(Activity)简名,两样都有且不同才拼在一起;
- * 标题取不到就用页面简名。
+ * "Where to stop": The window title is often just the App name. In this case, use the page (Activity)
+ * abbreviation. Only when both are present and different are they put together; if the title cannot be
+ * obtained, use the page abbreviation.
  */
 fun stoppedAt(title: String?, appLabel: String?, activity: String?): String? {
     val t = title?.takeIf { it.isNotBlank() }

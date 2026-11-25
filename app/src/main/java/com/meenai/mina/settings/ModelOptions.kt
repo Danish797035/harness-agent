@@ -6,11 +6,15 @@ import com.meenai.mina.core.router.picker.ChatModelFilter
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
- * 列表里的一个可选模型。[capabilities] 是合并后的能力:接口给了的照用,没给的沿用预设的初值;
- * [toolCallsKnown]、[visionKnown] 记下哪些是接口明确说的(界面上据此标「未确认」)。
- * [chat] 是接口说没说它是对话模型(见 [ListedModel.chat]),没说为 null。
- * [typed] 为真是不在列出的模型里、用户手填的(界面上标「手填」)。
- * [visionByUser] 是用户说的能不能看图(见 [Provider.visionOverrides]),没说为 null;说了的已算进 [capabilities]。
+ * An optional model in the list. [capabilities] is the merged capability: those provided by the
+ * interface will still be used, and those not provided will continue to use the default initial value;
+ * [toolCallsKnown] and [visionKnown] note which ones are explicitly stated by the interface (the
+ * interface will be marked "Unconfirmed" accordingly). [chat] is an interface, but it does not say it is
+ * a conversation model (see [ListedModel.chat]), and it is null if it does not. [typed] is not in the
+ * listed model and is filled in manually by the user (marked "Hand-filled" on the interface).
+ * [visionByUser] is what the user said about whether the picture can be viewed (see
+ * [Provider.visionOverrides]). If it is not said, it is null; if it is not said, it is included in
+ * [capabilities].
  */
 data class ModelOption(
     val id: String,
@@ -23,15 +27,17 @@ data class ModelOption(
     val typed: Boolean = false,
     val visionByUser: Boolean? = null,
 ) {
-    /** 供参考的能力标记;用户选模型时不按它们过滤。 */
+    /** Capability flags for reference; users do not filter by them when selecting models. */
     val canBeMain: Boolean get() = capabilities.toolCalls
     val canSee: Boolean get() = capabilities.vision
 }
 
 object ModelOptions {
     /**
-     * 把列出的模型和预设能力合并。可当主模型的排前面,其余保持服务商给的顺序。
-     * 只写了 Mina 不会说的接口协议的模型(见 [ListedModel.usable])调用必然失败,不列出来。
+     * Merges listed models with preset abilities. The main model can be placed at the front of the
+     * queue, and the rest can remain in the order given by the service provider. Models that only write
+     * interface protocols that Mina cannot speak about (see [ListedModel.usable]) will inevitably fail
+     * to be called and will not be listed.
      */
     fun merge(listed: List<ListedModel>, base: Capabilities): List<ModelOption> = listed.filter { it.usable }.map { m ->
         val isImageEditOrGen = ChatModelFilter.isImageEditOrGen(m.id)
@@ -44,7 +50,8 @@ object ModelOptions {
                 vision = visionEffective,
                 contextTokens = m.contextTokens ?: base.contextTokens,
                 reasoning = m.reasoning ?: base.reasoning,
-                // 看图定位准不准要实测过才算,新连的一律未验证
+                // Whether the positioning is accurate after looking at the picture can only be
+                // determined by actual testing. All new connections have not been verified.
                 groundingVerified = false,
             ),
             toolCallsKnown = m.toolCalls != null,
@@ -56,11 +63,15 @@ object ModelOptions {
     }.sortedBy { if (it.canBeMain) 0 else 1 }
 
     /**
-     * 拿来当主模型、试调用的先后:只要可当主模型、又不像别的用途的(见 [looksNonChat]);
-     * 先自家的(模型名或显示名里有 [familyTokens] 里的词,见 [ProviderPreset.familyTokens]),
-     * 再接口明确说能调用工具的;自家的同一档里按模型名里的版本新的在前(见 [ModelVersion]:
-     * 同版本正式版在前,读不出版本的排在读得出的后面),其余照列表的顺序。
-     * 服务商列表的顺序常常是老模型在前,老模型可能已下线;别家的模型各有各的版本号,不放在一起比。
+     * The order of using it as the main model and trying to call it: as long as it can be used as the
+     * main model and is not used for other purposes (see [looksNonChat]); first (the model name or
+     * display name has the words in [familyTokens], see [ProviderPreset.familyTokens]), and then the
+     * interface clearly says that the tool can be called; in the same file of your own, the version in
+     * the model name is the latest first (see [ModelVersion]: The official version of the same version
+     * comes first, and the version that cannot be read is listed after the one that can be read), and
+     * the rest are in the order of the list. The order of the service provider list is usually with
+     * older models first, which may have been offline; models from other companies each have their own
+     * version numbers and are not compared together.
      */
     fun candidates(options: List<ModelOption>, familyTokens: List<String> = emptyList()): List<String> =
         options.filter { it.canBeMain && !looksNonChat(it) }
@@ -71,19 +82,21 @@ object ModelOptions {
             )
             .map { it.first.id }
 
-    /** 默认选的主模型:[candidates] 的第一个;一个都没有就挑第一个可当主模型的。 */
+    /** The main model selected by default: the first one of [candidates]; if there is no one, choose the first one that can be the main model. */
     fun defaultMain(options: List<ModelOption>, familyTokens: List<String> = emptyList()): String? =
         candidates(options, familyTokens).firstOrNull() ?: options.firstOrNull { it.canBeMain }?.id
 
-    /** 地址对得上的预设的自家模型词;认不出地址为空。 */
+    /** The default own model word with a matching address; if the address is not recognized, it is empty. */
     fun familyOf(baseUrl: String): List<String> = ProviderPresets.forBaseUrl(baseUrl.trim())?.familyTokens.orEmpty()
 
     private fun inFamily(o: ModelOption, tokens: List<String>): Boolean =
         tokens.any { t -> o.id.contains(t, ignoreCase = true) || o.displayName.contains(t, ignoreCase = true) }
 
     /**
-     * 看着不是对话模型(向量、重排、语音、画图、审核…):接口说了的照接口,没说看模型名按标点、斜杠切开的各段,
-     * 有一段以 [NON_CHAT_WORDS] 里的词开头就算。
+     * It doesn’t look like a conversational model (vector, rearrangement, voice, drawing, review...):
+     * The interface mentioned is the interface, but it is not mentioned that the model name is divided
+     * into segments separated by punctuation and slashes. Even if one segment starts with the words in
+     * [NON_CHAT_WORDS].
      */
     fun looksNonChat(o: ModelOption): Boolean =
         ChatModelFilter.isExcluded(o.id, o.displayName) ||
@@ -93,7 +106,7 @@ object ModelOptions {
         "embed", "rerank", "tts", "whisper", "transcribe", "speech", "audio", "realtime", "image", "dall", "moderation", "ocr", "asr",
     )
 
-    /** 上下文长度的短写:64K、1M。 */
+    /** Short form of context length: 64K, 1M. */
     fun contextLabel(tokens: Int): String = when {
         tokens >= 1_000_000 && tokens % 1_000_000 < 50_000 -> "${tokens / 1_000_000}M"
         tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
@@ -102,18 +115,23 @@ object ModelOptions {
     }
 
     /**
-     * 一个模型办事时算不算能看图:用户在这个模型上说过的([userSaid])为准;没说过的,看图也用它([usedForVision]:
-     * 选它当看图模型,或看图「用主模型」)就是用户说了它能看;都没有才按 [stored](列表写明的,没写的是预设初值)。
+     * Whether a model can be used to view pictures: what the user has said on this model ([userSaid])
+     * shall prevail; if it has not been mentioned, it will also be used for viewing pictures
+     * ([usedForVision]: select it as a model for viewing pictures, or "use the main model" for viewing
+     * pictures), it means that the user said it can be viewed; if there is no such situation, press
+     * [stored] (what is stated in the list, what is not written is the default value).
      */
     fun seesImages(stored: Boolean, userSaid: Boolean?, usedForVision: Boolean): Boolean = userSaid ?: (usedForVision || stored)
 
-    /** 服务商的能力初值:地址对得上预设的用预设的,否则用「自定义」的。 */
+    /** The initial value of the service provider's capabilities: use the default if the address matches the default, otherwise use the "custom" one. */
     fun baseOf(p: Provider): Capabilities = (ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.custom).capabilities
 
     /**
-     * 一个服务商可选的全部模型:记住的列表(合并能力初值;已有配置的用配置里的能力),
-     * 再加上已有配置、但列表里没有的模型(例如手动填的),和手填过、还没有配置的([Provider.typedModels])。
-     * 用户说过能不能看图的([Provider.visionOverrides])按用户说的。
+     * All models available for a service provider: memorized list (combined initial value of
+     * capabilities; if already configured, use the capabilities in the configuration), plus models that
+     * have been configured but are not in the list (such as manually filled in), and those that have
+     * been manually filled in and not yet configured ([Provider.typedModels]). The user said whether the
+     * picture can be viewed ([Provider.visionOverrides]) depends on what the user said.
      */
     fun ofProvider(p: Provider, configs: List<ProviderConfig>): List<ModelOption> = listedOf(p, configs).map { o ->
         val said = p.visionOverrides[o.id] ?: return@map o
@@ -125,11 +143,13 @@ object ModelOptions {
         val byModel = saved.associateBy { it.model }
         val listed = merge(p.models.orEmpty(), baseOf(p)).map { o -> byModel[o.id]?.let { o.copy(capabilities = it.capabilities) } ?: o }
         val rest = saved.filter { c -> listed.none { it.id == c.model } }.map {
-            // 列不出模型的那家,模型都是手填的;有列表的,列表后来没了的那个不算手填
+            // For those companies that cannot list models, the models are all filled in by hand; for
+            // those that have a list, those that later disappear from the list are not counted by hand.
             val typed = it.model in p.typedModels || p.models?.isEmpty() == true
             ModelOption(it.model, it.capabilities, toolCallsKnown = false, visionKnown = false, contextKnown = false, typed = typed)
         }
-        // 手填过、还没用在哪个用途上的(没有配置):照样列出来,能力按这家的初值
+        // Those that have been filled in by hand and have not been used for any purpose (no
+        // configuration): list them as usual, and can be based on the initial value of this company
         val typed = p.typedModels.filter { m -> listed.none { it.id == m } && rest.none { it.id == m } }.sorted().map {
             ModelOption(it, baseOf(p), toolCallsKnown = false, visionKnown = false, contextKnown = false, typed = true)
         }
@@ -138,21 +158,27 @@ object ModelOptions {
 }
 
 /**
- * 从模型名里读出的版本,只用来给同一家的模型排先后,不评哪一档(flash、pro、lite…)更好。
- * 模型名按 `-` `_` `:` `/` 等切成段(小写,保留小数点):
- * - [numbers] 是第一个像版本号的段:1–2 位数字,可带小数(`2.5`、`3.1`)、前面可带字母(`qwen3`、`v3.2`、`k2`、`x4`)、
- *   后面可带一个字母(`4o`、`1v`);以 b / k / m 结尾的是参数量或上下文长度(`72b`、`8k`),不算。
- *   紧跟着的 1–2 位纯数字段接成小版本(`claude-3-5` → 3.5、`seed-1-6` → 1.6)。
- * - [date] 是其余的纯数字段拼成的日期或快照号:有 4 位年份的按年月日(`-2025-08-07`、`-09-2025`),
- *   否则照写的数(`-0827`、`-20241022`、`-001`;6 位的当作年份两位的日期);没有为 null。
- * - [stage]:0 正式版;1 `latest` 这类会变的别名;2 预览、试验(`preview`、`exp`、`beta`、`alpha`、`rc`…)。
- * 版本号和日期都没有的读不出([parsed] 为假)。
+ * The version read from the model name is only used to rank models from the same company, not to judge
+ * which one (flash, pro, lite...) is better. The model name is cut into segments according to `-` `_`
+ * `:` `/` (lowercase, decimal point retained):
+ * - - [numbers] is the first segment like a version number: 1–2 digits, with decimals (`2.5`, `3.1`),
+ * letters in front (`qwen3`, `v3.2`, `k2`, `x4`),
+ * It can be followed by a letter (`4o`, `1v`); what ends with b / k / m is the parameter amount or
+ * context length (`72b`, `8k`), which does not count. The following 1–2 digit pure numeric fields are
+ * connected into minor versions (`claude-3-5` → 3.5, `seed-1-6` → 1.6).
+ * - - [date] is the date or snapshot number composed of the remaining pure numeric fields: year, month
+ * and day with 4 digits (`-2025-08-07`, `-09-2025`),
+ * Otherwise, the numbers as written (`-0827`, `-20241022`, `-001`; the 6-digit ones are regarded as the
+ * dates with two digits in the year); if not, it is null.
+ * - - [stage]: 0 official version; 1 `latest`, this type of alias that will change; 2 preview, test
+ * (`preview`, `exp`, `beta`, `alpha`, `rc`...).
+ * If there is neither version number nor date, it cannot be read ([parsed] is false).
  */
 internal data class ModelVersion(val numbers: List<Int>, val stage: Int, val date: Long?) {
     val parsed: Boolean get() = numbers.isNotEmpty() || date != null
 
     companion object {
-        /** 读得出的在前;版本大的在前;同版本正式版、别名、预览依次;没写日期的(多半指向最新的快照)在前,再按日期新的在前。 */
+        /** The one that can be read is first; the one with the larger version is first; the official version, alias, and preview of the same version are in order; the one without a date (mostly pointing to the latest snapshot) is first, and the new one by date is first. */
         val NEWEST_FIRST: Comparator<ModelVersion> = Comparator { a, b ->
             when {
                 a.parsed != b.parsed -> if (a.parsed) -1 else 1
@@ -176,7 +202,7 @@ internal data class ModelVersion(val numbers: List<Int>, val stage: Int, val dat
             }
             var end = at + 1
             if (at >= 0 && numbers.size == 1) {
-                // 用横线分开的小版本:claude-3-5、seed-1-6
+                // Small versions separated by horizontal lines: claude-3-5, seed-1-6
                 while (end < parts.size && numbers.size < 3 && MINOR.matches(parts[end])) numbers = numbers + parts[end++].toInt()
             }
             val rest = parts.filterIndexed { i, _ -> i < at || i >= end }
@@ -214,11 +240,11 @@ internal data class ModelVersion(val numbers: List<Int>, val stage: Int, val dat
     }
 }
 
-/** 服务商的归组规则和显示名:同一接口类型、同一地址、同一名字算同一个服务商。 */
+/** Grouping rules and display names of service providers: The same interface type, the same address, and the same name count as the same service provider. */
 object ProviderConnection {
     fun keyOf(kind: ProviderConfig.Kind, baseUrl: String, name: String) = "${kind.name}|${normalizeUrl(baseUrl)}|${name.trim()}"
 
-    /** 没起名字的用地址的主机名。 */
+    /** If there is no name, use the host name of the address. */
     fun displayName(c: ProviderConfig): String = c.name.ifBlank { nameForUrl(c.baseUrl) }
 
     fun nameForUrl(baseUrl: String): String =

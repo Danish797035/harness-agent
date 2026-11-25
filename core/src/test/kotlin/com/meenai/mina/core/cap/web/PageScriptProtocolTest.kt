@@ -18,7 +18,7 @@ class PageScriptProtocolTest {
     @Test fun parsesCalls() {
         val c = PageScriptProtocol.parseCall("""{"id":3,"op":"tap","args":{"ref":"@e2"}}""")!!
         assertEquals(3, c.id); assertEquals("tap", c.op); assertEquals("\"@e2\"", c.args["ref"].toString())
-        // 没有 args 当空对象;log 的 id 为 0
+        // No args is an empty object; the id of log is 0
         assertEquals(JsonObject(emptyMap()), PageScriptProtocol.parseCall("""{"id":0,"op":"log"}""")!!.args)
     }
 
@@ -32,17 +32,19 @@ class PageScriptProtocolTest {
         val r = buildJsonObject { put("ok", true); put("value", "a\"b</script>\n") }
         val e = PageScriptProtocol.settle(7, r)
         assertTrue(e.startsWith("globalThis.__minaSettle && globalThis.__minaSettle(7, {"))
-        // JSON 的转义保证字符串不会把表达式截断
+        // JSON escaping ensures that the string will not truncate the expression
         assertTrue("\\\"b" in e && "\\n" in e)
     }
 
     @Test fun runPassesCodeAsDataNotSource() {
-        // 模型代码作为字符串交给事先存下的 AsyncFunction 编译,不拼进表达式
+        // The model code is given as a string to the pre-saved AsyncFunction for compilation, without
+        // spelling in the expression.
         assertEquals("globalThis.__MINARUN(\"return '1\\\"'\")", PageScriptProtocol.run("return '1\"'"))
     }
 
     @Test fun errorLineFromStack() {
-        // 编译出来的源码:函数头、") {"、'use strict';、里层箭头函数各一行,模型代码从第 5 行起
+        // Compiled source code: one line each for function header, ") {", 'use strict';, and inner arrow
+        // function. The model code starts from line 5
         val (msg, line) = PageScriptProtocol.error(details("""{"text":"Uncaught (in promise)","lineNumber":0,
             "exception":{"description":"TypeError: x\n    at eval (mina-script.js:7:9)\n    at mina-prelude.js:80:1"}}"""))
         assertEquals("TypeError: x", msg); assertEquals(3, line)
@@ -57,7 +59,7 @@ class PageScriptProtocolTest {
     }
 
     @Test fun onlyPlainJavaScriptGlobalsAreAllowed() {
-        // 放行的只有 ECMAScript 本身;没有一个是浏览器全局,也没有能把字符串当代码跑的
+        // Only ECMAScript itself is allowed; none is browser-wide, and none can run strings as code.
         val allowed = PageScriptProtocol.ALLOWED_GLOBALS
         for (g in listOf("document", "window", "self", "globalThis", "location", "fetch", "XMLHttpRequest", "setTimeout", "navigator", "history",
             "localStorage", "frames", "top", "parent", "eval", "Function", "console", "HTMLElement", "Element", "Node", "Event", "CSSStyleSheet",
@@ -69,22 +71,26 @@ class PageScriptProtocolTest {
 
     @Test fun preludeShadowsEveryGlobalAndClosesStringEval() {
         val p = PageScriptProtocol.PRELUDE
-        // 存下 AsyncFunction 之后才封构造器;遮住的名字取自全局对象和它整条原型链
+        // Save the AsyncFunction before closing the constructor; the masked name is taken from the
+        // global object and its entire prototype chain
         assertTrue(p.indexOf("const AsyncFunction =") < p.indexOf("'constructor', unavailable"))
         assertTrue("for (let o = G; o; o = O.getPrototypeOf(o)) for (const k of O.getOwnPropertyNames(o))" in p)
         for (k in listOf("fixed(G, 'eval', unavailable)", "fixed(G, 'Function', unavailable)", "fixed(G.Error, 'prepareStackTrace', undefined)")) assertTrue(k, k in p)
-        // 严格模式、this 为 undefined、遮住的名字都传 undefined,最后一个参数才是 mina;返回值只交 JSON 字符串
+        // Strict mode, this is undefined, covered names are passed undefined, the last parameter is
+        // mina; the return value is only a JSON string
         assertTrue("new AsyncFunction(...shadow, 'mina', \"'use strict';\\nreturn (async () => {\\n\" + code" in p)
         assertTrue("apply(fn, undefined, [...blanks, mina])" in p)
         assertTrue("stringify(r)" in p)
-        // 前置脚本自己不碰 DOM:页面对象一个都没有经它交到模型代码手里
+        // The pre-script does not touch the DOM itself: none of the page objects are handed over to the
+        // model code through it.
         for (dom in listOf("document.", "querySelector", "innerText", "HTMLElement")) assertFalse(dom, dom in p)
         assertTrue(p.trimEnd().endsWith("//# sourceURL=${PageScriptProtocol.PRELUDE_URL}"))
     }
 
     @Test fun preludeSendsCallsThroughTheOutbox() {
         val p = PageScriptProtocol.PRELUDE
-        // 不靠 DevTools 绑定(那要打开 Runtime):调用放进发件箱,由 __minaTake 交出,名字在模型代码里同样被遮住
+        // Not relying on DevTools binding (then you need to open Runtime): the call is put into the
+        // outbox and handed over by __minaTake, and the name is also obscured in the model code
         assertTrue("fixed(G, '__minaTake'" in p)
         assertTrue(p.indexOf("fixed(G, '__minaTake'") < p.indexOf("const shadow"))
         assertTrue(PageScriptProtocol.TAKE.startsWith("globalThis.__minaTake("))
@@ -100,23 +106,24 @@ class PageScriptProtocolTest {
 
     @Test fun readerMasksSecretsWithThePageRule() {
         val r = PageScriptProtocol.READER
-        // 和 page.js 同一条规则(那边的清单见 app 的 PageScriptSecretRuleTest)
+        // The same rule as page.js (see the app’s PageScriptSecretRuleTest for the list there)
         assertEquals(listOf("password", "hidden"), PageScriptProtocol.SECRET_INPUT_TYPES)
         for (t in listOf("current-password", "new-password", "one-time-code", "cc-number", "cc-csc")) assertTrue(t, t in PageScriptProtocol.SECRET_AUTOCOMPLETE)
         assertTrue("k === 'value' && secret(el)" in r)
         assertTrue("secret(el) ? (el.value ? MASK : '')" in r)
         assertTrue("const textOf = (el) => (secret(el) ? ''" in r)
         assertTrue("k.startsWith('on')" in r)
-        // 读取器只交纯数据
+        // The reader only delivers pure data
         assertTrue(PageScriptProtocol.read(buildJsonObject { put("mode", "count") }).startsWith("globalThis.__minaRead({"))
     }
 
     @Test fun backstopSeesScriptInitiatedRequests() {
         fun req(stack: String) = details("""{"requestId":"1","request":{"url":"https://x/"},"initiator":{"type":"script","stack":$stack}}""")
         assertTrue(PageScriptProtocol.requestFromScript(req("""{"callFrames":[{"url":"mina-script.js","lineNumber":3}]}""")))
-        // 异步的 parent 链里也算
+        // It also counts in the asynchronous parent chain.
         assertTrue(PageScriptProtocol.requestFromScript(req("""{"callFrames":[],"parent":{"callFrames":[{"url":"mina-prelude.js"}]}}""")))
-        // 页面自己的脚本发的(包括 mina.tap 触发的页面处理函数)不算
+        // Those sent by the page's own script (including page processing functions triggered by
+        // mina.tap) are not counted.
         assertFalse(PageScriptProtocol.requestFromScript(req("""{"callFrames":[{"url":"https://shop.example.com/app.js"}]}""")))
         assertFalse(PageScriptProtocol.requestFromScript(details("""{"requestId":"1","initiator":{"type":"other"}}""")))
     }
@@ -124,9 +131,9 @@ class PageScriptProtocolTest {
     @Test fun backstopStopsNavigationOutsideActions() {
         val nav = details("""{"frameId":"F1","reason":"scriptInitiated","url":"https://evil/"}""")
         assertTrue(PageScriptProtocol.navigationOutsideAction(nav, "F1", inAction = false))
-        // mina.tap / mina.navigate 在做时页面跳转是那个动作的结果
+        // When doing mina.tap / mina.navigate, the page jump is the result of that action.
         assertFalse(PageScriptProtocol.navigationOutsideAction(nav, "F1", inAction = true))
-        // 子框架自己跳(广告轮播)不管
+        // The sub-frame jumps by itself (advertising carousel) regardless of
         assertFalse(PageScriptProtocol.navigationOutsideAction(nav, "F2", inAction = false))
     }
 }

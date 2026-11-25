@@ -2,5 +2,5 @@ package com.meenai.mina.setup
 
 import com.meenai.mina.cap.phone.setup.PairingCodeInput
 
-/** 配对通知输入框的落点:清单与通知里用的是这个全名;实现在手机能力里。 */
+/** The placement point of the paired notification input box: this full name is used in the list and notifications; it is implemented in the mobile phone capabilities. */
 class PairingCodeReceiver : PairingCodeInput()

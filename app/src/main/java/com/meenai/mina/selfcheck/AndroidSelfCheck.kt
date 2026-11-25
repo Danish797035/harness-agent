@@ -55,11 +55,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * 兼容性自检的安卓实现。手机这几项走任务用的同一套:进程里共用的那条助手连接([PhoneServices.sharedShell])、
- * [AgentDisplay] 建屏、[AndroidScreen] 打开页面、读屏、点按、打字、滚动、返回;网页走内置浏览器的 [WebScreen];
- * 沙箱走 [AndroidSandbox]。只碰 Mina 自己的自检页和系统设置(只打开、不点),不改设置、不联网。
- * 报告里的事实只写状态和数字,不写别的 App 的包名、账号和用户的内容。
- * [status] 是界面那边此刻的系统状态(无障碍、通知、内置助手)。
+ * Android implementation of compatibility self-test. The mobile phone uses the same set of tasks: the
+ * shared assistant connection ([PhoneServices.sharedShell]) in the process, [AgentDisplay] to create a
+ * screen, [AndroidScreen] to open the page, read the screen, click, type, scroll, and return; the web
+ * page uses the built-in browser [WebScreen]; the sandbox uses [AndroidSandbox]. Only touch Mina's own
+ * self-test page and system settings (only open, do not click), do not change settings, and do not
+ * connect to the Internet. The facts in the report only include status and numbers, and do not include
+ * package names, account numbers, or user information of other apps. [status] is the current system
+ * status on the interface (accessibility, notifications, built-in assistants).
  */
 class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus) : SelfCheckPort {
     private val app = context.applicationContext
@@ -71,7 +74,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
     @Volatile private var screen: AndroidScreen? = null
     @Volatile private var web: Web? = null
 
-    /** 开跑时主屏最上面的任务;之后每到一个节点再看一次,变了的节点记下来。 */
+    /** Look at the top task on the main screen when you start the run; look at it again every time you reach a node, and note down the changed nodes. */
     private var mainBefore: Int? = null
     private val mainChanged = mutableListOf<String>()
 
@@ -114,7 +117,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         SelfCheck.APP_COPIES -> appCopies()
     }
 
-    // ---------- 2 权限 ----------
+    // ---------- 2 Permissions ----------
 
     private fun permissions(): CheckOutcome {
         val s = status()
@@ -134,11 +137,12 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    // ---------- 3 内置助手 ----------
+    // ---------- 3 Built-in Assistant ----------
 
     private suspend fun helper(): CheckOutcome {
         val st = status().builtinShell
-        // 没配过对就不去连(连的时候会提示去设置);配过对的,看门狗可能正在起它,等一会儿
+        // If it has not been paired, do not connect (you will be prompted to set it up when connecting);
+        // if it has been paired, the watchdog may be picking it up, please wait for a while.
         if (st == BuiltinShellStatus.NotPaired && !phone.shellControl.paired) return CheckOutcome.fail("not set up ($st)", Advice.SetUpPhoneControl)
         val conn = connection ?: phone.sharedShell.acquire().also { connection = it }
         val sh = withTimeoutOrNull(HELPER_WAIT_MS) { conn.shell.filterNotNull().first() }
@@ -162,12 +166,13 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    // ---------- 4 虚拟屏 ----------
+    // ---------- 4 Virtual Screen ----------
 
     private suspend fun virtualDisplay(): CheckOutcome {
         val sh = shell ?: return CheckOutcome.fail("no helper", Advice.SetUpPhoneControl)
         val m = metrics()
-        // 建屏不中途打断:建好的一定记下,收尾时放掉
+        // Do not interrupt the screen building process: be sure to write down the completed screen and
+        // release it at the end.
         val made = withContext(NonCancellable + Dispatchers.IO) {
             runCatching { AgentDisplay(sh, m.widthPixels, m.heightPixels, m.densityDpi) }.onSuccess { display = it }
         }
@@ -182,10 +187,10 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    /** 安卓 14 起显示的「自己的焦点」标志;常量没公开,先按名字取,取不到用原版的值。 */
+    /** The "own focus" sign displayed since Android 14; the constant is not public, so you can first get it by name, and you can't get the original value. */
     private fun ownFocusFlag(): Int = runCatching { Display::class.java.getField("FLAG_OWN_FOCUS").getInt(null) }.getOrDefault(1 shl 11)
 
-    // ---------- 5 打开页面 ----------
+    // ---------- 5 Open the page ----------
 
     private suspend fun appLaunch(): CheckOutcome {
         val sh = shell ?: return CheckOutcome.fail("no helper", Advice.SetUpPhoneControl)
@@ -197,7 +202,8 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
             return CheckOutcome.fail("Mina's test page did not open on Mina's display (${reason(own)})", Advice.LaunchFailed)
         }
         sampleMain(sh, "test page")
-        // 先关掉自检页再开系统设置:之后从头开一页,不靠把旧的那一页翻回前面
+        // First close the self-test page and then open the system settings: then open a page from the
+        // beginning instead of turning the old page back to the front.
         withContext(Dispatchers.Main) { SelfCheckTargetActivity.finishOpen() }
         val settings = SystemPickers.settingsPackage(app.packageManager)
         val settingsNote = if (settings == null) "no system Settings app found" else when (val r = s.openApp(settings, cold = false)) {
@@ -206,7 +212,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
                 val onMina = withContext(Dispatchers.IO) { topPackage(sh, d.displayId) } == settings
                 val onMain = withContext(Dispatchers.IO) { mainTop(sh)?.let { runCatching { sh.packageOfTask(it) }.getOrNull() } } == settings
                 sampleMain(sh, "Settings")
-                // 只看不点:返回一次离开它
+                // Just watch it: go back once and leave it
                 s.back()
                 when {
                     onMain -> SETTINGS_ON_MAIN
@@ -215,7 +221,8 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
                 }
             }
         }
-        // 后面几项在自检页上做:重新打开一次,从头来
+        // The next few steps are to be done on the self-test page: reopen it once and start from the
+        // beginning.
         val again = s.openOwnPage(SelfCheckTargetActivity.intent(app))
         if (again !is ActionResult.Ok || !poll { withContext(Dispatchers.IO) { isTestPageOnTop(sh, d.displayId) } }) {
             return CheckOutcome.fail("Mina's test page did not reopen after Settings (${reason(again)})", Advice.LaunchFailed)
@@ -228,13 +235,14 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    // ---------- 6 读屏 ----------
+    // ---------- 6 Screen Reading ----------
 
     private suspend fun screenReading(): CheckOutcome {
         val s = screen ?: return CheckOutcome.fail("no screen", Advice.LaunchFailed)
         val d = display ?: return CheckOutcome.fail("no display", Advice.DisplayFailed)
         s.waitStable(SETTLE_MS)
-        // 页面刚开出来时树可能还没齐:等到最上面是 Mina、要的控件都在,最多等一会儿
+        // When the page is first opened, the tree may not be complete yet: wait until Mina is at the top
+        // and all the required controls are there. Wait a while at most.
         var snap = s.snapshot()
         poll(PAGE_WAIT_MS) {
             snap = s.snapshot()
@@ -255,7 +263,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         return CheckOutcome.pass("${snap.elements.size} elements, all expected found; screenshot not blank")
     }
 
-    // ---------- 7 动作 ----------
+    // ---------- 7 Actions ----------
 
     private suspend fun actions(): CheckOutcome {
         val s = screen ?: return CheckOutcome.fail("no screen", Advice.LaunchFailed)
@@ -265,7 +273,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         val bad = mutableListOf<String>()
         fun mark(name: String, passed: Boolean) { if (passed) ok += name else bad += name }
 
-        // 点按:计数加一
+        // Click: count plus one
         var snap = s.snapshot()
         val before = snap.find(COUNT)?.number()
         val button = snap.find(BUTTON)
@@ -274,13 +282,13 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
             mark("tap", poll { s.peek().find(COUNT)?.number() == before + 1 })
         } else mark("tap", false)
 
-        // 打字:英文和中文各打一次,回读输入框
+        // Typing: Type once each in English and Chinese, read back the input box
         snap = s.snapshot()
         mark("type ASCII", snap.find(INPUT)?.let { typed(s, it, snap, ASCII) } == true)
         snap = s.snapshot()
         mark("type Chinese", snap.find(INPUT)?.let { typed(s, it, snap, CHINESE) } == true)
 
-        // 滚动:看得见的行换了
+        // Scrolling: Visible rows changed
         snap = s.snapshot()
         val rowsBefore = snap.rows()
         val list = snap.find(LIST)
@@ -289,7 +297,9 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
             mark("scroll", poll { s.peek().rows().let { it.isNotEmpty() && it.first() != rowsBefore.first() } })
         } else mark("scroll", false)
 
-        // 返回:自检页离开 Mina 屏的最上面。刚打完字输入法多半还弹着,那几下是收起输入法(安卓本来如此),不算在次数里
+        // Return: The self-test page leaves the top of the Mina screen. Most of the time after typing,
+        // the input method is still playing. Those few clicks are to close the input method (this is the
+        // original case of Android) and are not counted in the number of times.
         val gone = BackPresses.until(
             tries = BACK_TRIES,
             maxPresses = BACK_MAX_PRESSES,
@@ -316,7 +326,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         return poll { s.peek().find(INPUT)?.name?.let { SelfCheckText.contains(it, text) } == true }
     }
 
-    // ---------- 8 一直在动 ----------
+    // ---------- 8 Keep moving ----------
 
     private suspend fun staysAlive(): CheckOutcome {
         val s = screen ?: return CheckOutcome.fail("no screen", Advice.LaunchFailed)
@@ -350,7 +360,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         return CheckOutcome.pass("frames and tree kept changing for ${ALIVE_MS / 1000} s")
     }
 
-    // ---------- 9 主屏 ----------
+    // ---------- 9 Home screen ----------
 
     private suspend fun mainScreen(): CheckOutcome {
         val sh = shell ?: return CheckOutcome.fail("no helper", Advice.SetUpPhoneControl)
@@ -361,12 +371,14 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         else CheckOutcome.fail("top task changed during: ${mainChanged.joinToString()}", Advice.MainScreenChanged)
     }
 
-    // ---------- 10 内置浏览器 ----------
+    // ---------- 10 Built-in browser ----------
 
     private suspend fun browser(): CheckOutcome {
         if (runCatching { WebViewCompat.getCurrentWebViewPackage(app) == null }.getOrDefault(true)) return CheckOutcome.fail("no WebView on this device", Advice.NoWebView)
         val m = metrics()
-        // 和任务一样在主线程建;建好的一定记下,收尾时关掉。访问不记进网站列表(不给 registry)
+        // It is built in the main thread just like the task; be sure to write it down when it is built
+        // and close it at the end. Visits are not recorded in the website list (not given to the
+        // registry)
         val built = withContext(NonCancellable + Dispatchers.Main) {
             runCatching {
                 val host = WebHost(app, m.widthPixels, m.heightPixels, m.densityDpi)
@@ -394,18 +406,19 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         else CheckOutcome.fail("text read; button tap did not change the page", Advice.WebFailed)
     }
 
-    // ---------- 11 沙箱 ----------
+    // ---------- 11 Sandbox ----------
 
     private suspend fun sandbox(): CheckOutcome {
         val state = SandboxState.get(app)
         when (val st = state.status.value) {
             is SandboxStatus.Unsupported -> return CheckOutcome.skipped("not supported on ${Build.SUPPORTED_ABIS.firstOrNull() ?: "this device"}", Advice.SandboxUnsupported)
             is SandboxStatus.Ready -> Unit
-            // 不为自检现装运行环境(要好几分钟)
+            // Do not install the running environment for self-test (takes several minutes)
             else -> return CheckOutcome.partial("runtime not prepared (${st.javaClass.simpleName})", Advice.SandboxNotPrepared)
         }
         val box = AndroidSandbox(app, state)
-        // 命令出错(比如断网过滤装不上被拒)照实记下;取消照常往外抛
+        // If there is an error in the command (for example, if the network filter cannot be installed
+        // and is rejected), record it as it is; if it is cancelled, it will be discarded as usual.
         suspend fun run(argv: List<String>): Result<CommandResult> = try {
             Result.success(box.run(SANDBOX_WORKSPACE, argv, null, COMMAND_MS) {})
         } catch (e: CancellationException) {
@@ -428,7 +441,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    // ---------- 12 另一份 App ----------
+    // ---------- 12 Another App ----------
 
     private suspend fun appCopies(): CheckOutcome {
         val sh = shell ?: return CheckOutcome.fail("no helper", Advice.SetUpPhoneControl)
@@ -437,7 +450,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         return CheckOutcome.pass("${users.size} usable other profile(s)")
     }
 
-    // ---------- 收尾 ----------
+    // ---------- Ending ----------
 
     override suspend fun release() {
         withContext(NonCancellable) {
@@ -459,14 +472,14 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         }
     }
 
-    // ---------- 小工具 ----------
+    // ---------- Gadgets ----------
 
     private fun metrics(): DisplayMetrics = DisplayMetrics().also {
         @Suppress("DEPRECATION")
         app.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(it)
     }
 
-    /** 主屏最上面的任务;读不到为 null。 */
+    /** The topmost task on the home screen; null if not readable. */
     private fun mainTop(sh: IHarnessShell): Int? = runCatching { sh.topTaskId(Display.DEFAULT_DISPLAY) }.getOrNull()?.takeIf { it >= 0 }
 
     private suspend fun sampleMain(sh: IHarnessShell, stage: String) {
@@ -490,7 +503,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         return null
     }
 
-    /** 实时画面(缩小的那一份)的指纹;还没有画面为 null。 */
+    /** The fingerprint of the real-time screen (the reduced one); if there is no screen yet, it is null. */
     private fun frameHash(d: AgentDisplay): Int? {
         val bmp = d.frames.value ?: return null
         return runCatching {
@@ -510,8 +523,11 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
     }
 
     /**
-     * 自检页上的一个控件:先按资源 id(读屏给的是短名,也认完整写法的结尾),再按页面上的文字(有字的控件读屏时不带资源 id)。
-     * 文字和自检页一样按 App 语言取;比的时候不分大小写、不计较空白(见 [SelfCheckText])。
+     * A control on the self-test page: first press the resource id (the screen reader gives a short
+     * name, and also recognizes the end of the complete writing), then press the text on the page
+     * (controls with words do not have the resource id when reading the screen). The text and the
+     * self-test page are taken according to the App language; the comparison is not case-sensitive and
+     * does not take into account white space (see [SelfCheckText]).
      */
     private fun ScreenSnapshot.find(key: String): UiElement? =
         elements.firstOrNull { e -> e.resourceId?.let { it == key || it.endsWith("/$key") } == true }
@@ -527,13 +543,16 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
                 }
             }
 
-    /** 自检页上看得见的行(按从上到下)。 */
+    /** Visible lines on the self-test page (press from top to bottom). */
     private fun ScreenSnapshot.rows(): List<String> =
         elements.filter { rowText.matches(it.name) }.sortedBy { it.centerY }.map { it.name }
 
     /**
-     * 读屏没找到自检页时写进报告的「看到了什么」:是自检页就写包名和前几个控件;是系统界面只写包名、个数和控件的种类或 id
-     * (系统设置顶上可能有用户的名字,不写文字);别的 App 连包名都不写。
+     * When reading the screen and not finding the self-test page, write "what you saw" in the report: if
+     * it is a self-test page, just write the package name and the first few controls; if it is the
+     * system interface, just write the package name, number, and type or ID of the control (the system
+     * settings may have the user's name at the top, without writing text); other apps don't even write
+     * the package name.
      */
     private fun seen(snap: ScreenSnapshot): String {
         val pkg = snap.packageName
@@ -551,7 +570,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         app.packageManager.getApplicationInfo(pkg, 0).flags and ApplicationInfo.FLAG_SYSTEM != 0
     }.getOrDefault(false)
 
-    /** 带一个数字的文字(「点了 %d 次」「计时 %d」「第 %d 行」):按 App 语言取,用来认控件。 */
+    /** Text with a number ("clicked %d times", "timing %d", "line %d"): taken according to the App language, used to identify controls. */
     private fun numbered(res: Int) = SelfCheckText.Numbered(tr(res, SENTINEL), SENTINEL.toString())
 
     private val tapsText by lazy { numbered(R.string.selfcheck_target_taps) }
@@ -577,11 +596,11 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         const val FRAME_TRIES = 20
         const val BLANK_SPREAD = 8
         const val BACK_TRIES = 2
-        /** 连收起输入法在内最多按这么多下。 */
+        /** You can press this many times at most including closing the input method. */
         const val BACK_MAX_PRESSES = 5
         const val ALIVE_MS = 15_000L
         const val ALIVE_STEP_MS = 500L
-        /** 这么久画面一点没变就算停了(页面上的数字每 250 毫秒跳一次)。 */
+        /** It stops if the picture doesn't change at all for so long (the numbers on the page jump every 250 milliseconds). */
         const val STALL_MS = 3_000L
         const val COMMAND_MS = 8_000L
         const val MAX_CHARS = 4_000
@@ -598,7 +617,7 @@ class AndroidSelfCheck(context: Context, private val status: () -> SystemStatus)
         const val ASCII = "Mina 123"
         const val CHINESE = "Hello Mina"
         const val SENTINEL = 987_654_321
-        /** 读屏一项等自检页出现最多这么久。 */
+        /** The screen reading item can only take this long to wait for the self-test page to appear. */
         const val PAGE_WAIT_MS = 5_000L
         const val SEEN_ELEMENTS = 5
         const val SEEN_CHARS = 24

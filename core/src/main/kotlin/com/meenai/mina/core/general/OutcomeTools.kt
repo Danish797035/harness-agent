@@ -21,7 +21,7 @@ import com.meenai.mina.core.tool.str
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 做不成、问用户或交给用户的工具:结果里带给循环的 [Outcome]。 */
+/** If it cannot be done, ask the user or give the user a tool: [Outcome] is brought to the loop in the result. */
 internal object EndNotDone : AgentTool {
     override val verb = Verb.EndNotDone
     override val label = "Explain why it didn’t work"
@@ -65,7 +65,7 @@ internal object AskUser : AgentTool {
     }
 }
 
-/** 交给用户亲手操作屏幕;要过锁屏关卡(用户要在屏上操作)。 */
+/** Leave it to the user to operate the screen; they have to pass the lock screen level (the user has to operate on the screen). */
 internal object HandToUser : SurfaceAware {
     override val verb = Verb.HandToUser
     override val label = "Ask you to take over"
@@ -86,9 +86,10 @@ internal object HandToUser : SurfaceAware {
         val r = TAKEOVER_REASON_ALIASES[raw] ?: raw
         if (r !in TAKEOVER_REASONS) throw ArgError("reason", "must be one of ${TAKEOVER_REASONS.joinToString("|")}")
         val m = a.str("message", max = 1000)!!
-        // 付款:模型没写的项用之前被拒的付款申报里的
+        // Payment: For items not included in the model, use the previously rejected payment declaration.
         val declared = ctx.refusedPay.takeIf { r == "payment" }
-        // 只给紧接着的那次付款接管用,之后无关的付款不串用
+        // It will only be used for the next payment, and will not be used for subsequent unrelated
+        // payments.
         if (declared != null) ctx.refusedPay = null
         val item = a.str("item", max = 10000)?.let(::capField) ?: declared?.content
         val amount = a.str("amount", max = 10000)?.let(::capField) ?: declared?.amount

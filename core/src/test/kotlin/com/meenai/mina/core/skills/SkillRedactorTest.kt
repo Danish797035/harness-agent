@@ -15,8 +15,8 @@ class SkillRedactorTest {
         )
         assertEquals(setOf("老妈", "明天回家吃饭", "5元", "2024", "家人群"), lits)
         assertTrue(SkillRedactor.literals("打开微信看看", emptyList()).isEmpty())
-        assertFalse("5" in SkillRedactor.literals("买 5 个", emptyList())) // 单个数字不算
-        assertEquals(setOf("老妈"), SkillRedactor.literals("给「妈」和「老妈」各发一条", emptyList())) // 一个字的不换
+        assertFalse("5" in SkillRedactor.literals("买 5 个", emptyList())) // Single digits do not count
+        assertEquals(setOf("老妈"), SkillRedactor.literals("给「妈」和「老妈」各发一条", emptyList())) // Don’t change a word
         assertEquals("给<参数>发", SkillRedactor.redact("给老妈发", setOf("老妈", "妈")))
     }
 

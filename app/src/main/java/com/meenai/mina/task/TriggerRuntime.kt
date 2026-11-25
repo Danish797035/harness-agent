@@ -31,28 +31,29 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** 安卓闹钟的薄壳；时间与去重由持久化 TriggerStore 决定，闹钟广播可以重复来。 */
+/** A thin shell for the Android alarm clock; the time and deduplication are determined by the persistent TriggerStore, and the alarm clock broadcast can be repeated. */
 object TriggerRuntime {
     private var recovered = false
-    /** 存下并布置闹钟;系统没准许准时闹钟(到点可能不准时或起不来)时引导用户去开一次,结果里照实说有没有提示到。 */
+    /** Save and set the alarm; when the system does not allow the alarm to be on time (the alarm may not be on time or cannot be woken up), the user will be directed to turn it on once, and the results will tell the truth whether there is any prompt. */
     @Synchronized fun schedule(context: Context, definition: TriggerDefinition): Scheduled {
         val store = store(context)
         store.upsert(definition)
         engine(context, store).rearm(System.currentTimeMillis())
         val granted = canScheduleExactly(context)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        // 只有通知真的发出去了才算提示过;没发出去下次再试
+        // Only when the notification is actually sent is it considered a reminder; if it is not sent,
+        // try again next time.
         val notified = ExactAlarmGuide.shouldPrompt(granted, prefs.getBoolean(PROMPTED, false)) && promptExactAlarm(context)
         if (notified) prefs.edit().putBoolean(PROMPTED, true).apply()
         return Scheduled(granted, notified)
     }
 
-    /** 系统的「闹钟和提醒」授权页(安卓 12 起)。 */
+    /** The system's "Alarm Clock and Reminder" authorization page (starting from Android 12). */
     fun exactAlarmSettings(context: Context): Intent =
         Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    /** 第一次没有权限就建了定时任务:发一条通知,点开就是授权页(任务在后台跑,不直接跳页面)。返回通知有没有发出去。 */
+    /** The first time I created a scheduled task without permission: send a notification and click to open the authorization page (the task runs in the background and does not jump directly to the page). Return notification has been sent. */
     private fun promptExactAlarm(context: Context): Boolean {
         val notifications = context.getSystemService(NotificationManager::class.java)
         if (!notifications.areNotificationsEnabled()) return false
@@ -266,7 +267,7 @@ object TriggerRuntime {
     private const val PROMPTED = "exact_alarm_prompted"
 }
 
-/** 准时闹钟权限的引导:没开时只主动提醒一次,之后在定时任务页一直写明。 */
+/** Guidance on punctual alarm clock permissions: it will only remind you once when it is not turned on, and then it will always be written on the scheduled task page. */
 object ExactAlarmGuide {
     val TITLE: String get() = tr(R.string.trigger_alarm_title)
     val BODY: String get() = tr(R.string.trigger_alarm_body)

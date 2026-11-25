@@ -25,8 +25,11 @@ import com.meenai.mina.core.uistate.lastSnapshot
 import com.meenai.mina.core.uistate.session
 
 /**
- * 花钱的那一步(下单、屏上有应付金额时的提交等)前请用户同意;询问时只有这一种要问。付款本身不在这里,交给用户亲手付。
- * 申报的前台核对用此刻重新读的一屏(不登记编号,不动模型手里的 ref)。
+ * Please ask the user for consent before the step of spending money (placement of order, submission when
+ * there is an amount due on the screen, etc.); this is the only way to ask when asking. The payment
+ * itself is not here, it is left to the user to pay by hand. The front-end check of the report uses the
+ * screen that is re-read at this time (do not register the number, do not move the ref in the model
+ * hand).
  */
 internal object RequestConfirmation : SurfaceAware {
     override val verb = Verb.RequestConfirmation
@@ -42,7 +45,7 @@ internal object RequestConfirmation : SurfaceAware {
             "app" to str(APP_NOTE),
         ), listOf("action", "target", "content", "amount", "app"))
 
-    /** app 参数写什么按本任务的屏说:一块屏时写那块的写法,几块屏时各写一句。 */
+    /** What to write in the app parameters depends on the screen of this task: if there is one screen, write the wording of that piece, and if there are several screens, write one sentence each. */
     override fun def(ctx: ToolContext): ToolDef {
         val base = super.def(ctx)
         val surfaces = ctx.focus.surfaces
@@ -63,7 +66,8 @@ internal object RequestConfirmation : SurfaceAware {
                 a.str("amount", max = 10000)?.let(::capField), a.str("app")!!.trim())
             return fail("payment_requires_takeover", HINT_PAYMENT_TAKEOVER)
         }
-        // 只有花钱要问:写不出金额的操作不用申请,直接做
+        // The only thing you need to ask about is spending money: If you can’t write the amount, you
+        // don’t need to apply, just do it directly
         if (a.str("amount")?.any(Char::isDigit) != true) throw ArgError("amount",
             "required: the total the user will pay, as shown on screen. An action that spends no money needs no approval: do it directly")
         val app = ctx.confirmTarget(a.str("app")!!.trim())

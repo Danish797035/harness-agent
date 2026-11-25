@@ -1,28 +1,33 @@
 package com.meenai.mina.core.uistate
 
 /**
- * 经安卓标准接口(intent)做的系统动作:设闹钟、计时器,打开闹钟列表,打开预填好的新日程。
- * 由手机上装着的时钟、日历 App 接手;没有 App 接时端口报 [SystemActionResult.NOT_SUPPORTED],模型退回去操作界面。
+ * System actions performed through the Android standard interface (intent): setting alarm clocks and
+ * timers, opening alarm clock lists, and opening prefilled new schedules. The clock and calendar App
+ * installed on the mobile phone takes over; if there is no App, the time port will report
+ * [SystemActionResult.NOT_SUPPORTED], and the model will return to the operation interface.
  */
 sealed interface SystemAction {
-    /** [days] 每周重复的日子,按 java.util.Calendar 的写法(1 = 周日 … 7 = 周六),空 = 只响一次。 */
+    /** [days] is a day that repeats every week, written as java.util.Calendar (1 = Sunday... 7 = Saturday), empty = only rings once. */
     data class SetAlarm(val hour: Int, val minute: Int, val label: String? = null, val days: List<Int> = emptyList(), val vibrate: Boolean? = null) : SystemAction
     data class SetTimer(val seconds: Int, val label: String? = null) : SystemAction
     data object ShowAlarms : SystemAction
-    /** 起止为毫秒时间戳;[allDay] 时只看日期。 */
+    /** The starting and ending time stamps are milliseconds; when [allDay], only the date is displayed. */
     data class AddCalendarEvent(
         val title: String, val beginMs: Long, val endMs: Long? = null, val allDay: Boolean = false,
         val location: String? = null, val description: String? = null,
     ) : SystemAction
 
-    /** 交给 App 后不留界面(闹钟、计时器);其余在 Mina 的屏上打开那个 App 的页面。 */
+    /** After handing it over to the App, no interface (alarm clock, timer) is left; the rest opens the page of that App on Mina's screen. */
     val silent: Boolean get() = this is SetAlarm || this is SetTimer
 }
 
 /**
- * 系统动作的结果。[result] 失败时原因为 [NOT_SUPPORTED](没有 App 接这个动作)、app_in_use_by_user、launch_failed 等;
- * [handledBy] 接手的 App 的包名;[nextAlarmBefore] / [nextAlarmAfter] 是动作前后系统报的下一个闹钟(毫秒时间戳,没有为 null),
- * [alarmReadable] 为 false 时读不到;[showing]:动作之后 Mina 的屏上开着 [handledBy] 的页面(本该悄悄设好的,App 却开了界面)。
+ * The result of a system action. The reason for [result] failure is [NOT_SUPPORTED] (no App takes this
+ * action), app_in_use_by_user, launch_failed, etc.; [handledBy] is the package name of the App taken
+ * over; [nextAlarmBefore] / [nextAlarmAfter] is the next alarm clock (millisecond timestamp, null)
+ * reported by the system before and after the action, [alarmReadable] is false Unable to read;
+ * [showing]: After the action, the page [handledBy] was opened on Mina’s screen (it should have been set
+ * quietly, but the App opened the interface).
  */
 data class SystemActionResult(
     val result: ActionResult,

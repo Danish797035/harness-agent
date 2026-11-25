@@ -33,22 +33,25 @@ import java.util.Locale
 const val HISTORY_READ = "history_read"
 
 /**
- * 查这个对话之前几轮的记录:不带 turn 列出之前的轮次(新的在前:第几轮、用户说了什么、结局、时刻),
- * 带 turn 读那一轮记下的东西(完整结局、Mina 的进度说明、读到的原文),按条分页。
- * 只认本次运行开局带来的那几轮([com.meenai.mina.core.run.RunSpec.priorTurns],同一个对话),只读;
- * 原文取自运行记录(落盘时已脱敏、截短),不带截图。读到的原文作为观察交给核查,回答里可以引用。
- * 只在给了运行记录、而之前有记过运行的轮次时提供。
+ * Check the records of the previous rounds of this conversation: without turn, list the previous rounds
+ * (the new one first: which round, what the user said, the ending, the time), with turn, read the things
+ * recorded in that round (the complete ending, Mina's progress description, the original text read), and
+ * paginate by article. Only the rounds brought about by the start of this run
+ * ([com.meenai.mina.core.run.RunSpec.priorTurns], the same conversation) are recognized, read-only; the
+ * original text is taken from the run record (desensitized and truncated when placing the disk), without
+ * screenshots. The original text read is submitted for verification as an observation and can be quoted
+ * in the answer. Only provided if a run record is given and a previous run was recorded.
  */
 internal object HistoryRead : AgentTool {
-    /** 列表最多列几轮(新的在前)。 */
+    /** The list can be made in at most several rounds (newest first). */
     const val LIST_MAX = 20
-    /** 一页里各条原文加起来大约多少字(至少给一条)。 */
+    /** Approximately how many words do the original texts on a page add up to (give at least one). */
     const val PAGE_CHARS = 8_000
-    /** 一条原文最多留多少字。 */
+    /** How many words can be left in an original text at most. */
     const val ITEM_CHARS = 2_000
-    /** 读一轮时结局最多留多少字。 */
+    /** How many words can be left in the ending during one round of reading. */
     const val OUTCOME_CHARS = 3_000
-    /** 列表里用户原话、结局各留多少字。 */
+    /** How many words should be left in the list for the user's original words and the ending. */
     private const val GIST_CHARS = 200
 
     private val TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ENGLISH)
@@ -131,21 +134,24 @@ internal object HistoryRead : AgentTool {
                 if (next < items.size) put("nextOffset", next)
             }
         }
-        // 读到的原文交给核查:回答里用到之前几轮读到的东西时有据可查(出处另记为 history,不指回当时的画面)
+        // The original text read is submitted for verification: when the answer uses something read in
+        // previous rounds, it is well documented (the source is also recorded as history, and does not
+        // refer back to the scene at that time)
         val observations = page.mapNotNull { item ->
             item.obsKind?.let { Observation(it, item.text, source = SOURCE, title = item.where, trust = if (item.untrusted) Trust.Untrusted else Trust.Trusted) }
         }
         return ToolExecution(content, observations = observations)
     }
 
-    /** 记录里一条可读的东西:Mina 的进度说明(note,带了调用的回复里的字),或读到的原文(观察的种类)。 */
+    /** One readable thing in the record: Mina's progress description (note, words in the reply with the call), or the original text read (type of observation). */
     private class Item(val kind: String, val text: String, val where: String?, val untrusted: Boolean, val obsKind: ObsKind?)
 
     private fun items(events: List<RunEvent>): List<Item> {
         val seen = mutableSetOf<String>()
         return events.mapNotNull { e ->
             when (e) {
-                // 不带调用的回复就是那一轮的回答,已经在 outcome 里
+                // The reply without the call is the answer of that round, which is already in the
+                // outcome.
                 is RunEvent.ModelReply -> e.text.trim().takeIf { e.acted && e.tool != null && it.isNotEmpty() && seen.add(it) }
                     ?.let { Item(NOTE, clip(it, ITEM_CHARS), null, false, null) }
                 is RunEvent.Observed -> e.text.trim().takeIf { it.isNotEmpty() && seen.add(it) }?.let {
@@ -161,7 +167,7 @@ internal object HistoryRead : AgentTool {
 
     private fun clip(s: String, max: Int) = if (s.length <= max) s else s.take(max - 1) + "…"
 
-    /** 读记录出错当没有:查不到不影响任务。 */
+    /** If there is an error when reading the record: If it cannot be found, it will not affect the task. */
     private suspend fun <T> safe(fallback: T, read: suspend () -> T): T =
         try { read() } catch (e: CancellationException) { throw e } catch (e: Exception) { fallback }
 

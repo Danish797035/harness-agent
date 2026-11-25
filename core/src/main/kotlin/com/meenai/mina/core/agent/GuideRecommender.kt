@@ -17,16 +17,18 @@ internal const val KNOWLEDGE_INDEX_HEADER = "App and website knowledge you can r
 private const val RECOMMEND_COUNT = 3
 
 /**
- * 任务开始时的索引(开局上下文里写一次,中途不改):
- * App/站点知识按任务文字检索,沿用原来的取法(与技能一起取前 3 条,只留知识);
- * 技能不挑,全部列出——内置在前、个人技能在后,各按名字排,每份一行(id、显示名、描述),
- * 用不用、用哪份由模型按描述判断,要用时自己用 skill_read 读全文。
+ * Index at the beginning of the task (write it once in the start context and do not change it in the
+ * middle): App/site knowledge is retrieved according to the task text, and the original method is used
+ * (take the first 3 items together with the skills, leaving only the knowledge); skills are not
+ * selected, all are listed - built-in at the front, personal skills at the end, each by name, each copy
+ * has one line (id, display name, description). Whether to use it and which copy to use is determined by
+ * the description of the model. Use skill_read to read the full text yourself.
  */
 internal object GuideRecommender {
     fun id(info: GuideInfo) = "${info.kind}:${info.name}"
     fun line(info: GuideInfo) = "- ${id(info)}(${info.display}):${info.description}"
 
-    /** 知识与技能各列在自己的标题下;两样都没有为 null。个人技能只有在用和试用的(见 [GuideCatalog.items])。 */
+    /** Knowledge and skills are each listed under their own heading; neither is null. Personal skills are only in use and on trial (see [GuideCatalog.items]). */
     fun index(catalog: GuideCatalog, task: String): String? {
         val knowledge = catalog.find(task, limit = RECOMMEND_COUNT, minScore = RECOMMEND_MIN_SCORE).filter { it.kind in KNOWLEDGE_KINDS }
         val skills = catalog.items.filter { it.kind in SKILL_KINDS }.sortedWith(compareBy({ it.kind != KnowledgeIndex.SKILL }, { it.name }))
@@ -35,7 +37,7 @@ internal object GuideRecommender {
             ?.joinToString("\n") { (header, items) -> header + "\n" + items.joinToString("\n", transform = ::line) }
     }
 
-    /** skill_read 成功读了个人技能时给出技能名。 */
+    /** skill_read gives the skill name when a personal skill is successfully read. */
     fun viewedPersonal(verb: Verb?, content: JsonObject): String? {
         if (verb != Verb.SkillRead || content["ok"] != JsonPrimitive(true)) return null
         if ((content["kind"] as? JsonPrimitive)?.contentOrNull != PERSONAL_KIND) return null

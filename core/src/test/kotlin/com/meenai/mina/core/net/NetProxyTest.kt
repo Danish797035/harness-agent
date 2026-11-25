@@ -28,14 +28,14 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URI
 
-/** Mina 自己连接用的网络代理:按设置走代理、本机和局域网直连、HTTP 代理的账号密码、出错时说清是代理的问题。 */
+/** The network proxy used by Mina for her own connection: Set up the proxy, directly connect the machine to the LAN, use the account and password of the HTTP proxy, and state if there is an error that it is a problem with the proxy. */
 class NetProxyTest {
     private lateinit var server: MockWebServer
 
     @Before fun setUp() { server = MockWebServer().also { it.start() } }
     @After fun tearDown() { server.shutdown() }
 
-    /** 一个肯定连不上的本机端口。 */
+    /** A local port that is definitely unreachable. */
     private fun closedPort(): Int = ServerSocket(0).use { it.localPort }
 
     @Test fun parsesAddressesAndNeverShowsCredentials() {
@@ -67,7 +67,8 @@ class NetProxyTest {
         for (h in listOf("api.openai.com", "8.8.8.8", "172.32.0.1", "100.128.0.1", "192.169.0.1", "2001:db8::1", "generativelanguage.googleapis.com")) {
             assertFalse(h, LocalHosts.bypassesProxy(h))
         }
-        // 判断明文 http 安不安全用的那一套仍然严格:机器名、.lan 不算本机
+        // The method for judging whether plaintext http is safe or not is still strict: machine name
+        // and.lan are not counted as the local machine.
         assertFalse(LocalHosts.isLocal("nas"))
         assertFalse(LocalHosts.isLocal("box.lan"))
     }
@@ -80,12 +81,12 @@ class NetProxyTest {
         assertEquals(listOf(Proxy.NO_PROXY), net.selector.select(URI("http://192.168.1.20:11434/v1")))
         assertEquals(listOf(Proxy.NO_PROXY), net.selector.select(URI("http://localhost:1234/v1")))
 
-        // 改了设置马上按新的走
+        // After changing the settings, click on the new one immediately.
         setting = "http://10.0.0.2:8080"
         assertEquals(Proxy.Type.HTTP, net.selector.select(URI("https://api.example.com/v1")).single().type())
         setting = ""
         assertEquals(listOf(Proxy.NO_PROXY), net.selector.select(URI("https://api.example.com/v1")))
-        // https 代理 Mina 自己的连接用不上:直连
+        // https proxy Mina’s own connection cannot be used: direct connection
         setting = "https://proxy.example.com:443"
         assertEquals(listOf(Proxy.NO_PROXY), net.selector.select(URI("https://api.example.com/v1")))
     }
@@ -116,7 +117,7 @@ class NetProxyTest {
     }
 
     @Test fun lanHostsBypassTheProxy() = runTest {
-        // 代理指向连不上的端口;本机的服务照样连得上
+        // The proxy points to the unreachable port; the local service is still reachable.
         val net = NetProxy { "http://alice:pw@127.0.0.1:${closedPort()}" }
         server.enqueue(MockResponse().setBody("ok"))
         val raw = HttpSupport.execute(net.client(), Request.Builder().url(server.url("/v1/models")).build())
@@ -137,7 +138,7 @@ class NetProxyTest {
             assertFalse("账号密码不对不重试", RetryPolicy.transient(e))
             assertEquals("proxy_auth", RetryPolicy.label(e))
         }
-        // 带过一次账号密码还被拒就不再试
+        // If you tried your account and password once and still got rejected, don’t try again.
         assertEquals(2, server.requestCount)
     }
 
@@ -151,7 +152,7 @@ class NetProxyTest {
             assertEquals(ProxyFailure.Unreachable, e.failure)
             assertTrue(RetryPolicy.transient(e))
         }
-        // 没走代理的连接失败照旧是网络错误
+        // Connection failure without proxy is still a network error
         try {
             HttpSupport.execute(OkHttpClient(), Request.Builder().url("http://127.0.0.1:$port/v1").build())
             fail("expected a network error")

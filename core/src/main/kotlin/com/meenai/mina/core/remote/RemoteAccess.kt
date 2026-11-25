@@ -7,12 +7,17 @@ import java.net.InetAddress
 import java.security.MessageDigest
 
 /**
- * 电脑连接的门口:每个请求先过这里,过了才交给协议层。顺序固定:
- * 浏览器来的(带 Origin)一律 403;同一地址认证失败太多次先 429;访问令牌不对 401。路由和错误序列化交给入口适配器。
- * 令牌按常量时间比较;失败次数按请求的来源([HttpRequest.source])记,[clock] 可换,测试里拨时间。
- * 冷却期间正确令牌也不放行:放行就等于告诉猜的人「这回猜对了」,冷却就挡不住猜令牌。
- * 经网关转发的请求按网关看到的调用方分开记,一个匿名调用方猜错只冷却它自己。
- * [token] 从哪里来的连接都认;[loopbackToken](经 USB 的电脑连接用的那个)只认本机回环来的连接。
+ * The door where the computer is connected: Each request passes here first, and then is handed over to
+ * the protocol layer. The order is fixed: the browser (with Origin) will always give 403; the same
+ * address authentication failed too many times, first 429; the access token is incorrect, 401. Routing
+ * and error serialization are left to the ingress adapter. Tokens are compared according to constant
+ * time; the number of failures is recorded according to the source of the request
+ * ([HttpRequest.source]), [clock] is replaceable, and the time is set during the test. Correct tokens
+ * will not be released during the cooling period: releasing them is equivalent to telling the guesser
+ * "you guessed correctly this time". Cooling down cannot stop guessing tokens. Requests forwarded by the
+ * gateway are recorded separately according to the caller seen by the gateway. An anonymous caller
+ * guessing wrong only cools itself. [token] recognizes connections from anywhere; [loopbackToken] (via
+ * USB computer connection) only recognizes connections from the local loopback.
  */
 class RemoteAccess(
     private val token: () -> String?,
@@ -31,7 +36,8 @@ class RemoteAccess(
     private val failures = HashMap<String, Failures>()
 
     fun check(req: HttpRequest): Verdict {
-        // 浏览器的请求总带 Origin;电脑上的 MCP 客户端不带。网页不该能碰到这个端口(防 DNS 重绑定)
+        // The browser's request always carries Origin; the MCP client on the computer does not. Web
+        // pages should not be able to access this port (anti-DNS rebinding)
         if (req.header("origin") != null) return Verdict.Reject(403, "Browser requests are not allowed")
         val who = req.source
         val now = clock()
@@ -46,7 +52,7 @@ class RemoteAccess(
             if (h.length > 7 && h.substring(0, 7).equals("Bearer ", ignoreCase = true)) h.substring(7).trim() else null
         }
         val loopback = if (req.remote.isLoopbackAddress) loopbackToken() else null
-        // 两个都比,不因对上了第一个就少比一次。
+        // Compete with both, just because you faced the first one does not mean you compete once less.
         if (given == null || !(matches(given, token()) or matches(given, loopback))) {
             fail(who, now)
             return Verdict.Reject(401, "Missing or wrong access token", mapOf("WWW-Authenticate" to "Bearer"))
@@ -56,7 +62,7 @@ class RemoteAccess(
         return Verdict.Pass
     }
 
-    /** 本地监听与远程转发共用鉴权和协议错误;只有通过后才进入任务层。 */
+    /** Local monitoring and remote forwarding share authentication and protocol errors; only after passing, the task layer is entered. */
     fun handle(req: HttpRequest, next: (HttpRequest) -> HttpResponse): HttpResponse = when (val verdict = check(req)) {
         is Verdict.Reject -> if (req.path == McpRpc.PATH)
             McpRpc.transportError(verdict.status, verdict.message, verdict.headers)
@@ -71,12 +77,13 @@ class RemoteAccess(
         if (now - f.since > windowMs) { f.count = 0; f.since = now }
         f.count++
         if (f.count >= maxFailures) { f.lockedUntil = now + lockMs; f.count = 0; f.since = now }
-        // 地址多了只留最近的,不让表无限长
+        // If there are too many addresses, only the most recent one will be kept, and the table will not
+        // be infinitely long.
         if (failures.size > 256) failures.entries.minByOrNull { it.value.since }?.let { failures.remove(it.key) }
     }
 
     companion object {
-        /** 常量时间比较:先各自摘要成等长,再逐字节比,耗时不随前面对上了几个字符变。 */
+        /** Constant time comparison: First digest them into equal lengths, and then compare them byte by byte. The time consumption does not change with the number of characters faced before. */
         fun same(a: String, b: String): Boolean {
             val d = MessageDigest.getInstance("SHA-256")
             val x = d.digest(a.toByteArray(Charsets.UTF_8))
@@ -85,15 +92,16 @@ class RemoteAccess(
         }
 
         /**
-         * 收不收这个地址的连接:本机回环、局域网私有段(10/8、172.16/12、192.168/16)、
-         * 私有组网常用的运营商级 NAT 段(100.64/10)、IPv4 链路本地,以及 IPv6 的唯一本地(fc00::/7)和链路本地(fe80::/10)。
-         * 公网地址(比如走移动数据时)一律不收。
+         * Whether to accept connections from this address: local loopback, LAN private segment (10/8,
+         * 172.16/12, 192.168/16), carrier-grade NAT segment commonly used in private networking
+         * (100.64/10), IPv4 link local, and IPv6 only local (fc00::/7) and link local (fe80::/10).
+         * Public network addresses (such as when using mobile data) will not be accepted.
          */
         fun privateAddress(a: InetAddress): Boolean {
             val v4 = when (a) {
                 is Inet4Address -> a.address
                 is Inet6Address -> a.address.let { b ->
-                    // IPv4 映射成 IPv6 的写法(::ffff:a.b.c.d)按 IPv4 看
+                    // The writing method of mapping IPv4 to IPv6 (::ffff:a.b.c.d) is as follows: IPv4
                     if ((0 until 10).all { b[it] == 0.toByte() } && b[10] == 0xff.toByte() && b[11] == 0xff.toByte()) b.copyOfRange(12, 16) else null
                 }
                 else -> null

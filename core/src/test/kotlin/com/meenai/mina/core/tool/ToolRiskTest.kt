@@ -14,11 +14,11 @@ import com.meenai.mina.core.assembly.allTools
 import com.meenai.mina.core.testing.SANDBOX_TOOLS
 import com.meenai.mina.core.testing.WEB_TOOLS
 
-/** 由工具声明的风险推出的分类,和改成声明之前按名字列的表一样;手机、网页两套屏幕工具各有一份同样的动词。 */
+/** The classification derived from the risk declared by the tool is the same as the list by name before changing to the declaration; the two sets of screen tools for mobile phones and web pages each have the same verb. */
 class ToolRiskTest {
     private fun both(vararg verbs: String) = verbs.flatMap { listOf("phone_$it", "web_$it") }.toSet()
 
-    /** 原来要过锁屏/暂停关卡的工具表。 */
+    /** It turns out that I have to go through the tool list of the lock screen/pause level. */
     private val oldWriting = both("tap", "scroll", "swipe", "type_text", "clear_text", "back", "press_key", "diagnose") + setOf(
         "phone_launch_app", "phone_share_text", "phone_gesture", "hand_to_user",
         "phone_set_alarm", "phone_set_timer", "phone_show_alarms", "phone_add_calendar_event", "phone_set_wheel",
@@ -59,8 +59,10 @@ class ToolRiskTest {
     }
 
     /**
-     * 原来 needsCheck / classify 按名字分的几支,现在按声明的目标分;每支的判法没动,
-     * 名字到目标的对应和原来一样,判定结果就一样(具体情形由 IrreversibleDetectorTest 覆盖)。
+     * The original needsCheck / classify branches were divided according to names, but now they are
+     * divided according to declared targets; the judgment method of each branch has not changed, the
+     * correspondence from name to target is the same as before, and the judgment results are the same
+     * (the specific situation is covered by IrreversibleDetectorTest).
      */
     @Test fun gateTargetsMatchOldNameBranches() {
         val perVerb = mapOf("tap" to GateTarget.Tap, "type_text" to GateTarget.Enter, "press_key" to GateTarget.Key, "swipe" to GateTarget.Swipe, "scroll" to GateTarget.Swipe)

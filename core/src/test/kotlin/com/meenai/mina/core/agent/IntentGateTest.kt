@@ -15,7 +15,7 @@ class IntentGateTest {
         assertTrue(judge.offeredTools.single().isEmpty())
         val input = judge.requests.single().single().parts.single() as com.meenai.mina.core.model.Part.Text
         assertTrue(input.text.contains("The user's current message:\n以后可以帮我同步发布，对吧？"))
-        // 上一轮的对话在当前的这句话之前
+        // The previous round of dialogue preceded the current sentence
         assertTrue(input.text, "打开两个 App 看看" in input.text)
         assertTrue(input.text, input.text.indexOf("打开两个 App 看看") < input.text.indexOf("The user's current message:"))
     }

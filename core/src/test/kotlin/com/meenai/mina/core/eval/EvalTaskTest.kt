@@ -40,7 +40,7 @@ class EvalTaskTest {
             t.checks,
         )
         assertEquals(emptyList<String>(), EvalTasks.validate(t))
-        // 默认值
+        // default value
         val min = EvalTasks.parse("""{"id":"a","goal":"g","apps":[],"category":"impossible","expect":"failed","checks":[{"type":"answer_grounded"}]}""")
         assertEquals(Check.AnswerGrounded(1), min.checks.single())
         assertEquals(EvalCategory.Impossible, min.category)
@@ -57,12 +57,13 @@ class EvalTaskTest {
         assertEquals(Check.WebHas("https://www.python.org/downloads/?r={run}", "Python {run}"), t.checks.single())
         assertEquals(emptyList<String>(), EvalTasks.validate(t))
         val s = EvalTasks.substitute(t, "r1", emptyMap())
-        // 指定了渠道:目标前加「用网页」
+        // Specified channel: add "use web page" before the target
         assertEquals("用网页查 Python 官网上最新的稳定版本号 r1", s.goal)
         assertEquals(Check.WebHas("https://www.python.org/downloads/?r=r1", "Python r1"), s.checks.single())
         assertEquals("用 App查", EvalTasks.substitute(t.copy(channel = "app"), "r1", emptyMap()).goal.take(6))
         assertEquals("查 Python", EvalTasks.substitute(t.copy(channel = null), "r1", emptyMap()).goal.take(8))
-        // 渠道只能是 web/app;web_has 的网址只能是 http(s),文字不能为空
+        // The channel can only be web/app; the URL of web_has can only be http(s), and the text cannot
+        // be empty.
         assertTrue(EvalTasks.validate(t.copy(channel = "tv")).any { "channel" in it })
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.WebHas("file:///x", "a")))).any { "url" in it })
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.WebHas("https://a.example.com/", " ")))).any { "text" in it })
@@ -84,7 +85,7 @@ class EvalTaskTest {
         assertTrue(EvalTasks.validate(badCheck).any { "rm_rf" in it })
         val badBefore = base.copy(probesBefore = mapOf("ver" to "reboot"))
         assertTrue(EvalTasks.validate(badBefore).any { "reboot" in it })
-        // 占位符引用了没声明的探针
+        // The placeholder refers to an undeclared probe
         val undeclared = base.copy(goal = "版本 {probe:nope}")
         assertTrue(EvalTasks.validate(undeclared).any { "nope" in it })
     }
@@ -113,7 +114,7 @@ class EvalTaskTest {
         val t = EvalTasks.parse(full)
         assertTrue(EvalTasks.validate(t.copy(checks = emptyList())).isNotEmpty())
         assertTrue(EvalTasks.validate(t.copy(expect = Expect.Confirmation, checks = emptyList())).isNotEmpty())
-        // 做不成、接管类可以只靠结局
+        // If you can't do it, you can just rely on the ending for the takeover type.
         assertTrue(EvalTasks.validate(t.copy(expect = Expect.Failed, checks = emptyList())).isEmpty())
         assertTrue(EvalTasks.validate(t.copy(expect = Expect.Takeover, checks = emptyList())).isEmpty())
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.AnswerContains(listOf("14", " "))))).isNotEmpty())
@@ -123,11 +124,11 @@ class EvalTaskTest {
 
     @Test fun validateRejectsChecksThatMatchAnything() {
         val t = EvalTasks.parse(full)
-        // 能匹配空串的正则对任何回答都成立
+        // A regular pattern that matches the empty string is valid for any answer
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.AnswerRegex("\\d*")))).isNotEmpty())
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.AnswerRegex("x|")))).isNotEmpty())
         assertTrue(EvalTasks.validate(t.copy(checks = listOf(Check.AnswerRegex("\\d+")))).isEmpty())
-        // 写了但为空白的字段对任何卡片都成立
+        // Written but blank fields are true for any card
         assertTrue(EvalTasks.validate(t.copy(expect = Expect.Confirmation, checks = listOf(Check.ConfirmationShows(action = "发送", target = " ")))).isNotEmpty())
         assertTrue(EvalTasks.validate(t.copy(expect = Expect.Confirmation, checks = listOf(Check.ConfirmationShows(action = "发送")))).isEmpty())
     }
@@ -167,7 +168,7 @@ class EvalTaskTest {
         assertTrue(Checks.passes(Check.AskedUser(false), o))
         assertTrue(Checks.passes(Check.AskedUser(true), o.copy(askedUser = 1)))
         assertTrue(!Checks.passes(Check.AskedUser(false), o.copy(askedUser = 2)))
-        // 没过的核对项按类型名记
+        // Check items that have not been passed are listed by type.
         assertEquals(listOf("0:asked_user"), Scoring.score(t.copy(checks = listOf(Check.AskedUser(true))), o).failedChecks)
     }
 }

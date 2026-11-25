@@ -6,21 +6,34 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 文档和代码不脱节:文档里反引号包着的文件路径、Kotlin 类名、工具名,必须在仓库里真的有。
- * 范围:README.md、docs/ 下全部 .md(含 docs/readme/ 里各语言的 README)、eval/README.md、tools/sandbox/README.md。
- * 另外,同样这些文档里不写死会变的个数(内置知识、工具、服务商、评测题有多少),见 [docsDoNotHardCodeCounts]。
+ * Documents and code are not disconnected: the file path, Kotlin class name, and tool name enclosed in
+ * backticks in the document must actually exist in the warehouse. Scope: README.md, all.md under docs/
+ * (including README in each language in docs/readme/), eval/README.md, tools/sandbox/README.md. In
+ * addition, for the number of variables in the same documents that are not hard-coded (how many built-in
+ * knowledge, tools, service providers, and evaluation questions are there), see
+ * [docsDoNotHardCodeCounts].
  *
- * 只检查「整段反引号内容就是一个标识符」的写法;下面这些一律不查(规则,不是白名单):
- *  - 围栏代码块(```)整块不看;行内反引号里含空白的是命令或代码片段;
- *  - 含 < > * … { } ( ) = : " ' $ , ; | # 的是占位、通配、调用、键值、示例值;
- *  - 以 / ~ 开头的是设备或系统路径,含 :// 的是网址;
- *  - 路径:带 / 的,只有第一段是仓库根下真有的目录或文件才查(`files/sandbox/rootfs`、`read/system` 这类是运行时产物或分类名);
- *    不带 / 的,只有代码类扩展名(kt、py、xml 等)才查,json、md、txt 这类常是运行时产物;
- *    查的时候:根目录下直接存在,或「模块/包路径/文件」的简写(`app/task/X.kt`),或中间用 ... 省略(`core/.../X.kt`),或短文件名在仓库任意位置;
- *  - 类名:大驼峰且至少两个大写字母(`Mina` 这样的单词不当类名);在 core、app 的源码(含测试)里有 class/object/interface/typealias
- *    声明或同名文件;源码里从本仓库以外的包导入过的(安卓、JDK、库的类)不归本仓库管;
- *  - 工具名:只查「第一段是现有工具名的第一段」的 snake_case(`max_seconds` 这样的参数名不查),对照 [knownToolNames],
- *    那是工具注册处的名单,不是金样快照。
+ * Only check the writing method "The entire backtick content is an identifier"; the following are not
+ * checked (rules, not whitelists):
+ * - - The fenced code block (```) is not read as a whole; the spaces in the backticks in the line are
+ * commands or code fragments;
+ * - - Contains < > *... { } ( ) =: " ' $,; | # are placeholders, wildcards, calls, key values, and
+ * sample values;
+ * - - The one starting with / ~ is the device or system path, and the one containing:// is the URL;
+ * - - Path: with /, only the first paragraph is a directory or file that actually exists at the root of
+ * the warehouse (`files/sandbox/rootfs`, `read/system`, these are runtime product or category names);
+ * Without /, only code extensions (kt, py, xml, etc.) are searched, and json, md, txt and the like are
+ * often runtime products; when searching: they exist directly in the root directory, or are the
+ * abbreviation of "module/package path/file" (`app/task/X.kt`), or are omitted with... in the middle
+ * (`core/.../X.kt`), or the short file name is anywhere in the warehouse;
+ * - - Class name: big camel case and at least two capital letters (words like `Mina` are not appropriate
+ * class names); there is class/object/interface/typealias in the source code of core and app (including
+ * tests)
+ * Statement or file with the same name; source code imported from packages outside this repository
+ * (Android, JDK, library classes) are not managed by this repository;
+ * - - Tool name: only search the snake_case "the first paragraph is the first paragraph of the existing
+ * tool name" (parameter names such as `max_seconds` are not searched), compare with [knownToolNames],
+ * That's a list from the Tool Registry, not a gold sample snapshot.
  */
 class DocsConsistencyTest {
     private val root = File("..").canonicalFile
@@ -48,7 +61,7 @@ class DocsConsistencyTest {
         return list.filter { it.isFile }
     }
 
-    /** 去掉围栏代码块后,取所有行内反引号里的内容。 */
+    /** After removing the fenced code block, take the content within the backticks in all lines. */
     private fun spans(text: String): List<String> {
         var fenced = false
         val prose = text.lines().filter { line ->
@@ -69,12 +82,12 @@ class DocsConsistencyTest {
         !s.startsWith("/") && !s.startsWith("~") && "://" !in s &&
             ('/' in s || s.substringAfterLast('.', "").let { it in pathExtensions && s.length > it.length + 1 })
 
-    /** 文档里写的是 App 运行时才有的东西(设备上的目录和文件),不在仓库里;逐个写明为什么。 */
+    /** What is written in the document are things that exist only when the App is running (directories and files on the device) and are not in the warehouse; explain why one by one. */
     private val runtimeOnly = mapOf(
         "eval/logged-in.txt" to "评测的人工登录标记,放在设备上 App 的外部文件目录,不进仓库",
     )
 
-    /** 只有仓库根下确有的一级目录或文件开头的路径、以及代码类的短文件名,才是在指仓库里的东西;其余是运行时产物或相对写法。 */
+    /** Only the first-level directory or the path at the beginning of the file that exists under the warehouse root, as well as the short file name of the code class, refer to the things in the warehouse; the rest are runtime products or relative notations. */
     private val topLevel: Set<String> by lazy { File(root, ".").list().orEmpty().filter { it !in skipDirs }.toSet() }
     private val codeExtensions = setOf("kt", "kts", "java", "py", "sh", "gradle", "xml", "aidl", "cpp", "h")
 
@@ -82,7 +95,8 @@ class DocsConsistencyTest {
         val clean = rel.removePrefix("./").trimEnd('/')
         if (clean.isEmpty() || clean in runtimeOnly) return true
         val dir = rel.endsWith("/")
-        // 中间用 ... 省略的写法:开头是真目录前缀,结尾是某个文件路径的结尾(可不带扩展名)
+        // Use... in the middle to omit the writing: the beginning is the real directory prefix, and the
+        // end is the end of a certain file path (can be without extension)
         if ("..." in clean) {
             val head = clean.substringBefore("...").trimEnd('/')
             val tail = clean.substringAfterLast("...").trimStart('/')
@@ -94,7 +108,8 @@ class DocsConsistencyTest {
         val first = clean.substringBefore('/')
         if (first !in topLevel) return true
         if (File(root, clean).exists()) return true
-        // 「模块/包路径/文件」的简写(如 app/task/X.kt 指 app/src/main/java/.../task/X.kt):模块下任一路径以后面部分结尾即可
+        // The abbreviation of "module/package path/file" (such as app/task/X.kt refers to
+        // app/src/main/java/.../task/X.kt): any path under the module can end with the following part
         val rest = clean.substringAfter('/')
         return if (dir) repoDirs.any { it.startsWith("$first/") && (it.endsWith("/$rest")) }
         else repoFiles.any { it.startsWith("$first/") && it.endsWith("/$rest") }
@@ -121,8 +136,11 @@ class DocsConsistencyTest {
     }
 
     /**
-     * 会变的东西不写死个数:「18 份 App」「60 多个工具」「128 道评测题」(英文的「18 apps」「60+ tools」)这类写法一加内容就过期。
-     * 要列清单就用 README 里生成的段落(`./gradlew updateReadme`);确实要写个数的那一行末尾加 [countOk] 并说明为什么。
+     * Don’t write down the exact number of things that will change: “18 apps”, “more than 60 tools”,
+     * “128 review questions” (in English, “18 apps”, “60+ tools”), this type of writing will expire as
+     * soon as the content is added. To make a list, use the paragraph (`./gradlew updateReadme`)
+     * generated in the README; add [countOk] at the end of the line where you really want to write the
+     * number and explain why.
      */
     private val hardCount = Regex(
         """\d+\s*多?\s*(份|个|道|家)\s*(内置)?\s*(App|app|网站|站点|技能|工具|服务商|预设|(真机)?评测题)""" +

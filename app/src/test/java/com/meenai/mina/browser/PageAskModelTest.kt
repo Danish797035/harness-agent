@@ -24,7 +24,7 @@ class PageAskModelTest {
         assertEquals(PageAskMode.Card, PageAskModel.mode(running, open = false))
         assertEquals(PageAskMode.Card, PageAskModel.mode(paused, open = false))
         assertEquals(PageAskMode.Panel, PageAskModel.mode(running, open = true))
-        // 结束了又收起来:回到输入条
+        // It’s over and put away: return to the input bar
         assertEquals(PageAskMode.Bar, PageAskModel.mode(TaskState.Cancelled, open = false))
     }
 

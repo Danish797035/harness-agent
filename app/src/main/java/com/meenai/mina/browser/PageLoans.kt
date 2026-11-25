@@ -5,31 +5,37 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 浏览器页上看着的那一页借给任务(用户在这一页上问 Mina):用户一问,先「答应借」给那个对话([offer]);
- * 那个对话的任务开跑时来取([claim]),取到后这个标签就是任务的当前网页标签,任务一侧接上([bind])。
- * 同一时间只借出一份(看得见的页面只有一个)。生死仍归浏览器页:
- * - 任务结束([end]):还回来,页面留在用户眼前;
- * - 看得见的标签换了([swapped],页面开了或关了弹出的窗口):借的跟着换成看得见的那个;
- * - 用户关掉页面([closing]):页面交给任务接着用(收下了浏览器页就不再销毁它),收不下才由浏览器页关掉;
- * - 用户摸了页面([touched]):告诉任务一声(任务据此暂停)。
- * 任务那一侧见 [Borrower]。[T] 是标签(界面里是 WebTab),测试换成别的。只在主线程调用。
+ * The page you are looking at on the browser page is lent to the task (the user asked Mina on this
+ * page): When the user asks, he first "agrees" to lend it to that conversation ([offer]); when the task
+ * of that conversation starts running, he will get it ([claim]). After getting it, the label will be the
+ * current web page label of the task, and the task side will be connected ([bind]). Only one copy can be
+ * borrowed at the same time (only one visible page). Life and death still belong to the browser page:
+ * - - Task end ([end]): Return, the page remains in front of the user;
+ * - - The visible label has been changed ([swapped], the window that pops up when the page is opened or
+ * closed): the borrowed one will be replaced with the visible one;
+ * - - The user closes the page ([closing]): The page is handed over to the task for further use (the
+ * browser page will not be destroyed after it is accepted), and the browser page will be closed when it
+ * cannot be accepted;
+ * - - The user touched the page ([touched]): tell the task (the task is paused accordingly).
+ * See [Borrower] on the mission side. [T] is the label (WebTab in the interface), change it to something
+ * else for testing. Only called on the main thread.
  */
 class PageLoans<T : Any> {
-    /** 借了标签的任务一侧要做的事。 */
+    /** Borrow the task side of the label to do. */
     interface Borrower<T : Any> {
-        /** 当成当前标签用(借进来)。借不进来返回 false。 */
+        /** Use it as the current label (borrowed). Returns false if borrowing is not possible. */
         fun take(tab: T): Boolean
-        /** 还回来(不再用它)。 */
+        /** Return it (no longer use it). */
         fun giveBack(tab: T)
-        /** 借的换成了 [next]。 */
+        /** The borrowed one was replaced by [next]. */
         fun swap(prev: T, next: T)
-        /** 用户关掉了页面:收下 [tab] 当自己的标签接着用;收不下返回 false。 */
+        /** The user closes the page: accept [tab] and use it as its own label; if it cannot be accepted, it returns false. */
         fun adopt(tab: T): Boolean
-        /** 用户亲手摸了这一页。 */
+        /** The user touched this page with their own hands. */
         fun touched()
     }
 
-    /** 借出去的一份:对话 [conversationId] 里运行 [runKey] 的任务借着 [tab];[touches] 是借出期间用户摸了几下。 */
+    /** A loaned copy: The task of running [runKey] in the conversation [conversationId] is borrowed from [tab]; [touches] is touched several times by the user during the loan period. */
     class Loan<T : Any> internal constructor(val conversationId: String, val runKey: String, tab: T) {
         var tab: T = tab
             internal set
@@ -42,28 +48,29 @@ class PageLoans<T : Any> {
     private var loan: Loan<T>? = null
 
     private val _lentTo = MutableStateFlow<String?>(null)
-    /** 此刻借着页面的那个对话;没借出去为 null。 */
+    /** The dialog that is borrowing the page at this time; if it is not borrowed, it is null. */
     val lentTo: StateFlow<String?> = _lentTo.asStateFlow()
 
-    /** 此刻借出去的那一份;没有为 null。 */
+    /** The share that is lent out at this time; is not null. */
     val current: Loan<T>? get() = loan
 
-    /** 用户在页面上问了,答应借给对话 [conversationId] 的下一个任务(替换先前答应的)。 */
+    /** The user asked on the page and agreed to lend the next task to the conversation [conversationId] (replacing the previously agreed one). */
     fun offer(conversationId: String) {
         offered = conversationId
     }
 
-    /** 答应过、还没被取走的那个对话。 */
+    /** That conversation that was promised and hasn’t been taken away yet. */
     val offeredTo: String? get() = offered
 
-    /** 页面没了,答应过的作废。 */
+    /** The page is gone, and what was promised is invalid. */
     fun withdraw() {
         offered = null
     }
 
     /**
-     * 对话 [conversationId] 的任务 [runKey] 开跑时来取:答应过给这个对话、此刻有看得见的页面 [tab]、又没借给别人时借出,
-     * 答应的随之用掉;否则为 null。
+     * The task [runKey] of the dialogue [conversationId] comes to pick it up when it starts running: if
+     * you promised to this dialogue, there is a visible page [tab] at this time, and it is not lent to
+     * others, the promised will be used accordingly; otherwise, it is null.
      */
     fun claim(conversationId: String, runKey: String, tab: T?): Loan<T>? {
         if (offered != conversationId || tab == null || loan != null) return null
@@ -75,8 +82,9 @@ class PageLoans<T : Any> {
     }
 
     /**
-     * 任务一侧准备好了:接上 [borrower] 并把当前的标签借进去。借出的已经收回(页面在这之前关了)、或借不进去时返回 false,
-     * 借不进去的这一份随之作废。
+     * The task side is ready: connect [borrower] and borrow the current tag into it. If the loan has
+     * been withdrawn (the page has been closed before), or if the loan cannot be borrowed, false is
+     * returned, and the portion that cannot be borrowed will be invalidated.
      */
     fun bind(l: Loan<T>, borrower: Borrower<T>): Boolean {
         if (loan !== l) return false
@@ -88,14 +96,14 @@ class PageLoans<T : Any> {
         return true
     }
 
-    /** 任务 [runKey] 结束:借的还回来。不是它借的不动。 */
+    /** Task [runKey] ends: Return what you borrowed. It’s not that it can’t be borrowed. */
     fun end(runKey: String) {
         val l = loan?.takeIf { it.runKey == runKey } ?: return
         clear()
         l.borrower?.giveBack(l.tab)
     }
 
-    /** 看得见的标签从 [prev] 换成了 [next]:借的是 [prev] 时跟着换。 */
+    /** The visible label is changed from [prev] to [next]: it is also changed when the borrowed one is [prev]. */
     fun swapped(prev: T, next: T) {
         val l = loan?.takeIf { it.tab == prev } ?: return
         l.tab = next
@@ -103,8 +111,10 @@ class PageLoans<T : Any> {
     }
 
     /**
-     * 浏览器页要关掉标签 [tab]:借着它的任务收下了就返回 true(调用方不再销毁它,也不再管它),否则 false。
-     * 不论收没收下,这一份都结束了;答应过、还没取走的也作废。
+     * The browser page needs to close the tag [tab]: it will return true if its task is accepted (the
+     * caller will no longer destroy it and no longer care about it), otherwise false. Regardless of
+     * whether it is collected or not, this one is over; anything promised but not taken away is also
+     * invalid.
      */
     fun closing(tab: T): Boolean {
         offered = null
@@ -116,7 +126,7 @@ class PageLoans<T : Any> {
         return false
     }
 
-    /** 用户亲手摸了看得见的标签 [tab]:借着它的任务知道一声。 */
+    /** The user touched the visible label with his own hands [tab]: He knew it through its task. */
     fun touched(tab: T) {
         val l = loan?.takeIf { it.tab == tab } ?: return
         l.touches++

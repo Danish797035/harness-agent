@@ -14,7 +14,7 @@ class RunFactsTest {
     @Test fun ledgerKeepsEveryScreenWhole() {
         val long = (1..500).map { "第 $it 条标题" }.toTypedArray()
         val ev = listOf(screen(1, "旧"), screen(2, "甲"), screen(3, "乙"), screen(4, *long))
-        // 不再只留最后 3 次:最早读的那屏也在账本里
+        // No longer only keep the last 3 times: the earliest read screen is also in the ledger
         val l = RunFacts.ledger(ev, TOOLS).all
         assertEquals(listOf("旧", "甲", "乙", long.joinToString("\n").take(com.meenai.mina.core.verify.EvidenceLedger.READ_CHARS)), l.map { it.text })
         assertEquals(listOf(1, 2, 3, 4), l.map { it.step })
@@ -23,7 +23,8 @@ class RunFactsTest {
 
     @Test fun typedEchoExcludedOnlyWhenWholeElement() {
         val ev = listOf(typed(1, "时光 回溯"), screen(2, "时光回溯", "搜索结果:时光回溯 无匹配", "设置"))
-        // 输入框回显(整条等于打进去的字)去掉;别处包含这几个字的元素留着
+        // The input box echo (the entire line is equal to the typed words) is removed; other elements
+        // containing these words are retained.
         assertEquals(listOf("搜索结果:时光回溯 无匹配\n设置"), RunFacts.evidence(ev, TOOLS, "", "时光回溯"))
     }
 
@@ -32,7 +33,8 @@ class RunFactsTest {
         assertEquals(listOf("他说\"你好\"\n第一行\n第二行\n反斜杠\\"), RunFacts.evidence(ev, TOOLS, "", "x"))
     }
 
-    // 工具结果里写给干活模型的提示不是读到的材料;失败的结果也不算
+    // Hints for working models written in tool results are not the material read; failed results are not
+    // counted either.
     @Test fun ledgerTakesReadResultsWithoutHints() {
         fun result(step: Int, tool: String, json: String) = RunEvent.ToolResult(step.toLong(), step, tool, json, null, null)
         val ev = listOf(
@@ -50,18 +52,18 @@ class RunFactsTest {
         assertEquals(listOf("com.android.settings", "com.example.health"), RunFacts.appsSeen(ev, TOOLS))
     }
 
-    // 修复 1 M6:停在关卡 = 最后一次确认是拒绝,之后任务自己结束了
+    // Fix 1 M6: stuck at level = last confirmation was rejected, then the mission ended by itself
     @Test fun stoppedAtGateOnlyWhenDeclineIsLastAndRunEnded() {
         fun c(d: String?) = RunEvent.Confirmation(1, "delete", "x", "y", null, d)
         val end = RunEvent.TaskEnded(9, "failed", "没同意")
         assertEquals(true, RunFacts.stoppedAtGate(listOf(c(null), c("declined"), end)))
         assertEquals(true, RunFacts.stoppedAtGate(listOf(c("declined_before"), end)))
-        // 拒绝后又申报并被同意:不算
+        // If you apply again after rejection and get approval: it does not count.
         assertEquals(false, RunFacts.stoppedAtGate(listOf(c("declined"), c(null), c("approved"), end)))
-        // 拒绝后没结束(超时被评测器取消)不算
+        // It does not end if it is not completed after rejection (the timeout is canceled by the
+        // evaluator)
         assertEquals(false, RunFacts.stoppedAtGate(listOf(c("declined"))))
         assertEquals(false, RunFacts.stoppedAtGate(listOf(c("declined"), RunEvent.TaskEnded(9, "cancelled", "已取消"))))
         assertEquals(false, RunFacts.stoppedAtGate(listOf(c("required"), end)))
     }
 }
-

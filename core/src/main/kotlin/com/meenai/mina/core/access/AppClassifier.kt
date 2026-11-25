@@ -7,8 +7,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 
 /**
- * 按主要用途给应用分类(只用于整理和推荐,不改变权限)。
- * [language] 是分类理由用的语言(界面语言),由调用方给;分类名本身是固定的英文枚举。
+ * Classify applications according to their main purpose (only used for organizing and recommending,
+ * without changing permissions). [language] is the language (interface language) used for classification
+ * reasons, given by the caller; the classification name itself is a fixed English enumeration.
  */
 class AppClassifier(
     private val model: ChatModel,

@@ -6,14 +6,16 @@ import java.nio.file.LinkOption
 import com.meenai.mina.core.workspace.SandboxError
 import com.meenai.mina.core.workspace.SandboxPaths
 
-/** 存到「下载/Mina」的规则;share_file 工具和沙箱里的 `mina share` 共用,两条路一样严。 */
+/** The rules for saving to "Download/Mina"; the share_file tool and `mina share` in the sandbox are shared, and both paths are equally strict. */
 object ShareRules {
     const val MAX_BYTES = 100L shl 20
 
     /**
-     * [path] 是沙箱路径(相对路径以 /workspace 为基),必须在工作区里、经 [SandboxPort.hostPath] 解析(链接逃逸为 null),
-     * 是普通文件(不跟随链接)、不超过 100 MB;[name] 默认用文件自己的名字,必须是不含控制字符的单个文件名。
-     * 返回宿主文件与保存名;不合规则抛 [SandboxError]。
+     * [path] is a sandbox path (the relative path is based on /workspace), which must be in the
+     * workspace, parsed by [SandboxPort.hostPath] (link escape is null), is an ordinary file (does not
+     * follow links), and does not exceed 100 MB; [name] defaults to the file's own name, which must be a
+     * single file name without control characters. Returns the host file and save name; throws
+     * [SandboxError] if it is not in compliance with the rules.
      */
     fun check(sandbox: SandboxPort, workspace: String, path: String, name: String?): Pair<File, String> {
         val p = SandboxPaths.normalize(path)?.takeIf(SandboxPaths::isWritable)
@@ -34,20 +36,20 @@ object ShareRules {
         return f to saveAs
     }
 
-    /** 单个文件名:不含路径分隔符、控制字符、格式字符(改写方向、零宽等,能让显示的名字和实际的对不上)与行/段分隔符。 */
+    /** Single file name: does not contain path separators, control characters, format characters (rewriting direction, zero width, etc., which can make the displayed name inconsistent with the actual one) and line/paragraph separators. */
     fun plainName(n: String): Boolean =
         n.isNotEmpty() && '/' !in n && '\\' !in n && n != "." && n != ".." &&
             n.codePoints().noneMatch(::hiddenChar)
 
-    /** 不让导出:安装包放进「下载」里,用户一点就可能装上沙箱里做出来的 App。 */
+    /** Do not allow export: Put the installation package into "Downloads", and users can install the app created in the sandbox with just one click. */
     private val REFUSED_TYPES = setOf("apk", "apks", "xapk", "aab")
 
     fun refusedType(name: String): Boolean = name.substringAfterLast('.', "").trim().lowercase() in REFUSED_TYPES
 
-    /** 文件名上限 255 字节(UTF-8),留出系统加「 (n)」序号的余地。 */
+    /** The upper limit of file name is 255 bytes (UTF-8), leaving room for the system to add "(n)" serial number. */
     const val NAME_MAX_BYTES = 240
 
-    /** 按 UTF-8 字节(和可选的字数)截短,保留扩展名(扩展名本身太长时不保留),不劈开字符。 */
+    /** Truncate by UTF-8 bytes (and optional word count), retain the extension (not if the extension itself is too long), and do not split characters. */
     fun fitName(name: String, maxBytes: Int = NAME_MAX_BYTES, maxChars: Int = Int.MAX_VALUE): String {
         fun bytes(t: String) = t.toByteArray(Charsets.UTF_8).size
         fun chars(t: String) = t.codePointCount(0, t.length)
@@ -74,7 +76,7 @@ object ShareRules {
         return sb.toString() + if (keepExt) ext else ""
     }
 
-    /** 控制字符、格式字符(Cf)与 U+2028/U+2029。 */
+    /** Control characters, format characters (Cf) and U+2028/U+2029. */
     fun hiddenChar(cp: Int): Boolean =
         Character.isISOControl(cp) || Character.getType(cp) == Character.FORMAT.toInt() || cp == 0x2028 || cp == 0x2029
 }

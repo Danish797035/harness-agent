@@ -1,32 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 探针页把记录广播给 Mina 进程里的测试 -->
+    <!-- The probe page broadcasts records to tests in the Mina process -->
     <queries>
         <package android:name="com.meenai.mina" />
-        <!-- 重现「开到用户主屏上」的页面要拿别的 App 的启动入口 -->
+        <!-- To reproduce the page "open to the user's home screen", you need to use the startup entrance of another app. -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
     <application>
-        <!-- 测试用页面,由测试用 am start 打开到虚拟屏。它们运行在测试包自己的进程里、不带 Kotlin 标准库,
-             所以用 Java 写;类名必须和源文件里的一致(ManifestProvidersTest 会查) -->
+        <!-- Test-only pages that tests open on the virtual screen with am start. They run in the test
+             package's own process without the Kotlin standard library, so they are written in Java;
+             class names must match the source files (ManifestProvidersTest checks this). -->
         <activity android:name="com.meenai.mina.cap.phone.a11y.SecureTestActivity" android:exported="true" />
         <activity android:name="com.meenai.mina.cap.phone.a11y.PlainTestActivity" android:exported="true" />
         <activity android:name="com.meenai.mina.a11y.WebEditorTestActivity" android:exported="true" />
         <activity android:name="com.meenai.mina.cap.phone.a11y.FieldsTestActivity" android:exported="true" />
-        <!-- 滚轮测试页:两个原版数字滚轮 -->
+        <!-- Scroll wheel test page: two original digital scroll wheels -->
         <activity android:name="com.meenai.mina.cap.phone.a11y.WheelPickerTestActivity" android:exported="true" />
-        <!-- 从应用上下文打开别的 App:重现「开到用户主屏上」 -->
+        <!-- Open other apps from the application context: Reproduce "Open to user's home screen" -->
         <activity android:name="com.meenai.mina.cap.phone.a11y.SpillTestActivity" android:exported="true" />
-        <!-- 对话框样式的页面:重现登录验证一类要用户在主屏点确认的弹窗 -->
+        <!-- Dialog-style page: Reproduce login verification pop-up window that requires users to confirm by clicking on the home screen -->
         <activity android:name="com.meenai.mina.cap.phone.a11y.DialogSpillTestActivity" android:exported="true"
             android:theme="@android:style/Theme.Material.Dialog" />
-        <!-- 整屏的账号登录页:形状和普通 App 页面一样,只有「所在的包是没有桌面图标的账号认证器」能认出它 -->
+        <!-- Full-screen account login page: The shape is the same as the ordinary App page. Only "the package it is in is an account authenticator without a desktop icon" can recognize it. -->
         <activity android:name="com.meenai.mina.cap.phone.a11y.FullScreenAuthTestActivity" android:exported="true" />
-        <!-- 测试包的账号认证器:默认关着,只在 AuthSpillDeviceTest 里打开、测完关掉,别的挪回测试不受它影响。
-             测试包没有 LAUNCHER 入口,打开后它就是一个没有桌面图标的账号认证器包 -->
+        <!-- The test package's account authenticator: off by default, enabled only in AuthSpillDeviceTest
+             and turned off afterwards, so other tests are unaffected. The test package has no
+             LAUNCHER entry, so when enabled it is an authenticator package with no launcher icon. -->
         <service android:name="com.meenai.mina.cap.phone.a11y.TestAuthenticatorService" android:exported="true"
             android:enabled="false">
             <intent-filter>
@@ -36,7 +38,7 @@
                 android:resource="@xml/test_authenticator" />
         </service>
         <service android:name="com.meenai.mina.cap.phone.a11y.SpillLaunchService" android:process=":spill" android:exported="false" />
-        <!-- 外壳对照测试的探针页:startApp 走启动入口(INFO,不进桌面),startView 走自定义链接 -->
+        <!-- Probe page for shell comparison test: startApp takes the startup entrance (INFO, not entering the desktop), startView takes the custom link -->
         <activity android:name="com.meenai.mina.shell.ShellProbeActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -49,7 +51,7 @@
                 <data android:scheme="mina-parity" />
             </intent-filter>
         </activity>
-        <!-- 一直在出声(循环播放无声的声音)的探针页:任务结束时正在出声的 App 默认关掉 -->
+        <!-- Probe page that keeps making sounds (looping silent sounds): Apps that are making sounds when the task ends are turned off by default -->
         <activity android:name="com.meenai.mina.shell.AudioProbeActivity" android:exported="true" />
     </application>
 </manifest>

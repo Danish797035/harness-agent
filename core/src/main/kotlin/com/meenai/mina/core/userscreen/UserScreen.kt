@@ -1,13 +1,16 @@
 package com.meenai.mina.core.userscreen
 
-/** 屏上的一行字:[x]/[y] 是它的中心,和点按同一套 0–999 坐标(左上 0,0)。 */
+/** A line of words on the screen: [x]/[y] is its center, and the same set of 0–999 coordinates as the click (upper left 0,0). */
 data class ScreenLine(val text: String, val x: Int, val y: Int)
 
 /**
- * 用户发来的「此刻的屏幕」:双击胶囊或卡片里的截屏按钮时,用户主屏上正看着的那一屏。
- * 和从相册、文件里挑的图片不是一回事:它说的是「我现在在看这个」,带着前台 App、截下的时刻和屏上的字。
- * [packageName]/[appLabel] 是前台 App(读不到为 null);[blocked] 时页面不让截图(防截屏),没有画面,[lines] 也是空的;
- * [lines] 是屏上的字(无障碍树里的,树不够用时补上认出来的字),[fromOcr] 时其中有认出来的字。
+ * The "screen at the moment" sent by the user: the screen the user is looking at on the home screen when
+ * double-clicking the screenshot button in the capsule or card. It’s not the same thing as a picture
+ * picked from an album or file: it says “I’m looking at this now”, with the front-end app, the captured
+ * moment and the words on the screen. [packageName]/[appLabel] is the front-end App (cannot be read as
+ * null); [blocked] does not allow screenshots (anti-screenshot), there is no screen, [lines] is also
+ * empty; [lines] is the words on the screen (in the accessibility tree, recognized words will be added
+ * when the tree is not enough), [fromOcr] contains recognized words.
  */
 data class UserScreen(
     val id: String,
@@ -18,7 +21,7 @@ data class UserScreen(
     val lines: List<ScreenLine> = emptyList(),
     val fromOcr: Boolean = false,
 ) {
-    /** 怎么称呼那个 App:有名字用名字,没有用包名。 */
+    /** How to call that App: If there is a name, use the name, if not use the package name. */
     val app: String get() = appLabel?.takeIf(String::isNotBlank) ?: packageName ?: UNKNOWN_APP
 
     companion object {
@@ -26,13 +29,13 @@ data class UserScreen(
     }
 }
 
-/** 按编号取这个对话里用户发来的屏幕:说明和截图都可能已经不在(读不到返回 null)。 */
+/** Get the screen sent by the user in this conversation by number: the description and screenshot may no longer be available (return null if not read). */
 interface UserScreenSource {
     suspend fun screen(id: String): UserScreen?
 
-    /** 截下的画面(JPEG 或 PNG);不让截图的页面、读不到时为 null。 */
+    /** The screenshot (JPEG or PNG); null if the page is not allowed to be screenshot or cannot be read. */
     suspend fun image(id: String): ByteArray?
 }
 
-/** 截下来、还没发出去的一屏:画面([jpeg],不让截图时为 null)和说明([screen],编号在存进对话时才定)。 */
+/** A screen shot that has not yet been sent: screen ([jpeg], null when screenshots are not allowed) and description ([screen], the number is determined when saving in the conversation). */
 class CapturedScreen(val jpeg: ByteArray?, val screen: UserScreen, val sourcePackages: Set<String> = setOfNotNull(screen.packageName))

@@ -7,8 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 循环自己报的终态不经发布写出去:终态只由 TaskRun.end 在记好本次运行编号之后写,
- * 否则界面先收到结束,拿到的运行编号是空的,卡片上没有「查看过程」。
+ * The final state reported by the loop is written out without publishing: the final state is only
+ * written by TaskRun.end after remembering the run number. Otherwise, the interface receives the end
+ * first, and the run number obtained is empty, and there is no "view process" on the card.
  */
 class TaskPublishTest {
     @Test fun loopTerminalStatesAreNotPublished() {

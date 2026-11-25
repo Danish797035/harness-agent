@@ -21,7 +21,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import com.meenai.mina.core.uistate.session
 
-/** 不截屏地按文字、资源 ID 或控件类型查询当前无障碍树,结果保留父子线索。 */
+/** Query the current accessibility tree by text, resource ID or control type without taking a screenshot, and the results retain parent-child clues. */
 internal object PhoneQuery : PhoneTool {
     override val verb = Verb.Query
     override val risk = Risk.Read
@@ -42,7 +42,7 @@ internal object PhoneQuery : PhoneTool {
     }
 }
 
-/** 一次采集多屏文字。每次滚动仍通过子动作入口,因此取消、状态记录和动作结果与单步一致。 */
+/** Collect text from multiple screens at once. Each scroll still passes through the sub-action entry, so cancellation, status recording and action results are consistent with a single step. */
 internal object PhoneCollect : PhoneTool {
     override val verb = Verb.Collect
     override val risk = Risk.Write
@@ -156,7 +156,9 @@ internal object PhoneCollect : PhoneTool {
             val obj = element as? JsonObject ?: return@forEach
             if (obj["secret"] != JsonPrimitive(true)) add((obj["name"] as? JsonPrimitive)?.contentOrNull, obj["bounds"] as? JsonArray)
         }
-        // OCR 只包含树里缺失的文字；与树文本按屏幕位置合并，群聊才不会把补出的消息都放到末尾。
+        // OCR only contains the missing text in the tree; it is merged with the tree text according to
+        // the screen position, so that the group chat will not put all the supplementary messages at the
+        // end.
         (content["visibleText"] as? JsonArray)?.forEach { entry ->
             val obj = entry as? JsonObject ?: return@forEach
             add((obj["text"] as? JsonPrimitive)?.contentOrNull, obj["bounds"] as? JsonArray)

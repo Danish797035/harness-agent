@@ -5,14 +5,17 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * 读模型按要求交回的 JSON(核查结论、路线匹配、记忆变更……)。不同模型交回的样子不一样:套代码块、前后带几句话、
- * 先想一段再给、一个对象后面又跟一段带花括号的说明、键名大小写或写法不同。这里统一容忍这些;
- * 实在读不出来时再问一次,明确只要 JSON([completeParsed])。
+ * Read the JSON returned by the model as required (verification conclusions, route matching, memory
+ * changes...). Different models have different styles of submission: a code block, a few sentences
+ * before and after, a paragraph of thought before giving, an object followed by a paragraph of
+ * description with curly braces, and key names with different capitalization or writing. These are
+ * tolerated here; if you really can’t read it, ask again and make sure it only requires JSON
+ * ([completeParsed]).
  */
 object ModelJson {
     private val lenient = Json { isLenient = true; ignoreUnknownKeys = true }
 
-    /** 回复里第一个能读成 JSON 对象的、括号配平的片段(字符串里的括号不算);没有为 null。 */
+    /** The first bracketed segment of the reply that can be read as a JSON object (parentheses in the string do not count); null if not. */
     fun firstObject(text: String): JsonObject? {
         var from = text.indexOf('{')
         while (from >= 0) {
@@ -26,7 +29,7 @@ object ModelJson {
         return null
     }
 
-    /** 从 [start] 的 { 起,配平的 } 的位置;配不平为 -1。 */
+    /** Starting from { in [start], the position of trimmed }; unbalanced is -1. */
     private fun balancedEnd(s: String, start: Int): Int {
         var depth = 0
         var inString = false
@@ -50,10 +53,10 @@ object ModelJson {
         return -1
     }
 
-    /** 键名比对前去掉大小写、下划线、连字符和空格(verdict、Verdict、final_verdict 里的写法差异)。 */
+    /** Remove case, underscores, hyphens, and spaces before key name comparison (differences in writing in verdict, Verdict, and final_verdict). */
     private fun key(k: String) = k.lowercase().filter { it.isLetterOrDigit() }
 
-    /** 按 [names] 依次找(写法不同也认);都没有为 null。 */
+    /** Press [names] to search in order (different writing methods will be recognized); if there is no one, it will be null. */
     fun JsonObject.field(vararg names: String): JsonElement? {
         for (n in names) {
             this[n]?.let { return it }
@@ -63,12 +66,13 @@ object ModelJson {
         return null
     }
 
-    /** 第一次读不出来时补的一句。 */
+    /** I made up a sentence when I couldn't read it the first time. */
     const val JSON_ONLY = "上一条回复读不出 JSON。请只输出一个 JSON 对象,不要代码块标记,不要任何其他文字,格式照系统提示。"
 
     /**
-     * 调一次模型并用 [parse] 读回复;读不出来就把那次回复和 [JSON_ONLY] 接在后面再问一次。两次都不行为 null。
-     * 模型出错(异常)照常抛给调用方。
+     * Adjust the model once and use [parse] to read the reply; if you can’t read it out, just follow
+     * that reply with [JSON_ONLY] and ask again. Neither time is null. Model errors (exceptions) are
+     * thrown to the caller as usual.
      */
     suspend fun <T : Any> completeParsed(model: ChatModel, system: String, messages: List<Message>, parse: (String) -> T?): T? {
         val first = model.complete(system, messages, emptyList())

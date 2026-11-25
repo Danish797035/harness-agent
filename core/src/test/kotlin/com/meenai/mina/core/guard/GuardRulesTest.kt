@@ -13,7 +13,7 @@ class GuardRulesTest {
         assertEquals(GuardRules.Rung(6, Severity.Warn), GuardRules.climb(6, ladder, 3, canStop = true))
         assertNull(GuardRules.climb(11, ladder, 6, canStop = true))
         assertEquals(GuardRules.Rung(12, Severity.Stop), GuardRules.climb(12, ladder, 6, canStop = true))
-        // 不许叫停的范围里最高一级也只提醒
+        // The highest level in the range where it is not allowed to stop is only a reminder.
         assertEquals(GuardRules.Rung(12, Severity.Warn), GuardRules.climb(13, ladder, 6, canStop = false))
     }
 
@@ -22,7 +22,7 @@ class GuardRulesTest {
         assertEquals(Severity.Stop, GuardRules.climb(12, GuardRules.REREAD_LADDER, 8, canStop = true)!!.severity)
     }
 
-    /** 安全网远在提醒之后:每条阶梯叫停的门槛至少是第一次提醒的两倍。 */
+    /** The safety net is far behind the reminder: the threshold for stopping on each rung is at least twice as high as the first reminder. */
     @Test fun stopsAreFarBehindNudges() {
         val ladders = listOf(
             GuardRules.repeatLadder(false), GuardRules.repeatLadder(true), GuardRules.NO_EFFECT_LADDER, GuardRules.sameStateLadder(null),
@@ -33,7 +33,7 @@ class GuardRulesTest {
         assertEquals(12, GuardRules.NO_EFFECT_LADDER.last())
     }
 
-    /** 慢慢兜圈子的安全网跟着任务的步数上限走,但不低于下限。 */
+    /** The safety net of slowly moving in circles follows the upper limit of the number of steps in the task, but not lower than the lower limit. */
     @Test fun lateStopsFollowTheStepBudget() {
         assertEquals(30, GuardRules.noNewStateLadder(null).last())
         assertEquals(50, GuardRules.noNewStateLadder(100).last())
@@ -47,7 +47,7 @@ class GuardRulesTest {
         assertEquals(GuardRules.Cycle(2, 3), GuardRules.cycle(listOf(1L, 2L, 1L)))
         assertEquals(2, GuardRules.cycle(listOf(5L, 3L, 1L, 2L, 1L, 2L))!!.rounds)
         assertNull(GuardRules.cycle(listOf(1L, 2L, 1L, 3L)))
-        // 三个状态一圈
+        // Three states in one circle
         val three = GuardRules.cycle(listOf(1L, 2L, 3L, 1L, 2L, 3L))!!
         assertEquals(3, three.period); assertEquals(2, three.rounds)
     }

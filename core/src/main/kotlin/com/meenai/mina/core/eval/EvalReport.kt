@@ -9,10 +9,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.util.Locale
 import kotlin.math.ceil
 
-/** 每百万 token 单价;运行时传入,不写进仓库。 */
+/** Unit price per million tokens; passed in during runtime and not written into the warehouse. */
 data class Prices(val inputPerM: Double, val outputPerM: Double, val cachedPerM: Double)
 
-/** 运行汇总 markdown。只放指标和每题结论,不放回答全文和截图(它会提交进仓库)。 */
+/** Run summary markdown. Only the indicators and conclusions of each question are included, and the full text and screenshots of the answers are not included (it will be submitted to the warehouse). */
 object EvalReport {
     fun markdown(
         run: String,
@@ -20,18 +20,19 @@ object EvalReport {
         scores: List<Pair<TaskScore, Observed>>,
         skipped: List<Pair<String, String>>,
         prices: Prices?,
-        /** 本次运行的开关组合([com.meenai.mina.core.agent.SpeedFlags.describe])。 */
+        /** The switch combination for this run ([com.meenai.mina.core.agent.SpeedFlags.describe]). */
         flags: String = "none",
-        /** 并行评测时整轮从第一题开始到最后一题结束的时间;串行时为空,不出这一行。 */
+        /** In the parallel evaluation, the time from the first question to the end of the last question in the entire round is used; in the serial evaluation, it is empty and this line does not appear. */
         totalWallMs: Long? = null,
-        /** 同时跑几题(evalParallel);1 为串行。 */
+        /** Run several questions at the same time (evalParallel); 1 means serial. */
         parallel: Int = 1,
-        /** 回放评测(evalVariants)里先跑、用来记下路线的原题;单列一节,不计入指标。 */
+        /** In the replay evaluation (evalVariants), the original question is run first and used to record the route; it is listed as a separate section and is not included in the indicator. */
         originals: List<Pair<TaskScore, Observed>> = emptyList(),
     ): String {
         val n = scores.size
         val passed = scores.count { it.first.passed }
-        // 回答如实说没办成的(判过结局)不算报成功
+        // If you answer truthfully and say that it was not possible (the ending is judged), it will not
+        // be counted as a success.
         val reportedSuccess = scores.count { Scoring.recorded(it.second).outcome == "succeeded" }
         val falseSuccess = scores.count { it.first.falseSuccess }
         val unverified = scores.count { it.first.unverified }
@@ -90,7 +91,8 @@ object EvalReport {
         val perTask = scores.filter { it.second.inputTokens > 0 }.map { it.second.cachedTokens * 100.0 / it.second.inputTokens }
         sb.appendLine("| 每题缓存命中率中位数 | ${if (perTask.isEmpty()) "—" else num(median(perTask)) + "%"} |")
         if (prices != null) {
-            // 输入 token 含缓存部分,缓存部分按缓存单价计
+            // The input token includes the cache part, and the cache part is calculated based on the
+            // cache unit price.
             val cost = ((inT - cachedT) * prices.inputPerM + cachedT * prices.cachedPerM + outT * prices.outputPerM) / 1_000_000
             sb.appendLine("| 花费 | ${num(cost)} |")
         }
@@ -114,7 +116,8 @@ object EvalReport {
         sb.appendLine("| id | 结局 | 通过 | 类别 | 核查 | 步数 | 秒数 | 输入 token | 缓存命中率 | 输出 token |")
         sb.appendLine("|---|---|---|---|---|---|---|---|---|---|")
         scores.forEach { (s, o) ->
-            // 交出了回答、判下来没办成的:写判的结局
+            // The answer was handed in and the judgment was unsuccessful: writing the ending of the
+            // judgment
             val judged = o.judged?.takeIf { Scoring.recorded(o) !== o }?.let { "(判:$it)" }.orEmpty()
             sb.appendLine("| ${s.id} | ${o.outcome}$judged${s.handedOver?.let { "(交给用户:$it)" }.orEmpty()} | ${if (s.passed) "是" else "否"} | ${s.failureClass?.name ?: ""} | ${o.verdict ?: ""} | ${o.steps} | " +
                 "${num(o.wallMs / 1000.0)} | ${o.inputTokens} | ${percent(o.cachedTokens, o.inputTokens)} | ${o.outputTokens} |")
@@ -151,8 +154,10 @@ object EvalReport {
     }
 
     /**
-     * 「运行小结」一节:有运行记录的题按 [RunMetrics] 汇总(第一次反馈、来回次数、时间去向;批里的子步不重复计),
-     * 再逐题一行。没有一题有记录时不出这一节。
+     * "Operation Summary" section: Questions with running records are summarized according to
+     * [RunMetrics] (first feedback, number of round trips, time direction; sub-steps in the batch are
+     * not counted repeatedly), and then each question is line by line. This section will not appear
+     * unless there is a recorded question.
      */
     private fun metricsSection(sb: StringBuilder, scores: List<Pair<TaskScore, Observed>>) {
         val rows = scores.mapNotNull { (s, o) -> o.metrics?.let { s.id to it } }
@@ -181,7 +186,7 @@ object EvalReport {
         sb.appendLine()
     }
 
-    /** 每题的运行小结,一个 JSON 数组(评测结果目录下的 metrics.json),每项是 `id` 和 `metrics`;没有运行记录的题不列。 */
+    /** The running summary of each question is a JSON array (metrics.json in the evaluation results directory), each item is `id` and `metrics`; questions without running records are not listed. */
     fun metricsJson(scores: List<Pair<TaskScore, Observed>>): String = JsonArray(scores.mapNotNull { (s, o) ->
         o.metrics?.let { m -> JsonObject(mapOf("id" to JsonPrimitive(s.id), "metrics" to METRICS_JSON.encodeToJsonElement(RunMetrics.serializer(), m))) }
     }).toString()
@@ -190,12 +195,13 @@ object EvalReport {
 
     private fun secs(ms: Long) = num(Math.round(ms / 100.0) / 10.0)
 
-    /** 门槛结论:[passed] 为 false 时 [reasons] 列出没达标的地方。 */
+    /** Threshold conclusion: When [passed] is false, [reasons] lists the areas that do not meet the standards. */
     data class Gate(val passed: Boolean, val reasons: List<String>)
 
     /**
-     * 配对题的门槛:带着学到的技能跑的一轮([treated])假成功必须为 0,
-     * 且办成数不低于基线([baseline])减 1。
+     * The threshold for the matching question: the false success of a round ([treated]) run with the
+     * learned skills must be 0, and the number of successes must not be lower than the baseline
+     * ([baseline]) minus 1.
      */
     fun gate(baseline: List<TaskScore>, treated: List<TaskScore>): Gate {
         val reasons = mutableListOf<String>()
@@ -208,8 +214,10 @@ object EvalReport {
     }
 
     /**
-     * 基线与带技能两轮的对比报告:办成率、假成功率、未核实成功,有观察数据时再加步数与耗时中位数;
-     * 每份学到的技能被用了几次([skillUse]);最后是门槛结论。
+     * Comparison report of the two rounds of baseline and skill-based: completion rate, false success
+     * rate, unverified success, the number of steps and median time-consuming will be added when
+     * observation data is available; how many times each learned skill was used ([skillUse]); and
+     * finally the threshold conclusion.
      */
     fun compare(
         baseline: List<TaskScore>,
@@ -273,7 +281,7 @@ object EvalReport {
         return if (s.size % 2 == 1) s[m] else (s[m - 1] + s[m]) / 2
     }
 
-    /** 最近秩法:排序后第 ceil(0.9n) 个。 */
+    /** Nearest rank method: ceil(0.9n)th after sorting. */
     internal fun p90(xs: List<Double>): Double {
         if (xs.isEmpty()) return 0.0
         val s = xs.sorted()

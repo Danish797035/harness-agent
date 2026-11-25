@@ -7,8 +7,10 @@ import java.io.File
 import java.util.UUID
 
 /**
- * 网页上传的中转区:工作区里的文件经 [gate] 打开一次、在句柄上核实,从这个句柄复制到 [root]/<随机>/ 下。
- * [root] 在 App 私有的缓存目录里,沙箱碰不到;交给页面的只有这份副本,检查之后工作区里再怎么换文件也影响不到。
+ * Transfer area for web page upload: The files in the workspace are opened once by [gate], verified on
+ * the handle, and copied from this handle to [root]/<random>/. [root] is in the app's private cache
+ * directory and cannot be touched by the sandbox; only this copy is handed over to the page, and no
+ * matter how you change files in the workspace after checking, it will not affect it.
  */
 class UploadStaging(
     private val root: File,
@@ -16,7 +18,7 @@ class UploadStaging(
     private val maxFileBytes: Long = 100L shl 20,
     private val maxTotalBytes: Long = 200L shl 20,
 ) {
-    /** 一次上传的副本:[dir] 整个目录用完即删。 */
+    /** A copy uploaded once: [dir] The entire directory will be deleted as soon as it is used. */
     class Staged(val dir: File, val files: List<File>)
 
     sealed interface Result {
@@ -36,7 +38,8 @@ class UploadStaging(
                 val g = try { gate.openRead(workspaceDir, rel) } catch (e: SandboxError) { return refuse(dir, codeOf(e), p) }
                 g.use {
                     if (g.size > maxFileBytes || total + g.size > maxTotalBytes) return refuse(dir, FILE_TOO_LARGE, p)
-                    // 每个文件一层目录:不同目录里的同名文件各自保留原名
+                    // Each file has one level of directory: files with the same name in different
+                    // directories retain their original names.
                     val target = File(File(dir, i.toString()).apply { mkdirs() }, g.name)
                     var copied = 0L
                     target.outputStream().use { o ->
@@ -46,7 +49,8 @@ class UploadStaging(
                             val n = input.read(buf)
                             if (n < 0) break
                             copied += n
-                            // 核实之后文件又变大了:照样按上限算
+                            // After verification, the file became larger again: the calculation is still
+                            // based on the upper limit.
                             if (copied > maxFileBytes || total + copied > maxTotalBytes) return refuse(dir, FILE_TOO_LARGE, p)
                             o.write(buf, 0, n)
                         }
@@ -66,7 +70,7 @@ class UploadStaging(
         staged.dir.deleteRecursively()
     }
 
-    /** 删掉全部副本(启动时清上次进程留下的)。 */
+    /** Delete all copies (clear the ones left by the last process when starting). */
     fun clear() {
         root.deleteRecursively()
     }
@@ -84,7 +88,7 @@ class UploadStaging(
 
     companion object {
         const val FILE_TOO_LARGE = "file_too_large"
-        /** 缓存目录下的中转区;FileProvider 只开放这一个目录(res/xml/web_files.xml)。 */
+        /** The staging area under the cache directory; FileProvider only opens this directory (res/xml/web_files.xml). */
         const val DIR = "webupload"
     }
 }

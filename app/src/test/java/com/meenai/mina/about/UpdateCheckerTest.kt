@@ -80,7 +80,7 @@ class UpdateCheckerTest {
         assertEquals("0.1.0", c.state.value.latest?.version)
     }
 
-    /** GitHub 限流(403)就是这次没查到:只问 GitHub 一次,不去别处找。 */
+    /** GitHub current limit (403) was not found this time: just ask GitHub once and don’t look elsewhere. */
     @Test
     fun gitHubRateLimitIsAFailure() = runTest {
         github = MockResponse().setResponseCode(403).setBody("""{"message":"API rate limit exceeded"}""")
@@ -100,7 +100,7 @@ class UpdateCheckerTest {
         assertNull(c.state.value.update)
     }
 
-    /** 自动检查失败不改界面上的状态;每次打开都查,只挡住两分钟内连着来的。 */
+    /** If the automatic check fails, the status on the interface will not be changed; it will be checked every time it is opened, and only those that come within two minutes will be blocked. */
     @Test
     fun autoCheckIsSilentAndRunsOnEveryOpenButNotInBursts() = runTest {
         val c = checker()
@@ -118,7 +118,7 @@ class UpdateCheckerTest {
         assertEquals(CheckStatus.Idle, c.state.value.status)
     }
 
-    /** 查到的版本存盘:重开 App 不联网也有红点;装上新版后红点消失;上次自动检查的时间也记着。 */
+    /** Save the found version to disk: there will be red dots even when the app is not connected to the Internet; after installing the new version, the red dots will disappear; the time of the last automatic check will also be remembered. */
     @Test
     fun foundUpdateSurvivesRestart() = runTest {
         github = release("v0.2.0")
@@ -136,7 +136,7 @@ class UpdateCheckerTest {
         assertNotNull(upgraded.state.value.latest)
     }
 
-    /** 同时进来的两次自动检查(查还没完)只真的查一次;隔十分钟再打开照样查。 */
+    /** The two automatic checks that come in at the same time (the check is not finished yet) are only really checked once; they will still be checked when opened after ten minutes. */
     @Test
     fun concurrentAutoChecksHitGitHubOnce() = runTest {
         github = release("v0.2.0")

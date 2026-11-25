@@ -19,7 +19,7 @@ import java.util.UUID
 data class DeviceAccessConfig(val enabled: Boolean = false, val kind: CredentialKind? = null,
     val blocked: Boolean = false, val revision: String = "")
 
-/** 全部设置加密原子写入。仅保留非秘密状态流,不缓存解密后的凭据。读不出时按关闭处理。 */
+/** All set to encrypt atomic writes. Only non-secret state streams are retained and decrypted credentials are not cached. If it cannot be read, press Close. */
 class DeviceAccessSettings(private val dir: File, private val cipher: KeyCipher) : DeviceAccessStore {
     private val file = File(dir, "device-access.bin")
     private val mutable = MutableStateFlow(runCatching { read()?.let(::configOf) }.getOrNull() ?: DeviceAccessConfig())
@@ -31,7 +31,8 @@ class DeviceAccessSettings(private val dir: File, private val cipher: KeyCipher)
     @Synchronized fun setEnabled(on: Boolean) {
         try { update(config.value.copy(enabled = on)) }
         catch (e: Exception) {
-            // 撤销许可时即使磁盘/密钥不可用也先在进程内关闭;不让保存错误留下可用的旧许可。
+            // Close in-process when revoking permissions even if disk/key is unavailable; do not allow
+            // save errors to leave old permissions available.
             if (!on) { mutable.value = config.value.copy(enabled = false); file.delete() }
             throw e
         }

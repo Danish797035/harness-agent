@@ -7,8 +7,9 @@ import com.meenai.mina.cap.phone.PhoneServices
 import kotlinx.coroutines.launch
 
 /**
- * 开机广播。只有用户打开了「重启后自动恢复」、并且 Mina 还拿着修改系统设置的授权时才动手,
- * 其余情况什么都不做(判断在 [BuiltinShellRecovery.restoreAfterBoot])。
+ * Start broadcasting. Only when the user has turned on "Automatic recovery after restart" and Mina still
+ * has the authorization to modify the system settings will the action be taken. In other cases, nothing
+ * will be done (judgment is [BuiltinShellRecovery.restoreAfterBoot]).
  */
 open class BootRestoreHandler : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

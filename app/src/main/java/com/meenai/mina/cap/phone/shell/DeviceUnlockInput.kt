@@ -12,15 +12,18 @@ import com.meenai.mina.core.device.CredentialKind
 import com.meenai.mina.core.device.DeviceCredential
 
 /**
- * 只由已认证的 Mina Binder 调用。主屏专用;凭据从不进命令行、剪贴板、截图或日志。
- * 凭据的每个按键都经 [injectTo] 只投给 SystemUI 拥有的焦点窗口:锁屏上方另有窗口(锁屏时显示的 App、来电、
- * 全屏通知)或已经解锁回到 App 时,系统拒绝注入,按键不会落到别处。[inject] 只用于不含秘密的亮屏键。
+ * Only called by authenticated Mina Binders. Home screen only; credentials never enter the command line,
+ * clipboard, screenshots, or logs. Each keystroke of the certificate is [injectTo] and is only cast to
+ * the focus window owned by SystemUI: when there are other windows above the lock screen (Apps displayed
+ * when the screen is locked, incoming calls, full-screen notifications) or when the app has been
+ * unlocked and returned to the app, the system refuses to inject and the keys will not fall elsewhere.
+ * [inject] is only used for bright screen keys without secrets.
  */
 internal class DeviceUnlockInput(context: Context, private val inject: (InputEvent) -> Boolean,
     private val injectTo: (InputEvent, Int) -> Boolean, private val command: (List<String>) -> Boolean) {
     private val keyguard = context.getSystemService(KeyguardManager::class.java)
     private val power = context.getSystemService(PowerManager::class.java)
-    /** 锁屏界面属于 SystemUI;查不到它的 uid 时不输入凭据。 */
+    /** The lock screen interface belongs to SystemUI; no credentials are entered when its uid cannot be found. */
     private val systemUiUid: Int? by lazy { runCatching { context.packageManager.getPackageUid(SYSTEM_UI, 0) }.getOrNull() }
 
     fun wake(): Boolean = key(KeyEvent.KEYCODE_WAKEUP, send = inject) || command(listOf("input", "keyevent", "224"))
@@ -41,7 +44,8 @@ internal class DeviceUnlockInput(context: Context, private val inject: (InputEve
             if (!DeviceCredential.valid(type, chars)) return false
             val map = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
             val events = if (type == CredentialKind.Password) map.getEvents(chars) ?: return false else null
-            // 已由调用方确认 SystemUI 的凭据输入框。清掉可能残留的半截输入,只尝试一次完整凭据。
+            // SystemUI's credential input box has been confirmed by the caller. Clear out any remaining
+            // half-entries and only try the complete credentials once.
             if (type == CredentialKind.Pin) {
                 repeat(16) { if (!key(KeyEvent.KEYCODE_DEL, send = ::toKeyguard)) return false }
             } else if (!key(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON, ::toKeyguard) ||
@@ -57,12 +61,16 @@ internal class DeviceUnlockInput(context: Context, private val inject: (InputEve
                     if (SystemClock.uptimeMillis() > deadline || !keyguard.isKeyguardLocked || !power.isInteractive || !toKeyguard(event)) return false
                 }
             }
-            // 某些系统在最后一位自动提交。回车同样只投给 SystemUI:这期间已经解锁回到 App 时被系统拒绝,不会发进 App。
+            // Some systems automatically commit on the last digit. Enter is also only thrown to
+            // SystemUI: during this period, it has been unlocked and returned to the App. It will be
+            // rejected by the system and will not be sent to the App.
             SystemClock.sleep(200)
             return !keyguard.isKeyguardLocked || !keyguard.isDeviceLocked || key(KeyEvent.KEYCODE_ENTER, send = ::toKeyguard)
         } finally {
             bytes.fill(0); chars.fill('\u0000')
-            // 密码里的符号可能用到修饰键;发过按键才释放,同样只投给 SystemUI,不往前台 App 发任何事件。
+            // The symbols in the password may use modifier keys; they are released only after the key is
+            // pressed. They are also only sent to SystemUI and do not send any events to the foreground
+            // App.
             if (sent && target != null) for (code in MODIFIERS) {
                 val now = SystemClock.uptimeMillis()
                 injectTo(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,

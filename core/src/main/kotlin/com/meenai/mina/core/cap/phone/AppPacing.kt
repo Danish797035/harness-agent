@@ -6,50 +6,61 @@ import kotlin.random.Random
 import com.meenai.mina.core.uistate.IdleScroll
 
 /**
- * 在 App 里一步一步操作的节奏(纯逻辑,不碰时钟和界面):人点完一下总要看一眼才点下一下,到了新的一屏还要先看一会儿。
- * 每做完一个改动屏幕的动作([noteAction])按它有没有换到新的一屏定下离下一个动作至少隔多久;下一个动作之前问 [waitBefore]:
- * 还没隔够就补足余下的时间。
+ * The rhythm of the step-by-step operation in the app (pure logic, without touching the clock and
+ * interface): after people click on something, they always have to look at it before clicking on it, and
+ * when they get to the new screen, they still have to look at it for a while. After each action of
+ * changing the screen ([noteAction]), press whether it has been changed to a new screen to determine the
+ * minimum interval until the next action; before the next action, ask [waitBefore]: If the interval is
+ * not enough, make up the remaining time.
  *
- * - 同一屏上接着做(打字、拨开关、只变了一两个元素):停 [Limits.sameScreenMs] 里随机取的一段;
- * - 换到了新的一屏(界面大变、换了 App):停 [Limits.newScreenMs] 里的一段,另按这一屏上的字数加一段读的时间
- *   ([Limits.readMsPerChar],至多 [Limits.maxReadMs]);
- * - 偶尔([Limits.pauseChance])多停一会儿([Limits.pauseMs]);一次停留不超过 [Limits.maxDwellMs];
- * - 停留从上一个动作做完算起,模型想、读屏花掉的时间都算在内,只补不够的部分。
- * - App 知识说这个 App 限制浏览快慢([PlacePace.CAREFUL])时按 [careful] 的范围停(更久),
- *   一个任务里在这个 App 里换到新的一屏的次数有上限([screenCap]),到了之后 [capReached] 为真,调用方不再换屏;
- *   用户答过话([userAnswered])后重新计数;本任务在这个 App 里做成过对外动作([outwardDone],发送、提交一类)之后不再设上限。
- *   和网页一页一页看的节奏([com.meenai.mina.core.cap.web.PagePacing])是同一套说法。
+ * - - Continue on the same screen (typing, flipping switches, only changing one or two elements): stop a
+ * random paragraph in [Limits.sameScreenMs];
+ * - - Switched to a new screen (big change in interface, changed app): Stop a paragraph in
+ * [Limits.newScreenMs], and press the number of words on this screen to add a period of reading time
+ * ([Limits.readMsPerChar], at most [Limits.maxReadMs]);
+ * - - Occasionally ([Limits.pauseChance]) stop for a while ([Limits.pauseMs]); no longer than
+ * [Limits.maxDwellMs] at one time;
+ * - - The pause is calculated from the completion of the previous action, including the time spent on
+ * model thinking and screen reading, and only the insufficient part is made up.
+ * - - App knowledge says that this App limits the browsing speed ([PlacePace.CAREFUL]) and stops in the
+ * range of [careful] (longer).
+ * There is an upper limit for the number of times a task can be changed to a new screen in this App
+ * ([screenCap]). After that, [capReached] is true and the caller will no longer change screens; the
+ * count will be restarted after the user answers the question ([userAnswered]); this task will no longer
+ * have an upper limit after it has completed external actions ([outwardDone], send and submit) in this
+ * App. It is the same as the rhythm of reading web pages page by page
+ * ([com.meenai.mina.core.cap.web.PagePacing]).
  *
- * [Off] 从不等待,也不设上限(「快」、测试、不需要节奏的调用方用它)。
+ * [Off] never waits and has no upper limit (use it for "fast", test, and callers who don't need rhythm).
  */
 class AppPacing(
     private val random: Random?,
     val limits: Limits = Limits(),
     val careful: Limits = Limits.CAREFUL,
-    /** 限制浏览快慢的 App 一个任务里(用户答话之间)最多换到多少次新的一屏。 */
+    /** Limit the browsing speed of an app. The maximum number of times the user can switch to a new screen in one task (between responses). */
     val screenCap: Int = CAREFUL_SCREEN_CAP,
 ) {
-    /** 时长单位毫秒。 */
+    /** The duration unit is milliseconds. */
     data class Limits(
-        /** 同一屏上接着做时的停留范围。 */
+        /** The staying range when continuing to work on the same screen. */
         val sameScreenMs: LongRange = 500L..1_200L,
-        /** 换到新的一屏之后的停留范围(不含读的时间)。 */
+        /** The stay range after switching to a new screen (excluding reading time). */
         val newScreenMs: LongRange = 900L..2_000L,
-        /** 新的一屏上每个字加多少读的时间;0 为不加。 */
+        /** How much reading time is added to each word on the new screen; 0 means no addition. */
         val readMsPerChar: Long = 0L,
-        /** 读的时间的上限。 */
+        /** The upper limit of the reading time. */
         val maxReadMs: Long = 0L,
-        /** 多停一会儿的机会。 */
+        /** A chance to stop a little longer. */
         val pauseChance: Double = 0.05,
-        /** 多停一会儿时另加的范围。 */
+        /** Additional range when stopping for a while. */
         val pauseMs: LongRange = 600L..1_500L,
-        /** 一次停留的上限。 */
+        /** Maximum limit for one stay. */
         val maxDwellMs: Long = 3_500L,
-        /** 新的一屏上停得够久时,停留里可以轻轻滚几下(见 [com.meenai.mina.core.uistate.IdleScroll])。 */
+        /** When you stay on the new screen for long enough, you can scroll a few times while staying on it (see [com.meenai.mina.core.uistate.IdleScroll]). */
         val idleScroll: Boolean = false,
     ) {
         companion object {
-            /** 限制浏览快慢的 App(和「像人」时所有 App):停得更久,按字数读,停留里轻轻滚几下。 */
+            /** Apps that limit browsing speed (and all Apps when "like people"): pause longer, read by the number of words, and scroll a few times while staying. */
             val CAREFUL = Limits(
                 sameScreenMs = 900L..2_200L, newScreenMs = 2_500L..5_000L, readMsPerChar = 15L, maxReadMs = 8_000L,
                 pauseChance = 0.1, pauseMs = 2_000L..5_000L, maxDwellMs = 15_000L, idleScroll = true,
@@ -61,18 +72,20 @@ class AppPacing(
 
     private var last: Last? = null
 
-    /** 本任务里(上次用户答话以来)各个限制浏览快慢的 App 换到过几次新的一屏。 */
+    /** In this task (since the last time the user answered), various apps that limit browsing speed have been changed to new screens several times. */
     private val screens = HashMap<String, Int>()
 
-    /** 本任务里做过对外动作的 App:屏数上限对它们不再算;用户答话也不清。 */
+    /** Apps that have performed external actions in this task: the upper limit of the number of screens does not count for them; the user's answers are also unclear. */
     private val outward = HashSet<String>()
 
-    /** 有节奏(不是 [Off])。 */
+    /** Rhythmic (not [Off]). */
     val paced: Boolean get() = random != null
 
     /**
-     * 在 [app](包名;不知道为 null)里做完了一个改动屏幕的动作:[newScreen] 是换到了新的一屏,
-     * [counts] 时这一屏算进限制浏览快慢的 App 的屏数(往下滚读同一页余下的内容不算)。[pace] 是 App 知识对这个 App 浏览快慢的说法。
+     * In [app] (package name; unknown as null), a screen change action is completed: [newScreen] is
+     * changed to a new screen, and in [counts], this screen is counted as the number of screens of the
+     * App that limits the browsing speed (scrolling down to read the remaining content on the same page
+     * does not count). [pace] is how App knowledge describes the browsing speed of this App.
      */
     @Synchronized
     fun noteAction(app: String?, nowMs: Long, newScreen: Boolean, pace: PlacePace = PlacePace.NORMAL, counts: Boolean = newScreen) {
@@ -85,8 +98,9 @@ class AppPacing(
     }
 
     /**
-     * 下一个动作之前还要等多久:上一个动作之后还没停够时是余下的时间,否则 0。
-     * [textChars] 是此刻这一屏上的字数:上一个动作换到了新的一屏时按它加读的时间。[Off] 恒为 0。
+     * How long to wait before the next action: the remaining time if the last action has not stopped
+     * enough, otherwise 0. [textChars] is the number of words on this screen at this moment: when the
+     * previous action changes to a new screen, press it to add the reading time. [Off] is always 0.
      */
     @Synchronized
     fun waitBefore(nowMs: Long, textChars: Int = 0): Long {
@@ -96,39 +110,39 @@ class AppPacing(
         return (dwell - (nowMs - l.atMs)).coerceIn(0, l.limits.maxDwellMs)
     }
 
-    /** 这次停留里可以轻轻滚几下:上一个动作换到了新的一屏,且按的范围允许。 */
+    /** You can scroll a few times during this stay: the previous action has changed to a new screen, and the pressing range allows. */
     @Synchronized
     fun idleAllowed(): Boolean = last?.let { it.newScreen && it.limits.idleScroll } == true
 
-    /** 本任务里(上次用户答话以来)[app] 换到过几次新的一屏。 */
+    /** In this task (since the last time the user answered) [app] has changed to a new screen several times. */
     @Synchronized
     fun screensIn(app: String): Int = screens[app] ?: 0
 
-    /** [app] 换到新的一屏的次数已到上限:再换屏之前要先停下(用户答应了再看)。普通 App、做过对外动作的 App、[Off] 恒为 false。 */
+    /** [app] The number of times to switch to a new screen has reached the upper limit: stop before changing the screen again (see again after the user agrees). Ordinary apps, apps that have performed external actions, and [Off] are always false. */
     @Synchronized
     fun capReached(app: String?, pace: PlacePace): Boolean =
         random != null && app != null && pace == PlacePace.CAREFUL && app !in outward && screensIn(app) >= screenCap
 
-    /** 本任务在 [app] 里做了一次对外动作(发送、提交):这个 App 余下的时间里不再设屏数上限。 */
+    /** This task has an external action (send, submit) in [app]: this App will no longer have a screen limit for the rest of the time. */
     @Synchronized
     fun outwardDone(app: String) {
         if (random != null) outward += app
     }
 
-    /** 用户答过话(回答了追问、交回了接管):各 App 的屏数重新算。 */
+    /** The user answered the question (answered the follow-up question and handed over the takeover): the number of screens for each App was recalculated. */
     @Synchronized
     fun userAnswered() = screens.clear()
 
     private fun limitsFor(pace: PlacePace) = if (pace == PlacePace.CAREFUL) careful else limits
 
     companion object {
-        /** 限制浏览快慢的 App 一个任务里最多换到多少次新的一屏(App 里一屏比网页的一页碎:点开、返回各算一次)。 */
+        /** Apps that limit the browsing speed can switch to a new screen at most in one task (one screen in the app is smaller than one page on the web page: clicking to open and returning are counted once). */
         const val CAREFUL_SCREEN_CAP = 24
 
-        /** 从不等待。 */
+        /** Never wait. */
         val Off = AppPacing(null)
 
-        /** 像人在 App 里一步一步操作的节奏;[random] 可换成固定种子(测试)。 */
+        /** Like the rhythm of a person operating step by step in the App; [random] can be replaced with a fixed seed (test). */
         fun human(random: Random = Random.Default, limits: Limits = Limits(), careful: Limits = Limits.CAREFUL) =
             AppPacing(random, limits, careful)
     }

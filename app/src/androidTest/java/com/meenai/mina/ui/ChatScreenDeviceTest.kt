@@ -54,9 +54,11 @@ import com.meenai.mina.task.testTasks
 import com.meenai.mina.task.TaskEnvironment
 
 /**
- * 真机走一遍对话页:脚本模型在虚拟屏上打开设置,检查步骤、小窗(收起、展开、拖动、需要你时自动展开)和结果卡片,
- * 每个阶段截一张图到 App 的外部文件目录 shots/(由开发机 adb pull 出来人工查看)。
- * 需要内置助手在运行、Mina 无障碍服务已开启。
+ * Walk through the dialogue page on a real machine: the script model opens the settings on the virtual
+ * screen, checks the steps, small windows (collapse, expand, drag, automatically expand when needed) and
+ * result cards. At each stage, screenshot a picture to the external file directory shots/ of the App
+ * (manually viewed by adb pull from the development machine). Requires the built-in assistant to be
+ * running and the Mina accessibility service to be turned on.
  */
 @RunWith(AndroidJUnit4::class)
 class ChatScreenDeviceTest {
@@ -64,7 +66,9 @@ class ChatScreenDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    // 从界面发起的任务在第一个动作前要另问一次意图;固定答「要操作」,脚本里每一问都是任务循环本身的一步
+    // Tasks initiated from the interface need to ask another question about the intention before the
+    // first action; the fixed answer is "to operate". Each question in the script is a step in the task
+    // cycle itself.
     private val model = ScriptedModel().apply { intent = "ACT" }
     private val vm get() = (context.applicationContext as HarnessApp).chat
     private val anyway = Prerequisites.Check(emptyList())
@@ -79,12 +83,17 @@ class ChatScreenDeviceTest {
         testTasks.lightModelFactory = { _, _ -> null }
         testTasks.visionModelFactory = { _, _ -> null }
         File(context.getExternalFilesDir(null), "shots").mkdirs()
-        // 界面状态是整个进程共用的:等上一个测试的任务全部收尾,再换成新对话,免得接上它的结束状态
+        // The interface state is shared by the entire process: wait until all the tasks of the previous
+        // test are completed, and then change to a new conversation to avoid connecting to its end
+        // state.
         DeviceTaskState.runs.value.forEach { it.cancel() }
         pollUntil(20_000) { DeviceTaskState.busy.value.takeIf { !it } }
-        // 并行开关是持久设置,别的测试(或中途崩掉的)可能留着 true;每个测试自己决定,默认关
+        // The parallel switch is a persistent setting, and other tests (or crashes in the middle) may
+        // leave it true; each test decides by itself, and it is turned off by default.
         FeatureFlags.get(context).let { f -> savedSpeed = f.speedFlags(); f.setSpeed(savedSpeed!!.copy(parallelTasks = false)) }
-        // 对话页还挂着上一个对话的结束状态时 newConversation 会被当成「忙」而不执行:等它回到空闲,并确认真换成了空对话
+        // When the conversation page is still in the end state of the previous conversation,
+        // newConversation will be regarded as "busy" and not executed: wait for it to return to idle,
+        // and confirm that it has been replaced by an empty conversation.
         assertNotNull("composer never went idle", pollUntil(20_000) { true.takeIf { !vm.busy() } })
         compose.runOnUiThread { vm.newConversation() }
         compose.waitForIdle()
@@ -100,7 +109,8 @@ class ChatScreenDeviceTest {
         testTasks.modelFactory = TaskEnvironment.defaultModelFactory
         testTasks.lightModelFactory = TaskEnvironment.defaultLightModelFactory
         testTasks.visionModelFactory = TaskEnvironment.defaultVisionModelFactory
-        // 把持久设置还原成本次测试之前的样子,不把设备留在测试用的开关上
+        // Restore persistent settings to how they were before this test without leaving the device on
+        // the test switch
         savedSpeed?.let { FeatureFlags.get(context).setSpeed(it) }
     }
 
@@ -110,17 +120,18 @@ class ChatScreenDeviceTest {
         compose.waitForIdle()
         Thread.sleep(400)
         compose.waitForIdle()
-        // 默认的 UiAutomation 会压制其他无障碍服务,Mina 的服务会被断开
+        // The default UiAutomation will suppress other accessibility services, and Mina's service will
+        // be disconnected
         val bmp = InstrumentationRegistry.getInstrumentation()
             .getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot()
         File(context.getExternalFilesDir(null), "shots/$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    /** dumpsys 里此刻在前台的那个 Activity 那一行。 */
+    /** The line of activity in dumpsys that is in the foreground at the moment. */
     private fun topResumed(dump: String): String? =
         dump.lineSequence().firstOrNull { it.contains("topResumedActivity") || it.contains("mResumedActivity") }
 
-    /** 前台那个 Activity 是不是本 App 的 [cls](dumpsys 里写成「包名/.相对类名」)。 */
+    /** Is the activity in the foreground [cls](written as "package name/.relative class name" in dumpsys) of this App? */
     private fun onTop(cls: Class<*>): Boolean {
         val line = topResumed(sh("dumpsys activity activities")) ?: return false
         val short = "${context.packageName}/" + cls.name.removePrefix(context.packageName)
@@ -136,9 +147,12 @@ class ChatScreenDeviceTest {
 
         compose.typeAndSend("打开设置看看电池")
         if (vm.ui.value.blocked != null) {
-            // 这台手机没配模型等:被拦下的提示也截一张,再绕过检查用脚本模型跑
+            // This phone is not equipped with a model, etc.: I also took a screenshot of the
+            // notification of being stopped, and then ran it using a script model to bypass the check.
             shot("02-blocked")
-            // 绕过检查直接交给界面状态,输入框里的字界面不会替它清掉;任务开始后输入框不可编辑,所以先清
+            // Bypassing the check and directly handing it over to the interface state, the word
+            // interface in the input box will not be cleared for it; the input box cannot be edited
+            // after the task starts, so clear it first
             compose.onNode(hasSetTextAction()).performTextClearance()
             compose.runOnUiThread { vm.dismissBlocked(); assertTrue(vm.send("打开设置看看电池", anyway)) }
         }
@@ -149,8 +163,10 @@ class ChatScreenDeviceTest {
         model.feed("phone_observe", """{"reason":"看看设置首页有什么"}""")
         assertEquals(3, model.awaitCall().number)
         assertNotNull(pollUntil(5_000) { DeviceTaskState.frames.value })
-        // 在跑时一行此刻的进展,下面竖线列出做过的事:动作用模型自己的话,读取写看了哪里(不写模型给读取的用意)。
-        // 此刻在等模型的第 3 次调用,进展行写「正在处理」,最后一步「看了设置」是当前步
+        // During the run, the current progress of a line, the vertical line below lists what has been
+        // done: action using the model's own words, reading and writing where to look (do not write the
+        // purpose of the model to read). At this moment, we are waiting for the third call of the model.
+        // The progress line says "Processing". The last step "View settings" is the current step.
         compose.waitUntil(5_000) { compose.onAllNodesWithText("正在处理").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("看了设置").assertExists()
         compose.onNodeWithText(ChatCopy.BACKGROUND_NOTE).assertExists()
@@ -166,7 +182,8 @@ class ChatScreenDeviceTest {
         compose.onNodeWithContentDescription("收起").performClick()
         compose.waitForIdle()
 
-        // 小窗平时在右下角(输入栏上方):往左上甩,应吸到左上角
+        // The small window is usually in the lower right corner (above the input field): if you throw it
+        // to the upper left, it should be sucked to the upper left corner.
         val d = context.resources.displayMetrics.density
         val pip = compose.onNodeWithContentDescription("Mina 的虚拟屏").fetchSemanticsNode().boundsInWindow
         val x = pip.center.x
@@ -185,30 +202,34 @@ class ChatScreenDeviceTest {
         compose.onNodeWithText("已暂停").assertExists()
         shot("06-takeover")
 
-        // 展开的小窗和遮罩盖住了对话里的卡片:先收起再点卡片上的按钮
+        // The expanded small window and mask cover the card in the conversation: collapse it first and
+        // then click the button on the card
         compose.onNodeWithContentDescription("收起").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("取消任务").performClick()
         awaitState { it == TaskState.Cancelled }
-        // 停止后补上的交代(脚本模型不写,按记录直接拼)排在「已停止。」下面
+        // Accounts made up after the stop (the script model is not written, press the record to spell it
+        // directly) are listed under "Stopped."
         compose.onNodeWithText("已停止。").assertExists()
         compose.waitUntil(15_000) { compose.onAllNodesWithText("Stopped. Here is what it did before stopping:", substring = true).fetchSemanticsNodes().isNotEmpty() }
         shot("06b-stopped-summary")
 
-        // 紧接着开新任务:服务可能还在收尾上一个,界面要等它收完再交过去
+        // Then start a new task: the service may still be finishing the previous one, and the interface
+        // must wait until it is finished before handing it over.
         compose.runOnUiThread { assertTrue(vm.send("设置里电池是多少", anyway)) }
-        model.awaitCall() // 脚本模型的调用编号接着上一个任务往下数
+        model.awaitCall() // The call number of the script model is counted downwards from the previous task.
         model.feed("phone_launch_app", """{"package":"$SETTINGS"}""", say = "打开设置")
         model.awaitCall()
         model.answer("脚本演示:电池信息在「设置 › 电池」里。")
         awaitState { it is TaskState.Succeeded }
         compose.waitForIdle()
         compose.onNodeWithText("来源", substring = true).assertExists()
-        // 取消的那一问和办成的这一问各有一个「查看过程」
+        // The canceled question and the completed question each have a "viewing process"
         assertEquals(2, compose.onAllNodesWithText("查看过程").fetchSemanticsNodes().size)
         shot("07-done")
 
-        // 侧栏:对话页上返回(侧滑)先打开侧栏;五个入口和最近的对话
+        // Sidebar: Return to the conversation page (swipe) and open the sidebar first; five entrances
+        // and recent conversations
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
         compose.onNodeWithTag("drawer").assertIsDisplayed()
@@ -219,7 +240,7 @@ class ChatScreenDeviceTest {
         shot("08-drawer")
     }
 
-    /** 附件按钮只在沙箱不是「此设备不支持」时出现(未安装、安装中、坏了都还能装、能修)。 */
+    /** The accessory button only appears when the sandbox is not "not supported by this device" (not installed, being installed, and can be installed or repaired if it is broken). */
     @Test
     fun attachButtonHiddenOnlyWhenSandboxUnsupported() {
         val unsupported = SandboxState.get(context).status.value is SandboxStatus.Unsupported
@@ -228,7 +249,7 @@ class ChatScreenDeviceTest {
         assertEquals("sandbox unsupported=$unsupported", !unsupported, nodes.isNotEmpty())
     }
 
-    /** 文件卡片显示名字和大小;点开文本文件进 App 里的查看页(不再交给系统选 App),看得到文件内容,返回回到对话。 */
+    /** The file card displays the name and size; click on the text file to enter the view page in the App (no longer leaving it to the system to select the App), where you can see the file content and return to the dialog. */
     @Test
     fun fileCardOpens() {
         val ws = SandboxDirs(context).workspace("card-device-test").apply { mkdirs() }
@@ -244,7 +265,9 @@ class ChatScreenDeviceTest {
             compose.onNodeWithText(card.name).performClick()
             val shown = pollUntil(5_000) { true.takeIf { onTop(FileViewerActivity::class.java) } }
             assertNotNull("file viewer did not open: ${topResumed(sh("dumpsys activity activities"))}", shown)
-            // 查看页是另一个 Activity,但和对话页在同一个进程里,它的界面这里也查得到:名字在顶栏,内容按原样显示
+            // The view page is another activity, but it is in the same process as the conversation page.
+            // Its interface can also be found here: the name is in the top bar, and the content is
+            // displayed as it is.
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("viewer.text").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("hello", substring = true, useUnmergedTree = true).assertIsDisplayed()
             shot("file-viewer")
@@ -257,15 +280,18 @@ class ChatScreenDeviceTest {
         }
     }
 
-    /** 并行开关打开:两个对话各跑一个任务,菜单上有小圆点,侧栏「进行中」里点另一个对话切过去。 */
+    /** The parallel switch is turned on: each of the two conversations runs a task. There is a small dot on the menu. Click on the other conversation in the "In Progress" sidebar to switch to it. */
     @Test
     fun otherTaskChipSwitches() {
         val flags = FeatureFlags.get(context)
         val prior = flags.speedFlags()
         flags.setSpeed(prior.copy(parallelTasks = true))
         val models = listOf(ScriptedModel().apply { intent = "ACT" }, ScriptedModel().apply { intent = "ACT" })
-        // 模型工厂不只任务开工时取:新对话起标题也在后台另取一次,先后不定。按次数轮换会让第一个任务拿到第二个模型;
-        // 改成第一个任务真的问过模型之前都给第一个,之后都给第二个(起标题的那一问哪个模型都固定回答)
+        // Model Factory not only retrieves the task when the task is started: the title of the new
+        // dialogue is also retrieved another time in the background, and the order is uncertain.
+        // Rotating by number will allow the first task to get the second model; if the first task
+        // actually asks about the model, the first one will be given before, and the second one will be
+        // given thereafter (the question about the title will have a fixed answer for which model)
         val firstStarted = AtomicBoolean(false)
         testTasks.modelFactory = { _, _ -> if (firstStarted.get()) models[1] else models[0] }
         try {
@@ -283,7 +309,9 @@ class ChatScreenDeviceTest {
 
             compose.onNodeWithContentDescription("菜单").performClick()
             compose.waitForIdle()
-            // 「进行中」既是分段标题,也是另一个对话那一行下面的小字:按位置分开认——标题在上,下面是那一行(标题和小字合在一个可点的节点里)
+            // "In progress" is both a segment title and the small print below the line of another
+            // conversation: separate recognitions are based on position - the title is at the top, and
+            // the line is below (the title and small print are combined in a clickable node)
             val inDrawer = hasAnyAncestor(hasTestTag("drawer"))
             val other = compose.onNode(hasText("第一个任务") and hasText("进行中") and inDrawer)
             other.assertIsDisplayed()

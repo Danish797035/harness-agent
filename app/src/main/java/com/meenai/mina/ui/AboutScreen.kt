@@ -69,14 +69,17 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 关于页上点开的底部面板。 */
+/** Click the bottom panel on the About page. */
 private enum class AboutSheet { Update, Changelog, Feedback, Diagnostics }
 
 /**
- * 关于 Mina:顶上图标、名字、一句话介绍、版本(Beta 标记、构建编号);下面三组——检查更新与更新记录,
- * 联系作者与反馈,关注作者、开源仓库与使用说明;一段数据说明;最底下许可证与作者。
- * 外部链接都交给 [onOpenUrl](系统浏览器);手动检查的结果到了([UpdateState.manualRounds] 变了)才提示。
- * [diagnostics] 写出诊断信息(反馈面板里「复制诊断信息」点开预览时在后台线程调)。
+ * About Mina: top icon, name, one-sentence introduction, version (Beta tag, build number); three groups
+ * below - check updates and update records, contact the author and give feedback, follow the author,
+ * open source warehouse and usage instructions; a paragraph of data description; the bottom license and
+ * author. All external links are handed over to [onOpenUrl] (system browser); the manual check result is
+ * not prompted until the result arrives ([UpdateState.manualRounds] has changed). [diagnostics] writes
+ * diagnostic information (called in the background thread when "Copy Diagnostic Information" in the
+ * feedback panel is clicked to open the preview).
  */
 @Composable
 fun AboutScreen(
@@ -95,7 +98,8 @@ fun AboutScreen(
     val c = MinaTheme.colors
     val context = LocalContext.current
     var sheet by rememberSaveable { mutableStateOf<AboutSheet?>(null) }
-    // 点了「检查更新」后等这一轮结果:有新版直接弹出说明,没有就提示一句
+    // After clicking "Check for Updates", wait for the results of this round: if there is a new version,
+    // a pop-up explanation will pop up directly, if not, a prompt will be given.
     var waitingRound by remember { mutableIntStateOf(-1) }
     LaunchedEffect(update.manualRounds) {
         if (waitingRound >= 0 && update.manualRounds > waitingRound) {
@@ -203,7 +207,7 @@ private fun Hero(versionName: String, build: String, beta: Boolean) {
     }
 }
 
-/** 行尾的值:转圈、红点加文字,或一段普通的值。 */
+/** The value at the end of the line: a circle, a red dot plus text, or a normal value. */
 @Composable
 internal fun TrailingValue(v: AboutCopy.CheckValue) {
     if (v.spinner) {
@@ -214,7 +218,7 @@ internal fun TrailingValue(v: AboutCopy.CheckValue) {
     v.text?.let { RowValue(it, if (v.highlight) ValueTone.Link else ValueTone.Plain) }
 }
 
-/** 有新版本时的小红点。 */
+/** A little red dot when there is a new version. */
 @Composable
 internal fun UpdateDot(modifier: Modifier = Modifier) {
     Box(modifier.size(8.dp).background(MinaTheme.colors.bad, CircleShape).testTag("update-dot"))
@@ -225,7 +229,7 @@ private fun ExternalMark() {
     Icon(MinaIcons.External, null, Modifier.size(15.dp), tint = MinaTheme.colors.ink3)
 }
 
-// ---------- 底部面板 ----------
+// ---------- Bottom panel ----------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -237,7 +241,8 @@ private fun AboutSheetFrame(title: String, sub: String?, tag: String, onDismiss:
         containerColor = c.surface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
     ) {
-        // 面板内容太高(矮屏、大字号)时整体能滚,底下的按钮总够得着
+        // When the content of the panel is too high (short screen, large font size), the entire panel
+        // can be scrolled, and the buttons underneath are always within reach.
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 16.dp).testTag(tag),
@@ -249,7 +254,7 @@ private fun AboutSheetFrame(title: String, sub: String?, tag: String, onDismiss:
     }
 }
 
-/** 更新说明(Markdown),浅底、太长时在框里滚。 */
+/** Update instructions (Markdown), shallow bottom, scroll in the box when too long. */
 @Composable
 private fun NotesBox(notes: String) {
     val c = MinaTheme.colors
@@ -308,4 +313,3 @@ private fun FeedbackOption(icon: ImageVector, title: String, sub: String, first:
         ListRow(icon, title, sub, first = first, onClick = onClick)
     }
 }
-

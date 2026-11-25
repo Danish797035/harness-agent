@@ -1,8 +1,11 @@
 package com.meenai.mina.selfcheck
 
 /**
- * 自检里按返回、等页面离开:按之前弹着输入法的那一下,安卓先拿去收起输入法(或先清掉没上屏的字),不算一次;
- * 输入法没弹着时按了 [tries] 下页面还在才算失败。一共最多按 [maxPresses] 下,输入法收不起来也不会一直按下去。
+ * During the self-check, press Return and wait for the page to leave: when you press the input method
+ * before, Android will first take away the input method (or clear the words that are not on the screen),
+ * and it does not count as one time; pressing [tries] when the input method is not playing will only
+ * count as a failure if the page is still there. The maximum number of presses in total is [maxPresses].
+ * The input method cannot be closed and will not keep pressing.
  */
 internal object BackPresses {
     suspend fun until(

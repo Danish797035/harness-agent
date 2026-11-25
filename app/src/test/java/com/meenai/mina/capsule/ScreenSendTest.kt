@@ -10,7 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 双击还是单击、截下的屏幕发进哪个对话、带屏幕的话在列表里怎么称呼。 */
+/** Double-click or single-click, which conversation should the screenshot be sent to, and if the screen is included, how should it be called in the list. */
 class ScreenSendTest {
     @get:Rule val texts = EnglishTexts()
 
@@ -18,7 +18,7 @@ class ScreenSendTest {
         val t = DoubleTap(300)
         assertEquals(DoubleTap.Tap.First, t.tap(1_000))
         assertEquals(DoubleTap.Tap.Double, t.tap(1_250))
-        // 双击之后到时也不再算单击
+        // After double-clicking, it is no longer counted as a click.
         assertFalse(t.settle(1_400))
     }
 
@@ -53,11 +53,13 @@ class ScreenSendTest {
         val done = run("b", "c2", TaskState.Succeeded("好"), CapsuleKind.Done)
         assertEquals("c1", CapsuleCards.conversationOf(CapsuleCards.of(listOf(running), null)!!))
         assertEquals("c2", CapsuleCards.conversationOf(CapsuleCards.of(listOf(done), null)!!))
-        // 空闲卡片:接着最近的对话;选了新对话时由调用方新开
+        // Idle card: continues the most recent conversation; when a new conversation is selected, it
+        // will be opened by the caller
         assertEquals("c9", CapsuleCards.conversationOf(CardView.Chat("c9", title = "t")))
         assertNull(CapsuleCards.conversationOf(CardView.Chat("c9", fresh = true)))
         assertNull(CapsuleCards.conversationOf(CardView.Chat(null)))
-        // 好几件事时卡片只说排在最前的那件,屏幕发给它所在的对话
+        // When there are several things, the card only says the top one, and the screen sends it to the
+        // conversation it is in.
         val several = CapsuleCards.of(listOf(running, done))!!
         assertEquals(CardInputKind.Steer, CapsuleCards.input(several)?.kind)
         assertEquals("c1", CapsuleCards.conversationOf(several))

@@ -6,7 +6,7 @@ import com.meenai.mina.ui.LearningActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 结果卡片上记忆与技能提示的按钮,作用在进程内同一份记忆与个人技能([memory])上;读写都在后台线程。 */
+/** The memory and skill prompt buttons on the result card act on the same memory and personal skill ([memory]) in the process; both reading and writing are in the background thread. */
 class AppLearningActions(private val context: Context, private val memory: MemoryRuntime) : LearningActions {
     private val store get() = memory.store()
     private val skills get() = memory.skills()
@@ -17,7 +17,8 @@ class AppLearningActions(private val context: Context, private val memory: Memor
     override suspend fun approve(pendingId: String) = io { store.approve(pendingId) }
     override suspend fun forget(memoryId: String) = io { store.forget(memoryId).isSuccess }
     override fun viewSkill(draftId: String) = memory.requestOpen(MemoryOpen(draftId))
-    // 恢复时清掉旧结果,免得下一次一不顺又马上被停用
+    // Clear old results when restoring to avoid being immediately deactivated next time something goes
+    // wrong.
     override suspend fun restoreSkill(name: String) {
         io { skills.update(name) {
             it.copy(status = it.restoredStatus(), outcomes = emptyList())

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 走网络代理时 Mina 自己下的更新安装包:只有应用专属外部目录里的 Download/updates/ -->
+<!-- When using a network proxy, Mina's own update installation package: only Download/updates/ in the application-specific external directory -->
 <paths>
     <external-files-path name="updates" path="Download/updates/" />
 </paths>

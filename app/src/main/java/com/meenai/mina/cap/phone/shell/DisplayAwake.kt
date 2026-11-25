@@ -3,15 +3,19 @@ package com.meenai.mina.cap.phone.shell
 import java.lang.reflect.Method
 
 /**
- * 让 Mina 的虚拟屏一直亮着。带 OWN_DISPLAY_GROUP 建的屏(安卓 13 起的可信屏)自成一个显示组,有自己的息屏计时;
- * 注入的输入不算用户操作,放着不管,到了息屏时间这组屏就睡了:画面不再合成、截图不变、点按没反应。
- * 屏在的时候每 [PERIOD_MS] 替它报一次用户操作(比系统允许的最短息屏时间短得多),屏放掉就停。
- * [poke] 报不了(系统没有按屏报的接口)时不再试,屏照常用。
+ * Keep Mina's virtual screen on. Screens built with OWN_DISPLAY_GROUP (trusted screens starting from
+ * Android 13) form a display group of their own and have their own screen pause timing; the injected
+ * input does not count as user operations and is left alone. When the screen pause time comes, the group
+ * of screens will go to sleep: the screen is no longer synthesized, screenshots remain unchanged, and
+ * there is no response when clicking. When the screen is on, it reports a user operation every
+ * [PERIOD_MS] (much shorter than the shortest screen-off time allowed by the system), and stops when the
+ * screen is released. If [poke] cannot be reported (the system does not have an interface for reporting
+ * on the screen), do not try again. Use the screen photo.
  */
 internal class DisplayAwake(
-    /** 替这块屏报一次用户操作;报不了返回 false。 */
+    /** Report a user operation for this screen; return false if it cannot be reported. */
     private val poke: (Int) -> Boolean,
-    /** 马上跑一次、之后每隔 [PERIOD_MS] 跑一次;返回停下它的办法。 */
+    /** Run once immediately and every [PERIOD_MS] thereafter; return to the method of stopping it. */
     private val repeat: (Runnable) -> () -> Unit,
 ) {
     private val running = HashMap<Int, () -> Unit>()
@@ -21,7 +25,8 @@ internal class DisplayAwake(
         if (unavailable) return
         val cancel = repeat(Runnable { if (!poke(displayId)) giveUp() })
         synchronized(running) { running.put(displayId, cancel) }?.invoke()
-        // 第一次就报不了时 giveUp 可能早于登记跑完:补停一次
+        // When you fail to register for the first time, giveUp may finish running earlier than
+        // registration: make up for one stop.
         if (unavailable) stopAll()
     }
 
@@ -42,19 +47,23 @@ internal class DisplayAwake(
         const val PERIOD_MS = 4_000L
         // PowerManager.USER_ACTIVITY_EVENT_TOUCH
         const val EVENT_TOUCH = 2
-        // Display.DEFAULT_DISPLAY_GROUP(隐藏常量)
+        // Display.DEFAULT_DISPLAY_GROUP (hidden constant)
         private const val DEFAULT_DISPLAY_GROUP = 0
 
         /**
-         * 要不要替这块屏报:只有它真的自成一组时才报。报到默认组(用户主屏所在的组)会让用户的主屏也一直不灭。
-         * [groupId] 读不到为 null,这时按建屏时带没带 [ownGroupFlag] 算。
+         * Do you want to report this screen: only report it if it really forms a group of its own.
+         * Checking into the default group (the group where the user's home screen is located) will keep
+         * the user's home screen alive. If [groupId] cannot be read, it will be considered as null. In
+         * this case, [ownGroupFlag] will be included or not when creating the screen.
          */
         fun needed(flags: Int, ownGroupFlag: Int, groupId: Int?): Boolean =
             flags and ownGroupFlag != 0 && groupId != DEFAULT_DISPLAY_GROUP
 
         /**
-         * IPowerManager 里按屏报用户操作的那个重载 `userActivity(int displayId, long time, int event, int flags)`(安卓 12 起);
-         * 只有不带屏号的老重载时为 null:它报给默认组,会让用户的主屏不灭,不用。
+         * The overload in IPowerManager that reports user operations by screen `userActivity(int
+         * displayId, long time, int event, int flags)` (starting from Android 12); only the old overload
+         * without screen number is null: it is reported to the default group, which will keep the user's
+         * home screen alive and is not used.
          */
         fun userActivityMethod(cls: Class<*>): Method? = cls.methods.firstOrNull {
             it.name == "userActivity" && it.parameterTypes.contentEquals(PER_DISPLAY)

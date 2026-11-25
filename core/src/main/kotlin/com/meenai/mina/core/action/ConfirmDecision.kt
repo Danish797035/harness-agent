@@ -14,27 +14,29 @@ import kotlinx.serialization.json.contentOrNull
 import com.meenai.mina.core.tool.Verb
 import com.meenai.mina.core.run.RunProvenance
 
-/** 一次动作执行前的审批结论。 */
+/** The approval conclusion before an action is executed. */
 sealed interface Decision {
-    /** 不用判,或判过放行(含付款时用户的同意对上了)。 */
+    /** No judgment is required, or the judgment is released (including the user’s consent during payment). */
     data object Clear : Decision
-    /** 放行,但找不到点在哪个元素上:运行记录里留痕。 */
+    /** Released, but cannot find which element the point is on: traces left in the running record. */
     data class Traced(val detail: String) : Decision
-    /** 找不到点在哪个元素上,这一来源不盲点。 */
+    /** If you can't find which element the point is on, this source is not a blind spot. */
     data object Unresolved : Decision
-    /** 这一步要花钱,要用户这一次的同意,没有可用的。 */
+    /** This step costs money and requires the user's consent this time, which is not available. */
     data class Required(val hit: Irreversible) : Decision
-    /** 有同意,但和这一步对不上;那次同意已作废。 */
+    /** There is consent, but it does not correspond to this step; that consent has become invalid. */
     data class Mismatch(val hit: Irreversible, val reason: String) : Decision
-    /** 要花钱,本次运行却问不到手机旁的用户,直接拒绝。 */
+    /** It costs money, but the user next to the mobile phone cannot be asked for this run, so he directly refuses. */
     data object Denied : Decision
-    /** 作用在 Mina 自己身上,不做。 */
+    /** Act on Mina herself, don't do it. */
     data object OwnApp : Decision
 }
 
 /**
- * 不可逆判定、审批与同意核对。整个代码库里只有这里调用 [IrreversibleDetector] 的判定和 [ConfirmationGate.permits]
- * (有测试守着),各来源只在 [OriginPolicy] 里写明哪里不同;问不问由 [ApprovalPolicy.decide] 定(只有付款问)。
+ * Irreversible determination, approval and consent verification. In the entire code base, there are only
+ * the judgments of calling [IrreversibleDetector] and [ConfirmationGate.permits] (tested). Each source
+ * only states the difference in [OriginPolicy]; whether to ask or not is determined by
+ * [ApprovalPolicy.decide] (only payment is asked).
  */
 class ConfirmDecision(
     private val tools: ToolDispatcher,
@@ -43,19 +45,22 @@ class ConfirmDecision(
     private val risks: RiskJudge = ClassifiedRisk,
     private val recorder: ActionRecorder? = null,
     private val provenance: RunProvenance = RunProvenance(),
-    /** 开工就是自主执行(没有确认关卡):付款也不问,界面目标猜测也不阻断动作;中途换成自主看 [ApprovalSettings.autonomous]。 */
+    /** The start of the project is autonomous execution (no confirmation level): payment is not asked, and interface target guessing does not block actions; in the middle, it is replaced by autonomous viewing of [ApprovalSettings.autonomous]. */
     private val autonomous: Boolean = false,
-    /** Mina 自己的包名:作用在它上面的写操作一律不做(不自己给自己点同意、改设置)。 */
+    /** Mina's own package name: no write operations will be performed on it (do not give yourself permission or change settings). */
     private val selfPackage: String? = null,
 ) {
     /**
-     * 刚判过的这一步是对外动作(发送、提交:判定命中、放行后要做的)时它所在的网站或 App(见 [OutwardPacing.siteOf]),
-     * 执行入口据此和上一次对外动作隔开;不是为 null。自主执行时也认(按模型手里那一屏判,不另读屏),节奏不因此失效。
+     * The step just passed is the website or App (see [OutwardPacing.siteOf]) where it is located when
+     * performing external actions (send, submit: determine hit, release), and the execution entrance is
+     * separated from the last external action accordingly; it is not null. It is also recognized when
+     * executing independently (judge according to the screen in the model's hand, without reading
+     * another screen), and the rhythm will not be invalidated.
      */
     var outwardSite: String? = null
         private set
 
-    /** 判定放在锁屏等待之后:按此刻重新读的一屏判。 */
+    /** The judgment is placed after locking the screen and waiting: press the screen judgment read again at this moment. */
     suspend fun judge(tool: String, args: JsonObject, origin: Origin): Decision {
         outwardSite = null
         // Tools that declare alwaysAsk (an arbitrary shell command) must be
@@ -76,7 +81,9 @@ class ConfirmDecision(
         }
         val policy = origin.policy
         val target = tools.gateTarget(tool)
-        // 这一步落在哪里由界面一侧给出;点看图找到的 @vN 时参数已换成它登记的坐标和找的文字
+        // Where this step falls is given by the side of the interface; when you click on @vN found in
+        // the picture, the parameters have been replaced by its registered coordinates and the text you
+        // are looking for.
         val aim = tools.interfaces.actionTarget(tools.declared(tool), args)
         val checked = aim.args
         if (ownApp(tool, args, aim.aimed)) return Decision.OwnApp
@@ -86,12 +93,14 @@ class ConfirmDecision(
         if (confirmations == null && !policy.judgeWithoutGate) return Decision.Clear
         val verb = tools.verb(tool)
         val typing = if (verb == Verb.TypeText) (args["text"] as? JsonPrimitive)?.contentOrNull else null
-        // 没有可判的不可逆字样的动作(一般改动、界面间移动)不花钱,不用问
+        // Actions without the word "irreversible" (general changes, movement between interfaces) do not
+        // cost money, no questions asked
         if (!IrreversibleDetector.needsCheck(target, args)) return Decision.Clear
         val snap = aim.aimed
         val fresh = aim.now()
         if (ownApp(tool, args, fresh)) return Decision.OwnApp
-        // 复看确认过的所见文字(@vN 才有):读屏里没有文字时(自绘界面)付款的同意按它核对象
+        // Reread the confirmed text (only for @vN): When there is no text in the reading screen
+        // (self-drawn interface), click it to check the object when agreeing to pay.
         val seen = aim.seen
         val hit = IrreversibleDetector.classify(target, checked, snap, fresh)
         val risk = risks.assess(verb, hit) { fresh ?: snap }
@@ -101,11 +110,11 @@ class ConfirmDecision(
         return if (policy.refuseUnresolved) Decision.Unresolved else Decision.Traced(unresolvedDetail(args, aim.readAgeMs, fresh != null))
     }
 
-    /** 命中的是发送、提交时这一屏的网站或 App。 */
+    /** The hit is the website or app on this screen when sending or submitting. */
     private fun outward(hit: Irreversible?, screen: ScreenSnapshot?): String? =
         if (hit?.action == IrrevAction.send || hit?.action == IrrevAction.submit) OutwardPacing.siteOf(screen?.packageName, screen?.web != null) else null
 
-    /** 写操作作用在 Mina 自己身上:屏上是 Mina,或要打开 Mina(含它的应用详情页)。 */
+    /** The writing operation affects Mina itself: Mina is on the screen, or Mina (including its application details page) needs to be opened. */
     private fun ownApp(tool: String, args: JsonObject, screen: ScreenSnapshot?): Boolean {
         val self = selfPackage ?: return false
         if (!tools.writesScreen(tool)) return false
@@ -113,16 +122,18 @@ class ConfirmDecision(
         return listOf("package", "uri").any { k -> (args[k] as? JsonPrimitive)?.contentOrNull?.let { self in it } == true }
     }
 
-    /** 按来源判;要花钱时核对用户的一次性同意。放行为 null。 */
+    /** Judge by source; check the user’s one-time consent when spending money. Leave the behavior null. */
     private fun approve(
         tool: String, checked: JsonObject, origin: Origin, hit: Irreversible?, risk: Risk, screen: ScreenSnapshot?,
         typing: String?, seen: String?,
     ): Decision? {
         val policy = origin.policy
-        // 没命中不可逆判定的(工具自己声明的风险):按动作落在的元素记成「其他」
+        // If the miss is irreversible (risk declared by the tool itself): The element in which the
+        // action falls is recorded as "other"
         val asked = hit ?: Irreversible(IrrevAction.other,
             screen?.let { ClassifiedRisk.target(tools.verb(tool), checked, it) }?.name?.trim()?.takeIf { it.isNotEmpty() } ?: tool)
-        // 对外、要花钱和没放行的都记下;界面上的改动不记
+        // All external information, those that require money and those that have not been released are
+        // recorded; changes on the interface are not recorded.
         fun audit(decision: String) {
             if (decision != "allowed" || risk.level.outward || risk.payment) recorder?.approval(origin, tool, asked, risk, decision)
         }
@@ -140,12 +151,12 @@ class ConfirmDecision(
         }
     }
 
-    /** 执行了一个写操作:同意按它的规则作废或保留。 */
+    /** A write operation was performed: the consent was voided or retained according to its rules. */
     fun noteWrite(tool: String) {
         confirmations?.noteWrite(tools.verb(tool))
     }
 
-    /** 留痕:点的是哪个编号、那次读屏多久以前,或点的坐标。 */
+    /** Traces: Which number was clicked, how long ago the screen reading was, or the coordinates of the point. */
     private fun unresolvedDetail(args: JsonObject, readAgeMs: Long?, freshRead: Boolean): String {
         fun arg(k: String) = args[k]?.let { (it as? JsonPrimitive)?.contentOrNull ?: it.toString() }
         val ref = arg("ref")
@@ -157,8 +168,10 @@ class ConfirmDecision(
 
     companion object {
         /**
-         * 不读屏的预判(大小模型分工用):按上一次读屏,这一步可能是不可逆的,或不知道点的是什么(看图得来、找不到元素);
-         * 这样的一步交主模型做。
+         * Prediction of not reading the screen (used for division of labor between large and small
+         * models): According to the last screen reading, this step may be irreversible, or you may not
+         * know what you clicked (you can’t find the element based on the picture); such a step is left
+         * to the main model.
          */
         fun mayBeIrreversible(tools: ToolDispatcher, tool: String, args: JsonObject): Boolean {
             val target = tools.gateTarget(tool)

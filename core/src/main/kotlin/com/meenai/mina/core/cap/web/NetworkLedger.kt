@@ -8,8 +8,9 @@ import kotlinx.serialization.json.doubleOrNull
 import java.util.Base64
 
 /**
- * 页面发出的一个 XHR/fetch 请求及其响应。[id] 是协议里的 requestId(子会话的加上 `会话:` 前缀);
- * [size] 为解码后的字节数(拿不到为 null);[body] 只在取过正文后才有,[bodyNote] 说明为什么没有正文。
+ * An XHR/fetch request made by the page and its response. [id] is the requestId in the protocol
+ * (sub-session plus `session:` prefix); [size] is the number of decoded bytes (null if not available); [body]
+ * is only available after fetching the text, and [bodyNote] explains why there is no text.
  */
 data class CapturedResponse(
     val id: String,
@@ -31,12 +32,16 @@ data class CapturedResponse(
 }
 
 /**
- * 一个标签的网络账本(纯逻辑,不碰协议连接):喂入 `Network.*` 事件,回答「还有没有在途请求」「安静了多久」,
- * 并留着最近 [maxCaptured] 个 XHR/fetch 响应。正文按需取(调用方用 `Network.getResponseBody` 取回后交给 [putBody]),
- * 只收 JSON/文本、单个不超过 [maxBodyBytes];全部正文合计超过 [maxTotalBodyBytes] 时先丢最早取的。
+ * A label's network ledger (pure logic, not touching protocol connections): Feed the `Network.*` event,
+ * answer "Are there any requests in transit?" "How long has it been quiet", and keep the most recent
+ * [maxCaptured] XHR/fetch responses. The text is fetched on demand (the caller uses
+ * `Network.getResponseBody` to retrieve it and then hands it to [putBody]). Only JSON/text is received,
+ * and no single text exceeds [maxBodyBytes]; when the total of all texts exceeds [maxTotalBodyBytes],
+ * the oldest one is discarded first.
  *
- * 在途计数不算长连接:事件流、媒体、信标、预取,以及发出超过 [staleMs] 还没回的(长轮询)。
- * 不是线程安全的,调用方自己串行。
+ * The in-transit count does not count long connections: event streams, media, beacons, prefetching, and
+ * those that have sent more than [staleMs] but have not yet responded (long polling). Not thread-safe,
+ * the caller serializes itself.
  */
 class NetworkLedger(
     val quietMs: Long = 500,
@@ -73,11 +78,11 @@ class NetworkLedger(
 
     private val flights = HashMap<String, Flight>()
     private val captured = LinkedHashMap<String, Entry>()
-    // 取到正文的先后,用来按最早的先丢
+    // The order in which the text is retrieved is used to discard the oldest one first.
     private val bodyOrder = ArrayDeque<String>()
     private var bodyTotal = 0
     private var lastBusyMs = Long.MIN_VALUE / 2
-    // 只算本次动作以来发出的请求
+    // Only counts requests issued since this action
     private var lastActionBusyMs = Long.MIN_VALUE / 2
     private var actionSeq = 0
 
@@ -102,7 +107,8 @@ class NetworkLedger(
                 }
                 val e = captured[key]
                 if (e != null) {
-                    // 重定向:同一个 requestId 带着上一跳的响应再发一次
+                    // Redirect: The same requestId is sent again with the response from the previous
+                    // hop.
                     e.url = url
                     e.method = m
                 } else if (type in CAPTURED_TYPES) {
@@ -140,16 +146,18 @@ class NetworkLedger(
         }
     }
 
-    /** 现在还在途、且会拖住「网络空闲」的请求数。 */
+    /** The number of requests that are still in transit and will hold back "network idleness". */
     fun inFlight(now: Long): Int = flights.values.count { counts(it, now) }
 
-    /** 没有在途请求,且最近一次请求开始或结束已过 [quietMs]。 */
+    /** There are no requests in transit, and the start or end of the last request has passed [quietMs]. */
     fun isIdle(now: Long): Boolean = inFlight(now) == 0 && now - lastBusyMs >= quietMs
 
-    /** 动作开始时调:之后发出的请求算「上次动作以来」的。 */
+    /** Called when the action starts: Requests sent afterward are counted "since the last action". */
     /**
-     * 本次动作([markAction] 以来)发出的请求还在途,或最后一个结束还不到 [quietMs]:动作后的等待据此延长。
-     * 动作之前就在途的、长连接、长轮询都不算,页面本身一直在变也不算。
+     * The requests issued by this action (since [markAction]) are still in progress, or the last one has
+     * not finished yet [quietMs]: the waiting after the action is extended accordingly. Actions that are
+     * in progress before, long connections, and long polling do not count, nor do the pages themselves
+     * that keep changing.
      */
     fun actionBusy(now: Long): Boolean =
         flights.values.any { it.actionSeq == actionSeq && counts(it, now) } || now - lastActionBusyMs < quietMs
@@ -168,7 +176,7 @@ class NetworkLedger(
 
     fun get(id: String): CapturedResponse? = captured[id]?.let { view(it) }
 
-    /** 该去取正文时给出协议参数;已取过、不该取(非文本、太大、没完成)时为 null,原因见 [CapturedResponse.bodyNote]。 */
+    /** The protocol parameter is given when the text should be fetched; it is null when it has been fetched or should not be fetched (non-text, too large, not completed). See [CapturedResponse.bodyNote] for the reason. */
     fun bodyToFetch(id: String): BodyFetch? {
         val e = captured[id] ?: return null
         if (e.body != null || noBodyReason(e) != null) return null
@@ -242,9 +250,9 @@ class NetworkLedger(
     )
 
     companion object {
-        /** 只收页面脚本发的请求。 */
+        /** Only accept requests from page scripts. */
         private val CAPTURED_TYPES = setOf("XHR", "Fetch")
-        /** 天生长时间不结束、或页面不等它的请求:不拖住「网络空闲」。 */
+        /** It does not end for a long time, or the page does not wait for its request: do not hold "network idle". */
         private val LONG_LIVED_TYPES = setOf("EventSource", "WebSocket", "Media", "Ping", "Prefetch", "CSPViolationReport")
         private const val EVENT_STREAM = "text/event-stream"
         private const val MAX_FLIGHTS = 512

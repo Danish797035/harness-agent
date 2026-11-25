@@ -13,7 +13,7 @@ import java.net.SocketException
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** 一次 HTTP 请求。头名一律小写;[remote] 是对方的地址(限流、近期连接按它算)。 */
+/** An HTTP request. The first name should always be lowercase; [remote] is the address of the other party (current limit and recent connections are calculated according to it). */
 class HttpRequest(
     val method: String,
     val path: String,
@@ -21,7 +21,7 @@ class HttpRequest(
     val body: ByteArray,
     val remote: InetAddress,
     val query: String = "",
-    /** 失败冷却按它记。本地监听就是对方地址;经网关转发的是网关看到的调用方地址,与本地地址分开记。 */
+    /** If the cooldown fails, click it to record it. The local monitoring is the other party's address; what is forwarded by the gateway is the caller's address seen by the gateway, which is recorded separately from the local address. */
     val source: String = remote.hostAddress ?: "?",
 ) {
     fun header(name: String): String? = headers[name.lowercase()]
@@ -36,13 +36,16 @@ class HttpResponse(val status: Int, val body: ByteArray = ByteArray(0), val head
     }
 }
 
-/** 请求本身不合 HTTP 规矩(太大、格式不对):直接回 [status] 并断开。 */
+/** The request itself does not comply with HTTP rules (too large, wrong format): directly return [status] and disconnect. */
 class HttpProtocolException(val status: Int, message: String) : IOException(message)
 
 /**
- * 只为电脑连接用的极简 HTTP/1.1 服务:一个端口、每个连接一个线程、连接数有上限,请求头和正文都有大小上限。
- * 只认 Content-Length 和 chunked 两种正文;不做 TLS(只在局域网和私有网络里用,靠访问令牌把关)。
- * [accept] 按两端地址决定收不收这个连接(不收就当场关掉,不回任何字节)。
+ * A minimalist HTTP/1.1 service only for computer connections: one port, one thread per connection, an
+ * upper limit on the number of connections, and an upper limit on the size of the request header and
+ * body. Only recognizes Content-Length and chunked text; does not use TLS (only used in LAN and private
+ * networks, and is controlled by access tokens). [accept] determines whether to accept the connection
+ * based on the addresses at both ends (if not accepted, it will be closed on the spot without returning
+ * any bytes).
  */
 class MiniHttpServer(
     private val bind: InetSocketAddress,
@@ -57,10 +60,10 @@ class MiniHttpServer(
     private val open = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Socket, Boolean>())
     @Volatile private var server: ServerSocket? = null
 
-    /** 实际监听的端口(给 0 时由系统挑)。 */
+    /** The actual listening port (selected by the system when 0 is given). */
     val port: Int get() = server?.localPort ?: -1
 
-    /** 绑定端口并开始收连接;绑定失败抛出异常(端口被占等)。 */
+    /** Bind the port and start collecting connections; if the binding fails, an exception will be thrown (the port is occupied, etc.). */
     @Synchronized fun start() {
         check(!running.get()) { "already running" }
         val s = ServerSocket()
@@ -126,8 +129,10 @@ class MiniHttpServer(
         const val MAX_BODY = 256 * 1024
 
         /**
-         * 读一个请求;对方在请求开始前关了连接时返回 null。对方先问能不能发正文(`Expect: 100-continue`,
-         * 命令行工具发稍大的正文时会这样)而给了 [output] 时,先答一句「继续」,免得它干等。
+         * Read a request; returns null if the other party closed the connection before the request
+         * started. When the other party first asks if the text can be sent (`Expect: 100-continue`, this
+         * happens when the command line tool sends a slightly larger text) and gives [output], answer
+         * "continue" first to avoid waiting.
          */
         fun readRequest(input: InputStream, remote: InetAddress, output: OutputStream? = null): HttpRequest? {
             val head = readHead(input) ?: return null
@@ -141,7 +146,8 @@ class MiniHttpServer(
                 if (colon <= 0) throw HttpProtocolException(400, "bad header")
                 val name = line.substring(0, colon).trim().lowercase()
                 val value = line.substring(colon + 1).trim()
-                // 同名头合并;Content-Length 重复且不同时按坏请求
+                // Headers with the same name are merged; Content-Length is repeated and not broken at
+                // the same time.
                 headers[name] = headers[name]?.let { old ->
                     if (name == "content-length" && old != value) throw HttpProtocolException(400, "conflicting length")
                     if (name == "content-length") old else "$old, $value"
@@ -175,7 +181,7 @@ class MiniHttpServer(
                     if (buf.size() == 0) return null
                     throw HttpProtocolException(400, "truncated head")
                 }
-                // 两个请求之间多出来的空行忽略
+                // Extra blank lines between requests are ignored.
                 if (buf.size() == 0 && (b == '\r'.code || b == '\n'.code)) continue
                 buf.write(b)
                 if (buf.size() > MAX_HEAD) throw HttpProtocolException(431, "head too large")

@@ -6,112 +6,165 @@ import android.os.ParcelFileDescriptor;
 import android.os.Bundle;
 import android.view.Surface;
 
-// 运行在 shell 身份(uid 2000)进程里的常驻服务:经无线调试拉起的内置助手。
+// A resident service running in the shell identity (uid 2000) process: a built-in assistant launched by
+// wireless debugging.
 interface IHarnessShell {
     int createDisplay(in Surface surface, int width, int height, int dpi) = 1;
     void releaseDisplay(int displayId) = 2;
-    // 0=已启动 1=用户正在主屏使用该 App(不启动,不打扰主屏) 2=没有可启动的入口 3=出错
+    // 0=Started 1=The user is using the App on the home screen (do not start, do not disturb the home
+    // screen) 2=There is no entry to launch 3=Error
     int startApp(int displayId, String packageName) = 3;
     int topTaskId(int displayId) = 4;
     boolean moveTask(int taskId, int displayId) = 5;
     boolean injectKey(int displayId, int keyCode) = 6;
     boolean injectTap(int displayId, int x, int y) = 7;
     boolean setAudioMuted(String packageName, boolean muted) = 8;
-    // 冷启动:先结束该 App 的进程再启动;返回值同 startApp,用户正在主屏使用时不结束、返回 1;
-    // App 在 Mina 的屏以外还有任务时不结束,改为普通启动并返回 4
+    // Cold start: End the process of the App first and then start it; the return value is the same as
+    // startApp. It does not end when the user is using it on the home screen, and returns 1; the App
+    // does not end when there are tasks outside Mina's screen, and changes to normal startup and returns
+    // 4
     int restartApp(int displayId, String packageName) = 9;
-    // 该包当前的 PLAY_AUDIO 模式(allow/ignore/default…);读不到返回 null
+    // The current PLAY_AUDIO mode of the package (allow/ignore/default...); cannot be read and returns
+    // null
     String getAudioMode(String packageName) = 10;
-    // 把 PLAY_AUDIO 设回指定模式;用于 Mina 异常退出后按持久化记录恢复
+    // Set PLAY_AUDIO back to the specified mode; used to restore according to the persistent record
+    // after Mina exits abnormally
     boolean setAudioMode(String packageName, String mode) = 11;
-    // 任务所在的屏;任务已不存在返回 -1
+    // The screen where the task is located; the task no longer exists and returns -1
     int displayOfTask(int taskId) = 12;
-    // 任务最上面页面所属的包;任务不存在返回 null
+    // The package to which the top page of the task belongs; if the task does not exist, return null
     String packageOfTask(int taskId) = 13;
-    // 以 shell 身份把剪贴板设成这段纯文字(不弹系统的「已复制」浮层),供粘贴到只认真实输入的编辑区。
-    // 内容标为敏感(API 33+)。第一次设置前记下原剪贴板;读不到原剪贴板时不动它。返回 0=已设置 1=读不到原剪贴板(未改动) 2=出错
+    // As a shell, set the clipboard to this plain text (without popping up the system's "Copied"
+    // overlay) for pasting into the editing area where only real input is required. Content marked
+    // sensitive (API 33+). Make a note of the original clipboard before setting it up for the first
+    // time; leave the original clipboard untouched if it cannot be read. Returns 0=already set 1=cannot
+    // read original clipboard (unchanged) 2=error
     int setClipText(String text) = 14;
-    // 还原 setClipText 之前的剪贴板(原先为空则清空);剪贴板已被用户换成别的内容、或此刻读不到时不动;被清空了就放回去
+    // Restore the clipboard before setClipText (clear it if it was originally empty); the clipboard has
+    // been replaced by other content by the user, or cannot be read at the moment; if it is cleared, put
+    // it back
     void restoreClip() = 15;
-    // 打开链接或安卓设置页(action 为空时按 VIEW 打开 uri;packageName 限定由哪个 App 打开)。
-    // 返回值同 startApp,另有 5=没有 App 能打开 6=链接不允许;解析出的 App 在主屏有任务时不启动、返回 1
+    // Open the link or Android settings page (when the action is empty, press VIEW to open the uri;
+    // packageName limits which app should be opened). The return value is the same as startApp, and 5=No
+    // App can be opened 6=Link is not allowed; the parsed App will not start when there is a task on the
+    // home screen, return 1
     int startView(int displayId, String action, String uri, String packageName) = 17;
-    // 该包的任务所在的 Mina 虚拟屏(并行任务查冲突用);不在 Mina 的任何一块屏上返回 -1
+    // The Mina virtual screen where the task of this package is located (used for checking conflicts in
+    // parallel tasks); if not on any screen of Mina, -1 is returned
     int displayOfPackage(String packageName) = 18;
-    // setClipText 之前用户剪贴板的文字(原先为空或不是文字时为空串);没有待还原的返回 null。供 Mina 加密留底,进程被杀后还原
+    // setClipText The previous text of the user's clipboard (originally empty or an empty string if it
+    // is not text); returns null if there is no one to be restored. It is used for Mina to encrypt the
+    // data and restore it after the process is killed.
     String savedClipText() = 19;
-    // 剪贴板仍是 Mina 放进去的 ours 时,换回用户原来的文字 original(空串则清空);已被用户换掉时不动
+    // When the clipboard is still ours put by Mina, it will be replaced with the user's original text
+    // original (empty string will be cleared); it will not change if it has been replaced by the user.
     void restoreClipText(String original, String ours) = 20;
-    // 服务所在进程的 [uid, pid];Mina 收下内置助手的 Binder 前据此确认它就在来交接的那个进程里
+    // [uid, pid] of the process where the service is located; Mina uses this to confirm that it is in
+    // the process to be handed over before accepting the Binder of the built-in assistant.
     int[] identity() = 21;
-    // 撤掉 Mina 这次绑定留下的改动(还原剪贴板、解除静音、释放所有虚拟屏),进程不退出;内置助手解绑时用
+    // Undo the changes left by Mina's binding (restore clipboard, unmute, release all virtual screens),
+    // the process will not exit; use the built-in assistant to unbind
     void releaseAll() = 22;
-    // 以 shell 身份连 Mina 自己 WebView 的调试套接字(抽象名 webview_devtools_remote_<pid>,pid 须是 Mina 的进程),
-    // 把连好的套接字交回;名字不合规矩或连不上返回 null。Mina 自己直连被系统拦下时用
+    // Connect to the debugging socket of Mina's own WebView as a shell (abstract name
+    // webview_devtools_remote_<pid>, pid must be Mina's process), and return the connected socket; if
+    // the name is irregular or cannot be connected, null will be returned. Mina is used when the direct
+    // connection is blocked by the system.
     ParcelFileDescriptor openDevtoolsSocket(String name) = 23;
-    // 在本任务已建好的虚拟屏上下文中，以 shell 身份执行命令；返回 exitCode 和 output。
+    // In the virtual screen context created in this task, execute the command as shell; return exitCode
+    // and output.
     Bundle runSystemCommand(int displayId, String command) = 24;
-    // 当前虚拟屏最上面 Activity 的完整类名；没有任务时返回 null。
+    // The complete class name of the top Activity on the current virtual screen; returns null if there
+    // is no task.
     String topActivity(int displayId) = 25;
-    // 往这块屏发 Ctrl+键(只放行 A 全选、V 粘贴):树里没有输入框、只知道焦点在哪时打字用
+    // Send the Ctrl+key to this screen (only A to select all, V to paste): There is no input box in the
+    // tree, and you only know where the focus is when typing.
     boolean injectCtrlKey(int displayId, int keyCode) = 26;
-    // `pm list users` 的原样输出;出错为 null
+    // `pm list users` output as is; on error, null
     String listUsers() = 27;
-    // `pm list packages --user <userId>` 的原样输出;出错为 null
+    // `pm list packages --user <userId>` output as is; on error, null
     String listPackages(int userId) = 28;
-    // 该包是系统自带的(含更新过的系统 App);查不到返回 false
+    // This package comes with the system (including updated system apps); if not found, returns false
     boolean isSystemPackage(String packageName) = 29;
-    // 把一段文字分享给该包(ACTION_SEND text/plain,EXTRA_TEXT),启动到这块屏;返回值同 startApp,另有 5=该包没有收文字分享的页面;
-    // 该包在主屏有任务时不启动、返回 1
+    // Share a piece of text to the package (ACTION_SEND text/plain, EXTRA_TEXT) and start it on this
+    // screen; the return value is the same as startApp, and 5 = the package does not receive a text
+    // sharing page; the package does not start when there is a task on the main screen, and returns 1
     int startShare(int displayId, String packageName, String text) = 30;
-    // 从现在起盯着主屏 windowMs:这段时间里主屏最上面换了的任务都记下(见 mainArrivals);返回此刻主屏最上面的任务,没有为 -1。
-    // Agent 每个动作之前调:App 不从自己在 Mina 屏上的页面、而是从后台打开另一个 App 时,系统把它放到主屏,Mina 据此认出、挪回来
+    // Stare at the home screen from now on windowMs: Record all the tasks that have been changed at the
+    // top of the main screen during this period (see mainArrivals); return to the top task of the main
+    // screen at this moment, if there is no task, it will be -1. Agent is called before each action:
+    // When the App opens another App from the background instead of its own page on the Mina screen, the
+    // system puts it on the home screen, and Mina recognizes and moves it back accordingly.
     int watchMainScreen(int windowMs) = 31;
-    // sinceUptimeMs(SystemClock.uptimeMillis)之后主屏冒到最上面的任务,先后排;字段见 MainScreenWatch.toBundle。出错为 null
+    // After sinceUptimeMs(SystemClock.uptimeMillis), the top task appears on the main screen, arranged
+    // one after another; see MainScreenWatch.toBundle for the field. Error is null
     Bundle mainArrivals(long sinceUptimeMs) = 32;
-    // 任务所属的用户(分身、工作资料是别的用户);任务不存在返回 -1
+    // The user to whom the task belongs (the clone or work profile is another user); if the task does
+    // not exist, -1 is returned
     int userOfTask(int taskId) = 33;
-    // 在 Mina 自己的屏上按一根手指的一笔触摸:times[i] 毫秒(相对按下)时手指在 (xs[i], ys[i]);第一个点按下,最后一个点抬起。
-    // 按时间逐个注入,注完才返回(至多约 10 秒);不是 Mina 的屏、参数不对或按下没注入成功返回 false
+    // Press a single touch of one finger on Mina's own screen: times[i] milliseconds (relative to
+    // pressing) when the finger is at (xs[i], ys[i]); the first point is pressed, and the last point is
+    // lifted. Inject one by one according to time, and return only after the injection is completed
+    // (about 10 seconds at most); if it is not a Mina screen, the parameters are incorrect, or the
+    // injection is not successful after pressing, it returns false.
     boolean injectStroke(int displayId, in int[] xs, in int[] ys, in long[] times) = 34;
-    // 系统动作(设闹钟、计时器、打开闹钟列表、打开预填的新日程,见 SystemIntents;别的 intent 一律不启动),启动到这块屏。
-    // 先以 shell 身份启动;接手的页面要求 Mina 有的权限(如设闹钟)而 shell 没有时,改为发出 Mina 做好的 asMina(以 Mina 的身份启动、
-    // 屏仍是这块)。返回值同 startView:5=没有页面接,6=不在放行之列;接手的 App 在主屏有任务时不启动、返回 1
+    // System actions (setting alarm clocks, timers, opening alarm clock lists, opening prefilled new
+    // schedules, see SystemIntents; other intents will not be started) are started on this screen. Start
+    // as shell first; the page to be taken over requires permissions that Mina has (such as setting an
+    // alarm clock) and the shell does not have it, instead issue asMina prepared by Mina (start as Mina,
+    // the screen is still the same). The return value is the same as startView: 5=no page access, 6=not
+    // included in the release list; the app to be taken over will not start when there are tasks on the
+    // home screen, and returns 1
     int startSystemAction(int displayId, in Intent intent, in PendingIntent asMina) = 35;
-    // 以 shell 身份跑一条设置用的命令(授权、无障碍列表等;和经已配对的无线调试跑一样),不限于某块屏;返回 exitCode 和 output。
-    // 助手是电脑经 USB 起的、没配对过无线调试时,Mina 的这类命令只能经这里
+    // Run a setup command (authorization, accessibility list, etc.; the same as the paired wireless
+    // debugging run) as a shell, not limited to a certain screen; return exitCode and output. When the
+    // assistant is connected to the computer via USB and has not been paired for wireless debugging,
+    // Mina's commands can only be accessed here.
     Bundle runCommand(String command) = 36;
-    // Mina 的进程被杀后助手要不要把它拉起来(RestoreWish.flags:1=拉起来 2=拉起来前写回无障碍服务)。
-    // 助手读不到 Mina 的设置,只记最后交来的这一份;Mina 每次交接后和心愿变了时都交一次
+    // After Mina's process is killed, should the assistant pull it up (RestoreWish.flags: 1=pull it up
+    // 2=write back to the accessibility service before pulling it up). The assistant cannot read Mina's
+    // settings, and only remembers the last one handed in; Mina will hand it over again after each
+    // handover and when her wishes change.
     void setRestoreWish(int flags) = 37;
-    // 能打开里面 App 的那几份别的用户(分身、工作资料一类;规则见 AppCopies):users=int[] 编号,summary=给诊断信息的一行
-    // (编号、标记、类型、资料组,不含名字和装了什么);读不到用户为 null
+    // The number of users who can open the app inside (avatars, work profiles, etc.; see AppCopies for
+    // rules): users=int[] number, summary=a line of diagnostic information (number, tag, type, data
+    // group, excluding name and installed content); users who cannot be read are null
     Bundle appCopyUsers() = 38;
-    // 在另一份用户 userId 里打开该包,启动到这块屏;只认 appCopyUsers 列出的那几份,别的返回 8。返回值同 startApp / restartApp。
-    // 主屏、Mina 另一块屏上的占用只看这一份(包名 + 用户):用户在主屏用着本来那份时不挡这一份,反过来也一样。
-    // cold 时只结束这份用户里的进程,另一份不动;userId 是 Mina 自己的用户时等同 startApp / restartApp
+    // Open the package in another userId and boot to this screen; only recognize the copies listed in
+    // appCopyUsers, and return 8 for others. The return value is the same as startApp / restartApp. On
+    // the home screen and Mina, only this share (package name + user) is occupied on the other screen:
+    // the user does not block this share when using the original share on the home screen, and vice
+    // versa. When cold, only the process in this user is ended, and the other one is left unchanged;
+    // when userId is Mina's own user, it is equivalent to startApp / restartApp
     int startAppInUser(int displayId, String packageName, int userId, boolean cold) = 39;
-    // 该包在 userId 那份用户里的任务所在的 Mina 虚拟屏;不在 Mina 的任何一块屏上返回 -1
+    // The package is in the Mina virtual screen where the task in the user with userId is located; if it
+    // is not on any screen in Mina, -1 is returned.
     int displayOfPackageInUser(String packageName, int userId) = 40;
 
-    // 主屏设备准备,与虚拟屏按键白名单分开;凭据只经 Binder 传入,不经 shell 命令行。
+    // Main screen device preparation is separate from the virtual screen button whitelist; credentials
+    // are only passed in through Binder, not through the shell command line.
     boolean wakeDevice() = 41;
     boolean dismissDeviceKeyguard() = 42;
     boolean enterDeviceCredential(int kind, in byte[] credential) = 43;
 
-    // 同 getAudioMode / setAudioMuted / setAudioMode,作用在 userId 那份用户里的那份(分身、工作资料);
-    // userId 是 Mina 自己的用户时等同原来的几个。PLAY_AUDIO 按包 + 用户分开设,两份互不影响
+    // Same as getAudioMode / setAudioMuted / setAudioMode, it works on the user's share (available, work
+    // profile) of userId; when userId is Mina's own user, it is equivalent to the original ones.
+    // PLAY_AUDIO is opened separately by package + user, the two copies do not affect each other
     String getAudioModeInUser(String packageName, int userId) = 44;
     boolean setAudioMutedInUser(String packageName, int userId, boolean muted) = 45;
     boolean setAudioModeInUser(String packageName, int userId, String mode) = 46;
-    // 该包(userId 那份)在主屏上有看得见的任务,即用户正在主屏用它;看不清主屏时返回 true
+    // This package (userId's share) has visible tasks on the home screen, that is, the user is using it
+    // on the home screen; true is returned when the home screen cannot be seen clearly.
     boolean visibleOnMainScreen(String packageName, int userId) = 47;
 
-    // 任务结束:按规则处理这块屏上的 App(见 AppsAfterTask),再释放这块屏。留下的挪到主屏、排在最后面(不到用户眼前),
-    // 正在出声的和 close 里的随屏关掉。keep / close 是模型标过的键(包名,另一份为 包名@用户)。
-    // 返回 AppsAfterTask.KEY_* :kept=留下的键,closed=关掉的「键:原因」,note=挪不了时的一句原因(可为空)。不是 Mina 的屏为 null
+    // The task ends: Process the Apps on this screen according to the rules (see AppsAfterTask), and
+    // then release this screen. The remaining ones are moved to the home screen and placed at the end
+    // (not in front of the user's eyes). The ones that are making sounds and those in close are turned
+    // off along with the screen. keep / close is the key marked by the model (package name, the other is
+    // package name@user). Return AppsAfterTask.KEY_*: kept=the key left, closed=the "key: reason" for
+    // closing, note=a reason when it cannot be moved (can be empty). Screens that are not Mina are null
     Bundle finishDisplay(int displayId, in String[] keep, in String[] close) = 48;
 
-    // 沿用早先定下的销毁事务号;AIDL 要求要么全部方法编号要么都不编号
+    // Use the previously determined destruction transaction number; AIDL requires either all methods to
+    // be numbered or none to be numbered
     void destroy() = 16777114;
 }

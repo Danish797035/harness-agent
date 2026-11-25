@@ -6,21 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebPreviewTest {
-    // 只在后台临时标签里读网页:网页显示上没有标签,不算在网页上,小窗不出来(以前会是一块白底)
+    // Only read web pages in temporary tags in the background: there are no tags on the web page
+    // display, they are not included in the web page, and the small window does not appear (it used to
+    // be a white background)
     @Test fun backgroundReadsAloneDoNotOpenThePreview() {
         val p = WebPreview.of(onWeb = true, hasTab = false, handedOver = false)
         assertEquals(WebPreview.NoPage, p)
         assertFalse(p.open)
     }
 
-    // 打开了看得见的页面:放画面
+    // Open the visible page: put the screen
     @Test fun aVisibleTabShowsItsFrames() {
         val p = WebPreview.of(onWeb = true, hasTab = true, handedOver = false)
         assertEquals(WebPreview.Frames, p)
         assertTrue(p.open)
     }
 
-    // 页面在用户手上:还算在网页上,不放画面
+    // The page is in the hands of the user: it is still on the web page and does not include the screen.
     @Test fun handedOverPageStaysOpenWithoutFrames() {
         val p = WebPreview.of(onWeb = true, hasTab = true, handedOver = true)
         assertEquals(WebPreview.Hidden, p)

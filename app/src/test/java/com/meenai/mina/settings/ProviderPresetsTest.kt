@@ -14,7 +14,7 @@ class ProviderPresetsTest {
 
     private fun preset(label: String) = ProviderPresets.all.single { it.label == label }
 
-    /** 地址、名字不重复(按地址认预设);云端的都走 https,明文 http 只给自己机器上跑的。 */
+    /** The addresses and names are not repeated (according to the address to identify the default); all cloud servers use https, and plaintext http only runs on your own machine. */
     @Test fun urlsAreUniqueAndOnlySelfHostedUsePlainHttp() {
         val withUrl = ProviderPresets.all.filter { it.baseUrl.isNotEmpty() }
         assertEquals(withUrl.size, withUrl.map { it.baseUrl }.distinct().size)
@@ -26,7 +26,7 @@ class ProviderPresetsTest {
         }
     }
 
-    /** 自己跑的服务:地址可改、Key 可不填,名字仍用预设名;云端预设地址不给改、Key 必填。 */
+    /** For services you run yourself: the address can be changed, the Key does not need to be filled in, and the name still uses the default name; the default cloud address cannot be changed, and the Key is required. */
     @Test fun selfHostedPresetsHaveEditableUrlAndOptionalKey() {
         val ollama = AddForm.of(preset("Ollama")).copy(baseUrl = "http://192.168.1.20:11434/v1")
         assertTrue(ollama.urlEditable)
@@ -40,7 +40,7 @@ class ProviderPresetsTest {
         assertTrue(openAi.copy(apiKey = "sk").canTest)
     }
 
-    /** 主机名对得上就认出是哪家(路径不论);自己跑的服务、认不出的地址不算。 */
+    /** If the host name matches, you can identify it (regardless of the path); services you run yourself and unrecognized addresses are not counted. */
     @Test fun presetByHost() {
         assertEquals("Gemini", ProviderPresets.forHost("https://generativelanguage.googleapis.com")?.label)
         assertEquals("Gemini", ProviderPresets.forHost(" https://generativelanguage.googleapis.com/v1beta/openai/ ")?.label)
@@ -50,7 +50,7 @@ class ProviderPresetsTest {
         assertNull(ProviderPresets.forHost("https://models.example.com/v1"))
         assertNull(ProviderPresets.forHost("http://127.0.0.1:11434/v1"))
         assertNull(ProviderPresets.forHost("not a url"))
-        // 每个有地址、不是自己跑的预设都认得出自己
+        // Every default that has an address and is not running by itself will recognize itself.
         ProviderPresets.all.filter { it.baseUrl.isNotEmpty() && !it.selfHosted }.forEach {
             assertEquals(it.label, ProviderPresets.forHost(it.baseUrl)?.label)
         }

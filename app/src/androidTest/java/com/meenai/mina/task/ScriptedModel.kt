@@ -15,7 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
 
-/** 真机测试用的脚本模型:每次 complete 先报到(第几次、收到的历史),再等测试喂下一步工具调用。 */
+/** Script model for real machine testing: complete is reported first (how many times, the history of receipt), and then waits for the test to feed the next tool call. */
 class ScriptedModel : ChatModel {
     class Call(val number: Int, val messages: List<Message>)
 
@@ -23,21 +23,24 @@ class ScriptedModel : ChatModel {
     private val calls = Channel<Call>(Channel.UNLIMITED)
     private val replies = Channel<List<Part>>(Channel.UNLIMITED)
     private val n = AtomicInteger()
-    /** 收到的完成前核查请求次数。 */
+    /** The number of pre-completion verification requests received. */
     val verifierRequests = AtomicInteger()
-    /** 停止后写交代的请求次数;回 [stopSummary](默认空白,交代按记录直接拼),不占脚本也不计次。 */
+    /** The number of requests for writing instructions after stopping; the response is [stopSummary] (default is blank, instructions are spelled directly according to the record), which does not account for the script and does not count. */
     val summaryRequests = AtomicInteger()
     @Volatile var stopSummary: String = ""
-    /** 核查的固定回答;默认通过。 */
+    /** Fixed answer for verification; default passed. */
     @Volatile var verdict: String = PASS
     /**
-     * 从界面发起的任务在提议第一个工具调用时,会另问一次模型「用户是在讨论、要读还是要操作」;没配轻量模型时问的就是这个模型。
-     * 设了它,这一问固定这样回答(ACT / READ / DISCUSS),不占脚本也不计次;为 null 时这一问和别的调用一样要测试来喂。
+     * When a task initiated from the interface proposes the first tool call, it will ask another model
+     * "whether the user is discussing, reading, or operating"; this is the model that is asked when
+     * there is no lightweight model. If it is set, this question will be answered like this (ACT / READ
+     * / DISCUSS), which does not occupy the script and will not be counted; when it is null, this
+     * question needs to be tested like other calls.
      */
     @Volatile var intent: String? = null
 
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-        // 回答交出前的核查:固定回答,不占脚本也不计次
+        // Verification before submitting the answer: Fixed answer, no script account and no counting
         if (system == Verifier.PROMPT) {
             verifierRequests.incrementAndGet()
             return ModelReply(listOf(Part.Text(verdict)), StopReason.EndTurn, null)
@@ -46,7 +49,7 @@ class ScriptedModel : ChatModel {
             summaryRequests.incrementAndGet()
             return ModelReply(listOf(Part.Text(stopSummary)), StopReason.EndTurn, null)
         }
-        // 给新对话起标题:固定回答,不占脚本也不计次
+        // Give the new conversation a title: fixed answer, does not occupy the script and does not count
         if (system == TITLE_PROMPT) return ModelReply(listOf(Part.Text("测试对话")), StopReason.EndTurn, null)
         intent?.let { if (system == INTENT_PROMPT) return ModelReply(listOf(Part.Text(it)), StopReason.EndTurn, null) }
         calls.send(Call(n.incrementAndGet(), messages))
@@ -54,11 +57,11 @@ class ScriptedModel : ChatModel {
         return ModelReply(parts, if (parts.any { it is Part.ToolCall }) StopReason.ToolUse else StopReason.EndTurn, null)
     }
 
-    /** [say] 是模型在这一步顺带说的话(界面上显示在步骤下面)。 */
+    /** [say] is what the model said incidentally at this step (displayed on the interface below the step). */
     fun feed(name: String, args: String = "{}", say: String? = null) =
         replies.trySend(listOfNotNull(say?.let { Part.Text(it) }, Part.ToolCall("c${n.get()}", name, args)))
 
-    /** 不带调用的回复:交给用户的最终回答,任务就此结束(核对没对上时会被退回一次)。 */
+    /** Reply without call: The final answer is handed over to the user, and the task ends (it will be returned once if the check is not correct). */
     fun answer(text: String) = replies.trySend(listOf(Part.Text(text)))
 
     companion object {

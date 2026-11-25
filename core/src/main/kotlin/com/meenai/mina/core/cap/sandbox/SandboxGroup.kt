@@ -33,8 +33,10 @@ internal const val SANDBOX = "sandbox"
 private const val TIMEOUT = "Time limit in seconds, 1-600 (default 60). The command is stopped when it runs out."
 
 /**
- * 沙箱一组:设备支持时提供(运行环境没准备好时工具调用会等它)。路径都是沙箱里的路径;
- * 不是屏幕操作,不过锁屏关卡,也不进屏幕守卫(沙箱守卫另管)。执行在 [com.meenai.mina.core.cap.sandbox.SandboxTools] 里。
+ * A set of sandboxes: provided when the device supports it (the tool call will wait for it when the
+ * running environment is not ready). The paths are all paths in the sandbox; they are not screen
+ * operations, but they are lock screen levels, and they do not enter screen guards (sandbox guards are
+ * handled separately). Executed in [com.meenai.mina.core.cap.sandbox.SandboxTools].
  */
 internal interface SandboxTool : AgentTool {
     override val capability: String get() = SANDBOX
@@ -43,7 +45,7 @@ internal interface SandboxTool : AgentTool {
     override fun offered(ctx: ToolContext) = ctx.sandboxAvailable()
 }
 
-/** 命令与脚本的输出(失败的输出也是事实,照样记)、读到的文件、写入与导出的路径,都是模型可能引用的事实。 */
+/** The output of commands and scripts (the failed output is also a fact, so remember it as such), the files read, and the paths for writing and exporting are all facts that the model may reference. */
 private fun res(r: ToolExecution, k: String) = (r.content[k] as? JsonPrimitive)?.contentOrNull
 private fun ok(r: ToolExecution) = r.content["ok"] == JsonPrimitive(true)
 
@@ -66,7 +68,9 @@ internal object RunCommand : SandboxTool {
     override suspend fun execute(a: Args, ctx: ToolContext) = ctx.sandboxRunner!!.run { ws, _ -> runCommand(a, ws, ctx.callId, ctx.sub, ctx.tools) }
     override fun logTarget(o: JsonObject, r: ToolExecution, ctx: ToolContext) = o.argStr("command")
     override fun observations(o: JsonObject, r: ToolExecution, log: EvidenceLog) =
-        // 命令是助手自己写的:放在来处里,不当证据;输出里原样是命令里的字的行(echo 回显)也不算
+        // The command was written by the assistant himself: putting it where it came from is not
+        // considered evidence; lines in the output that contain the exact words in the command (echo
+        // echo) are also not counted.
         listOfNotNull(res(r, "output")?.let { output("退出码 ${res(r, "exitCode")}:\n$it", Place.command("run_command「${o.argStr("command")?.take(200)}」"), o.argStr("command")) })
 }
 
@@ -107,7 +111,8 @@ internal object ReadFile : SandboxTool {
 
     override suspend fun execute(a: Args, ctx: ToolContext) = ctx.sandboxRunner!!.run { ws, _ -> withContext(Dispatchers.IO) { readFile(a, ws) } }
     override fun observations(o: JsonObject, r: ToolExecution, log: EvidenceLog) =
-        // 读回助手自己用 write_file 写的文件,读到的是它自己写的字,不算证据
+        // Read back the file written by the assistant using write_file. What it reads is the words
+        // written by itself, which is not counted as evidence.
         listOfNotNull(if (ok(r) && res(r, "path") !in log.writtenPaths) res(r, "content")?.let { output(it, Place.file("read_file ${res(r, "path")}")) } else null)
 }
 
@@ -176,7 +181,7 @@ internal object ShareFile : SandboxTool {
         listOfNotNull(if (ok(r)) output("share_file 已存到 ${res(r, "savedAs")}") else null)
 }
 
-/** 沙箱给出的一条观察:命令输出、文件内容、写入与导出的路径。[authored] 是助手自己写的命令(输出里的回显不记)。 */
+/** An observation from the sandbox: command output, file contents, writing and exporting paths. [authored] is a command written by the assistant itself (the echo in the output is not remembered). */
 private fun output(text: String, place: Place? = null, authored: String? = null) =
     Observation(ObsKind.Output, text, source = SANDBOX, place = place, authored = authored)
 

@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 在真实 shell uid 下调用生产代码;不依赖已运行的助手是否还是旧版本。 */
+/** Calls production code under a real shell uid; does not depend on whether the running helper is still an older version. */
 @RunWith(AndroidJUnit4::class)
 @SdkSuppress(minSdkVersion = 31)
 class ShellClipboardDeviceTest {
@@ -19,13 +19,14 @@ class ShellClipboardDeviceTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val classpath = listOf(instrumentation.targetContext, instrumentation.context)
             .joinToString(":") { it.applicationInfo.sourceDir }
-        // executeShellCommand 不经过 shell:环境变量用 env 传,不能写 VAR=… 和重定向
+        // executeShellCommand does not pass through the shell: environment variables are passed in env,
+        // and VAR=... and redirection cannot be written.
         val output = sh("env CLASSPATH=$classpath app_process / ${ShellClipboardProbe::class.java.name}")
         assertTrue(output, output.lineSequence().any { it == ShellClipboardProbe.PASSED })
     }
 }
 
-/** app_process 从被测 APK 加载生产代码,不依赖已运行的助手是否还是旧版本。 */
+/** app_process loads production code from the APK under test, regardless of whether the running helper is still an older version. */
 object ShellClipboardProbe {
     const val PASSED = "shell-clipboard-passed"
 
@@ -43,13 +44,14 @@ object ShellClipboardProbe {
                 check(result == ShellService.CLIP_SET) { "setClipText returned $result" }
                 check(clipboard.primaryClip?.getItemAt(0)?.text?.toString() == text)
             } finally {
-                // 复用生产代码的保存/还原,不输出用户剪贴板内容。
+                // Save/restore reused production code without outputting user clipboard content.
                 shell.restoreClip()
             }
             check(clipboard.primaryClip?.getItemAt(0)?.text?.toString() == originalText)
             println(PASSED)
             System.out.flush()
-            // 不走 System.exit:剪贴板服务留下的线程会让它卡住不退,测试就一直等着
+            // If you don’t leave System.exit: The thread left by the clipboard service will make it
+            // stuck and the test will keep waiting.
             Runtime.getRuntime().halt(0)
         } catch (t: Throwable) {
             t.printStackTrace()

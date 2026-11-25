@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToLong
 
-/** 运行小结和运行统计的说法。token 数用 Token 用量页同一种写法([UsageCopy.tokens])。 */
+/** Operation summary and operation statistics. The token number is written in the same way as the Token usage page ([UsageCopy.tokens]). */
 object RunMetricsCopy {
     val MODEL: String get() = tr(R.string.metrics_model)
     val OBSERVE: String get() = tr(R.string.metrics_observe)
@@ -61,11 +61,11 @@ object RunMetricsCopy {
     val COPY: String get() = tr(R.string.metrics_copy)
     val SHARE: String get() = tr(R.string.metrics_share)
 
-    /** 统计范围:最近 10 / 30 / 100 次,或存下的全部(null)。 */
+    /** Statistics range: the last 10 / 30 / 100 times, or all saved (null). */
     val RANGES: List<Int?> = listOf(10, 30, 100, null)
     val RANGE_LABELS get() = listOf(tr(R.string.metrics_last_10), trPlural(R.plurals.metrics_runs, 30), trPlural(R.plurals.metrics_runs, 100), tr(R.string.usage_all))
 
-    /** 时长:一分钟以内到 0.1 秒(「3.2 秒」「45 秒」),往上「2 分 13 秒」,一小时以上「1 小时 5 分」。 */
+    /** Duration: within one minute to 0.1 seconds ("3.2 seconds" and "45 seconds"), upwards "2 minutes 13 seconds", and more than one hour "1 hour 5 minutes". */
     fun duration(ms: Long): String {
         val t = ms.coerceAtLeast(0)
         if (t < 59_950) {
@@ -77,7 +77,7 @@ object RunMetricsCopy {
         return tr(R.string.duration_h_m, s / 3600, s % 3600 / 60)
     }
 
-    /** 时间线顶上那一行:「共 2 分 13 秒 · 和模型来回 14 次 · 8.6 万 Token · 第一次反馈 3.2 秒」。 */
+    /** The line at the top of the timeline: "A total of 2 minutes and 13 seconds · 14 times back and forth with the model · 86,000 Tokens · 3.2 seconds for the first feedback." */
     fun summaryLine(m: RunMetrics): String = listOfNotNull(
         tr(R.string.metrics_total, duration(m.totalMs)),
         trPlural(R.plurals.metrics_round_trips, m.modelCalls),
@@ -85,11 +85,11 @@ object RunMetricsCopy {
         m.firstFeedbackMs?.let { tr(R.string.metrics_first_feedback_at, duration(it)) },
     ).joinToString(" · ")
 
-    /** 用时和占总时长的比例。 */
+    /** time and proportion of total time. */
     fun share(ms: Long, totalMs: Long): String =
         if (totalMs <= 0) duration(ms) else "${duration(ms)} · ${UsageCopy.percent(ms.toDouble() / totalMs)}"
 
-    /** 点开后的细目:时间去向、token、步数与次数。 */
+    /** Details after clicking: time direction, token, number of steps and times. */
     fun breakdown(m: RunMetrics): List<Pair<String, String>> = buildList {
         add(MODEL to share(m.modelMs, m.totalMs))
         add(OBSERVE to share(m.observeMs, m.totalMs))
@@ -105,7 +105,7 @@ object RunMetricsCopy {
         add(tr(R.string.metrics_observe_act) to tr(R.string.metrics_observe_act_value, m.observeCalls, m.actCalls))
     }
 
-    /** 运行统计的各行。 */
+    /** Run statistics on each row. */
     fun statsRows(s: RunStats): List<Pair<String, String>> = listOf(
         tr(R.string.metrics_counted) to trPlural(R.plurals.metrics_n_runs, s.runs),
         tr(R.string.metrics_success_rate) to tr(R.string.metrics_success_value, UsageCopy.percent(s.successRate), s.succeeded, s.runs),
@@ -115,7 +115,7 @@ object RunMetricsCopy {
         tr(R.string.metrics_avg_tokens) to UsageCopy.tokens(s.avgTokens.roundToLong()),
     )
 
-    /** 时间去向:各项之和占总时长之和。 */
+    /** Where time goes: The sum of each item accounts for the total duration. */
     fun splitRows(s: RunStats): List<Pair<String, String>> = listOf(
         MODEL to UsageCopy.percent(ratio(s.modelMs, s.totalMs)),
         OBSERVE to UsageCopy.percent(ratio(s.observeMs, s.totalMs)),
@@ -129,7 +129,7 @@ object RunMetricsCopy {
     private fun ratio(a: Long, b: Long) = if (b <= 0) 0.0 else a.toDouble() / b
 }
 
-/** 「查看过程」顶上的一行小结;点一下展开时间去向、token 和步数。 */
+/** A summary line at the top of "View Process"; click to expand the time direction, token and number of steps. */
 @Composable
 fun RunMetricsSummary(m: RunMetrics) {
     val c = MinaTheme.colors
@@ -144,7 +144,7 @@ fun RunMetricsSummary(m: RunMetrics) {
     if (open) RunMetricsCopy.breakdown(m).forEach { (k, v) -> ListRow(null, k) { RowValue(v) } }
 }
 
-/** 开发者选项 › 运行统计:从小结存储里读最近几次,算平均和中位数;能把这几次的小结复制或分享成 JSON。 */
+/** Developer options › Run statistics: Read the last few times from the summary storage and calculate the average and median; you can copy or share the summaries of these times into JSON. */
 @Composable
 fun RunStatsScreen(store: RunMetricsStore, onBack: () -> Unit) {
     val context = LocalContext.current

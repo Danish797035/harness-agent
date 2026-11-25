@@ -8,7 +8,8 @@ import java.util.Base64
 
 class BlobChunksTest {
     @Test fun declaredLengthCheckedBeforeAnyAllocation() {
-        // 20 MB 上限:报 Int.MAX_VALUE 的长度直接拒,不按它分配
+        // 20 MB upper limit: The length reported as Int.MAX_VALUE will be rejected directly and will not
+        // be allocated according to it.
         assertEquals("too_large", BlobChunks(Int.MAX_VALUE, 20L shl 20).refusal())
         assertEquals("unreadable", BlobChunks(-1, 20L shl 20).refusal())
         assertNull(BlobChunks((BlobChunks.maxBase64(20L shl 20)).toInt(), 20L shl 20).refusal())
@@ -16,10 +17,10 @@ class BlobChunksTest {
 
     @Test fun chunksAreCappedAndCannotExceedTheDeclaredLength() {
         val c = BlobChunks(8, 100, chunk = 4)
-        assertEquals("unreadable", c.add("12345")) // 一段超长
+        assertEquals("unreadable", c.add("12345")) // A very long paragraph
         assertNull(c.add("aGVs"))
         assertNull(c.add("bG8="))
-        assertEquals("unreadable", c.add("x")) // 超出报的长度
+        assertEquals("unreadable", c.add("x")) // Exceeded the reported length
         assertArrayEquals("hello".toByteArray(), (c.finish() as BlobChunks.Outcome.Ok).bytes)
     }
 

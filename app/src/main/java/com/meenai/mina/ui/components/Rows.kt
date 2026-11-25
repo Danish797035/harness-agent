@@ -44,13 +44,13 @@ import com.meenai.mina.ui.theme.MinaSize
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 分组小标题:13 / 500,辅助文字色。 */
+/** Group subtitle: 13 / 500, auxiliary text color. */
 @Composable
 fun GroupLabel(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier.padding(top = 8.dp, bottom = 8.dp), style = MinaType.Label, color = MinaTheme.colors.ink3)
 }
 
-/** 分组下面的说明,和卡片里的文字对齐。 */
+/** Group the instructions below and align them with the text in the card. */
 @Composable
 fun FooterNote(text: String, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
     Text(
@@ -59,7 +59,7 @@ fun FooterNote(text: String, modifier: Modifier = Modifier, color: Color = Color
     )
 }
 
-/** 图标块的底色和图形色。默认中性;只有状态才上色。 */
+/** The background color and graphic color of the icon block. Default is neutral; only status is colored. */
 enum class TileTone {
     Neutral, Accent, Ok, Warn, Bad;
 
@@ -72,7 +72,7 @@ enum class TileTone {
     }
 }
 
-/** 行左边的图标块:30dp、圆角 9,里面图形 18dp。 */
+/** Icon block on the left side of the row: 30dp, rounded corners 9, inner graphic 18dp. */
 @Composable
 fun IconTile(icon: ImageVector, tone: TileTone = TileTone.Neutral) {
     val (bg, fg) = tone.colors(MinaTheme.colors)
@@ -81,7 +81,7 @@ fun IconTile(icon: ImageVector, tone: TileTone = TileTone.Neutral) {
     }
 }
 
-/** 行与行之间的分隔线,从 [start] 画到右边;分组首行([first])不画。 */
+/** The dividing line between rows is drawn from [start] to the right; the first row of the group ([first]) is not drawn. */
 private fun Modifier.topHairline(first: Boolean, start: Dp, color: Color): Modifier =
     if (first) this
     else drawBehind {
@@ -89,14 +89,16 @@ private fun Modifier.topHairline(first: Boolean, start: Dp, color: Color): Modif
         drawLine(color, Offset(start.toPx(), y), Offset(size.width, y), strokeWidth = 0.5.dp.toPx())
     }
 
-/** 有图标块时文字从这里开始:左边距 16 + 图标块 30 + 间距 14。 */
+/** Text starts here when there is an icon block: left margin 16 + icon block 30 + spacing 14. */
 private val TextStartWithIcon = 60.dp
 private val TextStartPlain = 16.dp
 
 /**
- * 列表行:左边图标块可选,中间标题和说明,右边是 [trailing](值、胶囊、开关、箭头)。
- * [detail] 是说明下面再一行的小字(如「上次结果」),颜色由 [detailColor] 定。
- * [first] 为分组首行时不画上分隔线;[onClick] 为空时整行不可点。
+ * List row: The icon block on the left is optional, the title and description are in the middle, and
+ * [trailing] (value, capsule, switch, arrow) is on the right. [detail] is the small text describing the
+ * next line (such as "last result"), and the color is determined by [detailColor]. When [first] is the
+ * first line of the group, no dividing line is drawn; when [onClick] is empty, the entire line cannot be
+ * clicked.
  */
 @Composable
 fun ListRow(
@@ -133,7 +135,7 @@ fun ListRow(
 
 enum class ValueTone { Plain, Ok, Warn, Bad, Link }
 
-/** 行尾的值。 */
+/** The value at the end of the line. */
 @Composable
 fun RowValue(text: String, tone: ValueTone = ValueTone.Plain) {
     val c = MinaTheme.colors
@@ -151,13 +153,13 @@ fun RowValue(text: String, tone: ValueTone = ValueTone.Plain) {
     )
 }
 
-/** 行尾的小箭头:点进去还有一页。 */
+/** The small arrow at the end of the line: Click to enter and there will be another page. */
 @Composable
 fun RowChevron() {
     Icon(MinaIcons.Chevron, null, Modifier.size(MinaSize.SmallIcon), tint = MinaTheme.colors.ink3)
 }
 
-/** 单选行:左边圆圈,选中时实心强调色。分隔线从文字处开始。 */
+/** Single selection row: circle on the left, solid accent color when selected. The separator line starts at the text. */
 @Composable
 fun RadioRow(
     title: String,
@@ -167,7 +169,7 @@ fun RadioRow(
     first: Boolean = false,
     enabled: Boolean = true,
     titleStyle: TextStyle = MinaType.Body,
-    /** 标题下面的附加内容(例如能力小标签)。 */
+    /** Additional content below the title (e.g. capability tag). */
     below: (@Composable () -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
@@ -204,8 +206,9 @@ private fun RadioMark(selected: Boolean, enabled: Boolean = true) {
 }
 
 /**
- * 卡片里的输入行:左边固定宽的标题,右边单行输入框(空时显示 [placeholder])。
- * [secret] 为真时按密码显示;[trailing] 放在输入框右边(例如「显示」)。
+ * Input row in the card: fixed-width title on the left, single-line input box on the right (displays
+ * [placeholder] when empty). When [secret] is true, it is displayed as the password; [trailing] is
+ * placed on the right side of the input box (for example, "display").
  */
 @Composable
 fun InputRow(
@@ -241,7 +244,7 @@ fun InputRow(
     }
 }
 
-/** 卡片里自己排版的块之间的分隔线,从 [start] 画到右边。 */
+/** The dividing line between the self-typed blocks in the card is drawn from [start] to the right. */
 @Composable
 fun Hairline(start: Dp = TextStartWithIcon) {
     Box(Modifier.fillMaxWidth().padding(start = start).height(0.5.dp).background(MinaTheme.colors.hair))

@@ -37,7 +37,7 @@ class McpRpcTest {
     private fun modernHeaders(method: String, version: String = McpRpc.MODERN, name: String? = null) =
         mapOf("MCP-Protocol-Version" to version, "Mcp-Method" to method) + (name?.let { mapOf("Mcp-Name" to it) } ?: emptyMap())
 
-    // ---------- 老一代:握手 ----------
+    // ---------- Older generation: handshake ----------
 
     @Test fun initializeNegotiatesALegacyVersion() {
         val r = post("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"desk","version":"1"}}}""")
@@ -48,7 +48,7 @@ class McpRpcTest {
         assertTrue(result["capabilities"]!!.jsonObject.containsKey("tools"))
         assertNull("no sessions", r.headers["Mcp-Session-Id"])
         assertEquals(listOf<String?>("desk"), seen)
-        // 不认的版本给最新的老一代版本
+        // The unrecognized version is given to the latest older generation version.
         val other = post("""{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-01-01","capabilities":{}}}""")
         assertEquals(McpRpc.LEGACY_VERSIONS.first(), other.json()["result"]!!.jsonObject["protocolVersion"]!!.jsonPrimitive.content)
     }
@@ -109,7 +109,7 @@ class McpRpcTest {
         assertEquals(400, post("""{"jsonrpc":"2.0","id":1,"method":"ping"}""", mapOf("MCP-Protocol-Version" to "1999-01-01")).status)
     }
 
-    // ---------- 新一代:每个请求自带版本 ----------
+    // ---------- New generation: Each request comes with its own version ----------
 
     @Test fun modernDiscoverAndToolsList() {
         val d = post("""{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{${modernMeta()}}}""", modernHeaders("server/discover"))
@@ -150,7 +150,7 @@ class McpRpcTest {
         }
         val noCaps = """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"${McpRpc.MODERN}"}}}"""
         post(noCaps, modernHeaders("tools/list")).let { assertEquals(400, it.status); assertEquals(McpRpc.INVALID_PARAMS, it.errorCode()) }
-        // 头里是新一代版本、正文却没有 _meta
+        // There is a new generation version in the head, but there is no _meta in the text.
         post("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""", modernHeaders("tools/list")).let {
             assertEquals(400, it.status); assertEquals(McpRpc.INVALID_PARAMS, it.errorCode())
         }

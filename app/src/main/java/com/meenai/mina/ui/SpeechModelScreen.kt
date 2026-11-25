@@ -49,24 +49,26 @@ import com.meenai.mina.voice.SystemSpeech
 import com.meenai.mina.voice.DoubaoCredentials
 import com.meenai.mina.voice.DoubaoProtocol
 
-/** 选择页上的动作。 */
+/** Select an action on the page. */
 class SpeechPickActions(
-    /** 「手机自带」或「不用」:当场生效并返回。 */
+    /** "Comes with your phone" or "No need": it will take effect on the spot and return. */
     val pick: (SpeechChoice) -> Unit = {},
-    /** (服务商 id, 模型名):先试转,通了才选上并返回;列表里点的和手填的都走这里。 */
+    /** (Service provider id, model name): Try the transfer first, then select and return after it passes; both those clicked in the list and those filled in by hand go here. */
     val pickModel: (String, String) -> Unit = { _, _ -> },
-    /** 进豆包流式识别的设置页。 */
+    /** Enter the settings page of bean bag streaming recognition. */
     val openDoubao: () -> Unit = {},
-    /** (API Key, App ID, Access Token, 计费方式):加密存下凭据并选用;不联网。 */
+    /** (API Key, App ID, Access Token, billing method): Encrypt the credentials and select them; not connected to the Internet. */
     val saveDoubao: (String, String, String, String) -> Unit = { _, _, _, _ -> },
-    /** 沿用已存的凭据,换成这种计费方式并选用。 */
+    /** Inherit the saved credentials, switch to this billing method and select it. */
     val useDoubao: (String) -> Unit = {},
     val clearDoubao: () -> Unit = {},
 )
 
 /**
- * 设置 › 模型 › 语音转文字:自己带一个模型状态,可以从别处(例如输入框的「还不能语音输入」)直接进入。
- * 选好(手机自带、不用、试转通过的服务商模型)后回到进来的那一页。
+ * Settings › Model › Speech to Text: Bring a model status yourself, which can be entered directly from
+ * elsewhere (such as "Voice input not yet available" in the input box). After selecting (the service
+ * provider model that comes with the phone, is not used, and passes the trial transfer), return to the
+ * page you entered.
  */
 @Composable
 fun SpeechModelScreen(store: ProviderStore, onBack: () -> Unit) {
@@ -74,7 +76,7 @@ fun SpeechModelScreen(store: ProviderStore, onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = (context.applicationContext as? HarnessApp)?.speech
     var doubaoConfigured by remember { mutableStateOf(settings?.hasDoubaoCredentials == true) }
-    // 豆包的设置页叠在这一页上面;返回键先关它
+    // The setting page of Doubao is stacked on this page; press the return key to close it first
     var doubaoOpen by remember { mutableStateOf(false) }
     val vm = remember {
         ModelSetupViewModel(
@@ -93,7 +95,7 @@ fun SpeechModelScreen(store: ProviderStore, onBack: () -> Unit) {
         pick = { vm.pickSpeech(it); onBack() },
         pickModel = { pid, model -> vm.pickSpeechModel(pid, model, onPicked = onBack) },
         openDoubao = { doubaoOpen = true },
-        // 存好后回到语音转文字页,看得到它已选上
+        // After saving, return to the speech-to-text page and see that it has been selected.
         saveDoubao = { key, appId, token, resource ->
             checkNotNull(settings).saveDoubao(DoubaoCredentials(key, appId, token), resource)
             doubaoConfigured = true
@@ -116,15 +118,16 @@ fun SpeechModelScreen(store: ProviderStore, onBack: () -> Unit) {
     }
 }
 
-/** 不带状态的选择页,便于测试:顶上一段说明,「手机自带」「不用」,下面按服务商分组单选。 */
+/** The selection page without status is convenient for testing: the top paragraph states, "comes with the phone" and "does not need to be used", and the following is grouped by service provider for single selection. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SpeechModelContent(ui: ModelSetupUi, probe: Map<String, String>, actions: SpeechPickActions, onBack: () -> Unit, doubaoConfigured: Boolean = false) {
     val c = MinaTheme.colors
     val system = ui.systemSpeech
     val choice = ui.speech
-    // 没选过时有手机自带就是在用它,所以「没选过」也把它标成选中
-    // 记成不响应时不标选中;行仍可点,重新选它就清掉记号再试
+    // If it is not selected, it comes with the phone and I am using it, so "not selected" will also mark
+    // it as selected. If it is marked as unresponsive, it will not be marked as selected; the row can
+    // still be clicked. Select it again to clear the mark and try again.
     val systemSelected = system.usable && (choice == SpeechChoice.System || choice == SpeechChoice.Auto)
     Page(tr(R.string.role_speech), onBack) {
         Text(
@@ -160,7 +163,8 @@ fun SpeechModelContent(ui: ModelSetupUi, probe: Map<String, String>, actions: Sp
             val p = g.provider
             val testing = ui.speechTesting == p.id
             GroupLabel(ModelsCopy.providerName(p))
-            // 手填选上的模型不在列表里,也补一行标成选中,让人看得出现在用的是哪个
+            // The model selected by hand is not in the list, and a line is added to mark it as selected,
+            // so that people can see which one is being used.
             val picked = (choice as? SpeechChoice.Provider)?.takeIf { it.providerId == p.id }?.model
             val rows = if (picked != null && picked !in g.models) g.models + picked else g.models
             GroupCard {
@@ -171,14 +175,16 @@ fun SpeechModelContent(ui: ModelSetupUi, probe: Map<String, String>, actions: Sp
                         trailing = { CapabilityTag(tr(R.string.speech_tag_speech)) },
                     )
                 }
-                // 列表里没有的(列表不全、或这家不给列表)手填
+                // What is not in the list (the list is incomplete or this company does not provide a
+                // list) must be filled in by hand
                 Box(Modifier.testTag("speech-manual-${p.name}")) {
                     ManualModel(p, if (testing) ListState.Running else null, first = rows.isEmpty()) { actions.pickModel(p.id, it) }
                 }
             }
             when {
                 probe[p.id] != null -> {
-                    // 列表长时原因落在屏幕外,点了像没反应:出来时滚到看得见
+                    // The reason why the list is too long is that it falls outside the screen and there
+                    // is no response when I click it: when it comes out, scroll until it is visible.
                     val why = probe.getValue(p.id)
                     val into = remember { BringIntoViewRequester() }
                     LaunchedEffect(why) { into.bringIntoView() }
@@ -192,8 +198,10 @@ fun SpeechModelContent(ui: ModelSetupUi, probe: Map<String, String>, actions: Sp
 }
 
 /**
- * 「边说边转的语音服务」一组:只有一行。没存凭据时点它进设置页;存了以后点圆圈就用它,右边「设置」进去改凭据或删掉。
- * 凭据和聊天服务商分开存,不列模型、不试转。
+ * "Speak and transfer voice service" group: only one line. If the credentials are not saved, click it to
+ * enter the settings page; after saving, click the circle to use it, and go to "Settings" on the right
+ * to change the credentials or delete them. The credentials are stored separately from the chat service
+ * provider, the model is not listed, and there is no trial transfer.
  */
 @Composable
 private fun DoubaoRow(choice: SpeechChoice, configured: Boolean, actions: SpeechPickActions) {
@@ -229,8 +237,11 @@ private fun planName(resource: String): Int =
     if (resource == DoubaoProtocol.CONCURRENT) R.string.speech_doubao_concurrent else R.string.speech_doubao_duration
 
 /**
- * 豆包流式识别的设置页:填凭据(新版控制台的 API Key,或旧版的 App ID + Access Token)、选计费方式。
- * 保存不联网;已存的凭据不回填,输入框也不进可恢复的状态。只改计费方式、不重填凭据时沿用已存的凭据。
+ * The setting page of Doubao streaming recognition: fill in the credentials (API Key of the new version
+ * of the console, or App ID + Access Token of the old version), and select the billing method. Save
+ * without connecting to the Internet; saved credentials will not be backfilled, and the input box will
+ * not enter a recoverable state. If you only change the billing method and do not refill the
+ * credentials, the existing credentials will be used.
  */
 @Composable
 fun DoubaoSetupPage(choice: SpeechChoice, configured: Boolean, actions: SpeechPickActions, onBack: () -> Unit) {

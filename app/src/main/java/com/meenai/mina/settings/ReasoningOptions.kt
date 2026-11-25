@@ -3,19 +3,23 @@ package com.meenai.mina.settings
 import com.meenai.mina.core.model.ListedModel
 
 /**
- * 思考档位。服务商列表写明档位的模型,四种协议(Chat Completions、Messages、generateContent、Responses)都照它给
- * (Anthropic 列表逐项写明每个模型支持的档位和思考方式,见 ModelCatalog);
- * 没写明时只有 Responses 一族给通用手动档位(带提示,实际支持情况以服务端为准),
- * 其余协议不猜:各模型认的档位和写法不一样,猜错了每次请求都被拒。
+ * Think gears. The service provider list specifies the gear model, and the four protocols (Chat
+ * Completions, Messages, generateContent, and Responses) are all given according to it (the Anthropic
+ * list specifies the gears and thinking methods supported by each model item by item, see ModelCatalog);
+ * when not specified, only the Responses family gives the general manual gear (with a prompt, the actual
+ * support situation is subject to the server), No guessing for other protocols: each model recognizes
+ * different gears and writing methods. If you guess wrong, every request will be rejected.
  */
 data class ReasoningOptions(val levels: List<String>, val fromProvider: Boolean) {
     companion object {
-        // 列表没说明档位时供手动选择,不声称每个模型都支持;界面会说明,默认始终不指定。
+        // If the list does not specify the gear, it can be selected manually, and it does not claim that
+        // every model supports it; the interface will explain it, and the default is never specified.
         private val manualLevels = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
         fun of(config: ProviderConfig, listed: ListedModel?): ReasoningOptions? {
             listed?.reasoningEfforts?.let { return ReasoningOptions(it, fromProvider = true) }
-            // 仍返回空选项,使已保存的旧档位能在界面恢复默认。
+            // Still returns an empty option so that the old saved gears can be restored to default in
+            // the interface.
             if (listed?.reasoning == false) return ReasoningOptions(emptyList(), fromProvider = true)
             return when (ProviderStore.adapterFor(config, listed?.endpoint).first) {
                 ProviderConfig.Kind.OpenAiResponses, ProviderConfig.Kind.ChatGpt, ProviderConfig.Kind.Xai ->

@@ -5,9 +5,13 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
 /**
- * 一组同生共死的系统资源(虚拟屏、网页显示等):用 [acquire] 建,建好当场登记,[close] 时按登记的反序放掉。
- * 「建完交回调用方再记到字段」中间隔着一次挂起,任务恰在这时取消,建好的东西就没人记得放;登记在建的同一段里做,就没有这个空档。
- * 任意线程可用;每个资源只放一次,[close] 可重复调。
+ * A group of system resources (virtual screen, web page display, etc.) that live and die together: Use
+ * [acquire] to build, register on the spot after building, and release [close] in the reverse order of
+ * registration. There is a hang in between "After the construction is completed, return it to the caller
+ * and then record it in the field". The task is canceled at this time, and no one remembers to put the
+ * built things. If the registration is done in the same section as the construction, there will be no
+ * such gap. Any thread is available; each resource is only placed once, [close] can be adjusted
+ * repeatedly.
  */
 class ResourceScope {
     private class Entry(val context: CoroutineContext, val release: () -> Unit)
@@ -17,8 +21,10 @@ class ResourceScope {
     private var closed = false
 
     /**
-     * 在 [context] 里调 [create],建好立即登记,收尾时同样在 [context] 里调 [release]。
-     * 建好之后即使任务被取消(取消在交回时抛出),资源也已归作用域。作用域已关时建出来的立即放掉,并抛 [IllegalStateException]。
+     * Adjust [create] in [context], register immediately after creation, and also adjust [release] in
+     * [context] at the end. Even if the task is canceled after it is built (cancellation is thrown when
+     * it is handed back), the resources have been returned to the scope. The ones created when the scope
+     * is closed are immediately discarded and [IllegalStateException] is thrown.
      */
     suspend fun <T> acquire(context: CoroutineContext, release: (T) -> Unit, create: suspend () -> T): T =
         withContext(context) {
@@ -31,7 +37,7 @@ class ResourceScope {
             made
         }
 
-    /** 按登记的反序放掉全部;一个放不掉不影响其余,放完后抛出第一个错误。不受取消打断。 */
+    /** Release them all in the reverse order of registration; failure to release one will not affect the others, and the first error will be thrown after the release. Uninterrupted by cancellation. */
     suspend fun close() {
         val todo = synchronized(lock) {
             closed = true

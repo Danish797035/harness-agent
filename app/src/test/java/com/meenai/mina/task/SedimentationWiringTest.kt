@@ -56,7 +56,9 @@ class SedimentationWiringTest {
         runBlocking { learning(off, learn = false, model = offModel).learn(after(events())) }
         assertTrue(off.drafts.isEmpty() && offModel.requests.isEmpty())
 
-        // 学习看结局不看核查:没跑核查、判下来办成的照样起草;核查跑过却没通过的不起草
+        // Learn to look at the outcome and not the verification: those who did not go through the
+        // inspection and were judged to be successful will still be drafted; those who passed the
+        // inspection but failed will not be drafted
         val unreviewed = MapSkills()
         runBlocking { learning(unreviewed, learn = true).learn(after(events(), end = TaskState.Succeeded("ok", verified = false, reviewed = false))) }
         assertEquals(listOf("draft-1"), unreviewed.drafts.keys.toList())
@@ -64,7 +66,8 @@ class SedimentationWiringTest {
         runBlocking { learning(doubtful, learn = true).learn(after(events(), end = TaskState.Succeeded("ok", verified = false, note = "x"))) }
         assertTrue(doubtful.drafts.isEmpty())
 
-        // 回答核实过,但判下来只办了一部分、没办成或没判成:不起草
+        // The answer has been verified, but only part of the decision was completed, failed to be
+        // completed, or not completed: No drafting
         for (o in listOf(RunOutcome.Partial, RunOutcome.NotPossible, RunOutcome.Unknown)) {
             val notDone = MapSkills()
             val model = TextModel(draftMd)
@@ -72,7 +75,7 @@ class SedimentationWiringTest {
             assertTrue(o.wire, notDone.drafts.isEmpty() && model.requests.isEmpty())
         }
 
-        // 走的是回放路线:不再起草
+        // Taking the replay route: no more drafting
         val replayed = MapSkills()
         runBlocking { learning(replayed, learn = true).learn(after(events(extra = listOf(RunEvent.Replay(50, "r", 1, 3, true, ""))))) }
         assertTrue(replayed.drafts.isEmpty())
@@ -84,7 +87,8 @@ class SedimentationWiringTest {
         assertEquals("draft-1", notes.skillNotes.single().draftId)
     }
 
-    // 模型说这次是对一份待确认草稿的更新:写回那份草稿的编号,不另起一份
+    // The model says that this is an update to a draft that needs to be confirmed: write back the number
+    // of that draft without starting a new one.
     @Test fun draftUpdatingPendingDraftReplacesIt() {
         val skills = MapSkills()
         skills.putPending("draft-0", PersonalSkill("send-wechat-message", draftMd, SkillStatus.pending, "r0", null, 0, emptyList()))
@@ -121,26 +125,28 @@ class SedimentationWiringTest {
         assertEquals(SkillStatus.suspended, skills.get("wechat-msg")!!.status)
         assertEquals(listOf("verifier_rejected"), skills.get("wechat-msg")!!.outcomes)
         assertEquals("wechat-msg", notes.skillNotes.single().suspended)
-        // 照着个人技能做成的:只记结果,不起草
+        // Made according to personal skills: only remember the results, not drafting
         val ok = MapSkills(skill)
         runBlocking { learning(ok, learn = true).learn(after(events(extra = used))) }
         assertEquals(listOf("verified"), ok.get("wechat-msg")!!.outcomes)
         assertTrue(ok.drafts.isEmpty())
-        // 没跑核查、判下来办成:也算照着做成了
+        // It was done without going to the inspection and it was judged to be done: it can be regarded
+        // as done according to it.
         val unreviewed = MapSkills(skill)
         runBlocking { learning(unreviewed, learn = true).learn(after(events(extra = used), TaskState.Succeeded("ok", verified = false, reviewed = false))) }
         assertEquals(listOf("verified"), unreviewed.get("wechat-msg")!!.outcomes)
-        // 回答如实说只办了一部分:照着技能做没办成,记 failed
+        // The answer was truthful and I only did part of it: if I couldn’t do it according to my skills,
+        // I recorded it as failed.
         val partial = MapSkills(skill)
         runBlocking { learning(partial, learn = true).learn(after(events(extra = used), outcome = RunOutcome.Partial)) }
         assertEquals(listOf("failed"), partial.get("wechat-msg")!!.outcomes)
-        // 取消的不记
+        // Cancellations will not be remembered
         val cancelled = MapSkills(skill)
         runBlocking { learning(cancelled, learn = false).learn(after(events(extra = used), TaskState.Cancelled)) }
         assertNull(cancelled.get("wechat-msg")!!.outcomes.firstOrNull())
     }
 
-    // 试用中的个人技能:Agent 用 skill_read 读过、这次办成了,转为正式
+    // Personal skills in trial: Agent used skill_read to read, completed this time, and became official
     @Test fun viewedTrialSkillPromotesOnDoneRun() {
         val skill = PersonalSkill("wechat-msg", draftMd.replace("send-wechat-message", "wechat-msg"), SkillStatus.trial, "r0", null, 0, emptyList())
         val skills = MapSkills(skill)
@@ -150,7 +156,8 @@ class SedimentationWiringTest {
         assertTrue(skills.drafts.isEmpty())
     }
 
-    // 旧运行记录里的 injected(以前开头塞进全文)照样读,和看过一样记结果
+    // Injected in the old running record (the full text was inserted at the beginning) is still read,
+    // and the results are recorded as if they have been read.
     @Test fun oldInjectedRecordCountsAsUse() {
         val skill = PersonalSkill("wechat-msg", draftMd.replace("send-wechat-message", "wechat-msg"), SkillStatus.active, "r0", null, 0, emptyList())
         val skills = MapSkills(skill)

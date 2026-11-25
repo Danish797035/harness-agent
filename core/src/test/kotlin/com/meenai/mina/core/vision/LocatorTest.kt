@@ -28,7 +28,7 @@ internal val BLACK: ByteArray = JvmTestImageOps.encode(100, 200) { _, _ -> 0 }
 internal fun uiEl(ref: String, name: String, bounds: List<Int>, res: String? = null) =
     UiElement(ref, "button", name, 0, 0, bounds, res, true, false, false)
 
-/** 截图按 [shots] 依次给,给完后一直给最后一张;[peek] 返回 [elements]。 */
+/** Press [shots] to take screenshots in order, and keep giving the last one after taking screenshots; [peek] returns to [elements]. */
 internal class LocScreen(
     var elements: List<UiElement> = emptyList(),
     vararg shots: ByteArray?,
@@ -74,7 +74,7 @@ class LocatorTest {
     private fun notFound(r: LocateResult) = r as? LocateResult.NotFound ?: throw AssertionError("expected NotFound, got $r")
 
     @Test fun treePathUniqueExactMatch() = runTest {
-        // 嵌套、同中心的同名元素算一个
+        // Nested and co-centered elements with the same name count as one
         val inner = uiEl("@e2", "wlan", listOf(10, 110, 989, 150))
         val m = says()
         val reg = LocateRegistry()
@@ -86,7 +86,7 @@ class LocatorTest {
         assertTrue("没有走视觉", m.requests.isEmpty())
         val (p, hash) = reg.get(r.ref, r.snapshotId)!!
         assertEquals(Point(500, 130), p); assertEquals(JvmTestImageOps.aHash(FRAME_A), hash)
-        // 资源 ID 也认
+        // Resource ID also recognized
         val byId = found(locator(LocScreen(listOf(uiEl("@e9", "", listOf(0, 0, 100, 100), res = "com.x:id/Wifi_Switch"))), says()).locate("开关", "com.x:id/wifi_switch"))
         assertEquals(50 to 50, byId.x to byId.y)
     }
@@ -98,7 +98,7 @@ class LocatorTest {
         assertEquals("vision", r.source)
         assertEquals("WLAN", r.seen)
         assertEquals(2, m.requests.size)
-        // 第一次问:截图 2 + 描述和原文
+        // First time question: screenshot 2 + description and original text
         val text = (m.requests[0].single().parts[0] as Part.Text).text
         assertTrue(text, "顶上那个 WLAN" in text && "\"WLAN\"" in text)
     }
@@ -119,7 +119,7 @@ class LocatorTest {
             "我在屏幕上没有看到它",
             "null",
             "```json\nnull\n```",
-            // 只有一个 bbox_2d 键,但给了两组四个数
+            // There is only one bbox_2d key, but two sets of four numbers are given
             """{"bbox_2d":[0,0,100,100],"other":[200,200,300,300]}""",
         )) {
             val m = says(reply, "是")
@@ -134,7 +134,7 @@ class LocatorTest {
         assertArrayEquals(intArrayOf(500, 0, 999, 999), r.box)
         assertEquals(750 to 500, r.x to r.y)
         assertEquals(null, r.seen)
-        // 没核对过名字:提醒先看 seen
+        // The name has not been checked: reminder to read seen first
         assertNotNull(r.note)
     }
 
@@ -142,7 +142,7 @@ class LocatorTest {
         val r = notFound(locator(LocScreen(), says("""{"bbox_2d":[0,100,1000,161],"seen":"蓝牙"}""")).locate("WLAN", "WLAN"))
         assertEquals("name_mismatch", r.reason)
         assertTrue(r.message, "蓝牙" in r.message)
-        // 互相包含不算对不上
+        // Inclusion of each other is not considered inappropriate
         found(locator(LocScreen(), says("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN 已连接"}""", "是")).locate("WLAN", "WLAN"))
     }
 
@@ -151,7 +151,8 @@ class LocatorTest {
         val r = notFound(locator(LocScreen(listOf(bt)), says("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}""")).locate("WLAN", "WLAN"))
         assertEquals("name_mismatch", r.reason)
         assertTrue(r.message, "蓝牙" in r.message)
-        // 面积超过半屏的容器不算「那一点上的元素」
+        // Containers with an area larger than half the screen are not considered "elements at that
+        // point"
         val root = uiEl("@e1", "设置", listOf(0, 0, 999, 999))
         found(locator(LocScreen(listOf(root)), says("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}""", "是")).locate("WLAN", "WLAN"))
     }
@@ -165,7 +166,7 @@ class LocatorTest {
         for (answer in listOf("是", "是的", "Yes", " yes, it is")) {
             found(locator(LocScreen(), says(box, answer)).locate("WLAN", null))
         }
-        // 复看用的是画了红框的图,问的是 target
+        // When I re-viewed the picture with a red frame, I asked about the target.
         val m = says(box, "是")
         found(locator(LocScreen(), m).locate("WLAN 开关", null))
         val confirm = m.requests[1].single()
@@ -188,7 +189,8 @@ class LocatorTest {
             }
             assertTrue(m.requests.isEmpty())
         }
-        // 还没开 App(虚拟屏没建):截不到图,说清楚,不是出错
+        // The app has not been opened yet (the virtual screen has not been built): I cannot take a
+        // screenshot. Please explain clearly. It is not an error.
         val none = LocScreen(emptyList(), null, hasWindow = false)
         assertEquals("no_app_open", notFound(locator(none, says()).locate("WLAN", null)).reason)
         try {
@@ -206,10 +208,10 @@ class LocatorTest {
         for (els in pages) {
             assertNull(locator(LocScreen(els), says()).visionBlocker())
         }
-        // 商品页上的价格不算付款页
+        // The price on the product page does not count on the payment page
         found(locator(LocScreen(listOf(uiEl("@e1", "¥39.90", listOf(0, 600, 600, 660)), uiEl("@e2", "立即购买", listOf(0, 900, 999, 999)))),
             says("""{"bbox_2d":[0,900,1000,1000]}""", "是")).locate("购买按钮", null))
-        // 读不到屏就无从确认,不传
+        // If the screen cannot be read, there is no way to confirm or transmit.
         val m = says()
         val r = notFound(locator(LocScreen().apply { peekFails = true }, m).locate("图标", null))
         assertEquals("vision_unavailable", r.reason)
@@ -217,11 +219,12 @@ class LocatorTest {
     }
 
     @Test fun treeMatchNeedsOnScreenElement() = runTest {
-        // 屏外的元素被压到边上、面积为 0:不算命中,改走视觉
+        // The elements outside the screen are pushed to the edge and the area is 0: it does not count as
+        // a hit and changes to the visual effect.
         val m = says("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}""", "是")
         val r = found(locator(LocScreen(listOf(uiEl("@e1", "WLAN", listOf(0, 999, 999, 999)))), m).locate("WLAN", "WLAN"))
         assertEquals("vision", r.source)
-        // 恰好半屏的元素不算「那一点上的元素」
+        // Elements that happen to be half the screen are not considered "elements at that point"
         val half = uiEl("@e1", "蓝牙", listOf(0, 0, 998, 500))
         found(locator(LocScreen(listOf(half)), says("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}""", "是")).locate("WLAN", "WLAN"))
     }
@@ -241,23 +244,25 @@ class LocatorTest {
         assertTrue(m.system!!, "[Interactive elements]" in m.system!!)
     }
 
-    /** 定位准度没验证过的看图模型。 */
+    /** The positioning accuracy of the image viewing model has not been verified. */
     private fun unverified(vararg replies: String) = FakeModel(
         *replies.map { ModelReply(listOf(Part.Text(it)), StopReason.EndTurn, null) }.toTypedArray(), groundingVerified = false)
 
-    /** 树够用的一屏:八个有名字的按钮,都不在要找的框里。 */
+    /** A useful screen: the eight buttons with names are not in the box you are looking for. */
     private fun adequate() = LocScreen((1..8).map { uiEl("@e$it", "设置项$it", listOf(0, 300 + it * 70, 999, 360 + it * 70)) })
 
     @Test fun unverifiedVisionBoxNeedsSecondConsistentLook() = runTest {
         val box = """{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}"""
-        // 再框一次、看到的一致、两次复看都确认:交出去
+        // Frame it again and see the same thing. Check it twice and confirm it: hand it over.
         val m = unverified(box, "是", """{"bbox_2d":[10,105,990,158],"seen":"WLAN"}""", "是")
         val r = found(locator(adequate(), m).locate("WLAN 那一行", null))
         assertFalse(r.unverified)
         assertEquals("vision", r.source); assertEquals(4, m.requests.size)
-        // 点按第一次的框算
+        // Click the box for the first time
         assertEquals(500 to 131, r.x to r.y)
-        // 第二次看到的字不一样、框到了别处、第二次复看不确认、第一次就没给 seen:都不交出去,提示用 phone_describe
+        // The words I saw were different the second time, the frame was somewhere else, I couldn't
+        // confirm it the second time, and I didn't give seen: the first time. I didn't hand it over, and
+        // I was prompted to use phone_describe.
         for (second in listOf(
             listOf("""{"bbox_2d":[0,100,1000,161],"seen":"蓝牙"}""", "是"),
             listOf("""{"bbox_2d":[0,500,1000,561],"seen":"WLAN"}""", "是"),
@@ -273,35 +278,40 @@ class LocatorTest {
     }
 
     @Test fun unusableTreeLetsAnUnbackedVisionBoxThroughMarkedUnverified() = runTest {
-        // 树里什么都没有(App 自己画界面):没东西可对照,一次框加一次复看就交出去,标明没佐证
+        // There is nothing in the tree (the app draws its own interface): there is nothing to compare
+        // with. Just add a box once and re-read it before handing it over, marking it as no supporting
+        // evidence.
         val m = unverified("""{"bbox_2d":[0,880,1000,940],"seen":"输入框"}""", "是")
         val r = found(locator(LocScreen(), m).locate("底部的输入框", null))
         assertTrue(r.unverified)
         assertEquals(2, m.requests.size)
         assertTrue(r.note!!, "no_effect" in r.note!!)
-        // 复看不确认的照旧不交
+        // If you don’t see confirmation again, you won’t hand it over as usual.
         assertEquals("not_confirmed", notFound(locator(LocScreen(), unverified("""{"bbox_2d":[0,880,1000,940]}""", "否")).locate("输入框", null)).reason)
     }
 
     @Test fun partialTreeNeedsBackingOnlyWhenTheTargetIsInIt() = runTest {
-        // 控件大多没名字:缺了一块
+        // Most of the controls have no names: a piece is missing
         val blank = (1..4).map { UiElement("@b$it", "button", "", 0, 0, listOf(0, 500 + it * 80, 200, 560 + it * 80), null, true, false, false) }
         val partial = blank + uiEl("@e9", "发送消息", listOf(800, 900, 999, 960))
         val box = """{"bbox_2d":[0,100,1000,161],"seen":"发送"}"""
-        // 要找的字在树里(只是框没落在它上面):照旧要再看一次
+        // The word you are looking for is in the tree (just the frame does not fall on it): still have
+        // to look again
         assertEquals("unverified_grounding", notFound(locator(LocScreen(partial), unverified(box, "是", "null")).locate("发送按钮", "发送")).reason)
-        // 要找的不在树里:没东西可对照
+        // What you are looking for is not in the tree: there is nothing to compare it with
         val r = found(locator(LocScreen(partial), unverified("""{"bbox_2d":[0,100,1000,161],"seen":"表情"}""", "是")).locate("表情按钮", "表情"))
         assertTrue(r.unverified)
     }
 
     @Test fun unverifiedVisionBoxBackedByTreeLabel() = runTest {
-        // 框中心那个元素的名字就是要找的字:一次复看就够(控件树里有两个同名,不走精确匹配)
+        // The name of the element in the center of the box is the word you are looking for: one review
+        // is enough (there are two with the same name in the control tree, so exact matching is not
+        // required)
         val dup = uiEl("@e2", "WLAN", listOf(0, 600, 999, 660))
         val m = unverified("""{"bbox_2d":[0,100,1000,161],"seen":"WLAN"}""", "是")
         val r = found(locator(LocScreen(listOf(wlan, dup)), m).locate("WLAN", "WLAN"))
         assertEquals("vision", r.source); assertEquals(2, m.requests.size)
-        // 控件树精确匹配照旧不问看图模型
+        // Whether the control tree matches exactly or not depends on the model.
         val tree = unverified()
         assertEquals("elements", found(locator(LocScreen(listOf(wlan)), tree).locate("WLAN", "WLAN")).source)
         assertEquals(0, tree.requests.size)

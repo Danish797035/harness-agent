@@ -13,9 +13,11 @@ import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 /**
- * App 知识补充的各个版本与阶段账本;待确认的(草稿)不会被知识库读取。每个 App 至多一份待确认的、只注入一份
- * ([AppKnowledgeTrial.inUse]):收下的修订试用期间顶替旧的那份,转正式才把旧的归档,被归档就换回旧的
- * (改动前的文件都留在 archive 里)。
+ * The ledger of each version and stage of App knowledge supplement; those to be confirmed (drafts) will
+ * not be read by the knowledge base. Each App has at most one copy to be confirmed, and only one copy is
+ * injected ([AppKnowledgeTrial.inUse]): the accepted revision replaces the old one during the trial
+ * period, and the old one is archived when it is converted to official. When it is archived, it is
+ * replaced with the old one (the files before changes are kept in the archive).
  */
 class AppKnowledgeFiles(dir: File) : AppKnowledgeDraftStore {
     private val root = File(dir, "knowledge/app-drafts")
@@ -60,7 +62,7 @@ class AppKnowledgeFiles(dir: File) : AppKnowledgeDraftStore {
         return true
     }
 
-    /** 试用的是注入的那份;转正式时它顶替过的旧版本一并归档,归档时旧版本自然换回来。 */
+    /** The trial version is the one that was injected; the old version it replaced will be archived when it is converted to official, and the old version will be naturally replaced when archiving. */
     @Synchronized override fun recordTrial(appName: String, good: Boolean): AppKnowledgeDraft? {
         val rows = all()
         val old = AppKnowledgeTrial.inUse(rows, appName)?.takeIf { it.stage == AppKnowledgeStage.Trial } ?: return null
@@ -73,20 +75,22 @@ class AppKnowledgeFiles(dir: File) : AppKnowledgeDraftStore {
         return next
     }
 
-    /** 每个 App 注入的那份;旧版本起草的是带头部的整份 APP.md,只取正文。 */
+    /** The copy injected by each App; the old version drafted the entire copy APP.md with the header, and only took the text. */
     @Synchronized override fun notes(): Map<String, LearnedNote> {
         val rows = all()
         return rows.map { it.appName }.distinct().mapNotNull { app -> AppKnowledgeTrial.inUse(rows, app) }
             .associate { row -> row.appName to LearnedNote(FrontMatter.parse(row.markdown).second.trim(), trial = row.stage == AppKnowledgeStage.Trial) }
     }
 
-    /** 修订起草时对着的那份已经不是现在注入的了(另一份修订先收下了):收下它会丢掉那一份。 */
+    /** The copy against which the revision was drafted is no longer the one that is now injected (another revision was accepted first): accepting it will throw away that copy. */
     private fun stale(draft: AppKnowledgeDraft, rows: List<AppKnowledgeDraft>) =
         draft.revises != AppKnowledgeTrial.inUse(rows, draft.appName)?.id
 
     /**
-     * 在用的那份变了(收下、归档、试用改了阶段)之后,对着别的那份起草的待确认修订再也收不下:归档,
-     * 免得它一直占着「每个 App 至多一份待确认的」,挡住这个 App 往后的草稿。
+     * After the copy you were using changed (accepted, archived, and changed the trial stage), the draft
+     * revisions to be confirmed that were drafted in the other copy could no longer be accepted and
+     * archived, so that it would not always occupy "at most one copy of each App to be confirmed" and
+     * block future drafts of this App.
      */
     private fun archiveStale(appName: String) {
         val rows = all()

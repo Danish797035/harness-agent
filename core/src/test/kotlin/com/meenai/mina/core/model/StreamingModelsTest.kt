@@ -42,7 +42,7 @@ class StreamingModelsTest {
         assertTrue(server.takeRequest().body.readUtf8().contains("\"stream\":true"))
     }
 
-    /** 流式里思考在 `reasoning` 字段、或 `content` 是分块数组的,都认出来,记下收到的位置。 */
+    /** In streaming thinking, the `reasoning` field or `content` is a block array. Recognize both and record the received position. */
     @Test fun openAiStreamReadsReasoningFieldAndChunkedContent() = runTest {
         val model = OpenAiCompatModel(server.url("/v1").toString().trimEnd('/'), "k", "m", caps, OkHttpClient())
         val endpoint = server.url("/v1/chat/completions").toString()
@@ -104,7 +104,7 @@ class StreamingModelsTest {
     private fun anthropic() = AnthropicModel(server.url("/").toString().trimEnd('/'), "k", "m", caps, OkHttpClient())
     private fun gemini() = GeminiModel(server.url("/").toString().trimEnd('/'), "k", "m", caps, OkHttpClient())
 
-    /** 没收尾就断开的流不能当成回答,而是可重试的一时故障(和接口配置无关)。 */
+    /** A stream that is disconnected before the end is reached cannot be regarded as a reply, but a retryable temporary failure (independent of the interface configuration). */
     private suspend fun assertCut(model: StreamingChatModel) {
         try {
             model.completeStreaming("s", user, emptyList()) {}
@@ -133,13 +133,13 @@ class StreamingModelsTest {
         assertCut(gemini())
     }
 
-    /** 事件流一帧都没来就断了(比如长时间思考时被网关掐断),同样是可重试的断流。 */
+    /** If the event stream is interrupted before a frame comes (for example, it is cut off by the gateway when thinking for a long time), it is also a retryable interruption. */
     @Test fun eventStreamCutBeforeAnyEventIsRetryable() = runTest {
         server.enqueue(stream())
         assertCut(openAi())
     }
 
-    /** 成功响应却既不是事件流、也没有任何事件(地址指到了网页):是配置问题,不重试。 */
+    /** Successful response but neither event stream nor any event (the address points to the web page): it is a configuration problem and there is no retry. */
     @Test fun nonStreamBodyWithoutEventsIsBadResponse() = runTest {
         server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody("<html>hi</html>"))
         try {
@@ -150,7 +150,7 @@ class StreamingModelsTest {
         }
     }
 
-    /** 收到结束原因就算完整:有的端点不发最后的结束标记。 */
+    /** Receiving the end reason is considered complete: some endpoints do not send the final end tag. */
     @Test fun openAiFinishReasonWithoutDoneIsComplete() = runTest {
         server.enqueue(stream("""{"choices":[{"delta":{"content":"好了"},"finish_reason":"stop"}]}"""))
         val reply = openAi().completeStreaming("s", user, emptyList()) {}

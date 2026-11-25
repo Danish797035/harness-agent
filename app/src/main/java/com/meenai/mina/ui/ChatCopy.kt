@@ -6,9 +6,9 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.i18n.trPlural
 
-/** 对话页上按状态算出来的文字;不碰界面,单测直接测。 */
+/** The text calculated based on the status on the dialogue page; do not touch the interface, just measure directly. */
 object ChatCopy {
-    /** 空对话的问候,按时段。 */
+    /** Empty conversational greetings, by time period. */
     fun greeting(hour: Int): String = when (hour) {
         in 5..10 -> tr(R.string.chat_greeting_morning)
         in 11..12 -> tr(R.string.chat_greeting_noon)
@@ -19,7 +19,7 @@ object ChatCopy {
 
     val EMPTY_PROMPT get() = tr(R.string.chat_empty_prompt)
 
-    /** 空对话里的示例;点一下填进输入框,用户改好了再发。[kind] 决定配哪个线条图标。 */
+    /** Example in an empty dialog; click to fill in the input box, and the user will modify it before sending it. [kind] determines which line icon to match. */
     enum class ExampleKind { App, Web, File, Schedule, Device }
     data class Example(val kind: ExampleKind, val text: String)
 
@@ -34,26 +34,28 @@ object ChatCopy {
         Example(ExampleKind.App, tr(R.string.chat_example_ride)),
     )
 
-    /** 对话页顶栏的标题:固定是 App 名;副标题说此刻在做什么。 */
+    /** The title of the top bar of the conversation page: is always the App name; the subtitle tells what you are doing at the moment. */
     const val APP_TITLE = "Harness Agent"
 
-    /** 对话的名字:第一句话(只取第一行,附件那几行不算;只发了屏幕时是「你此刻的屏幕」);空对话为空。侧栏里用它称呼对话。 */
+    /** The name of the dialogue: the first sentence (only the first line is taken, the lines in the attachment are not counted; when only the screen is sent, it is "your current screen"); the empty dialogue is empty. Use it to call conversations in the sidebar. */
     fun title(exchanges: List<Exchange>): String =
         exchanges.firstOrNull { it.goal.isNotBlank() }?.goal?.let(::plainTitle).orEmpty()
 
     /**
-     * 一句用户的话当标题怎么写:去掉网页说明([AttachedPage])、引用([QuoteMessage])、附件那几行(只发了附件时是「照片」「合同.pdf」之类)和屏幕那一行(只发了屏幕时是「你此刻的屏幕」),
-     * 只取第一行。
+     * How to write a user's quote as a title: remove the webpage description ([AttachedPage]), quotation
+     * ([QuoteMessage]), attachment lines (when only attachments are sent, it is "photo", "contract.pdf",
+     * etc.) and screen line (when only the screen is sent, it is "your screen at the moment"), and only
+     * take the first line.
      */
     fun plainTitle(text: String): String =
         ScreenCopy.plain(AttachmentMessage.plain(QuoteMessage.words(AttachedPage.words(text)))).lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
 
     enum class Tone { Accent, Warn, Ok }
 
-    /** 顶栏副标题:这个对话留着一页在后台运行(没有任务在跑时)。 */
+    /** Top column subtitle: This conversation leaves one page running in the background (no tasks are running). */
     val KEPT_PAGE: String get() = tr(R.string.kept_chat_sub)
 
-    /** 顶栏副标题:正在做什么(强调色)或等你(橙色);没有任务在跑时为 null。[place] 是正在操作的 App 或网站。 */
+    /** Top bar subtitle: What are you doing (accent color) or waiting for you (orange); null when no task is running. [place] is the operating app or website. */
     fun subtitle(ex: Exchange?, place: String?): Pair<String, Tone>? = when (ex?.status) {
         null -> null
         ExchangeStatus.Working -> (if (place.isNullOrBlank()) tr(R.string.chat_working) else tr(R.string.chat_working_on, place)) to Tone.Accent
@@ -64,16 +66,16 @@ object ChatCopy {
         else -> null
     }
 
-    /** 进度那一行:在跑时是此刻的进展,停下来等你时是「已暂停」。 */
+    /** The progress line: when running, it is the progress at the moment, when it stops and waits for you, it is "paused". */
     fun progressLine(ex: Exchange): String =
         if (paused(ex.status)) tr(R.string.chat_paused) else liveLine(ex) ?: tr(R.string.chat_working)
 
-    /** 任务停下来等你(要你处理、回答、同意、解锁、点继续)。 */
+    /** The task stops and waits for you (requiring you to process, answer, agree, unlock, and click continue). */
     fun paused(status: ExchangeStatus): Boolean =
         status is ExchangeStatus.NeedsTakeover || status is ExchangeStatus.NeedsInput ||
             status is ExchangeStatus.NeedsConfirmation || status is ExchangeStatus.Paused || status == ExchangeStatus.WaitingUnlock
 
-    /** 进度行右边的用时:「0:24」「12:05」「1:02:03」。 */
+    /** The time on the right side of the progress line: "0:24", "12:05", "1:02:03". */
     fun clock(ms: Long): String {
         val s = (ms / 1000).coerceAtLeast(0)
         val h = s / 3600
@@ -82,17 +84,18 @@ object ChatCopy {
         return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
     }
 
-    /** 在跑时步骤只列最近这几步,前面的收成一行「前面还有 n 步」,点开看全部。 */
+    /** When running, only the most recent steps are listed, and the previous harvest line is "n steps ahead". Click to see them all. */
     const val VISIBLE_STEPS = 5
 
     fun earlierSteps(n: Int) = trPlural(R.plurals.chat_earlier_steps, n)
 
-    /** 在后台操作手机时步骤下面那行小字。 */
+    /** The line of small print below the steps when operating the phone in the background. */
     val BACKGROUND_NOTE get() = tr(R.string.chat_background_note)
 
     /**
-     * 一个动作的结果(记录里的 effect 代号 → 给人看的一句话)。错误码只对开发有意义,
-     * 给人看的一律说「没成功」。运行过程页用的是同一份说法。
+     * The result of an action (the effect code in the record → a sentence for people to see). The error
+     * code is only meaningful for development, and it will always say "unsuccessful" when viewed by
+     * others. The running process page uses the same statement.
      */
     fun effectLabel(effect: String?): String = when (effect) {
         "changed", "done", "place_changed" -> tr(R.string.result_effective)
@@ -103,7 +106,7 @@ object ChatCopy {
         else -> tr(R.string.step_failed)
     }
 
-    /** 点开一步后每件事一行:做了什么 · 对什么 · 结果(结果为空时不写)。 */
+    /** After clicking on a step, each thing has one line: what was done, what was done, and the result (do not write when the result is empty). */
     fun actionLine(a: StepAction): String =
         listOfNotNull(a.label, a.target?.takeIf(String::isNotBlank), effectLabel(a.effect).takeIf(String::isNotBlank)).joinToString(" · ")
 
@@ -113,7 +116,7 @@ object ChatCopy {
         ComposerMode.Idle -> if (hasHistory) tr(R.string.chat_placeholder_more) else EMPTY_PROMPT
     }
 
-    /** 能按住说话时的灰字(前面配一个小话筒):告诉人能按住说、点一下打字;任务在跑时说的就是插话。 */
+    /** You can press and hold the gray words when speaking (with a small microphone on the front): it tells the person that you can press and hold to speak and click to type; when the task is running, you can interrupt when speaking. */
     fun voicePlaceholder(mode: ComposerMode): String = when (mode) {
         ComposerMode.Busy -> tr(R.string.voice_placeholder_busy)
         ComposerMode.Answer -> tr(R.string.voice_placeholder_answer)

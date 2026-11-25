@@ -8,20 +8,25 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * 带着用户屏幕的一句话给模型时的写法,只在这里。和相册里的图片(附件,照旧是文件)分开:
- * - 用户这句话本身写成「用户刚截下他正在看的屏幕(App,时刻),没有附言 / 附言:…」(不让截图时照实说没截到);
- * - 屏上的字和编号是另一段上下文([detail]),没有附言时再带上按屏幕猜意图的规矩;
- * - 之前几轮里的屏幕只剩一行([earlier]):App、时刻和屏上开头几个字,要再看按编号回看。
+ * The way to write a sentence with the user screen to the model is only here. Separate from the pictures
+ * in the album (attachments, still files):
+ * - - The user's sentence itself is written as "The user just took a screenshot of the screen (App,
+ * time) he is looking at, without a postscript / postscript:..." (if you are not allowed to take a
+ * screenshot, tell the truth that it was not taken);
+ * - - The words and numbers on the screen are another context ([detail]). If there is no postscript,
+ * please follow the rules of guessing the intention by pressing the screen;
+ * - - There is only one line left on the screen in the previous rounds ([earlier]): App, time and the
+ * first few words on the screen. If you want to look at it again, press the number to look back.
  */
 object UserScreenPrompt {
-    /** 之前几轮里那一屏留几个字的开头。 */
+    /** The beginning of a few words on that screen from previous rounds. */
     const val GIST_CHARS = 40
 
     private val TIME = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH)
 
     fun time(at: Long, zone: ZoneId): String = TIME.format(Instant.ofEpochMilli(at).atZone(zone))
 
-    /** 用户这句话:[screen] 为 null 是截图已经不在了。 */
+    /** The user's statement: [screen] is null, which means the screenshot is no longer there. */
     fun said(id: String, screen: UserScreen?, words: String, zone: ZoneId): String {
         if (screen == null) return listOf(Feedback.format("user_screen.missing", "id" to id), words).filter(String::isNotBlank).joinToString("\n")
         val vars = arrayOf("app" to screen.app, "time" to time(screen.takenAt, zone), "words" to words)
@@ -34,8 +39,11 @@ object UserScreenPrompt {
     }
 
     /**
-     * 这一屏的详情(上下文正文):编号、App、时刻、屏上的字(套上不可信标记:屏上的字是别人或 App 写的);
-     * [noWords] 时接上按屏幕猜意图的规矩,[askVision] 时说看不到图可以问看图模型。不让截图的页面只说截不到该怎么回。
+     * The details of this screen (context text): number, app, time, words on the screen (put an
+     * untrustworthy mark: the words on the screen were written by someone else or the app); when
+     * [noWords], the rule of guessing the intention by pressing the screen is followed. When
+     * [askVision], if you can’t see the picture, you can ask the picture model. The page that does not
+     * allow screenshots only says that the screenshot cannot be taken and how to reply.
      */
     fun detail(screen: UserScreen, noWords: Boolean, askVision: Boolean, zone: ZoneId): String {
         if (screen.blocked) return Feedback["user_screen.blocked_reply"]
@@ -50,7 +58,7 @@ object UserScreenPrompt {
             .joinToString("\n\n")
     }
 
-    /** 之前几轮里的一屏收成一行;截图已经不在时只说不在了。 */
+    /** In previous rounds, one screen yielded one row; the screenshots just said it was gone when it was no longer there. */
     fun earlier(id: String, screen: UserScreen?, zone: ZoneId): String {
         if (screen == null) return Feedback.format("user_screen.missing", "id" to id)
         val vars = arrayOf("id" to id, "app" to screen.app, "time" to time(screen.takenAt, zone))
@@ -59,13 +67,13 @@ object UserScreenPrompt {
         return Feedback.format("user_screen.earlier", *vars, "gist" to gist)
     }
 
-    /** 屏上开头的几个字(跳过很短的零碎),给之前几轮那一行用;没有字为 null。 */
+    /** The first few words on the screen (skipping very short fragments) are used for the line in previous rounds; no words are null. */
     fun gist(screen: UserScreen): String? {
         val text = screen.lines.map { it.text }.filter { it.length >= 2 }.joinToString(" ").ifEmpty { return null }
         return if (text.length <= GIST_CHARS) text else text.take(GIST_CHARS) + "…"
     }
 
-    /** 之前一轮里用户说的话:屏幕那一行换成 [earlier],附言接在后面(一行)。不带屏幕的原样返回。 */
+    /** What the user said in the previous round: Change the line on the screen to [earlier], and the postscript follows (one line). Returns as-is without screen. */
     fun collapse(text: String, lookup: (String) -> UserScreen?, zone: ZoneId): String {
         val p = UserScreenMessage.parse(text)
         if (!p.hasScreen) return text

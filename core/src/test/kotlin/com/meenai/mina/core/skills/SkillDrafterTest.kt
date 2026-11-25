@@ -97,7 +97,7 @@ class SkillDrafterTest {
         assertNull(Eligibility.check(runEvents(extra = listOf(RunEvent.Confirmation(50, "send", null, null, null, "approved"))), null, TOOLS, done = true))
         assertEquals("followed_personal_skill", Eligibility.check(runEvents(), "send-wechat-message", TOOLS, done = true))
         assertEquals("takeover_user_finished", Eligibility.check(runEvents(extra = listOf(RunEvent.Takeover(50, "payment", "user_finished", 10, 4))), null, TOOLS, done = true))
-        // 出错的动作不算步数
+        // Wrong actions do not count as steps
         val withErrors = runEvents().map { e ->
             if (e is RunEvent.ToolResult && e.tool == "phone_tap") e.copy(resultJson = """{"ok":false,"error":"ref_expired"}""") else e
         }
@@ -164,13 +164,15 @@ class SkillDrafterTest {
     }
 
     @Test fun interfaceNamesFromTheAnswerStayInTheDraft() {
-        // 回答里提到的页面名字正是做法本身:草稿里写到它不算照抄,照收
+        // The name of the page mentioned in the answer is exactly the method itself: it is written in
+        // the draft that it is not copied, it is adopted as it is.
         val model = FakeModel(text(md(body = "\n3. 进「关于手机」页看版本号")))
         val r = runBlocking { SkillDrafter(model).draft(DraftInput("r1", goal, "版本号在「关于手机」页上", emptyList(), runEvents(), tools, TOOLS), InMemoryPersonalSkills(), bundled) }
         assertTrue((r as DraftResult.Draft).skill.markdown.contains("关于手机"))
     }
 
-    // 起草时把已有的个人技能(连同待确认的草稿)列给模型,是不是同一类事由它判断
+    // When drafting, list the existing personal skills (together with the draft to be confirmed) to the
+    // model, and it will judge whether they are the same type of things.
     @Test fun requestListsExistingSkillsAndDrafts() {
         val store = InMemoryPersonalSkills(personalSkill("zhihu-collections", display = "查看知乎收藏夹列表", description = "数知乎收藏夹", status = SkillStatus.suspended))
         store.putPending("d0", personalSkill("wechat-msg", display = "微信消息", description = "发微信"))
@@ -193,7 +195,8 @@ class SkillDrafterTest {
         assertFalse(d.skill.markdown.contains("updates:"))
     }
 
-    // 指向不存在的技能(或内置技能)的 updates 不算数:当作新的一份
+    // Updates pointing to non-existent skills (or built-in skills) do not count: they are treated as new
+    // copies
     @Test fun bogusUpdatesTreatedAsNew() {
         val mine = personalSkill("wechat-msg", display = "微信消息")
         for (bogus in listOf("no-such-skill", "messaging")) {
@@ -204,14 +207,15 @@ class SkillDrafterTest {
             assertNull(d.skill.replacesDraftOf)
             assertFalse(d.skill.markdown.contains("updates:"))
         }
-        // 没写 updates:名字再像也不替模型并进已有的
+        // Didn’t write updates: No matter how similar the name is, it won’t be used to replace the
+        // existing model.
         val d = draft(text(md()), existing = InMemoryPersonalSkills(personalSkill("wechat-msg", display = "微信消息", extraMeta = "apps: [com.tencent.mm]\n"))) as DraftResult.Draft
         assertNull(d.isUpdateOf)
-        // 新的一份不能占已有的名字
+        // The new copy cannot occupy the existing name.
         assertEquals(DraftResult.Dropped("name_taken"), draft(text(md(name = "wechat-msg", updates = "nope")), existing = InMemoryPersonalSkills(mine)))
     }
 
-    // 指向一份待确认的草稿:换掉那份草稿,不再堆一份
+    // Point to a draft to be confirmed: replace that draft without stacking another one
     @Test fun updatesPendingDraftReplacesIt() {
         val store = InMemoryPersonalSkills(personalSkill("wechat-msg"))
         store.putPending("d0", personalSkill("new-thing", display = "新事"))
@@ -220,7 +224,7 @@ class SkillDrafterTest {
         assertEquals("new-thing", d.skill.name)
         assertNull(d.isUpdateOf)
         assertNull(d.skill.replacesDraftOf)
-        // 那份草稿本身是已有技能的更新:新草稿接着更新同一份
+        // That draft itself is an update of an existing skill: the new draft then updates the same one
         store.putPending("d1", personalSkill("wechat-msg").copy(replacesDraftOf = "wechat-msg"))
         val u = draft(text(md(updates = "wechat-msg")), existing = store) as DraftResult.Draft
         assertEquals("d1", u.replacesPending)
@@ -248,7 +252,7 @@ class SkillDrafterTest {
         assertEquals(DraftResult.Dropped("unknown_tool"), draft(text(md(body = "\n3. 用 `open_chat` 打开聊天"))))
     }
 
-    // 沙箱技能脚本:只有清单里标为可运行的才能写进草稿
+    // Sandbox skill scripts: Only those marked as runnable in the manifest can be written into the draft
     @Test fun runScriptOnlyForRunnableManifestEntries() {
         val runnable = bundled.runnableScripts()
         assertTrue("skills/documents/scripts/extract_pdf.py" in runnable)
@@ -260,7 +264,7 @@ class SkillDrafterTest {
         assertEquals("unrunnable_script", check("\n3. 用 `run_bundled_script` 跑 sites/youtube.com/scripts/fetch_transcript.py"))
         assertEquals("unrunnable_script", check("\n3. 用 `run_bundled_script` 跑 scripts/palettes.py 和 scripts/extract_marker.py"))
         assertEquals("unrunnable_script", check("\n3. 用 `run_bundled_script` 跑一个脚本"))
-        // 起草路径用目录里的清单
+        // Drafting paths using lists in directories
         val events = runEvents()
         val r = runBlocking {
             SkillDrafter(FakeModel(text(md(body = "\n3. 用 `run_bundled_script` 跑 sites/youtube.com/scripts/fetch_transcript.py"))))
@@ -269,7 +273,8 @@ class SkillDrafterTest {
         assertEquals(DraftResult.Dropped("unrunnable_script"), r)
     }
 
-    // 网页任务:网页工具名算已知工具;网址里的查询词和读到的网页正文都不进起草请求
+    // Web page task: The name of the web page object is considered a known object; the query words in
+    // the URL and the text of the web page read are not included in the drafting request.
     @Test fun webRunDraftKeepsUrlsAndPageTextOut() {
         val known = knownToolNames()
         assertTrue(known.containsAll(WEB_TOOLS))
@@ -296,14 +301,14 @@ class SkillDrafterTest {
 
     @Test fun invalidOrTakenNameDropped() {
         assertEquals(DraftResult.Dropped("invalid_name"), draft(text(md(name = "Send_Wechat"))))
-        assertEquals(DraftResult.Dropped("name_taken"), draft(text(md(name = "wechat")))) // 与内置同名
+        assertEquals(DraftResult.Dropped("name_taken"), draft(text(md(name = "wechat")))) // Same name as built-in
     }
 
     @Test fun modelErrorDropped() {
         assertEquals(DraftResult.Dropped("model_error"), draft(ModelError.Auth()))
     }
 
-    /** 网页上的动作记在「网站 主机名」下,不沿用之前的 App;网页上点到的名字算网页内容,草稿里出现就丢。 */
+    /** Actions on the web page are recorded under "Website Host Name", and the previous App is not used; the name clicked on the web page is counted as the web page content, and it will be lost if it appears in the draft. */
     @Test fun webActionsTrackTheSite() {
         val pageObserve = """{"ok":true,"currentSite":"shop.example.com","snapshotId":"w1","elements":[""" +
             """{"ref":"@e1","role":"link","name":"李四的订单 2024-001","center":{"x":1,"y":1}}]}"""
@@ -319,12 +324,12 @@ class SkillDrafterTest {
         )
         val lines = ActionDigest.of(runEvents(extra = web), TOOLS)
         val nav = lines.single { it.tool == "web_navigate" }
-        assertEquals("shop.example.com", nav.target) // 只记站点,不记查询串
+        assertEquals("shop.example.com", nav.target) // Only remember the site, not the query string
         assertEquals("Site shop.example.com", nav.where)
         val tapOnPage = lines.single { it.step == 12 }
         assertEquals("Site shop.example.com", tapOnPage.where)
         assertEquals("李四的订单 2024-001", tapOnPage.target)
-        // 回到手机:又记在 App 下
+        // Return to the mobile phone: Record it under the App again
         assertEquals("com.tencent.mm", lines.single { it.step == 13 }.where)
 
     }

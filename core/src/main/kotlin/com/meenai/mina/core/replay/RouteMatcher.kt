@@ -17,12 +17,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
-/** 选中的路线和本次原话里的槽值(按 `{1}`、`{2}` 的顺序)。 */
+/** The selected route and the slot value in the original conversation (in the order of `{1}`, `{2}`). */
 data class RouteChoice(val route: Route, val slots: List<String>)
 
 /**
- * 任务开始时找一条以往成功的路线:先按 App 与字面相似度取候选,再用一次模型调用(没有候选就不调)选定并抽出槽值。
- * 代码再核一遍:槽值个数要对,且每个都是本次原话里逐字出现的一段。[store] 也供循环更新路线计数。
+ * At the beginning of the task, find a route that has been successful in the past: first select
+ * candidates based on App and literal similarity, then use a model call (no adjustment if there are no
+ * candidates) to select and extract the slot value. Check the code again: the number of slot values
+ * must be correct, and each one must be a paragraph that appears verbatim in the original story.
+ * [store] is also used to update the route count in a loop.
  */
 class RouteMatcher(private val model: ChatModel, val store: RouteStore, private val knowledge: KnowledgeStore?) {
 
@@ -77,8 +80,10 @@ class RouteMatcher(private val model: ChatModel, val store: RouteStore, private 
             val route = list.getOrNull(idx - 1) ?: return null
             val slots = (o["slots"] as? JsonArray ?: JsonArray(emptyList())).map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull ?: return null }
             if (slots.size != route.slots) return null
-            // 每个槽值在原话里恰好出现一次,且把槽值填回模板要正好得到原话:槽的边界和模板的固定文字对齐
-            // (「张三」不能从「张三丰」里抠出来)
+            // Each slot value appears exactly once in the original story, and filling the slot value
+            // back into the template must get the original story exactly: the boundary of the slot is
+            // aligned with the fixed text of the template ("Zhang San" cannot be cut out from "Zhang
+            // Sanfeng")
             if (slots.any { it.isBlank() || occurrences(goal, it) != 1 }) return null
             var unknown = false
             val filled = SLOT_N.replace(route.template) { m -> slots.getOrNull(m.groupValues[1].toInt() - 1) ?: run { unknown = true; "" } }
@@ -86,7 +91,7 @@ class RouteMatcher(private val model: ChatModel, val store: RouteStore, private 
             return RouteChoice(route, slots)
         }
 
-        /** 字符二元组;占位符(\u0000)切断前后。 */
+        /** Character tuple; placeholder (\u0000) before and after cutting off. */
         internal fun bigrams(s: String): Set<String> =
             s.lowercase().filterNot { it.isWhitespace() }.windowed(2).filter { '\u0000' !in it }.toSet()
 

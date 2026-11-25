@@ -3,19 +3,25 @@ package com.meenai.mina.core.agent
 import com.meenai.mina.core.userscreen.UserScreenMessage
 
 /**
- * 一次运行能不能当成「办成了」来学:个人技能和 App 知识的起草、经验路线的记录与成功计数、
- * 试用的技能和 App 知识转正式,都只问这一处。
+ * Whether one run can be regarded as "completed" for learning: drafting of personal skills and App
+ * knowledge, recording and success counting of experience routes, and converting trial skills and App
+ * knowledge to formal use, this is all the question.
  *
- * 看交出回答后判的结局([OutcomeJudge]),不看最终核查:交出了回答([TaskState.Succeeded])、结局是 [RunOutcome.Done]、
- * 没有退回一次后仍没对上的值;核查跑过的([TaskState.Succeeded.reviewed])还要核实通过——跑过却没通过照样挡住,没跑不挡。
+ * Look at the outcome ([OutcomeJudge]) after handing in the answer, but don’t look at the final
+ * verification: the answer ([TaskState.Succeeded]) is handed in, the outcome is [RunOutcome.Done], and
+ * there is no value that has not been matched after returning once; the verification of the passed
+ * ([TaskState.Succeeded.reviewed]) must also be verified - the passed but failed will still be blocked,
+ * and the run will not be blocked.
  */
 object LearnGate {
     fun done(end: TaskState, outcome: RunOutcome): Boolean =
         end is TaskState.Succeeded && outcome == RunOutcome.Done && end.unconfirmed.isEmpty() && !end.doubtful
 
     /**
-     * 这次运行记不记成经验路线:开着路线、办成了([done])、有运行编号(路线从落盘的事件里取)。
-     * 目标带着用户屏幕的不记:意思在屏幕上,按字记的路线下次对不上。
+     * Whether this run is recorded as an experience route: the route is open, completed ([done]), and
+     * has a run number (the route is taken from the placed event). The goal is not to remember the
+     * user's screen: the meaning is on the screen, and the route of the word memorization will not match
+     * next time.
      */
     fun shouldSaveRoute(routesOn: Boolean, end: TaskState, outcome: RunOutcome, runId: String?, goal: String): Boolean =
         routesOn && done(end, outcome) && runId != null && !UserScreenMessage.has(goal)

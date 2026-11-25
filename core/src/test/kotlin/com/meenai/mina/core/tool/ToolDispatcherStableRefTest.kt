@@ -28,7 +28,7 @@ import org.junit.Test
 import com.meenai.mina.core.assembly.toolDispatcher
 import com.meenai.mina.core.uistate.interfaces
 
-/** 每次读屏换下一份元素清单;端口编号每屏从 @e1 起,snapshotId 是 p1、p2…;同名元素位置不变。 */
+/** Each time the screen is read, a list of elements is replaced; the port number of each screen starts from @e1, and the snapshotId is p1, p2...; the position of the elements with the same name remains unchanged. */
 private class ScriptedScreen(private vararg val screens: List<String>) : ScreenPort by FakeScreen() {
     val calls = mutableListOf<String>()
     var reads = 0
@@ -64,11 +64,11 @@ class ToolDispatcherStableRefTest {
         val d = toolDispatcher(s, stableRefs = true)
         d.execute(call("phone_observe")); d.execute(call("phone_observe"))
         val r = d.execute(call("phone_tap", """{"ref":"@e2","snapshotId":"p2"}"""))
-        // 模型的 @e2(返回)在端口第二屏是 @e3
+        // The model's @e2 (return) in the second screen of the port is @e3
         assertEquals(listOf("tapRef @e3 p2"), s.calls)
         assertEquals("true", r.content.s("ok"))
         assertNull(r.content["relocated"])
-        assertNull(r.content["portRef"]) // 端口编号不给模型
+        assertNull(r.content["portRef"]) // The port number is not given to the model
         assertEquals("@e3", r.record.s("portRef"))
         assertEquals("p2", r.record.s("portSnapshotId"))
         d.execute(call("phone_type_text", """{"ref":"@e1","snapshotId":"p2","text":"x"}"""))
@@ -107,7 +107,8 @@ class ToolDispatcherStableRefTest {
         assertNotNull(snap); assertEquals("p2", snap!!.snapshotId)
         assertEquals("发送", snap.elements.single { it.ref == "@e1" }.name)
         assertNotNull(IrreversibleDetector.classify("phone_tap", args, snap, d.interfaces.peek()))
-        // 旧 snapshotId 但编号仍在最新一屏:按最新一屏判(真正点下去的是最新一屏里的它)
+        // Old snapshotId but the number is still in the latest screen: judge according to the latest
+        // screen (the actual click is on the latest screen)
         val old = Json.parseToJsonElement("""{"ref":"@e1","snapshotId":"p1"}""").jsonObject
         assertTrue(d.interfaces.actionTarget(d.declared("phone_tap"), old).aimed!!.elements.any { it.name == "新的" })
         assertNotNull(IrreversibleDetector.classify("phone_tap", old, d.interfaces.actionTarget(d.declared("phone_tap"), old).aimed, d.interfaces.peek()))

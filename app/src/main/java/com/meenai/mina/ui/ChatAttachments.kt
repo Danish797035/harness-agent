@@ -81,7 +81,7 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 对话页附件的说法。 */
+/** The talk page attachment. */
 object AttachCopy {
     val ADD: String get() = tr(R.string.attach_add)
     val CLOSE: String get() = tr(R.string.attach_close)
@@ -105,11 +105,12 @@ object AttachCopy {
     fun overLimit(n: Int) = tr(R.string.attach_over_limit, AttachTray.LIMIT, n)
 }
 
-// ---------- 面板 ----------
+// ---------- Panel ----------
 
 /**
- * 「＋」点开的面板里那一份活:系统相机、照片选择器、文件选择器,照片权限(第一次打开时问一次),最近的照片。
- * 选中的交给 [onPicked](内容地址)或 [onToggle](最近的照片点一下,满了返回 false)。
+ * The task in the panel opened by "+": system camera, photo selector, file selector, photo permissions
+ * (asked once when opening for the first time), recent photos. The selected one is given to
+ * [onPicked](content address) or [onToggle](click on the most recent photo, return false if full).
  */
 @Composable
 internal fun AttachPanelHost(
@@ -128,7 +129,8 @@ internal fun AttachPanelHost(
         access = RecentPhotos.access(context)
         refresh++
     }
-    // 回到 App 时(可能刚在系统设置里改过照片权限、刚拍了照)重新看一眼;面板刚打开那一次上面已经在读
+    // When you return to the app (you may have just changed the photo permissions in the system settings
+    // or just taken a photo), take another look; the panel was already reading when it was first opened.
     var resumedOnce by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         val now = RecentPhotos.access(context)
@@ -176,7 +178,8 @@ internal fun AttachPanelHost(
             val blocked = access == PhotoAccess.None && RecentPhotos.asked(context) && activity != null &&
                 RecentPhotos.permissions().none { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }
             RecentPhotos.markAsked(context)
-            // 用户选过「不再询问」:系统不会再弹窗,只能去 App 信息里开
+            // The user has selected "Don't ask again": the system will not pop up the window again and
+            // can only be opened in the App information.
             if (blocked) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
             else permissions.launch(RecentPhotos.permissions())
         },
@@ -185,8 +188,11 @@ internal fun AttachPanelHost(
 }
 
 /**
- * 面板:上面一排相机 / 相册 / 文件,下面四列最近的照片(点一下选上,右上角是序号;再点取消)。
- * 没给照片权限时下面是一句说明和「允许访问照片」;只给了部分照片时列出给了的那些,旁边能改范围。[recent] 为 null 时还在读。
+ * Panel: the upper row of cameras/albums/files, and the lower four columns of recent photos (click to
+ * select, the upper right corner is the serial number; click again to cancel). When the photo permission
+ * is not given, there is a description and "Allow access to the photo" below; when only some photos are
+ * given, the ones given are listed, and the range can be changed next to it. Still reading when [recent]
+ * is null.
  */
 @Composable
 internal fun AttachPanel(
@@ -266,7 +272,7 @@ private fun PanelLink(text: String, onClick: () -> Unit) {
     )
 }
 
-/** 最近的一张照片:方块缩略图;选中时蓝框、淡蓝罩、右上角蓝底序号,没选时右上角一个空心圈。 */
+/** The most recent photo: a square thumbnail; a blue frame, a light blue cover, and a serial number with a blue background in the upper right corner when selected, and an empty circle in the upper right corner when not selected. */
 @Composable
 private fun RecentCell(photo: PendingAttachment, order: Int?, onClick: () -> Unit) {
     val c = MinaTheme.colors
@@ -289,9 +295,9 @@ private fun RecentCell(photo: PendingAttachment, order: Int?, onClick: () -> Uni
     }
 }
 
-// ---------- 待发 ----------
+// ---------- Ready to go ----------
 
-/** 输入框上方一排待发的附件:照片是方块缩略图,文件是小卡片(类型、名字、大小),右上角 × 去掉。 */
+/** There is a row of attachments waiting to be sent above the input box: photos are square thumbnails, files are small cards (type, name, size), and the × in the upper right corner is removed. */
 @Composable
 internal fun PendingTray(items: List<PendingAttachment>, onRemove: (String) -> Unit, modifier: Modifier = Modifier) {
     val c = MinaTheme.colors
@@ -333,11 +339,13 @@ internal fun PendingTray(items: List<PendingAttachment>, onRemove: (String) -> U
     }
 }
 
-// ---------- 发出去的 ----------
+// ---------- Sent ----------
 
 /**
- * 用户消息里带的附件:照片排成格子(见 [PhotoGrid];1 张保持比例,2 张并排,3 张起三列),文件是卡片(类型、名字、大小);
- * 点照片或卡片交给 [onOpen](在 App 里的查看页打开)。最宽 [maxWidth]。
+ * Attachments in user messages: photos are arranged in a grid (see [PhotoGrid]; 1 photo keeps
+ * proportions, 2 photos side by side, 3 photos in three columns), the file is a card (type, name, size);
+ * click on the photo or card and give it to [onOpen] (open in the view page in the App). The widest is
+ * [maxWidth].
  */
 @Composable
 internal fun SentAttachments(parsed: AttachmentMessage.Parsed, conversationId: String?, maxWidth: Dp, onOpen: (AttachmentMessage.Item) -> Unit) {
@@ -401,7 +409,7 @@ private fun SentFileCard(f: AttachmentMessage.Item, maxWidth: Dp, onClick: () ->
     }
 }
 
-/** 文件类型角标:按扩展名配色,上面写扩展名。 */
+/** File type corner mark: color according to extension, write extension above. */
 @Composable
 private fun TypeBadge(name: String, modifier: Modifier, small: Boolean) {
     val shape = RoundedCornerShape(if (small) 5.dp else 7.dp)
@@ -418,7 +426,7 @@ private fun badgeColor(kind: FileBadge.Kind, c: MinaColors): Color = when (kind)
     FileBadge.Kind.Archive, FileBadge.Kind.Other -> NeutralBadge
 }
 
-/** 缩略图解到这么大(像素):面板格子、待发的小方块、单张大图。 */
+/** Thumbnails are explained to this size (pixels): panel grid, small squares ready to be sent, single large image. */
 private const val RECENT_PX = 256
 private const val TRAY_PX = 180
 private const val SINGLE_PX = 640

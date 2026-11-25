@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.meenai.mina.ui.theme.MinaColors
 import com.meenai.mina.ui.theme.MinaTheme
 
-/** 竖线步骤上一个点的状态:完成是灰点,当前是带光圈的蓝点,暂停是橙点,出错是红点。 */
+/** The status of the previous point in the vertical line step: completed is a gray point, current is a blue point with aperture, pause is an orange point, and error is a red point. */
 enum class StepState { Done, Current, Paused, Failed }
 
 private fun StepState.color(c: MinaColors) = when (this) {
@@ -35,8 +35,10 @@ private fun StepState.halo(c: MinaColors) = when (this) {
 }
 
 /**
- * 竖线步骤里的一步:左边一条 1.5dp 的细线穿过各步,点画在 [dotY] 高度(对齐第一行文字的中线);
- * 第一步的线从点开始、最后一步的线到点为止,步骤之间线是连续的。内容放在右边,可以有多行。
+ * One step in the vertical line step: a thin line of 1.5dp on the left goes through each step, and the
+ * dots are drawn at the height of [dotY] (aligned with the center line of the first line of text); the
+ * line of the first step starts from the dot, and the line of the last step ends at the dot. The lines
+ * between steps are continuous. The content is placed on the right and can have multiple lines.
  */
 @Composable
 fun StepItem(

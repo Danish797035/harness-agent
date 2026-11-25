@@ -27,11 +27,11 @@ import androidx.activity.enableEdgeToEdge
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.settings.ThemeMode
 
-/** 动效:时长和曲线。系统关了动画时([HarnessTheme.reduceMotion])直接到位。 */
+/** Animation: duration and curve. When the system turns off the animation ([HarnessTheme.reduceMotion]), it will be in place directly. */
 object HarnessMotion {
     const val PAGE_MS = 220
     const val SWITCH_MS = 200
-    /** 减速曲线:起步快、落地慢。 */
+    /** Deceleration curve: fast start, slow landing. */
     val Decelerate: Easing = CubicBezierEasing(0f, 0f, 0.2f, 1f)
 
     fun <T> page(reduceMotion: Boolean): AnimationSpec<T> = if (reduceMotion) snap() else tween(PAGE_MS, easing = Decelerate)
@@ -40,7 +40,7 @@ object HarnessMotion {
 
 typealias MinaMotion = HarnessMotion
 
-/** 系统「移除动画」(动画时长缩放为 0)时为真。 */
+/** True when the system "removes animation" (animation duration scaled to 0). */
 fun animationsOff(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
@@ -57,8 +57,10 @@ object HarnessTheme {
 typealias MinaTheme = HarnessTheme
 
 /**
- * 设置里的外观:跟随系统时看系统,一直浅色/深色时照设置。设置一改(设置页或任务里改的)当场换,不重建界面,
- * 所以页面、输入、滚动位置都不丢。
+ * Appearance in settings: Look at the system when following the system, and look at the settings when
+ * always light/dark. Once the settings are changed (changed in the settings page or task), the settings
+ * are changed on the spot without rebuilding the interface, so the page, input, and scroll position are
+ * not lost.
  */
 @Composable
 fun appearanceDark(): Boolean {
@@ -72,10 +74,11 @@ fun appearanceDark(): Boolean {
     }
 }
 
-/** 状态栏、导航栏的图标深浅跟界面一致:界面强制浅色而系统是深色时,图标也得是深色的才看得见。 */
+/** The icons in the status bar and navigation bar have the same depth as the interface: when the interface is forced to be light and the system is dark, the icons must also be dark to be visible. */
 fun ComponentActivity.systemBarsFor(dark: Boolean) {
     val transparent = android.graphics.Color.TRANSPARENT
-    // 旧系统上导航栏不能全透明,垫一层半透明的底;取值与 enableEdgeToEdge 默认的一致
+    // The navigation bar on the old system cannot be completely transparent, so it must be padded with a
+    // semi-transparent bottom; the value is consistent with the default value of enableEdgeToEdge.
     val lightScrim = android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
     val darkScrim = android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b)
     enableEdgeToEdge(
@@ -84,7 +87,7 @@ fun ComponentActivity.systemBarsFor(dark: Boolean) {
     )
 }
 
-/** 深浅色按设置里的外观([appearanceDark]);同时把 Material 组件(弹窗、输入框、底部面板)的颜色对上。 */
+/** The dark and light colors are according to the appearance in the settings ([appearanceDark]); at the same time, match the colors of the Material components (pop-up windows, input boxes, bottom panels). */
 @Composable
 fun HarnessTheme(dark: Boolean = appearanceDark(), reduceMotion: Boolean = false, content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors

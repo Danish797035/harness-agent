@@ -3,19 +3,19 @@ package com.meenai.mina.cap.phone.shell
 import kotlinx.coroutines.flow.StateFlow
 import com.meenai.mina.shell.IHarnessShell
 
-/** 到 shell 身份服务的一条连接;[SharedShell] 按引用计数绑定/解绑,调用方只看这几样。 */
+/** A connection to the shell identity service; [SharedShell] binds/unbinds by reference count, the caller only sees these. */
 interface ShellBinding {
-    /** 绑定期间连着时是服务的接口,否则为 null。 */
+    /** It is the interface of the service when connected during binding, otherwise it is null. */
     val shell: StateFlow<IHarnessShell?>
 
-    /** 连上过、仍需要,但现在断了。重新连上或解绑后复位。 */
+    /** It was connected and still needed, but now it's disconnected. Reconnect or unbind and reset. */
     val dropped: StateFlow<Boolean>
 
     fun bind()
 
-    /** 解绑后不留下虚拟屏、静音和剪贴板改动。 */
+    /** After unbundling, no changes to the virtual screen, mute, or clipboard will be left. */
     fun unbind()
 
-    /** 「重新连接」:断开后没能自动连回时手动再试一次。 */
+    /** "Reconnect": If you fail to connect automatically after disconnection, try again manually. */
     fun reconnect()
 }

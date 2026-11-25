@@ -5,8 +5,10 @@ import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.settings.Provider
 
 /**
- * 任务因模型失败,而主模型在它那家还没测试通过时([untested],见 [com.meenai.mina.settings.ProviderStore.untestedMainProvider]):
- * 在原因后面另起一行,指向那家的「重新测试」([hint] 拿服务商名字给出这一句)。别的结局原样返回。
+ * When the task fails due to a model, but the main model has not passed the test at that company
+ * ([untested], see [com.meenai.mina.settings.ProviderStore.untestedMainProvider]): Add a new line after
+ * the reason to point to the "retest" of that company ([hint] gives this sentence with the name of the
+ * service provider). All other endings are returned as is.
  */
 internal object RetestHint {
     fun apply(end: TaskState, untested: Provider?, hint: (String) -> String): TaskState =

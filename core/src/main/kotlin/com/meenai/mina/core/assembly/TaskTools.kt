@@ -42,77 +42,79 @@ import com.meenai.mina.core.child.ChildRunHost
 import com.meenai.mina.core.userscreen.UserScreenSource
 
 /**
- * 一个任务的工具:装上手机、网页、沙箱三种能力和核心工具。这是唯一同时认识几种能力的地方。
- * 没给端口的能力照样装上(工具都不提供),按名字查声明时它们的工具也查得到。
+ * A tool for one task: equipped with three capabilities and core tools: mobile phone, web page, and
+ * sandbox. This is the only place where several abilities are recognized simultaneously. Capabilities
+ * that are not provided with ports are still installed (no tools are provided), and their tools can also
+ * be found when searching for declarations by name.
  */
 fun toolDispatcher(
     screen: ScreenPort,
     visionEnabled: Boolean = false,
-    /** 只读的知识与技能目录;为空时不提供 knowledge_search / knowledge_read / skill_search / skill_read。 */
+    /** Read-only knowledge and skills directory; knowledge_search / knowledge_read / skill_search / skill_read is not provided when empty. */
     skills: GuideCatalog? = null,
-    /** 读屏时另截一张画面给运行记录(看不了图的模型也留画面)。 */
+    /** When reading the screen, take another screenshot for the running record (the model that cannot see the picture also keeps the screenshot). */
     recordFrames: Boolean = false,
-    /** 看图模型;为空(设置里没有能看图的模型)时不提供视觉类工具。 */
+    /** Picture viewing model; when it is empty (there is no model that can view pictures in the settings), no visual tools are provided. */
     vision: VisionService? = null,
-    /** 内置浏览器;为空时不提供任何网页工具,只有手机界面。 */
+    /** Built-in browser; when empty, no web tools are provided, only the mobile interface. */
     web: WebPort? = null,
-    /** 网页上传的工作区路径检查(规范化、符号链接解析由 app 侧做)。 */
+    /** Check the workspace path for web page upload (normalization and symbolic link resolution are done by the app side). */
     workspacePath: ((String) -> WorkspacePathCheck)? = null,
-    /** 网页一页一页看的节奏(换页前补足停留,见 [PagePacing]);默认不等。 */
+    /** The rhythm of reading web pages page by page (make up the pause before page change, see [PagePacing]); the default is not equal. */
     webPacing: () -> PagePacing = { PagePacing.Off },
-    /** 网站对浏览快慢的要求(按主机名);默认按 [skills] 里站点知识的 pace。 */
+    /** The website's requirements for browsing speed (according to host name); the default is the pace of the site knowledge in [skills]. */
     webPlacePace: (String) -> PlacePace = { host -> PlacePace.of(skills?.sitePace(host)) },
-    /** 网页停留时轻轻滚几下页面(见 [IdleScroll]);默认不滚。 */
+    /** When the web page stays, gently scroll the page a few times (see [IdleScroll]); the default is not to scroll. */
     webIdleScroll: () -> IdleScroll? = { null },
-    /** 在 App 里一步一步操作的节奏(改动屏幕的动作之前补足停留,见 [AppPacing]);默认不等。 */
+    /** The rhythm of step-by-step operations in the App (complementary pause before changing the action on the screen, see [AppPacing]); the default is not equal. */
     appPacing: () -> AppPacing = { AppPacing.Off },
-    /** App 对浏览快慢的要求(按包名);默认按 [skills] 里 App 知识的 pace。 */
+    /** App's requirements for browsing speed (according to package name); the default is the pace of App knowledge in [skills]. */
     appPace: (String) -> PlacePace = { pkg -> PlacePace.of(skills?.appPace(pkg)) },
-    /** App 里新的一屏上的停留时轻轻滚几下(见 [IdleScroll]);默认不滚。 */
+    /** When staying on a new screen in the App, gently scroll a few times (see [IdleScroll]); the default is not to scroll. */
     appIdleScroll: () -> IdleScroll? = { null },
-    /** 跨读屏的稳定编号:读屏给模型编号和 s<N>,动作前翻译回端口编号。 */
+    /** Stable numbering across reading screens: Screen reading gives the model number and s<N>, and translates it back to the port number before action. */
     stableRefs: Boolean = false,
-    /** 写操作成功后等界面稳定再读一屏,把与上一屏的差异放进结果的 screen 字段;隐含 [stableRefs]。 */
+    /** After the write operation is successful, wait until the interface is stable before reading another screen, and put the difference with the previous screen into the screen field of the result; [stableRefs] is implied. */
     inlineScreen: Boolean = false,
-    /** 先给模型元素表；只在元素信息明显不足时自动附图。动作仍带回元素变化。 */
+    /** A table of model elements is given first; drawings are automatically attached only when the element information is obviously insufficient. Action still brings back elemental changes. */
     adaptiveVision: Boolean = false,
-    /** 提速开关 deepLinks:提供打开链接的工具。 */
+    /** Speed-up switch deepLinks: Provides tools for opening links. */
     deepLinks: Boolean = false,
-    /** 记忆;和 [utterances] 都给了才提供 memory_search / memory_save。 */
+    /** Memory; and [utterances] are both given before providing memory_search / memory_save. */
     memory: MemoryStore? = null,
     profile: ProfileStore? = null,
-    /** 用户本次说过的话,memory_save 的引文据此校验;AgentLoop 往里加。 */
+    /** What the user said this time, the quotation of memory_save is checked accordingly; AgentLoop adds it. */
     utterances: UserUtterances? = null,
-    /** 本次任务所在的对话;记进记忆的出处。 */
+    /** The conversation in which this mission is located; the source of recording it into memory. */
     conversationId: String? = null,
-    /** Linux 沙箱;设备支持时提供沙箱工具(没准备好时工具调用会等它)。 */
+    /** Linux sandbox; sandbox tool is provided when the device supports it (the tool call will wait for it when it is not ready). */
     sandbox: SandboxPort? = null,
-    /** 本次任务的工作区(对话 ID)。 */
+    /** The workspace (conversation ID) of this task. */
     workspace: () -> String = { "default" },
-    /** 沙箱开始跑一条命令或脚本时(任务卡片显示「沙箱:…」)。 */
+    /** When the sandbox starts running a command or script (the task card displays "Sandbox:..."). */
     onSandboxCommand: (String) -> Unit = {},
-    /** 沙箱里 `mina progress` 报的进度。 */
+    /** The progress reported by `mina progress` in the sandbox. */
     onSandboxProgress: (String) -> Unit = {},
-    /** 沙箱工具在等运行环境准备好(任务卡片显示「正在准备」)。 */
+    /** The sandbox tool is waiting for the running environment to be ready (the task card shows "Preparing"). */
     onSandboxPreparing: () -> Unit = {},
-    /** 开始跑技能脚本时;不给就按 [onSandboxCommand] 报。 */
+    /** When starting to run the skill script; if not, press [onSandboxCommand] to report. */
     onSandboxScript: ((String) -> Unit)? = null,
-    /** 发给主模型的图统一编码用;为空时原样发。 */
+    /** The pictures sent to the main model are uniformly encoded; when empty, they are sent as they are. */
     imageOps: ImageOps? = vision?.ops,
-    /** 开局约束允许的能力；旧调用方不传时仍得到今天的工具。 */
+    /** Capabilities allowed by opening constraints; old callers are not passed when still getting today's tools. */
     runSpec: RunSpec = RunSpec(RunId("legacy"), "legacy", "legacy"),
     mcpServers: List<McpConnection> = emptyList(),
-    /** 存下一个定时任务,并说明能不能准时(见 [Scheduled])。 */
+    /** Save a scheduled task and indicate whether it can be on time (see [Scheduled]). */
     scheduleTrigger: ((TriggerDefinition) -> Scheduled)? = null,
     scheduleAdmin: ScheduleAdmin? = null,
     childHost: ChildRunHost? = null,
-    /** 这个对话里用户发来的屏幕;给了而这次的话或之前几轮里带着屏幕时提供 view_user_screen。 */
+    /** The screen sent by the user in this conversation; provided view_user_screen either this time or in previous rounds. */
     userScreens: UserScreenSource? = null,
-    /** 用户的个人技能;和 [skills]、[utterances] 都给了才提供 skill_save(用户要求时写下或改一份个人技能)。 */
+    /** The user's personal skills; and [skills], [utterances] are all given before skill_save is provided (write down or change a personal skill when the user requests it). */
     personalSkills: PersonalSkills? = null,
-    /** 改 Mina 自己设置的白名单入口;为空时不提供 settings_list、settings_set(见 [SelfConfig])。 */
+    /** Change the whitelist entry set by Mina itself; when it is empty, settings_list and settings_set will not be provided (see [SelfConfig]). */
     selfConfig: com.meenai.mina.core.settings.SelfConfig? = null,
-    /** 存下的运行记录;给了、而这个对话之前有记过运行的轮次时提供 history_read(查之前几轮读到的东西)。 */
+    /** Saved running records; provide history_read (check what was read in previous rounds) when this conversation has previously recorded running rounds. */
     runRecords: RunRecords? = null,
     imageService: com.meenai.mina.core.image.ImageGenerationService? = null,
     onImageProgress: ((isGenerating: Boolean, prompt: String, model: String) -> Unit)? = null,
@@ -141,21 +143,22 @@ fun toolDispatcher(
     return RunAssembler(providers).assemble(runSpec, config, stableRefs, FORMER_PREFIX, RENAMED, RETIRED, MOVED)
 }
 
-/** 改名前各能力工具名的前缀:手机的没有前缀,网页的是 browser_。 */
+/** The prefix of each capability tool name before the name change: there is no prefix for the mobile phone, and it is browser_ for the web page. */
 private val FORMER_PREFIX = mapOf(PHONE to "", WEB to "browser_")
-/** 屏幕工具第二次改名时动词部分的变化(以前 → 现在),手机、网页两套一样。 */
+/** When the screen tool is renamed for the second time, the change in the verb part (previous → now) is the same for mobile phones and web pages. */
 private val SCREEN_VERBS_MOVED = mapOf(
     "dump_elements" to "list_elements", "locate_on_screen" to "find_visually",
     "screen_description" to "describe", "check_screen" to "diagnose",
 )
 
-/** 除了前缀,其余部分也改过的(现在的名字 → 最早的名字;第二次改名的屏幕工具最早是几块屏共用的那个名字)。 */
+/** Except for the prefix, the rest has also been changed (current name → earliest name; the screen tool that was renamed for the second time was the earliest name shared by several screens). */
 private val RENAMED = mapOf("web_wait_for" to "browser_wait") +
     SCREEN_VERBS_MOVED.flatMap { (old, now) -> listOf(PHONE, WEB).map { "${it}_$now" to old } }
 
 /**
- * 整个换了名字的(以前的名字 → 现在的名字)。一个拆成知识、技能两个的列两个:模型调旧名时按参数挑(见 [LegacyNames.replacements]),
- * 文字里的旧名两个都写上。
+ * The entire name has been changed (previous name → current name). One is divided into two columns:
+ * knowledge and skills: when the model adjusts the old name, select it according to the parameters (see
+ * [LegacyNames.replacements]), and write both the old names in the text.
  */
 private val MOVED: Map<String, List<String>> = mapOf(
     "find_skills" to listOf("knowledge_search", "skill_search"),
@@ -168,25 +171,25 @@ private val MOVED: Map<String, List<String>> = mapOf(
     "recall_screenshot" to listOf("view_past_screens"),
 ) + SCREEN_VERBS_MOVED.flatMap { (old, now) -> listOf(PHONE, WEB).map { "${it}_$old" to listOf("${it}_$now") } }
 
-/** 去掉了、没有替代工具的(以前的名字 → 现在怎么做):以前用工具交结果,现在不带调用的回复就是回答。 */
+/** Removed and no replacement tool (previous name → how to do it now): In the past, the tool was used to deliver the results, but now the reply without the call is the answer. */
 private val RETIRED = mapOf(
     "finish" to "reply to the user with your answer as text, without calling any tool",
     "phone_ask_app_ai" to "read the app's own screens yourself (asking an app's built-in AI assistant is no longer available)",
 )
 
-/** 改名前的工具名 → 现在的名字(读旧的路线、运行记录、个人技能时用)。 */
+/** The tool name before the name change → the current name (used when reading old routes, running records, and personal skills). */
 fun legacyNames(): LegacyNames =
     LegacyNames(knownTools(), FORMER_PREFIX, RENAMED, retired = RETIRED, moved = MOVED)
 
-/** 读运行记录用的工具声明:改名前记下的旧名也认成现在的工具(动作、能力相同),旧的记录和新的评分一样。 */
+/** Statement of the tool used to read the running records: the old name written down before the name change is also recognized as the current tool (the actions and abilities are the same), and the old records and new ratings are the same. */
 fun recordedTools(): ToolIndex = legacyNames().let { legacy -> ToolIndex(allTools()) { legacy.resolve(it) } }
 
-/** Mina 所有可能提供的工具,按发给模型的顺序。 */
+/** All possible tools provided by Mina, in the order in which they are issued to the model. */
 internal fun allTools(): List<AgentTool> =
     GeneralGroup.tools + PhoneCapability.tools() + WebGroup.tools + SandboxGroup.tools
 
-/** Mina 所有可能提供的工具的声明。 */
+/** Declaration of all tools Mina may provide. */
 fun knownTools(): ToolIndex = ToolIndex(allTools())
 
-/** Mina 所有可能提供的工具名(技能文档里提到的工具名据此校验)。 */
+/** All possible tool names provided by Mina (the tool names mentioned in the skill document are verified against this). */
 fun knownToolNames(): Set<String> = knownTools().names + DO_STEPS_TOOL

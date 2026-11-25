@@ -73,16 +73,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 一次运行的时间线(只读):顶部是目标、标准、一行小结(点开看时间去向)和结局(模型调用次数这类细节收在「更多详情」里),
- * 下面是竖线步骤,每步一行,点有画面的步骤看当时的画面。
+ * Timeline of a run (read-only): The top is the goal, standard, a one-line summary (click to see where
+ * the time goes) and the ending (details such as the number of model calls are collected in "More
+ * Details"), below are the vertical steps, one line for each step, click on the step with the picture to
+ * see the picture at that time.
  */
-/** 任务还在跑时,运行记录多久重读一次。 */
+/** When the task is still running, how often the running record is reread. */
 private const val LIVE_REFRESH_MS = 1_000L
 
 @Composable
 fun RunTimelineScreen(vm: RunTimelineViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
-    // 还在跑就每秒再读一次运行记录(不自动滚到底:用户翻到哪就停在哪)
+    // While it is still running, read the running record again every second (it will not automatically
+    // scroll to the bottom: it will stop wherever the user scrolls)
     val ui by produceState<TimelineUi>(TimelineUi.Loading, vm) {
         while (true) {
             val next = withContext(Dispatchers.IO) { vm.load() }
@@ -162,7 +165,8 @@ private fun HeaderGroup(h: TimelineHeader, onExport: () -> Unit) {
             }
         }
         h.metrics?.let { RunMetricsSummary(it) }
-        // 还没跑完:这里说「进行中」,下面这些小结(核查、结局)等结束了才有
+        // Not finished yet: It says "in progress" here, and the following summary (verification, ending)
+        // will not be available until it is over.
         if (h.running) {
             ListRow(null, stringResource(R.string.timeline_outcome)) { RowValue(stringResource(R.string.timeline_running), ValueTone.Plain) }
         } else {
@@ -180,7 +184,7 @@ private fun HeaderGroup(h: TimelineHeader, onExport: () -> Unit) {
                 }
             }
         }
-        // 小结那一行已经写了用时
+        // The summary line has already been written.
         if (h.metrics == null) h.duration?.let { d -> ListRow(null, stringResource(R.string.timeline_duration)) { RowValue(d) } }
         ListRow(null, stringResource(R.string.timeline_export), stringResource(R.string.timeline_export_hint), onClick = onExport) { RowChevron() }
         ListRow(null, stringResource(R.string.timeline_more), onClick = { more = !more }) {
@@ -364,7 +368,7 @@ private fun TagChip(t: Tag) {
     )
 }
 
-/** 当时的画面:在后台线程解码;文件已被清理时只说一句。 */
+/** Picture then: decoding in background thread; just saying when file has been cleaned. */
 @Composable
 private fun Shot(vm: RunTimelineViewModel, id: Int, step: Int) {
     val image by produceState<ImageBitmap?>(null, id) {

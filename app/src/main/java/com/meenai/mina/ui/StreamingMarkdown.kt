@@ -1,6 +1,6 @@
 package com.meenai.mina.ui
 
-/** 让还没输出完的行也能按 Markdown 预览；这些临时字符不会进入消息记录。 */
+/** Lines that have not yet been output can be previewed in Markdown; these temporary characters will not be entered into the message record. */
 internal object StreamingMarkdown {
     private data class Open(val marker: String, val index: Int)
     private val unfinishedLink = Regex("""!?\[([^\]\n]*)\]\([^\)\n]*$""")
@@ -9,9 +9,11 @@ internal object StreamingMarkdown {
 
     fun preview(markdown: String): String {
         if (markdown.isEmpty()) return markdown
-        // 代码块里的标点就是内容，不能把尚未闭合的链接或表格当排版语法改掉。
+        // The punctuation in the code block is the content, and unclosed links or tables cannot be used
+        // as typesetting syntax to change.
         if (insideFence(markdown)) return markdown
-        // URL 尚未收完时先显示链接文字，避免 [文字](https://... 直接露出来。
+        // When the URL has not been collected, the link text will be displayed first to prevent
+        // [text](https://... from being directly exposed.
         val link = unfinishedLink.find(markdown) ?: unfinishedLabel.find(markdown)
         val visible = if (link == null) markdown else markdown.replaceRange(link.range, link.groupValues[1])
         return closeInline(softenPendingTable(visible))
@@ -80,7 +82,8 @@ internal object StreamingMarkdown {
             if (fence != null) { i++; continue }
             if (c == '\\') { i = (i + 2).coerceAtMost(source.length); continue }
             if (c == ']' && source.getOrNull(i + 1) == '(') {
-                // 已闭合链接的地址不是可见正文，里面的强调符号不用处理。
+                // The address of a closed link is not visible text, and the emphasis symbols inside do
+                // not need to be processed.
                 val end = source.indexOf(')', i + 2)
                 if (end >= 0) { i = end + 1; continue }
             }

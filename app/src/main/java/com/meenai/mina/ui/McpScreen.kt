@@ -51,7 +51,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** 展示现有连接状态,不把启用开关或监听端口当作电脑已连接。刷新仍只在本页,沿用两秒间隔。 */
+/** Displays existing connection status and does not treat enabled switches or listening ports as if the computer is connected. Refresh is still only on this page, using the two-second interval. */
 @Composable
 fun McpScreen(runtime: McpRuntime, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -92,7 +92,7 @@ fun McpScreen(runtime: McpRuntime, onBack: () -> Unit) {
     )
 }
 
-/** 一份只读页面快照。引导选择和折叠状态不写入连接设置。 */
+/** A read-only snapshot of the page. Boot selection and collapsed state are not written to connection settings. */
 internal data class ComputerAccessUi(
     val server: McpServerState,
     val networkEnabled: Boolean,
@@ -263,7 +263,8 @@ private fun NetworkGuide(ui: ComputerAccessUi, mcp: Boolean, onNetworkEnabled: (
                 kind = ButtonKind.Text, size = ButtonSize.Small)
         }
         if (preview) {
-            // 预览只用占位符;真实令牌只在用户点击复制时进入剪贴板。
+            // The preview only takes placeholders; the real token only goes to the clipboard when the
+            // user clicks copy.
             val config = McpRuntime.clientConfig(address?.let { McpRuntime.url(it, ui.port) } ?: "<address>", "<token>")
             CommandText(config, Modifier.testTag("computer-config-preview"))
         }

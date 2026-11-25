@@ -45,7 +45,7 @@ import kotlin.concurrent.thread
 private const val EXIT_TIMEOUT = 124
 private const val EXIT_LAUNCHER_ERROR = 125
 private const val EXIT_SIGKILL = 128 + 9
-/** 启动器自己有时限;Kotlin 侧多等这么久仍没结束就强杀。 */
+/** The launcher itself has a time limit; Kotlin will forcefully kill it before it ends after waiting for so long. */
 private const val FALLBACK_GRACE_MS = 10_000L
 private const val DESTROY_GRACE_MS = 3_000L
 private const val READER_GRACE_MS = 2_000L
@@ -57,8 +57,9 @@ internal const val SHARE_MAX_FILES = 20
 internal const val SHARE_MAX_BYTES = 500L shl 20
 
 /**
- * 一个任务(一个 AndroidSandbox)的导出额度,share_file 与 `mina share` 共用。
- * 复制前按文件大小预留,复制完按实际字节结算;导出失败不占额度。
+ * The export quota of a task (an AndroidSandbox), share_file is shared with `mina share`. It is reserved
+ * based on the file size before copying, and is settled based on actual bytes after copying; export
+ * failure does not account for the quota.
  */
 internal class ShareQuota(private val maxFiles: Int = SHARE_MAX_FILES, private val maxBytes: Long = SHARE_MAX_BYTES) {
     private var files = 0
@@ -81,36 +82,38 @@ internal class ShareQuota(private val maxFiles: Int = SHARE_MAX_FILES, private v
 }
 
 /**
- * 启动沙箱进程的专用线程,进程存活期间一直在。启动器设了 PR_SET_PDEATHSIG,
- * 它跟的是 fork 出它的那个线程:线程池回收空闲线程时,那条线程起的命令会被当成「Mina 死了」而杀掉。
- * 协程调度器把 start() 的异常交回调用方,线程本身不会因异常退出。
+ * A dedicated thread that starts the sandbox process and remains active while the process is alive. The
+ * launcher sets PR_SET_PDEATHSIG, which follows the thread that forked it: when the thread pool recycles
+ * idle threads, the command initiated by that thread will be treated as "Mina is dead" and killed. The
+ * coroutine scheduler returns the exception in start() to the caller, and the thread itself will not
+ * exit due to exception.
  */
 private val launcherThread = Executors.newSingleThreadExecutor { r -> Thread(r, "harness-sandbox-launcher").apply { isDaemon = true } }
     .asCoroutineDispatcher()
 
-/** [SandboxPort] 的安卓实现:启动器 + PRoot 跑命令,文件类操作直接读写宿主目录。 */
+/** Android implementation of [SandboxPort]: Launcher + PRoot runs commands, and file operations directly read and write the host directory. */
 class AndroidSandbox internal constructor(
     private val dirs: SandboxDirs,
     private val currentStatus: () -> SandboxStatus,
     private val dnsServers: () -> List<String>,
-    /** 每次运行开一个桥会话;JVM 测试里没有安卓套接字,传 false。 */
+    /** Open a bridge session for each run; if there is no Android socket in the JVM test, pass false. */
     private val bridges: Boolean = false,
     private val version: String = "",
-    /** 存到「下载/Harness」:(已过关口核实的文件, 保存名) → 导出的文件;为空时不能导出。 */
+    /** Save to "Download/Harness": (File that has passed the checkpoint verification, save name) → Exported file; cannot be exported when it is empty. */
     private val exporter: (suspend (GatedFile, String) -> SharedFile)? = null,
-    /** 导出成功后告诉任务(文件卡片)。 */
+    /** Notify the task (file card) after the export is successful. */
     private val onShared: (SharedFile) -> Unit = {},
-    /** 每次运行前做的准备(把技能目录核对成打包的那份)。 */
+    /** Preparations made before each run (check the skill catalog into the packaged copy). */
     private val sync: suspend () -> Unit = {},
-    /** 随 App 打包的技能脚本(技能目录下的相对路径 → 内容);清单和脚本都以它为准。 */
+    /** The skill script packaged with the App (relative path under the skills directory → content); both the manifest and the script are subject to it. */
     private val skillFiles: () -> Map<String, ByteArray> = { emptyMap() },
-    /** 开始(或拿到正在进行的)运行环境准备;不需要准备为 null。 */
+    /** Begins (or gets ongoing) runtime environment preparation; null if preparation is not required. */
     private val startPreparing: () -> Job? = { null },
-    /** 用户的联网设置;不给时按就绪状态里的。 */
+    /** The user's networking settings; click in the ready state when not given. */
     private val allowNetwork: (() -> Boolean)? = null,
-    /** 网络代理(设置 › 网络代理,见 [NetProxyStore]);空串不用。只在允许联网的命令里给。 */
+    /** Network proxy (Settings › Network proxy, see [NetProxyStore]); the empty string is not used. Only given in commands that allow networking. */
     private val proxy: () -> String = { "" },
-    /** APK 内的桥客户端；已有运行环境也要随 APK 更新。 */
+    /** The bridge client in the APK; the existing running environment must also be updated with the APK. */
     private val clientScript: () -> ByteArray? = { null },
 ) : SandboxPort {
     override val tree get() = dirs.tree
@@ -148,28 +151,34 @@ class AndroidSandbox internal constructor(
     override suspend fun runWithPhone(workspace: String, argv: List<String>, cwd: String?, timeoutMs: Long, onProgress: (String) -> Unit,
         phone: PhoneCommandHandler?): CommandResult {
         val network = (status() as? SandboxStatus.Ready)?.network == true
-        // 调用方给的 cwd 再核一遍:必须规范化后仍在工作区里
+        // Check the cwd given by the caller again: it must be normalized and still in the work area.
         val rel = cwd?.takeIf { it.isNotEmpty() }?.let { c ->
             val n = SandboxPaths.normalize(c)?.takeIf(SandboxPaths::isWritable)
                 ?: throw SandboxError("path_outside_workspace", "cwd must be a directory inside /workspace.", recoverable = true)
             n.removePrefix(SandboxPaths.WORKSPACE).trimStart('/')
         }.orEmpty()
-        // 技能脚本没同步上不挡命令:脚本跑不了时 run_bundled_script 会照实报
+        // Skill scripts are not synchronized and do not block commands: when the script cannot run,
+        // run_bundled_script will report the truth accordingly.
         prepare()
         val timeoutSec = ((timeoutMs + 999) / 1000).coerceIn(1, 3600).toInt()
-        // 建目录到命令结束都在许可里:命令也往工作区里写,重置要等它跑完再删
+        // The permissions are in the directory from the creation of the directory to the end of the
+        // command: the command is also written to the workspace, and you have to wait until it finishes
+        // running before deleting it.
         val o = tree.shared {
             val ws = withContext(Dispatchers.IO) {
                 dirs.workspace(workspace).also {
                     dirs.ensureBindSources(it)
                     syncClientScript()
-                    // cwd 在工作区里不存在就建上(逐段、不跟随链接);建不了的不建,让 PRoot 自己报错
+                    // If cwd does not exist in the workspace, build it (section by section, without
+                    // following links); if it cannot be built, do not build it, and let PRoot report an
+                    // error by itself.
                     rel.takeIf { c -> c.isNotEmpty() }?.let { c -> runCatching { files.mkdirs(it, c) } }
                     if (network) writeResolvConf()
                 }
             }
             val cmd = ProcRunner.argv(dirs, ws, rel, timeoutSec, network, standIns(), argv)
-            // 命令结束(含超时、被杀、取消)就关掉桥:旧的名字和令牌不再能用
+            // When the command ends (including timeout, kill, cancellation), the bridge is closed: the
+            // old name and token can no longer be used.
             val session = if (bridges) bridgeFor(workspace, network, onProgress, phone).open() else null
             try {
                 launch(cmd, ProcRunner.env(dirs, session?.name, session?.token, workspace, if (network) proxy() else ""), timeoutSec * 1000L + FALLBACK_GRACE_MS)
@@ -205,14 +214,16 @@ class AndroidSandbox internal constructor(
 
     override val files: WorkspaceFileGate get() = dirs.gate
 
-    // 只有写(调用方持有 SandboxTree 的许可)才建工作区目录:读和查路径不持有许可,建了会和重置的删除撞上
+    // The workspace directory can only be created for writing (the caller holds the permission of
+    // SandboxTree): reading and checking the path do not hold permission, and the creation will conflict
+    // with the deletion of the reset.
     override fun hostRoot(workspace: String, normalized: String, forWrite: Boolean): Pair<File, String>? = when {
         SandboxPaths.isWritable(normalized) -> dirs.workspace(workspace).also { if (forWrite) it.mkdirs() } to normalized.removePrefix(SandboxPaths.WORKSPACE).trimStart('/')
         forWrite -> null
         else -> dirs.skills to normalized.removePrefix(SandboxPaths.SKILLS).trimStart('/')
     }
 
-    /** web_upload 的路径检查:只认这个工作区里过得了关口的普通文件;技能目录和工作区外都算越界。 */
+    /** The path check of web_upload: only ordinary files in this workspace that pass the threshold are recognized; the skill directory and outside the workspace are considered out of bounds. */
     fun uploadCheck(workspace: String, sandboxPath: String): WorkspacePathCheck {
         hostPath(workspace, sandboxPath, forWrite = true) ?: return WorkspacePathCheck.Outside
         val n = SandboxPaths.normalize(sandboxPath) ?: return WorkspacePathCheck.Outside
@@ -226,8 +237,11 @@ class AndroidSandbox internal constructor(
     }
 
     /**
-     * [file] 已由 ShareRules 按工作区检查过;导出时经关口打开一次(根目录是它所在的那个工作区),额度按句柄上的大小算,
-     * 复制也从这个句柄读。意外的错误只记在 Mina 这边,交出去的只有错误码和一句话,不带 Mina 的私有路径。
+     * [file] has been checked by ShareRules by workspace; it is opened once through the gateway when
+     * exporting (the root directory is the workspace where it is located), the amount is calculated
+     * based on the size of the handle, and the copy is also read from this handle. Unexpected errors are
+     * only recorded on Mina's side, and only the error code and a sentence are handed over, without
+     * Mina's private path.
      */
     override suspend fun share(file: File, name: String): String {
         val export = exporter ?: throw SandboxError("share_unavailable", "Saving files to Downloads is not available in this version.")
@@ -259,7 +273,7 @@ class AndroidSandbox internal constructor(
         else -> e
     }
 
-    /** 文件所在的那个工作区目录(work/ 下的第一层)与工作区里的相对路径;不在任何工作区里为 null。 */
+    /** The relative path between the workspace directory where the file is located (the first level under work/) and the workspace; it is null if it is not in any workspace. */
     private fun workspaceOf(file: File): Pair<File, String>? {
         val work = dirs.work.canonicalFile
         val rel = file.canonicalFile.toRelativeString(work).takeIf { !it.startsWith("..") && it.isNotEmpty() && !File(it).isAbsolute } ?: return null
@@ -269,7 +283,7 @@ class AndroidSandbox internal constructor(
 
     override fun freeBytes(): Long = dirs.root.takeIf { it.exists() }?.usableSpace ?: dirs.root.parentFile?.usableSpace ?: 0L
 
-    /** 不跟随链接地累加;缓存一分钟,本工作区跑过命令后作废。 */
+    /** Accumulate without following the link; cache for one minute, and become invalid after running commands in this workspace. */
     override fun workspaceBytes(workspace: String): Long {
         val now = System.currentTimeMillis()
         sizes[workspace]?.takeIf { now - it.at < SIZE_CACHE_MS }?.let { return it.bytes }
@@ -278,7 +292,7 @@ class AndroidSandbox internal constructor(
         return bytes
     }
 
-    /** 经关口在 .mina/ 里新建(不覆盖已有的);.mina 被换成链接等时抛出,不写任何东西。 */
+    /** Create a new one in.mina/ via the gateway (does not overwrite the existing one); it will be thrown when.mina is replaced by a link, etc., and nothing will be written. */
     @Synchronized
     override fun saveOutput(workspace: String, text: String): String {
         val root = dirs.workspace(workspace).apply { mkdirs() }
@@ -296,7 +310,7 @@ class AndroidSandbox internal constructor(
         throw IOException("cannot save output: too many files")
     }
 
-    /** 读随 App 打包的那份清单:沙箱里的那份命令改得动,不能信。 */
+    /** Read the list packaged with the app: the commands in the sandbox can be changed, so you can’t trust them. */
     override fun scriptManifest(skillPath: String): List<ScriptEntry> {
         val bytes = skillFiles()["$skillPath/scripts/manifest.json"] ?: return emptyList()
         return ScriptManifest.parse(bytes.toString(Charsets.UTF_8))
@@ -308,7 +322,7 @@ class AndroidSandbox internal constructor(
 
     private val bundledClient: ByteArray? by lazy(clientScript)
 
-    /** 已安装的根文件系统版本可能没变，但 APK 中的桥客户端已经更新。 */
+    /** The installed root file system version may not have changed, but the bridge client in the APK has been updated. */
     private fun syncClientScript() {
         val expected = bundledClient ?: return
         val rel = "usr/local/bin/harness"
@@ -331,7 +345,7 @@ class AndroidSandbox internal constructor(
         return withContext(Dispatchers.IO) { SkillsSync.matches(dirs, rel, expected) }
     }
 
-    /** `mina share` 与 share_file 走同一套路径规则。 */
+    /** `mina share` and share_file follow the same set of path rules. */
     private fun bridgeFor(workspace: String, network: Boolean, onProgress: (String) -> Unit, phone: PhoneCommandHandler?): SandboxBridge {
         return SandboxBridge(
         onProgress = onProgress,
@@ -347,15 +361,17 @@ class AndroidSandbox internal constructor(
     }
 
     /**
-     * 启动器超时退出码是 124,但命令自己也可能以 124 退出,启动器不另作标记。
-     * 所以只有跑满了时限(留 [TIMEOUT_SLACK_MS] 余量)的 124 才算超时;提前以 124 退出的照实算命令的退出码。
+     * The launcher timeout exit code is 124, but the command itself may also exit with 124, and the
+     * launcher does not mark it otherwise. Therefore, only 124 that runs out of the time limit (leaving
+     * [TIMEOUT_SLACK_MS] margin) is considered a timeout; those that exit with 124 in advance will be
+     * counted as the actual exit code of the command.
      */
     internal fun launcherTimedOut(exitCode: Int, durationMs: Long, timeoutSec: Int): Boolean =
         exitCode == EXIT_TIMEOUT && durationMs >= timeoutSec * 1000L - TIMEOUT_SLACK_MS
 
     private fun standIns(): List<String> = dirs.procStandIns.list()?.sorted().orEmpty()
 
-    /** 联网时把当前网络的 DNS 写进根文件系统:经关口整份换上(根文件系统里的东西命令改得了,原来是链接也只是被换掉)。 */
+    /** When connecting to the Internet, write the DNS of the current network into the root file system: replace the entire file through the gateway (the commands in the root file system can be changed, but the original links are only replaced). */
     private fun writeResolvConf() {
         val servers = runCatching(dnsServers).getOrNull().orEmpty().ifEmpty { FALLBACK_DNS }
         files.replace(dirs.rootfs, "etc/resolv.conf", servers.joinToString("") { "nameserver $it\n" }.toByteArray())
@@ -387,16 +403,19 @@ class AndroidSandbox internal constructor(
         }
 
         /**
-         * 在专用线程上 start(),其余在 IO 线程:读输出(上限 1 MB)、等结束。到 [limitMs] 仍没结束就强杀。
-         * 协程取消时先 SIGTERM(启动器收到后清掉整个进程树),[DESTROY_GRACE_MS] 后还在就 SIGKILL。
+         * start() on the dedicated thread, and the rest on the IO thread: read output (upper limit 1
+         * MB), etc. End. When [limitMs] is still not over, kill by force. When canceling the coroutine,
+         * first SIGTERM (the launcher clears the entire process tree after receiving it), and then
+         * SIGKILL after [DESTROY_GRACE_MS].
          */
         internal suspend fun launch(
             cmd: List<String>, env: Map<String, String>, limitMs: Long,
             start: (ProcessBuilder) -> Process = ProcessBuilder::start,
         ): ProcOutcome {
             val begin = System.nanoTime()
-            // 启动本身不可取消。withContext 把结果交回原协程时若已取消会丢掉结果,
-            // 所以进程在块里就记下来:丢了结果也知道要杀谁
+            // The startup itself cannot be canceled. When withContext returns the result to the original
+            // coroutine, if it has been canceled, the result will be lost, so the process will write it
+            // down in the block: even if the result is lost, it will know who to kill.
             var started: Process? = null
             try {
                 withContext(launcherThread + NonCancellable) {
@@ -410,19 +429,24 @@ class AndroidSandbox internal constructor(
                 throw e
             }
             val p = started!!
-            // 读输出用普通线程:阻塞的 read 取消不了,放在协程里会让取消一直等下去
+            // Use ordinary threads to read output: blocked read cannot be canceled, and placing it in a
+            // coroutine will make cancellation wait forever.
             val collector = OutputCollector()
             val reader = thread(isDaemon = true, name = "mina-sandbox-output") { runCatching { p.inputStream.use(collector::drain) } }
             try {
-                // 启动期间已被取消:在这里抛出,由下面的 catch 杀掉刚起的进程
+                // Canceled during startup: throw here, kill the newly started process by the following
+                // catch
                 currentCoroutineContext().ensureActive()
                 p.outputStream.close()
                 val finished = runInterruptible(Dispatchers.IO) { p.waitFor(limitMs, TimeUnit.MILLISECONDS) }
                 if (!finished) p.destroyForcibly()
                 val code = runInterruptible(Dispatchers.IO) { p.waitFor() }
-                // 正常时启动器退出前已清掉整个进程树,管道随之关闭;万一还有后代占着管道,不无限等
+                // Normally, the entire process tree has been cleared before the launcher exits, and the
+                // pipeline is closed; in case there are still descendants occupying the pipeline, the
+                // wait will not be infinite.
                 runInterruptible(Dispatchers.IO) { reader.join(READER_GRACE_MS) }
-                // 还有后代占着管道:关掉我们这一端,读线程随之结束
+                // There are still descendants occupying the pipe: turn off our end, and the reading
+                // thread will end.
                 if (reader.isAlive) runCatching { p.inputStream.close() }
                 val (bytes, dropped) = collector.snapshot()
                 return ProcOutcome(code, bytes, dropped, !finished, (System.nanoTime() - begin) / 1_000_000)
@@ -432,7 +456,7 @@ class AndroidSandbox internal constructor(
             }
         }
 
-        /** 先 SIGTERM(启动器收到后清掉整个进程树),[DESTROY_GRACE_MS] 后还在就 SIGKILL。 */
+        /** First SIGTERM (the launcher clears the entire process tree after receiving it), and then SIGKILL after [DESTROY_GRACE_MS]. */
         private fun abandon(p: Process) {
             p.destroy()
             thread(isDaemon = true, name = "mina-sandbox-reaper") { if (!p.waitFor(DESTROY_GRACE_MS, TimeUnit.MILLISECONDS)) p.destroyForcibly() }

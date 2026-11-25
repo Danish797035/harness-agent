@@ -12,12 +12,14 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 
-/** 一行回复;[close] 为 true 时回完就断开连接。 */
+/** One line reply; when [close] is true, the connection will be disconnected after replying. */
 class BridgeReply(val json: String, val close: Boolean = false)
 
 /**
- * 沙箱里 `mina` 命令与 Mina 之间的协议:一行一个 JSON 请求 `{"token","method","params"}`,一行一个 JSON 回复。
- * 手机方法只转给当前任务的动作入口;命令进程不能直接接触虚拟屏。
+ * The protocol between the `mina` command in the sandbox and Mina: one JSON request
+ * `{"token","method","params"}` per line, and one JSON reply per line. The mobile phone method only
+ * transfers the action entry of the current task; the command process cannot directly contact the
+ * virtual screen.
  */
 object BridgeProtocol {
     const val MAX_REQUEST = 64 * 1024
@@ -29,7 +31,7 @@ object BridgeProtocol {
         data object End : Line
     }
 
-    /** 读一行(不含换行);超过 [max] 字节就不再读下去。末尾没有换行的半行算结束。 */
+    /** Read one line (excluding line breaks); no more reading will occur if it exceeds [max] bytes. The half line without a newline at the end is considered complete. */
     fun readLine(input: InputStream, max: Int = MAX_REQUEST): Line {
         val buf = ByteArrayOutputStream()
         while (true) {
@@ -42,8 +44,10 @@ object BridgeProtocol {
     }
 
     /**
-     * [progress] 返回 false 表示这次被限流丢掉了;[share] 收到沙箱路径与可选的保存名,失败抛 [SandboxError];
-     * [info] 给出 Mina 版本、是否联网等。令牌不对、请求不是 JSON 对象或太大:回一个错误并断开。
+     * [progress] returns false, indicating that it was lost due to current limiting this time; [share]
+     * receives the sandbox path and optional save name, and throws [SandboxError] on failure; [info]
+     * gives the Mina version, whether it is connected to the Internet, etc. Incorrect token, request is
+     * not a JSON object, or is too large: return an error and disconnect.
      */
     suspend fun handle(
         line: String, token: String,
@@ -51,7 +55,7 @@ object BridgeProtocol {
         share: suspend (String, String?) -> String,
         info: () -> JsonObject,
         phone: (suspend (String, JsonObject) -> JsonObject)? = null,
-        /** 意外的失败交给 Mina 自己记日志;回给沙箱的只有错误码。 */
+        /** Unexpected failures are left to Mina to keep a log; only error codes are returned to the sandbox. */
         onError: (Throwable) -> Unit = {},
     ): BridgeReply {
         if (line.toByteArray(Charsets.UTF_8).size > MAX_REQUEST) return error("too_large", close = true)
@@ -99,8 +103,10 @@ object BridgeProtocol {
     }
 
     /**
-     * 任务卡片上的一行字:去掉控制字符、格式字符(零宽字符、改写方向的字符等,能让显示的字和实际的字对不上)
-     * 和行/段分隔符,按码点截到 [MAX_PROGRESS] 个(不劈开代理对)。
+     * A line of words on the task card: remove control characters, format characters (zero-width
+     * characters, rewriting direction characters, etc., which can make the displayed words inconsistent
+     * with the actual words) and line/paragraph separators, and cut it to [MAX_PROGRESS] by code point
+     * (without splitting surrogate pairs).
      */
     internal fun cleanProgress(s: String): String {
         val out = StringBuilder()
@@ -123,7 +129,7 @@ object BridgeProtocol {
     }.toString(), close)
 }
 
-/** 每 [intervalMs] 最多放过一次进度,多余的丢弃。 */
+/** Progress will be missed at most once per [intervalMs], and excess will be discarded. */
 class ProgressGate(private val intervalMs: Long = 1_000, private val now: () -> Long = System::currentTimeMillis) {
     private var last = Long.MIN_VALUE
 

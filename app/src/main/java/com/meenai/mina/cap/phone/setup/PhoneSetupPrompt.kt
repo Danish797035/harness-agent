@@ -6,8 +6,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 任务要用手机、内置助手却没在运行时举一下手:对话页在任务卡片下面放一行「去设置」。
- * 网页、文件类任务不会碰到这里。由 [com.meenai.mina.cap.phone.PhoneServices] 建一份,任务与对话页共用。
+ * The task requires the use of a mobile phone and the built-in assistant but does not raise a hand when
+ * running: on the dialogue page, put a line "Go to Settings" under the task card. Web page and file
+ * tasks will not encounter this. Created by [com.meenai.mina.cap.phone.PhoneServices], it is shared
+ * between tasks and conversation pages.
  */
 class PhoneSetupPrompt(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -23,7 +25,7 @@ class PhoneSetupPrompt(context: Context) {
         _needed.value = false
     }
 
-    /** 首次打开时自动进引导;看过(完成或点了「稍后」)就不再自动进。 */
+    /** It will automatically enter the boot when you open it for the first time; it will no longer automatically enter after viewing it (completed or clicking "Later"). */
     fun guideSeen(): Boolean = prefs.getBoolean(SEEN, false)
 
     fun markGuideSeen() {

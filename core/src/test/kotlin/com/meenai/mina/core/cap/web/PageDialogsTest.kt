@@ -18,7 +18,7 @@ class PageDialogsTest {
         val r = Reply()
         val confirm = PageDialog(PageDialog.CONFIRM, "确定删除吗?")
         d.open(confirm, r)
-        // 没人回话就一直挂着,不自动确定
+        // If no one replies, it will hang on and it will not be automatically confirmed.
         assertEquals(confirm, d.current)
         assertTrue(r.said.isEmpty())
         assertEquals(DialogAnswer.Answered(confirm, accepted = true, textIgnored = false), d.answer(true, null))

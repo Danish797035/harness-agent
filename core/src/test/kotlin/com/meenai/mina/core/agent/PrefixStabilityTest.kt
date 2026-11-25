@@ -36,11 +36,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 import com.meenai.mina.core.assembly.toolDispatcher
 
 /**
- * 30 步的假任务(读屏、点、跑命令轮流),经真的 OpenAI 兼容适配器发到假服务端,按线上字节比对相邻两次请求:
- * 系统提示词与工具只在展开一组之后的那次请求变(第 1 步读屏展开手机、第 3 步跑命令展开沙箱,每组一次),
- * 变的时候工具列表里排在那一组前面的部分逐字不变,其余请求逐字相同;
- * 历史只追加:估算没越过压缩触发点时一次也不改写,只有压缩的那一次请求改写,
- * 且第一条改写的消息就是被缩短(或折进摘要)的那条。
+ * The 30-step fake task (reading the screen, clicking, and running commands in turn) is sent to the fake
+ * server through the real OpenAI compatible adapter, and two adjacent requests are compared according to
+ * online bytes: the system prompt words and tools only change in the request after a group is expanded
+ * (the first step is to read the screen to expand the mobile phone, the third step to run the command to
+ * expand the sandbox, once for each group). When changing, the parts listed in front of that group in
+ * the tool list do not change word by word, and the other requests are word by word the same; History
+ * only appends: It is not rewritten once when the compression trigger point is not exceeded. Only the
+ * compression request is rewritten, and the first rewritten message is the one that is shortened (or
+ * folded into the digest).
  */
 class PrefixStabilityTest {
     private val servers = mutableListOf<MockWebServer>()
@@ -48,7 +52,7 @@ class PrefixStabilityTest {
 
     @After fun tearDown() = servers.forEach { it.shutdown() }
 
-    /** 假服务端:按请求末尾运行时状态里的步数决定这是第几步(折叠后助手消息会变少),照剧本回;[fail] 里的步第一次回 429。 */
+    /** Fake server: Determine which step it is based on the number of steps in the runtime status at the end of the request (assistant messages will become smaller after folding), and reply according to the script; the first step in [fail] will return 429. */
     private inner class Wire(val fail: Set<Int> = emptySet()) {
         val bodies = CopyOnWriteArrayList<JsonObject>()
         private val tried = mutableSetOf<Int>()
@@ -70,9 +74,9 @@ class PrefixStabilityTest {
             OpenAiCompatModel(server.url("/v1").toString().trimEnd('/'), "k", "m", Capabilities(true, vision, contextTokens, false), OkHttpClient())
     }
 
-    /** [promptTokens]:像真服务商一样按这次请求的大小报输入用量(压缩时机按真实用量算,见 [UsageMeter])。 */
+    /** [promptTokens]: Enter the usage according to the size of this request just like a real service provider (the compression timing is calculated based on the actual usage, see [UsageMeter]). */
     private fun reply(step: Int, msgs: List<JsonObject>, promptTokens: Int): JsonObject {
-        // 最后一步不带调用,只回文字:就是最终回答
+        // The last step does not include a call, only text is returned: this is the final answer
         if (step > STEPS) return buildJsonObject {
             putJsonArray("choices") {
                 add(buildJsonObject {
@@ -106,7 +110,7 @@ class PrefixStabilityTest {
         }
     }
 
-    /** 最近一次读屏里第一个元素的编号与读屏编号(带差异屏幕时编号会重排,不能写死)。 */
+    /** The number of the first element in the most recent screen reading and the screen reading number (the numbers will be rearranged when using a differential screen and cannot be hard-coded). */
     private fun lastRead(msgs: List<JsonObject>): Pair<String, String> {
         val c = msgs.filter { it.str("role") == "tool" }.map { it.str("content").orEmpty() }.last { "\"elements\":[{" in it }
         return c.substringAfter("\"ref\":\"").substringBefore('"') to c.substringAfter("\"snapshotId\":\"").substringBefore('"')
@@ -116,10 +120,10 @@ class PrefixStabilityTest {
 
     private class Setup(val vision: Boolean = false, val inline: Boolean = false, val fail: Set<Int> = emptySet(),
                         val light: Boolean = false, val contextTokens: Int = 1_000_000,
-                        /** 上一轮用过的组:开局就展开。 */
+                        /** Groups used in the previous round: Expand at the beginning. */
                         val prior: List<String> = emptyList())
 
-    /** 跑一遍,返回各个服务端收到的请求(主模型在前)。 */
+    /** Run it once and return the requests received by each server (main model first). */
     private fun run(s: Setup): List<List<JsonObject>> {
         val screens = (1..40).map { n -> Screen("com.x", (1..12).map { label("@e$it", "第${n}屏第${it}项$pad", 100 + it * 50) }) }
         val scripted = ScriptedScreen(screens)
@@ -138,7 +142,7 @@ class PrefixStabilityTest {
         return listOfNotNull(main, light).map { it.bodies.toList() }
     }
 
-    /** 线上一次请求:区 0(系统提示词、工具)与逐条消息,各自是发出的原样字节;[tools] 是逐个工具的原样字节。 */
+    /** Online request: Area 0 (system prompt word, tool) and individual messages are the original bytes sent; [tools] is the original bytes of each tool. */
     private class Req(val zone0: String, val msgs: List<String>, val raw: List<JsonObject>, val tools: List<String>)
 
     private fun wire(body: JsonObject): Req {
@@ -147,17 +151,19 @@ class PrefixStabilityTest {
             body["tools"]!!.jsonArray.map { it.toString() })
     }
 
-    /** 线上一个工具定义的名字。 */
+    /** A name defined by an online tool. */
     private fun nameOf(tool: String) = Json.parseToJsonElement(tool).jsonObject["function"]!!.jsonObject.str("name")
 
-    /** 收着时也给的入口工具:展开时第一个变的工具只能是它们之一(或排在最后的新工具)。 */
+    /** Entry tools are also given when closed: the first tool to change when expanded can only be one of them (or the new tool at the end). */
     private val entries = setOf("phone_launch_app", "phone_list_apps", "phone_set_alarm", "phone_set_timer", "phone_add_calendar_event", "web_navigate", "web_read_page", "run_command")
 
     private val markers = listOf(HistoryPruner.OMITTED, HistoryPruner.OMITTED_READ, "(更早的画面已省略", HistoryPruner.OMITTED_IMAGE, ContextCompressor.HEADER)
 
     /**
-     * 线上字节里相邻两次请求的公共前缀:Σ 公共前缀长 ÷ Σ 请求长(按字符)。展开一组的那几次([skip],前缀按设计失效一次)不计,
-     * 另由 [check] 查它们只改了那一组起的部分。
+     * The common prefix of two adjacent requests in online bytes: Σ common prefix length ÷ Σ request
+     * length (in characters). The times when a group is expanded ([skip], the prefix is invalid once
+     * according to the design) are not counted, and [check] is used to check that they only changed the
+     * part starting from that group.
      */
     private fun prefixShare(reqs: List<Req>, skip: List<Int> = emptyList()): Double {
         val full = reqs.map { it.zone0 + it.msgs.joinToString("") }
@@ -168,10 +174,12 @@ class PrefixStabilityTest {
 
     private class Result(val pairs: Int, val changed: List<Int>, val share: Double, val opened: List<Int>)
 
-    /** [appendOnly]:没越过触发点,一次也不该改写;压缩时由调用方给出确切的期望。 */
+    /** [appendOnly]: The trigger point has not been crossed and should not be rewritten once; the caller gives exact expectations when compressing. */
     private fun check(bodies: List<JsonObject>, label: String, appendOnly: Boolean = true): Result {
         val reqs = bodies.map(::wire)
-        // 区 0 只在展开一组时变,至多两次(手机、沙箱);变的时候前面的工具逐字不变,第一个变的是那一组的入口
+        // Area 0 only changes when a group is expanded, at most twice (mobile phone, sandbox); when
+        // changing, the previous tools remain unchanged, and the first one changes is the entrance of
+        // that group.
         val opened = (1 until reqs.size).filter { reqs[it].zone0 != reqs[it - 1].zone0 }
         assertTrue("$label:区 0 变了 $opened 次", opened.size <= 2)
         for (i in opened) {
@@ -186,7 +194,8 @@ class PrefixStabilityTest {
             val same = a.msgs.zip(b.msgs).takeWhile { (x, y) -> x == y }.size
             if (same == a.msgs.size) continue
             changed += i
-            // 第一条改写的就是被裁剪线裁掉(或折进摘要)的那条
+            // The first item to be rewritten is the one that is cut off by the crop line (or folded into
+            // the abstract)
             val first = b.msgs[same]
             assertTrue("$label 第 ${i + 1} 次请求第 $same 条改写不是压缩:$first", markers.any { it in first && it !in a.msgs[same] } || ContextCompressor.HEADER in first)
         }
@@ -194,15 +203,17 @@ class PrefixStabilityTest {
         return Result(reqs.size - 1, changed, prefixShare(reqs, opened), opened)
     }
 
-    // 读屏、大结果、画面都只追加:30 步里一次也不改写
+    // Screen reading, large results, and screens are all only appended: no rewriting once in 30 steps.
     @Test fun textOnly() {
         val r = check(run(Setup()).single(), "text")
-        // 第 1 步读屏之后的那次请求展开手机,第 3 步跑命令之后的展开沙箱
+        // The request to expand the phone after reading the screen in step 1, and the expansion sandbox
+        // after running the command in step 3
         assertEquals(listOf(1, 3), r.opened)
         assertTrue("${r.share}", r.share > 0.95)
     }
 
-    // 上一轮用过手机和沙箱:开局就展开,30 步里区 0 一次也不变
+    // I used mobile phones and sandboxes in the last round: it started at the beginning, and the area 0
+    // did not change even once in 30 steps.
     @Test fun preloadedGroupsNeverChangeZoneZero() {
         val r = check(run(Setup(prior = listOf("phone", "sandbox"))).single(), "preloaded")
         assertEquals(emptyList<Int>(), r.opened)
@@ -221,7 +232,7 @@ class PrefixStabilityTest {
 
     @Test fun retriedRequestsAreIdentical() {
         val bodies = run(Setup(fail = setOf(5, 14))).single()
-        // 重试的那次和被拒的那次逐字相同
+        // The retry and the rejection are verbatim the same
         assertEquals(33, bodies.size)
         check(bodies, "retry")
     }
@@ -237,8 +248,9 @@ class PrefixStabilityTest {
         val bodies = run(Setup(contextTokens = 80_000)).single()
         val r = check(bodies, "compaction", appendOnly = false)
         assertTrue(bodies.any { ContextCompressor.HEADER in it.toString() })
-        // 越过触发点的那一次压缩一次(改写一次),之后只追加,再长一个余量越过时才再压:30 步里只改写三次
-        // (80K 窗口:提示词和展开的工具约 20K,触发点 47K,压到 30K 以下)
+        // The trigger point is compressed once (rewritten once), then only appended, and then pressed
+        // again after a margin is exceeded: only rewritten three times in 30 steps (80K window: about
+        // 20K prompt words and expanded tools, trigger point 47K, pressed below 30K)
         assertEquals(listOf(12, 21, 30), r.changed)
         assertTrue("${r.share}", r.share > 0.85)
     }

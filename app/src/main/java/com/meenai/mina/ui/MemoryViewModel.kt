@@ -35,16 +35,16 @@ import com.meenai.mina.i18n.uiLocale
 import com.meenai.mina.core.assembly.knownTools
 import com.meenai.mina.core.tool.Verb
 
-/** 页面三段:已记下的、个人技能、等你确认的(待批准的做法 + 技能与 App 知识草稿)。 */
+/** There are three sections on the page: what has been written down, personal skills, and what is waiting for your confirmation (practices to be approved + draft skills and App knowledge). */
 enum class Segment { Memories, Skills, Pending }
 
-/** 列表里的一条记忆;[source] 是「你在 10 月 23 日说:『…』」或「你手写的」。 */
+/** A memory in the list; [source] is "You said: "..." on October 23rd" or "You wrote it in your hand". */
 data class Row(
     val id: String, val kind: MemoryKind, val content: String, val keywords: List<String>, val source: String,
     val pinned: Boolean, val pending: Boolean, val replaces: String?,
 )
 
-/** [clearStage]:0 没在清除,1 第一次确认,2 第二次确认。[message] 是一次性的提示(比如「这类信息我不会记」)。 */
+/** [clearStage]:0 is not clearing, 1 is confirming for the first time, 2 is confirming for the second time. [message] is a one-time reminder (such as "I won't remember this kind of information"). */
 data class MemoryUi(
     val segment: Segment = Segment.Memories,
     val query: String = "",
@@ -56,13 +56,14 @@ data class MemoryUi(
     val clearStage: Int = 0,
     val skills: SkillsUi = SkillsUi(),
 ) {
-    /** 「待确认」段的条数:待批准的记忆 + 技能草稿 + 还没收下的 App 知识草稿。 */
+    /** The number of items in the "To be confirmed" section: memories to be approved + skill drafts + app knowledge drafts that have not yet been confiscated. */
     val pendingCount: Int get() = pending.size + skills.drafts.size + skills.appKnowledge.count { it.stage == AppKnowledgeStage.Draft }
 }
 
 /**
- * 「记忆与技能」页的状态:分段、搜索(空查询按更新时间倒序)、待批准的做法置顶、编辑、置顶、删除、手写新增、
- * 全部清除(两次确认)和三个开关。技能分段见 [SkillsUi]。
+ * The status of the "Memory and Skills" page: segmentation, search (empty queries are sorted in reverse
+ * order of update time), practices to be approved pinned, edited, pinned, deleted, handwritten addition,
+ * clear all (twice confirmed) and three switches. See [SkillsUi] for skill segmentation.
  */
 class MemoryViewModel(
     private val store: MemoryStore,
@@ -70,16 +71,16 @@ class MemoryViewModel(
     private val skills: PersonalSkills?,
     scope: CoroutineScope,
     brokenNotice: StateFlow<String?> = MutableStateFlow(null),
-    /** 全部清除:记忆文件、坏文件另存、个人技能都删掉并重建密钥。 */
+    /** Clear all: delete memory files, save bad files, and personal skills and re-key. */
     private val wipe: () -> Unit = { store.clearAll() },
     private val clock: () -> Long = System::currentTimeMillis,
-    /** 删掉了一条记忆:对话里指向它的提示也去掉。 */
+    /** A memory was deleted: the prompts pointing to it in the dialogue were also removed. */
     private val onForgotten: (String) -> Unit = {},
-    /** 收下改过的技能时校验提到的工具名。 */
+    /** Verify the tool name mentioned when accepting modified skills. */
     private val toolNames: Set<String> = knownToolNames(),
-    /** 跑技能脚本的工具名。 */
+    /** The name of the tool for running skill scripts. */
     private val scriptTool: String? = knownTools().nameOf(Verb.RunBundledScript),
-    /** 收下改过的技能时:提到跑脚本的工具的,脚本得是清单里标为可运行的。 */
+    /** When accepting modified skills: When it comes to tools for running scripts, the script must be marked as runnable in the list. */
     private val runnableScripts: Set<String> = emptySet(),
     private val appDrafts: AppKnowledgeDraftStore? = null,
 ) {
@@ -107,7 +108,7 @@ class MemoryViewModel(
         if (store.forget(id).isSuccess) onForgotten(id)
     }
     fun approve(id: String) { store.approve(id) }
-    /** 待批准的做法点「不要」= 删除。 */
+    /** Click "Don't" on the method to be approved = delete. */
     fun reject(id: String) = delete(id)
 
     fun add(kind: MemoryKind, content: String, keywords: List<String>) =
@@ -142,11 +143,11 @@ class MemoryViewModel(
 
     private fun row(m: MemoryItem) = Row(m.id, m.kind, m.content, m.keywords, sourceLine(m.source), m.pinned, m.status == MemoryStatus.pending, m.replaces)
 
-    // ---- 技能分段 ----
+    // ----Skill segmentation----
     private fun skillsUi(): SkillsUi = skills?.let { SkillsUi.of(it, appDrafts) } ?: SkillsUi()
     private fun skillsChanged() = skillsVersion.update { it + 1 }
 
-    /** 收下草稿;[edited] 是用户改过的全文,和起草出来的一样要过格式与安全校验,不过就不收并说明。 */
+    /** Accept the draft; [edited] is the full text modified by the user. It must pass the format and security check just like the draft, but it will not be accepted and explained. */
     fun approveSkill(draftId: String, edited: String? = null) {
         val p = skills ?: return
         val problem = edited?.let { SkillDrafter.validate(it, toolNames, scriptTool, runnableScripts) }
@@ -167,7 +168,7 @@ class MemoryViewModel(
 
     fun suspendSkill(name: String) = changeSkill(name) { it.copy(status = SkillStatus.suspended) }
 
-    /** 恢复时清掉旧结果,免得下一次一不顺又马上被停用。 */
+    /** Clear old results when restoring to avoid being deactivated immediately next time something goes wrong. */
     fun restoreSkill(name: String) = changeSkill(name) {
         it.copy(status = it.restoredStatus(), outcomes = emptyList())
     }
@@ -207,14 +208,15 @@ class MemoryViewModel(
 }
 
 /**
- * 一份 App 知识补充。待确认的:[revision] 为 true 是对在用那份的修订,否则是第一次补充;
- * [changedLines] 是相对在用那份(第一次补充时相对空白)加了、去掉的行。
- * [replaced]:收下的修订正在试用,暂时顶替了这一份(不注入;修订被归档就换回来)。
+ * An app knowledge supplement. To be confirmed: If [revision] is true, it is a revision of the copy in
+ * use, otherwise it is the first supplement; [changedLines] is a line added or removed relative to the
+ * copy in use (relatively blank in the first supplement). [replaced]: The accepted revision is in trial
+ * and temporarily replaces this one (not injected; the revision will be replaced after it is archived).
  */
 data class AppKnowledgeRow(val id: String, val name: String, val markdown: String, val stage: AppKnowledgeStage,
     val revision: Boolean = false, val changedLines: List<String> = emptyList(), val replaced: Boolean = false)
 
-/** 技能分段的内容:待收下的草稿和已收下的个人技能(在用的在前)。 */
+/** The content of the skills section: drafts to be accepted and personal skills that have been accepted (those currently used first). */
 
 data class SkillsUi(val drafts: List<SkillRow> = emptyList(), val installed: List<SkillRow> = emptyList(),
     val appKnowledge: List<AppKnowledgeRow> = emptyList()) {
@@ -247,7 +249,7 @@ data class SkillsUi(val drafts: List<SkillRow> = emptyList(), val installed: Lis
             )
         }
 
-        /** 更新草稿相对原来那份(技能或 App 知识补充):「+ 」新增的行、「- 」去掉的行(不比空行)。 */
+        /** Update the draft compared to the original one (skill or app knowledge supplement): "+" added lines, "-" removed lines (no more blank lines). */
         fun changedLines(old: String, new: String): List<String> {
             val before = old.lines().map { it.trimEnd() }.filter { it.isNotBlank() }
             val after = new.lines().map { it.trimEnd() }.filter { it.isNotBlank() }
@@ -263,11 +265,11 @@ data class SkillsUi(val drafts: List<SkillRow> = emptyList(), val installed: Lis
     }
 }
 
-/** [id] 是草稿编号(已收下的为技能名);[changedLines] 是更新草稿相对原技能改了的行。 */
+/** [id] is the draft number (the accepted one is the skill name); [changedLines] is the changed line in the updated draft relative to the original skill. */
 data class SkillRow(
     val id: String, val name: String, val display: String, val description: String, val markdown: String,
     val suspended: Boolean = false, val trial: Boolean = false, val canRestore: Boolean = false,
     val recent: List<String> = emptyList(), val changedLines: List<String> = emptyList(),
-    /** 用户在任务里要求写下的(不是从办成的任务里学来的)。 */
+    /** What the user asked to write down in the task (not learned from the completed task). */
     val userCreated: Boolean = false,
 )

@@ -27,10 +27,10 @@ class HistoryPrunerTest {
     )
     private fun shot(id: Int) = Message(Role.User, listOf(Part.Text("screen"), Part.Image("AAAA", "image/jpeg", 580, 1280, screenshotId = id)), Author.Mina)
 
-    /** [n] 次读屏往返。 */
+    /** [n] screen reading round trip. */
     private fun observations(n: Int) = listOf(task) + (1..n).flatMap { obs("c$it") }
     private fun results(ms: List<Message>) = ms.flatMap { it.parts }.filterIsInstance<Part.ToolResult>()
-    /** 线前留最近 2 次往返原样(压缩时用的线由 [ContextCompressor] 定,这里只测裁法)。 */
+    /** Leave the last 2 round trips as they are before the thread (the thread used during compression is determined by [ContextCompressor], only the cutting method is measured here). */
     private val cut = HistoryPruner.Cut(2)
     private fun full(ms: List<Message>) = results(ms).filter { "@e1" in it.content }.map { it.callId }
 
@@ -42,13 +42,14 @@ class HistoryPrunerTest {
     @Test fun beforeTheLineShrinksExceptLatestFullRead() {
         val h = observations(7)
         val out = HistoryPruner.prune(h, TOOLS, cut)
-        // 线在第 5 次之后:c1–c4 裁掉,线前最近的全量 c5 和线后的 c6、c7 原样
+        // After the fifth line: c1–c4 are cut off, the nearest full amount c5 before the line and c6 and
+        // c7 behind the line remain intact
         assertEquals(listOf("c5", "c6", "c7"), full(out))
         val first = results(out).first { it.callId == "c1" }.content
         assertTrue(HistoryPruner.OMITTED in first && "\"snapshotId\":\"sc1\"" in first && "\"currentApp\":\"com.x\"" in first)
         assertEquals(h.size, out.size)
         assertEquals(results(h).map { it.callId }, results(out).map { it.callId })
-        // 原历史不变
+        // The original history remains unchanged
         assertTrue("@e1" in results(h).first { it.callId == "c1" }.content)
     }
 
@@ -73,12 +74,15 @@ class HistoryPrunerTest {
     @Test fun diffChainKeepsItsBase() {
         val h = listOf(task) + obs("c1") + (1..6).flatMap { act("a$it", "d$it") }
         val r = results(HistoryPruner.prune(h, TOOLS, cut))
-        // 线前最近的全量 c1 是差异的底,不裁;线前的差异裁掉(短字段留着),线后的原样
+        // The nearest full amount c1 before the line is the bottom of the difference and is not cut; the
+        // difference before the line is cut off (the short field is left), and the difference behind the
+        // line remains as it is.
         assertTrue("@e1" in r.first { it.callId == "c1" }.content)
         val diffs = r.filter { it.callId.startsWith("a") }
         assertTrue(diffs.take(4).all { HistoryPruner.OMITTED in it.content && "@e1" !in it.content && "\"ok\":true" in it.content })
         assertTrue(diffs.drop(4).all { "@e1" in it.content })
-        // 全量的 screen 结果也算全量读屏:线前最近的全量是 f,c1 照常裁
+        // The full screen result is also considered as full screen reading: the nearest full screen
+        // before the line is f, and c1 is cut as usual.
         val withFull = listOf(task) + obs("c1") +
             listOf(Message(Role.Assistant, listOf(Part.ToolCall("f", "phone_back", "{}")), Author.Mina),
                 Message(Role.Tool, listOf(Part.ToolResult("f", """{"ok":true,"screen":{"snapshotId":"z","full":true,"elements":$big}}""", false)), Author.Mina)) +
@@ -88,24 +92,28 @@ class HistoryPrunerTest {
         assertTrue("@e1" in r2.first { it.callId == "f" }.content)
     }
 
-    // 压缩时线之前的图换占位;平常只有图的张数超过服务商上限时才换
+    // Pictures before the compression timeline are replaced; usually only the number of pictures exceeds
+    // the service provider's upper limit is replaced.
     @Test fun imagesDroppedBeforeTheLineAndAtTheProviderLimit() {
         val file = Message(Role.User, listOf(Part.Text("file"), Part.Image("BBBB", "image/jpeg")), Author.Mina)
         val h = listOf(task) + tap("t0") + file + (1..6).flatMap { tap("t$it") + shot(it) }
         fun ids(out: List<Message>) = out.flatMap { it.parts }.filterIsInstance<Part.Image>().map { it.screenshotId }
         assertEquals(h, HistoryPruner.limitImages(h, Int.MAX_VALUE))
-        // 压缩:线在第 6 次往返之后,画面 1–5 换成可回看的占位,读到的图片文件换成省略
+        // Compression: After the 6th round trip, pictures 1–5 are replaced with playback placeholders,
+        // and the read image files are replaced with omissions
         val tight = HistoryPruner.prune(h, TOOLS, HistoryPruner.LAST)
         assertEquals(listOf<Int?>(6), ids(tight))
         val texts = tight.flatMap { it.parts }.filterIsInstance<Part.Text>().map { it.text }
         assertTrue((1..5).all { HistoryPruner.olderImage(it) in texts } && HistoryPruner.OMITTED_IMAGE in texts)
-        // 服务商明确给出上限后,只从最早的助手画面开始换,留下最多 4 张
+        // After the service provider clearly gives the upper limit, it will only change from the
+        // earliest assistant screen, leaving a maximum of 4 pictures.
         assertEquals(listOf<Int?>(3, 4, 5, 6), ids(HistoryPruner.limitImages(h, 4)))
         val early = listOf(task) + tap("t0") + file + (1..5).flatMap { tap("t$it") + shot(it) }
         assertEquals(listOf<Int?>(2, 3, 4, 5), ids(HistoryPruner.limitImages(early, 4)))
     }
 
-    // 缩短按结果里读到的观察是什么样的东西,缩短后留着结局和观察编号
+    // Shorten and press what kind of observation you read in the results. After shortening, keep the
+    // ending and observation number.
     @Test fun shrinksByObservationFormAndKeepsOutcomeAndObsIds() {
         fun round(id: String, tool: String, content: String, form: com.meenai.mina.core.observation.ObsForm, obsId: Int) = listOf(
             Message(Role.Assistant, listOf(Part.ToolCall(id, tool, "{}")), Author.Mina),
@@ -120,7 +128,8 @@ class HistoryPrunerTest {
             round("c", "run_command", """{"ok":false,"error":"exit_nonzero","message":"命令失败","exitCode":2,"output":"$long"}""", com.meenai.mina.core.observation.ObsForm.Command, 5) +
             (1..6).flatMap { tap("t$it") }
         val rs = results(HistoryPruner.prune(h, TOOLS, cut)).associateBy { it.callId }
-        // 界面状态一律缩短;页面、命令输出只在大时缩短;用户说的不缩
+        // The interface status will always be shortened; the page and command output will only be
+        // shortened when it is large; it will not be shortened as the user said.
         assertTrue(HistoryPruner.OMITTED in rs["i"]!!.content && "\"obsIds\":[1]" in rs["i"]!!.content && "\"currentApp\":\"com.x\"" in rs["i"]!!.content)
         assertTrue(HistoryPruner.OMITTED_READ in rs["p"]!!.content && "\"obsIds\":[2]" in rs["p"]!!.content && "https://a.example.com/" in rs["p"]!!.content)
         assertTrue("短的正文" in rs["s"]!!.content && "obsIds" !in rs["s"]!!.content)

@@ -11,18 +11,18 @@ data class TriggerDefinition(
     val threadId: String,
     val goal: String,
     val nextAtMs: Long,
-    /** null 是一次性；间隔触发会合并积压的时段，只补跑一次。 */
+    /** null is a one-time operation; interval triggering will combine the backlogged periods and only make up for one run. */
     val intervalMs: Long? = null,
-    /** 先在沙箱/网页里检查；检查成立才运行 [goal]。 */
+    /** Check in the sandbox/webpage first; run [goal] only after the check is established. */
     val conditionGoal: String? = null,
     val enabled: Boolean = true,
-    /** 到点后只在没有前台任务时执行；忙时看门狗稍后重查。 */
+    /** After reaching the point, it will only be executed when there is no foreground task; the watchdog will check again later when it is busy. */
     val idleOnly: Boolean = false,
-    /** 上一次有效检查是否满足条件；用于只在状态变化时执行动作。 */
+    /** The last valid check is whether the condition is met; used to perform actions only when the state changes. */
     val lastConditionMet: Boolean? = null,
-    /** 固定提醒原文；非空时到点直接送达，不启动模型。 */
+    /** Fixed reminder original text; when it is not empty, it will be delivered directly to the target without starting the model. */
     val reminderText: String? = null,
-    /** 按指定时区的当地钟点重复；空表示使用固定毫秒间隔或只运行一次。 */
+    /** Repeats at the local clock in the specified time zone; empty means use a fixed millisecond interval or run it only once. */
     val calendarTime: String? = null,
     val calendarZone: String? = null,
     val calendarDays: List<Int> = emptyList(),
@@ -49,24 +49,24 @@ data class TriggerWindow(
     val key get() = "$triggerId:$dueAtMs"
 }
 
-/** claimDue 必须把下次时间与待处理账本一起写入，返回后才可派发。 */
+/** claimDue must write the next time together with the pending ledger, and it can be dispatched only after returning. */
 interface TriggerStore {
     fun upsert(trigger: TriggerDefinition)
     fun get(id: String): TriggerDefinition?
     fun all(): List<TriggerDefinition>
     fun windows(): List<TriggerWindow>
     fun claimDue(nowMs: Long, eligible: (TriggerDefinition) -> Boolean = { true }): List<TriggerWindow>
-    /** 手动执行一次，不改变原来的下一次计划时间。 */
+    /** Execute it manually once without changing the original next planned time. */
     fun claimNow(id: String, nowMs: Long): TriggerWindow?
     fun mark(key: String, state: TriggerWindowState, reason: String? = null): Boolean
-    /** 一次性任务只在结果确定送达后删除。 */
+    /** One-time tasks are only deleted after the results are confirmed to be delivered. */
     fun retireDeliveredOneShots()
     fun remove(id: String)
 }
 
 @Serializable data class TriggerSnapshot(val triggers: List<TriggerDefinition>, val windows: List<TriggerWindow>)
 
-/** 纯内存实现，文件实现沿用相同的状态转换。 */
+/** Pure memory implementation, file implementation follows the same state transitions. */
 class MemoryTriggerStore(initial: TriggerSnapshot = TriggerSnapshot(emptyList(), emptyList())) : TriggerStore {
     private val triggers = linkedMapOf<String, TriggerDefinition>()
     private val ledger = linkedMapOf<String, TriggerWindow>()
@@ -140,7 +140,7 @@ class MemoryTriggerStore(initial: TriggerSnapshot = TriggerSnapshot(emptyList(),
     }
 }
 
-/** 以当地日历递进，跨夏令时仍保持同一钟点；不存在的钟点使用系统的向前调整规则。 */
+/** Advance according to the local calendar and maintain the same hour across daylight saving time; use the system's forward adjustment rules for non-existent hours. */
 fun nextCalendarAt(time: String, zone: String, days: List<Int>, afterMs: Long): Long {
     val localTime = LocalTime.parse(time)
     val zoneId = ZoneId.of(zone)
@@ -153,7 +153,7 @@ fun nextCalendarAt(time: String, zone: String, days: List<Int>, afterMs: Long): 
     error("calendar schedule has no matching day")
 }
 
-/** 排期由宿主实现；核心负责先记账再派发，异常重启时不会重复执行已认领的时段。 */
+/** Scheduling is implemented by the host; the core is responsible for accounting first and then dispatching, and the claimed time period will not be repeated when an abnormal restart occurs. */
 class TriggerEngine(private val store: TriggerStore, private val scheduleAlarm: (Long?) -> Unit,
     private val isIdle: () -> Boolean = { true }, private val idleRetryMs: Long = 60_000L,
     private val dispatch: (TriggerDefinition, TriggerWindow) -> Unit) {

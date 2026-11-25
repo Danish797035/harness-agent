@@ -3,10 +3,14 @@ package com.meenai.mina.core.cap.web
 import kotlinx.coroutines.delay
 
 /**
- * 网页动作之后等多久。等页面安静和以前一样([domQuiet] 带旧上限 [domCapMs],页面一直在变就等满这个上限,不报);
- * 网络是另一个条件:只有本次动作发出的请求还在途时([networkBusy])才往后等,自动作开始合计至多 [netCapMs],
- * 请求结束后在剩余时间里再看一眼页面安静。网络本来就空闲时,和没有网络记录时等得一样久。
- * 返回网络是否在上限内静下来(没等网络时为 true)。
+ * How long to wait after a web page action. Wait for the page to be quiet and the same as before
+ * ([domQuiet] with the old upper limit [domCapMs], the page has been changing and it will wait until the
+ * upper limit is reached and not report); the network is another condition: only wait when the request
+ * sent by this action is still in progress ([networkBusy]), the automatic action will start to total up
+ * to [netCapMs], and after the request is completed, take another look at the page to be quiet in the
+ * remaining time. When the network is already idle, the wait is just as long as when there is no network
+ * recording. Returns whether the network is quiet within the upper limit (true when not waiting for the
+ * network).
  */
 object SettlePolicy {
     suspend fun settle(
@@ -30,9 +34,12 @@ object SettlePolicy {
     }
 
     /**
-     * 读页之前等正文稳定(不只是页面安静:懒加载、分批渲染时 DOM 可能一会儿静一会儿动)。
-     * 每隔 [intervalMs] 取一次正文的(长度, 摘要),连续 [stableIntervals] 次都和上一次一样算稳定;
-     * 还一个字都没有时要连续 [emptyIntervals] 次(页面多半还在加载)。到 [capMs] 还不稳定返回 false;取不到样本也返回 false。
+     * Wait for the text to be stable before reading the page (not just the page is quiet: during lazy
+     * loading and batch rendering, the DOM may be quiet for a while and move at other times). The text
+     * (length, abstract) is fetched every [intervalMs], and the [stableIntervals] times in a row are
+     * considered stable as the last time; when there is still no word, it is [emptyIntervals] times in a
+     * row (the page is probably still loading). When [capMs] is not stable, it returns false; if a
+     * sample cannot be obtained, it returns false.
      */
     suspend fun contentStable(
         clock: () -> Long,

@@ -3,31 +3,34 @@ package com.meenai.mina.voice
 import com.meenai.mina.settings.Provider
 
 /**
- * 手机自带识别的能力:系统说有没有([available])、是不是在本机上识别(不联网)、
- * 以及在这台手机上试过时理不理我们([responsive];系统说有、请求发过去却一个回调都不给,就记成 false)。
+ * The mobile phone has its own recognition capability: the system says whether it is available
+ * ([available]), whether it is recognized on the local machine (not connected to the Internet), and when
+ * it is tried on this mobile phone, it ignores us ([responsive]; the system says it is, and the request
+ * is sent but no callback is given, so it is recorded as false).
  */
 data class SystemCapability(val available: Boolean, val onDevice: Boolean, val responsive: Boolean = true) {
-    /** 真能拿来听写:系统有、而且没被记成不响应。 */
+    /** It can really be used for dictation: the system has it and it is not recorded as unresponsive. */
     val usable get() = available && responsive
 }
 
-/** 这一次实际要用的识别引擎;选择的东西不在了就给出 [Unavailable] 和原因,由界面提示。 */
+/** The recognition engine actually used this time; if the selected thing is no longer available, [Unavailable] and the reason will be given, and the interface will prompt. */
 sealed interface SpeechEngineSpec {
     data class System(val onDevice: Boolean) : SpeechEngineSpec
     data class Provider(val provider: com.meenai.mina.settings.Provider, val model: String, val method: TranscribeMethod) : SpeechEngineSpec
     data class Doubao(val resourceId: String) : SpeechEngineSpec
     data class Unavailable(val why: Why) : SpeechEngineSpec
-    /** [SystemNoResponse]:手机自带识别系统说有,但请求发过去一直没有回应(已记下,用户重新选它时清掉)。 */
+    /** [SystemNoResponse]: device built-in speech recognizer reports available, but requests get no callback (recorded and cleared when the user selects it again). */
     enum class Why { Off, NoSystemNoModel, SystemGone, SystemNoResponse, ProviderGone, DoubaoNotConfigured }
 }
 
-/** 把用户的选择、手机能力和现有服务商对起来,得出这次用哪个引擎。纯函数,不碰系统。 */
+/** Compare the user's choices, mobile phone capabilities and existing service providers to figure out which engine to use this time. Pure function, does not touch the system. */
 object SpeechResolver {
     fun resolve(choice: SpeechChoice, system: SystemCapability, providers: List<Provider>): SpeechEngineSpec = when (choice) {
         SpeechChoice.Off -> SpeechEngineSpec.Unavailable(SpeechEngineSpec.Why.Off)
         is SpeechChoice.Doubao -> if (choice.resourceId in DoubaoProtocol.resources) SpeechEngineSpec.Doubao(choice.resourceId)
             else SpeechEngineSpec.Unavailable(SpeechEngineSpec.Why.DoubaoNotConfigured)
-        // 自带识别不响应时照实说、指去设置,不悄悄改用要花钱的服务商模型
+        // If the built-in recognition does not respond, tell the truth and ask for settings. Do not
+        // quietly switch to a service provider model that costs money.
         SpeechChoice.Auto -> when {
             system.usable -> SpeechEngineSpec.System(system.onDevice)
             system.available -> SpeechEngineSpec.Unavailable(SpeechEngineSpec.Why.SystemNoResponse)

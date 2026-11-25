@@ -65,8 +65,10 @@ import com.meenai.mina.task.FileChildRunStore
 import com.meenai.mina.task.TriggerRuntime
 
 /**
- * App 容器:进程里共用的服务都在这里建一份,经各自的 Owner 接口交给安卓入口(界面、服务、广播、provider),
- * 其余代码经构造参数拿到。助手进程(HelperMain、ShellService)没有这个对象,不用这里的任何服务。
+ * App container: All services shared in the process are created here and handed over to the Android
+ * portal (interface, service, broadcast, provider) through their respective Owner interfaces, and the
+ * rest of the code is obtained through construction parameters. The helper process (HelperMain,
+ * ShellService) does not have this object and does not use any services here.
  */
 class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, PhoneServices.Owner,
     MemoryRuntime.Owner, ProviderStore.Owner, FileRouteStore.Owner, TaskRecovery.Owner,
@@ -79,24 +81,26 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
      */
     val appScope: CoroutineScope get() = scope
 
-    /** 本地密码保险库:独立于 API keys,使用 harness-password-vault Keystore 别名 */
+    /** Local password vault: independent of API keys, using harness-password-vault Keystore alias */
     override val vault: com.meenai.mina.vault.PasswordVaultStore by lazy { com.meenai.mina.vault.PasswordVaultStore.create(this) }
 
-    /** 手机能力的服务:内置助手、共用的 shell 连接、配对、「去设置」提示。 */
+    /** Phone-capable services: built-in assistant, shared shell connection, pairing, "go to settings" prompt. */
     override val phone: PhoneServices by lazy { PhoneServices(this) }
 
-    /** 网页标签的 DevTools 会话入口:整个进程一份;连不上时经内置助手代连。 */
+    /** DevTools session entry for web page tags: one copy of the entire process; if the connection cannot be made, the built-in assistant can be used to connect on behalf of the user. */
     override val webDevtools: WebDevtools by lazy { WebDevtools(phone.hub::openDevtoolsSocket) }
 
-    /** 各任务的标签池共用的标签总数上限。 */
+    /** The upper limit of the total number of tags shared by the tag pools of each task. */
     val resources = ResourceScheduler()
     val detailedTraces by lazy { DetailedTraces(this) }
 
     val remoteTasks by lazy { RemoteTaskHub(this) }
 
     /**
-     * 电脑连接(MCP):开关、访问令牌(和服务商的 Key 一样加密存)、监听。局域网那种默认关着;
-     * USB 那种由电脑经 adb 打开,只到这次关机为止(开机编号和 shell 里 `settings get global boot_count` 读到的一样)。
+     * Computer connection (MCP): switch, access token (encrypted and stored like the service provider's
+     * Key), monitoring. The LAN type is closed by default; the USB type is opened by the computer via
+     * adb until it is shut down this time (the boot number is the same as `settings get global
+     * boot_count` read in the shell).
      */
     val mcp by lazy {
         val settingsDir = java.io.File(filesDir, "settings")
@@ -111,7 +115,7 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     val childRuns by lazy { FileChildRunStore(java.io.File(filesDir, "children-v3.json")) }
     override val tabBudget get() = resources.tabBudget
 
-    /** 任务结束后留在后台接着运行的那一页;关掉时在来源对话那一轮记下原因(对话页那一轮下面显示「后台网页已关闭」)。 */
+    /** The page that stays in the background and continues to run after the task is completed; when it is closed, write down the reason in the round of the source dialogue ("Background web page has been closed" is displayed below the round of the dialogue page). */
     override val pageKeeper: com.meenai.mina.cap.web.PageKeeper by lazy {
         com.meenai.mina.cap.web.PageKeeper(this, tabBudget).also { k ->
             k.onClosed = { p, reason ->
@@ -125,16 +129,16 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         }
     }
 
-    /** 记忆、个人技能、开关与结果卡片提示。 */
+    /** Memory, personal skills, switch and outcome card prompts. */
     override val memory: MemoryRuntime by lazy { MemoryRuntime(this) }
 
-    /** 本机的 token 用量账本:经模型配置建出的每个模型的每次调用都记在这里。 */
+    /** Native token usage ledger: Every call of each model created through model configuration is recorded here. */
     val usage: UsageLedger by lazy { UsageLedger(java.io.File(filesDir, "usage-v1.json")) }
 
-    /** 模型配置与 Key;建出的模型都套上计量,记到 [usage]。 */
+    /** Model configuration and Key; the built models are all set with measurement and recorded as [usage]. */
     override val providers: ProviderStore by lazy { ProviderStore.create(this, usage, "HarnessAgent/${BuildConfig.VERSION_NAME}") }
 
-    /** 语音转文字的选择:整个进程一份,设置页改了输入框立刻看得到(两份实例互相看不到对方的 set)。 */
+    /** Speech-to-text selection: There is one copy of the entire process, and the input box can be seen immediately after changing the setting page (the two instances cannot see each other's set). */
     val speech: com.meenai.mina.voice.SpeechSettings by lazy { com.meenai.mina.voice.SpeechSettings.get(this) }
 
     /** Image generation and editing settings. */
@@ -184,27 +188,27 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         )
     }
 
-    /** 语音输入的入口,输入框和悬浮胶囊共用。 */
+    /** The voice input entrance, input box and floating capsule are shared. */
     val voice: com.meenai.mina.voice.VoiceInput by lazy { com.meenai.mina.voice.VoiceInput(this, speech, providers) }
 
-    /** 用 ChatGPT 登录:跑在 App 的作用域里,期间开前台服务撑住进程(见 [com.meenai.mina.settings.ChatGptSignIns])。 */
+    /** Log in with ChatGPT: run in the scope of the App, and open the foreground service to support the process during this period (see [com.meenai.mina.settings.ChatGptSignIns]). */
     val chatGptSignIn by lazy {
         com.meenai.mina.settings.ChatGptSignIns(scope,
             keepAlive = { com.meenai.mina.settings.ChatGptSignInService.start(this) },
             log = { msg, e -> Log.w("MinaChatGpt", msg, e) })
     }
 
-    /** 经验路线。 */
+    /** Experience route. */
     override val routes: FileRouteStore by lazy { FileRouteStore.create(this) }
 
-    /** 异常退出后留下的系统改动的恢复;在跑的任务登记在这里。 */
+    /** Recovery of system changes left after abnormal exit; running tasks are registered here. */
     override val taskRecovery: TaskRecovery by lazy { TaskRecovery(this, phone.sharedShell) }
 
-    /** 运行账本与送达账本:整个进程一份,任务服务和启动时的恢复共用(同一个文件不能有两份实例)。 */
+    /** Running ledger and delivery ledger: one copy for the entire process, shared by the task service and recovery at startup (the same file cannot have two instances). */
     val runStore: RunStore by lazy { FileRunStateStore(java.io.File(filesDir, "runs-v3.json")) }
     val outbox: Outbox by lazy { Outbox(FileOutboxStore(java.io.File(filesDir, "outbox-v3.json"))) }
 
-    /** 没结束的运行的善后(标中断、补送、告知):进程里只做一次,App 启动和任务服务启动都调它。 */
+    /** The aftermath of the unfinished operation (standard interrupt, supplementary delivery, notification): only do it once in the process, and it will be called when the App starts and the task service starts. */
     val runRecovery: RunRecovery by lazy {
         val app = this
         RunRecovery(runStore, outbox, LocalChannel { _, delivery ->
@@ -217,22 +221,22 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         }, conversations, scope)
     }
 
-    /** 站点登记表(登录过的网站等):设置页和标签池共用。 */
+    /** Site registration form (logged-in websites, etc.): shared by the settings page and tag pool. */
     override val webSites: SiteRegistry by lazy { SiteRegistry(java.io.File(filesDir, "web")) }
 
-    /** `files/sandbox/` 的树锁:安装、重置、命令、下载、附件都在它的许可里写。 */
+    /** `files/sandbox/`'s tree lock: installation, reset, commands, downloads, and attachments are all written in its permission. */
     override val sandboxTree = SandboxTree()
 
-    /** 任务从 App 拿的模型来源、评测钩子、屏幕画面的开关。 */
+    /** The task is to get the model source, evaluation hook, and screen screen switch from the App. */
     override val tasks = TaskEnvironment()
 
-    /** 沙箱状态:安装服务更新的,设置页与 Agent 看到的是同一份。 */
+    /** Sandbox status: The installation service is updated, and the settings page is the same as what the Agent sees. */
     override val sandboxState: SandboxState by lazy { SandboxState(this) }
 
-    /** 对话记录:整个进程一份,任务服务、聊天界面、结果卡片的按钮共用。 */
+    /** Conversation record: one copy of the entire process, shared buttons for task services, chat interface, and result cards. */
     val conversations: ConversationStore by lazy { ConversationStore(this) }
 
-    /** 删对话(侧栏长按):连带它的任务、定时任务和工作区。 */
+    /** Delete a conversation (long press on the sidebar): together with its tasks, scheduled tasks and workspace. */
     val conversationDeleter: ConversationDeleter by lazy {
         val app = this
         ConversationDeleter(
@@ -241,30 +245,32 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             schedulesOf = { id -> TriggerRuntime.list(app).filter { it.threadId == id }.map { it.id } },
             removeSchedule = { TriggerRuntime.remove(app, it) },
             deleteWorkspace = { id ->
-                // 工作区里有附件、用户发来的屏幕、任务写的文件;沙箱里的命令碰得到这里,按句柄删、不跟进链接,和重置互斥
+                // There are attachments, screens sent by users, and files written by tasks in the
+                // workspace; commands in the sandbox can be accessed here, including deleting by handle,
+                // not following links, and resetting mutual exclusions.
                 val dirs = SandboxDirs(app)
                 dirs.tree.shared { withContext(Dispatchers.IO) { dirs.gate.deleteTree(dirs.work, dirs.workspace(id).name) } }
             },
         )
     }
 
-    /** 用户发来的屏幕(跟着各自的对话存在工作区里)。 */
+    /** Screens sent by users (stored in the workspace along with their respective conversations). */
     val userScreens: com.meenai.mina.chat.UserScreenFiles by lazy { com.meenai.mina.chat.UserScreenFiles(this) }
 
-    /** 全局的询问 / 自主:整个进程一份,设置页和各任务共用。 */
+    /** Global query/autonomous: One copy for the entire process, the settings page and each task are shared. */
     val approvals: ApprovalStore by lazy { ApprovalStore(java.io.File(filesDir, "approvals.json")) }
 
     val appAccess: com.meenai.mina.settings.AppAccessStore by lazy {
         com.meenai.mina.settings.AppAccessStore(java.io.File(filesDir, "app-access.json"))
     }
 
-    /** 全局的询问 / 自主和各任务自己的那一份;开发者选项里的「自主模式」经它改。 */
+    /** Global inquiry/autonomy and each task's own share; the "autonomous mode" in the developer options can be changed by it. */
     val approvalControl: ApprovalControl by lazy { ApprovalControl(approvals) }
 
-    /** 各 Run 的队列与展示状态跟 App 进程走，Service 重建时继续使用同一份。 */
+    /** The queue and display status of each Run follow the App process, and the same copy will continue to be used when the Service is rebuilt. */
     val taskState = TaskCenterState()
 
-    /** Mina 自己的界面此刻看不看得见。 */
+    /** Mina's own interface is currently invisible. */
     val foreground = AppForeground()
 
     val updates: com.meenai.mina.about.UpdateChecker by lazy {
@@ -300,10 +306,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         )
     }
 
-    /** 浮在别的 App 上的悬浮胶囊。 */
+    /** Suspended capsules that float on top of other apps. */
     val capsule: CapsuleController by lazy { CapsuleController(this, taskState, foreground, resources.takeoverQueue) }
 
-    /** 对话页的状态跟进程走:界面关了再打开,正在跑的任务的步骤还在。 */
+    /** The status of the dialog page depends on the process: when the interface is closed and reopened, the steps of the running task are still there. */
     val chat: ChatViewModel by lazy {
         val app = this
         ChatViewModel(
@@ -326,7 +332,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 override fun decline(key: Int) = TaskService.decline(app, key)
                 override fun show(conversationId: String) = taskState.show(conversationId)
 
-                // 按下那一刻就换成该对话任务的编号:之后切了对话、或那个任务换了,动作也不会落到别的任务上
+                // The moment you press it, it changes to the number of the dialogue task: if you switch
+                // to the dialogue or change the task, the action will not fall on other tasks.
                 private fun key(conversationId: String) = taskState.run(conversationId)?.key
                 override fun cancelIn(conversationId: String) { key(conversationId)?.let { TaskService.cancel(app, it) } }
                 override fun resumeIn(conversationId: String) { key(conversationId)?.let { TaskService.resume(app, it) } }
@@ -342,11 +349,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             conversations,
             taskState.busy,
             appLabel = { ConfirmationNotifier.appLabel(app, it) },
-            // 虚拟屏上打开过 App,或在用内置浏览器:画中画才有画面可看(只建了空屏的不算)
+            // Only if an app has been opened on the virtual screen or the built-in browser is being
+            // used: picture-in-picture can be viewed (those with only a blank screen are not counted)
             screenOpen = tasks.previewOpen
                 .stateIn(scope, SharingStarted.Eagerly, tasks.agentAppShown.value || tasks.webScreenOpen.value),
             endedRunId = taskState.endedRunId,
-            // 按对话取它自己的任务,不用服务对外那一份(并行时那是显示中的别的任务)
+            // Take its own task according to the conversation, and do not need to serve the external one
+            // (that is another task displayed in parallel)
             liveRunId = { taskState.run(it)?.runId?.value },
             endedRunIds = taskState.endedRunIds,
             parallelFlag = { FeatureFlags.get(app).speedFlags().parallelTasks },
@@ -357,7 +366,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             runNotes = memory.notes,
             learning = AppLearningActions(app, memory),
             memoryItems = memory.items(),
-            // 附件进对话的工作区,不需要运行环境已准备好:设备支持就给附件按钮
+            // Attachments enter the workspace of the conversation, and the running environment does not
+            // need to be prepared: if the device supports it, just give the attachment button
             sandboxReady = SandboxState.get(app).status.map { it !is SandboxStatus.Unsupported }
                 .stateIn(scope, SharingStarted.Eagerly, SandboxState.get(app).status.value !is SandboxStatus.Unsupported),
             sharedFiles = taskState.sharedFiles,
@@ -385,16 +395,20 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.ui.router.AppFreeKeyRouter.initStatsTracker(filesDir)
         com.meenai.mina.ui.router.AppFreeKeyRouter.initCooldownStore(this)
         scope.launch(Dispatchers.IO) { runCatching { rankingsRepo.getRankings() } }
-        // 界面以外的文字(通知、服务、悬浮胶囊)按 App 语言取
+        // Text outside the interface (notifications, services, floating capsules) is taken according to
+        // the App language.
         AppLanguage.applyDefaultLocale(this)
         UiText.source = ResourceTexts { AppLanguage.resources(this) }
         // Chat/model diagnostics → Download/harness-chat.log (readable as text).
         com.meenai.mina.diag.ChatLog.install(this)
         registerActivityLifecycleCallbacks(foreground)
-        // 设置 › 网络代理:Mina 自己的连接从第一个请求起就按它走;SOCKS 代理的账号密码经全进程的认证器给
+        // Settings › Network proxy: Mina's own connection is processed from the first request; the
+        // account password of the SOCKS proxy is given by the authenticator of the whole process.
         com.meenai.mina.settings.NetProxyStore.get(this)
         com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
-        // 内置浏览器:设了代理才给 WebView 设上(读设置要解密,放到后台;没设代理不为此加载 WebView)
+        // Built-in browser: Set up WebView only after setting up a proxy (read settings need to be
+        // decrypted and put in the background; if no proxy is set up, WebView will not be loaded for
+        // this)
         scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@HarnessApp) } }
         tasks.modelFactory = { c, s ->
             if (freeKeyRouter.candidates.isNotEmpty()) {
@@ -404,15 +418,18 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             }
         }
         capsule.start()
-        // 内置助手的真实现,并开始看着助手(Mina 进程起来后,还活着的助手会自己交接 Binder)
+        // Real implementation of the built-in assistant, and start watching the assistant (after the
+        // Mina process starts, the assistant that is still alive will hand over Binder by itself)
         phone.shellManager.start()
-        // 连接一可用就补上默认打开的几项能力
+        // Supplement several capabilities that are turned on by default as soon as the connection is
+        // available
         phone.recovery.start()
-        // 告诉内置助手:Mina 被杀后要不要把它拉起来(胶囊一直显示或有任务在跑时才要)
+        // Tell the built-in assistant: Do you want to pull Mina up after she is killed (this is required
+        // only when the capsule is always displayed or there is a task running)
         com.meenai.mina.cap.phone.setup.RestoreWishSync(
             phone.hub, FeatureFlags.get(this).capsuleModeChanges(), taskState.busy, phone.recoverySettings.consent, phone.recovery.accessibility,
         ).start()
-        // 上次异常退出时留下的改动(App 被静音)在这里恢复
+        // Changes left after the last abnormal exit (the App was muted) are restored here.
         scope.launch { taskRecovery.recover() }
         scope.launch {
             providers.repairGeminiWebBindings()
@@ -448,30 +465,35 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
             }
         }
-        // 上次进程被杀时没结束的运行:现在就标为中断并告知,不等任务服务起来
+        // The operation that was not completed when the last process was killed: mark it as interrupted
+        // now and notify it, and wait until the task is served.
         runRecovery.recover().let { if (it.isNotEmpty()) Log.w("MinaTask", "${it.size} runs interrupted by process restart") }
         com.meenai.mina.core.router.MagicubeLedger.attachStorage(com.meenai.mina.ui.router.PrefsMagicubeStorage(this))
         com.meenai.mina.ui.router.MagicubeReminder.scheduleDailyAlarm(this)
         scope.launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@HarnessApp) } }
-        // 给电脑跑的「经 USB 连接」脚本;顺带清掉上次开机留下的 USB 连接信息
+        // A "Connect via USB" script that runs on the computer; by the way, it clears the USB connection
+        // information left behind by the last boot.
         scope.launch(Dispatchers.IO) { runCatching { mcp.writeUsbScript() }.onFailure { Log.w("MinaMcp", "cannot write USB script", it) } }
-        // 上次导出写到一半被杀留下的空壳条目
+        // Empty shell entries left behind by being killed halfway through the last export.
         scope.launch { runCatching { ShareExporter(this@HarnessApp).cleanPending() } }
-        // 上次进程留下的网页上传副本
+        // Upload a copy of the web page left by the last process
         scope.launch { runCatching { WebFiles.clearStale(this@HarnessApp, SandboxDirs(this@HarnessApp).gate) } }
-        // 更新已经装上后,关于页下好的安装包
+        // After the update has been installed, click the installation package under the About page.
         scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@HarnessApp).dropInstalled() } }
         // 7 din purani generated images saaf karo
         scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.image.ImageStorageManager.cleanOldCache(this@HarnessApp) } }
-        // 运行环境没准备好(首次启动、Mina 升级后)就在后台准备,不联网、对用户不可见
+        // If the operating environment is not ready (first startup, after Mina upgrade), it will be
+        // prepared in the background, not connected to the Internet, and invisible to users.
         RuntimePreparer.ensure(this)
-        // 沙箱就绪(启动时已就绪,或刚装好)就把技能目录核对一次:App 更新带来的脚本马上能用
+        // When the sandbox is ready (ready at startup, or just installed), check the skill directory:
+        // the scripts brought by the App update will be available immediately.
         scope.launch {
             SandboxState.get(this@HarnessApp).status.first { it is SandboxStatus.Ready }
             val state = SandboxState.get(this@HarnessApp)
             runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
         }
-        // FCM push updates: pehli run par topic subscribe karo; Google Play Services na ho to silently skip
+        // FCM push updates: pehli run par topic subscribe karo; Google Play Services na ho to silently
+        // skip
         scope.launch(Dispatchers.IO) {
             runCatching { com.meenai.mina.about.PushUpdateSubscriber.ensureSubscribed(this@HarnessApp) }
         }

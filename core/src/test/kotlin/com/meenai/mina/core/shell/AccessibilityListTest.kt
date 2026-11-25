@@ -30,7 +30,8 @@ class AccessibilityListTest {
     @Test
     fun alreadyPresentIsNotDuplicated() {
         assertEquals("$other:$mina", AccessibilityList.with("$other:$mina", mina))
-        // 系统里存的是完整类名写法,也算已经有了
+        // What is stored in the system is the complete class name writing, which can be considered as
+        // already available.
         assertEquals("$minaLong:$other", AccessibilityList.with("$minaLong:$other", mina))
         assertTrue(AccessibilityList.contains(minaLong, mina))
     }

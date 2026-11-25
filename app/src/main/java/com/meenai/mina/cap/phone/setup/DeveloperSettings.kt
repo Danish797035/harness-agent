@@ -8,15 +8,17 @@ import android.os.Bundle
 import android.provider.Settings
 
 /**
- * 引导要看的系统开关,以及跳到对应设置页的 Intent。
- * 「USB 调试」「无线调试」没有公开的跳转入口:进开发者选项,并按原版设置的做法高亮那一行;不认这个参数的手机就停在开发者选项顶部。
+ * Guide the system switches you want to see, and the Intent to jump to the corresponding settings page.
+ * There is no public jump entrance for "USB debugging" and "wireless debugging": go to the developer
+ * options and highlight that line according to the original settings; phones that do not recognize this
+ * parameter will stop at the top of the developer options.
  */
 object DeveloperSettings {
-    /** 原版的全局设置项;未公开常量,按名字读。 */
+    /** The original global setting items; undisclosed constants, read by name. */
     const val ADB_WIFI_ENABLED = "adb_wifi_enabled"
-    /** 原版开发者选项里「无线调试」一行的 key,用来高亮。 */
+    /** The key in the "Wireless Debugging" line in the original developer options is used to highlight. */
     private const val WIRELESS_DEBUGGING_KEY = "toggle_adb_wireless"
-    /** 原版开发者选项里「USB 调试」一行的 key。 */
+    /** The key in the "USB Debugging" line in the original developer options. */
     private const val USB_DEBUGGING_KEY = "enable_adb"
     private const val EXTRA_FRAGMENT_ARG_KEY = ":settings:fragment_args_key"
     private const val EXTRA_SHOW_FRAGMENT_ARGS = ":settings:show_fragment_args"
@@ -28,33 +30,39 @@ object DeveloperSettings {
     fun developerOptions(cr: ContentResolver): Boolean =
         Settings.Global.getInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
 
-    /** 没写过这一项(从没开过)按关着算;读不准的手机由引导页的「我已经打开了」兜底。 */
+    /** If this item has not been written (it has never been turned on), it will be counted as off; for mobile phones that cannot be read accurately, the "I have turned it on" on the guide page will be counted. */
     fun wirelessDebugging(cr: ContentResolver): Boolean = Settings.Global.getInt(cr, ADB_WIFI_ENABLED, 0) == 1
 
     /**
-     * 系统里没有无线调试这一项。原版(安卓 11 起)开机时总会把这项设置按当前状态写成 0 或 1,所以开着关着都读得到;
-     * 一直没有这一项,说明系统没带无线调试。读的时候出错(系统不让读)不下结论,按有算。
+     * There is no wireless debugging item in the system. The original version (from Android 11 onwards)
+     * will always write this setting as 0 or 1 according to the current state when it is turned on, so
+     * it can be read whether it is turned on or off; this item is always missing, indicating that the
+     * system does not have wireless debugging. If an error occurs while reading (the system does not
+     * allow reading), if you do not draw a conclusion, just assume it is correct.
      */
     fun wirelessDebuggingMissing(cr: ContentResolver): Boolean =
         runCatching { Settings.Global.getString(cr, ADB_WIFI_ENABLED) == null }.getOrDefault(false)
 
     /**
-     * 系统里打不开「开发者选项」页:跳过去的 Intent 没有页面接(有的运行环境不带安卓的系统设置)。
-     * 问不到(系统不让问)不下结论,按有算。
+     * The "Developer Options" page cannot be opened in the system: there is no page connection for the
+     * skipped Intent (some operating environments do not have Android system settings). If you can't ask
+     * (the system won't let you ask), if you don't draw a conclusion, just assume it.
      */
     fun developerOptionsPageMissing(pm: PackageManager): Boolean =
         runCatching { pm.resolveActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), 0) == null }.getOrDefault(false)
 
     /**
-     * 把无线调试开关写成打开(要有修改系统设置的授权)。写入被拒(抛异常或返回 false)返回 false;
-     * 写进去之后系统还可能马上拨回去(见 [com.meenai.mina.core.shell.WirelessDebuggingAutoOn]),由调用方再读。
+     * Set the wireless debugging switch to on (authorization to modify system settings is required). If
+     * the write is rejected (throws an exception or returns false), it returns false; after writing, the
+     * system may call it back immediately (see [com.meenai.mina.core.shell.WirelessDebuggingAutoOn]),
+     * and the caller can read it again.
      */
     fun turnOnWirelessDebugging(cr: ContentResolver): Boolean =
         runCatching { Settings.Global.putInt(cr, ADB_WIFI_ENABLED, 1) }.getOrDefault(false)
 
     fun usbDebugging(cr: ContentResolver): Boolean = Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, 0) == 1
 
-    /** 「关于手机」,版本号在这里(有的手机在它下面的「软件信息」里)。 */
+    /** "About the mobile phone", the version number is here (some mobile phones are in the "Software Information" below it). */
     fun aboutPhone(): List<Intent> = listOf(Intent(Settings.ACTION_DEVICE_INFO_SETTINGS), Intent(Settings.ACTION_SETTINGS))
 
     fun developerOptionsPage(): List<Intent> = listOf(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), Intent(Settings.ACTION_SETTINGS))

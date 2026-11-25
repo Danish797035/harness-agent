@@ -4,11 +4,13 @@ import com.meenai.mina.core.cap.phone.OperatingPace
 import com.meenai.mina.core.settings.SelfConfig
 
 /**
- * 模型能改的那几项设置。[FeatureFlags] 是存储,这里只挑可逆的偏好交给模型:
+ * The few settings that can be changed on the model. [FeatureFlags] is storage, here only reversible
+ * preferences are selected and handed over to the model:
  *
- * **不给的**:模型与 Key(换掉自己的脑子、花用户的钱)、任何删除数据(清工作区、重置运行环境、删对话)——不可逆。
- * **也不给**:容器的联网与代理——打开后数据可能离开手机,这道线要用户自己在设置里决定。
- * 给的都能随手改回去。
+ * **Not given**: Model and Key (replace your own brain, spend the user's money), any deleted data (clear
+ * the workspace, reset the running environment, delete conversations) - irreversible. **Not given**:
+ * Container networking and proxy-data may leave the phone after opening. This line must be decided by
+ * the user in the settings. Whatever is given can be changed back at will.
  */
 class SelfConfigImpl(
     private val flags: FeatureFlags,

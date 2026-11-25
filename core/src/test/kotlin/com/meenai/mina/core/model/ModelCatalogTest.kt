@@ -63,7 +63,7 @@ class ModelCatalogTest {
         assertEquals("/v1/models?limit=1000&after_id=claude-a", server.takeRequest().path)
     }
 
-    /** Anthropic 列表的 `capabilities.effort` / `thinking.types`:档位逐项照填,不接受自适应思考的没有档位。 */
+    /** `capabilities.effort` / `thinking.types` in the Anthropic list: Fill in the gears one by one. Those who do not accept adaptive thinking have no gears. */
     @Test fun anthropicReadsEffortLevelsAndThinkingTypes() = runTest {
         fun sup(b: Boolean) = """{"supported":$b}"""
         fun model(id: String, effort: String, types: String) = """{"type":"model","id":"$id","display_name":"$id",
@@ -77,18 +77,19 @@ class ModelCatalogTest {
             ${model("plain", noEffort, """{"adaptive":${sup(false)},"disabled":${sup(true)},"enabled":${sup(true)}}""")}
         ],"has_more":false}"""))
         val byId = models(catalog.anthropic(base, "ak")).associateBy { it.id }
-        // 按由浅到深排;xhigh 没标支持的不给
+        // Arrange from lightest to darkest; if xhigh is not supported, it will not be given.
         assertEquals(listOf("none", "low", "medium", "high", "max"), byId.getValue("full").reasoningEfforts)
         assertEquals(listOf("adaptive", "disabled", "enabled"), byId.getValue("full").thinkingTypes)
-        // 不接受关掉思考的:没有 none
+        // Do not accept people who turn off their thinking: none none
         assertEquals(listOf("low", "medium", "high", "max"), byId.getValue("no-off").reasoningEfforts)
-        // 只接受按预算思考、或不分档位的:能思考但没有可选档位
+        // Only those who think in terms of budget or regardless of grade are accepted: those who can
+        // think but have no optional grade
         assertEquals(emptyList<String>(), byId.getValue("budget").reasoningEfforts)
         assertEquals(emptyList<String>(), byId.getValue("plain").reasoningEfforts)
         assertEquals(true, byId.getValue("plain").reasoning)
     }
 
-    /** 按协议逐个给地址的列表:形状照一家订阅服务的真实返回删减而来。 */
+    /** A list of addresses by protocol: the shape is truncated from the actual returns from a subscription service. */
     private val perModelApi = """{"object":"list","data":[
         {"id":"deepseek-v4.1-flash","object":"model","name":"DeepSeek V4.1 Flash","type":"chat",
          "modalities":{"input":["text","image/jpeg","image/png"],"output":["text"]},
@@ -132,7 +133,7 @@ class ModelCatalogTest {
                     reasoning = true, endpoint = ModelEndpoint(ModelProtocol.Messages, "https://gw.test/inference/anthropic/v1")),
                 ListedModel("gemini-4-argon", "Gemini 4 Argon", toolCalls = true, vision = true, contextTokens = 1_048_576,
                     reasoning = true, endpoint = ModelEndpoint(ModelProtocol.GenerateContent, "https://gw.test/inference/google/v1beta")),
-                // 写了几种协议的,取会说的那一种
+                // If you have written several kinds of agreements, choose the one you can speak.
                 ListedModel("both", endpoint = ModelEndpoint(ModelProtocol.Messages, "https://gw.test/m/v1")),
             ),
             list,
@@ -140,7 +141,7 @@ class ModelCatalogTest {
         assertEquals(listOf(true, true, true, true, true, true), list.map { it.usable })
     }
 
-    /** 列表写明了不是对话模型的(`type`,或输出里没有文字):记下来,选默认主模型时跳过。 */
+    /** The list indicates that it is not a dialogue model (`type`, or there is no text in the output): write it down and skip it when selecting the default main model. */
     @Test fun openAiCompatReadsWhetherAModelChats() = runTest {
         server.enqueue(ok("""{"data":[
             {"id":"e","type":"embedding"},{"id":"r","type":"rerank"},{"id":"c","type":"chat"},
@@ -151,7 +152,7 @@ class ModelCatalogTest {
         assertEquals(listOf(false, false, true, false, false, null, null), list.map { it.chat })
     }
 
-    /** 接口用 `supported_endpoints` 写明模型能走哪几种端点:记下来,试调用时据此跳过调不了的。 */
+    /** The interface uses `supported_endpoints` to indicate which endpoints the model can reach: write it down, and use this to skip the ones that cannot be adjusted during the trial call. */
     @Test fun openAiCompatReadsSupportedEndpoints() = runTest {
         server.enqueue(ok("""{"data":[
             {"id":"claude-sonnet-5-5","supported_endpoints":["/provider/v1/messages"]},
@@ -168,7 +169,8 @@ class ModelCatalogTest {
                 listOf(ModelProtocol.ChatCompletions, ModelProtocol.Responses),
                 listOf(ModelProtocol.ChatCompletions),
                 listOf(ModelProtocol.GenerateContent),
-                // 裸的 /models 是列模型的端点,列得出来不等于调得动:认不出,照旧去试
+                // The naked /models is the endpoint of the listed model. Listing it does not mean that
+                // it can be adjusted: if you don’t recognize it, try it anyway.
                 null,
                 null,
             ),

@@ -6,18 +6,33 @@ import com.meenai.mina.core.observation.Observation
 import com.meenai.mina.core.record.Redactor
 
 /**
- * 一次任务里助手实际读到的全部材料(证据账本):读屏、读网页、命令输出与读到的文件、工具结果里的事实。
- * 运行时的核查器和评测的核对用的是同一套账本和同一个挑选规则([forAnswer]),两边不会各看各的。
+ * All materials actually read by the assistant in a task (evidence ledger): screen reading, web page
+ * reading, command output and read files, and facts in tool results. The runtime verifier and the
+ * evaluation verification use the same set of ledgers and the same selection rules ([forAnswer]), so
+ * both sides will not look at each other.
  *
- * - 进账前脱敏([Redactor.evidence]),每条按来源截短;同样的原文只留最近一次(来处跟着更新)。
- *   接管之后读到的输入框里不是助手打的字(用户在接管时填的)不记;命令输出里原样出现在命令本身里的行(回显)不记。
- * - 总量有上限([capChars]):超了从最早的丢起。这是内存上的安全上限,正常任务碰不到。
- * - 交给核对的条目([forAnswer]):含有回答里某条事实的每一条(一条也不丢)、这些条目和回答提到的每个 App 或网址最近的那一条
- *   (后来读到的可能和回答矛盾)、最近读到的 [RECENT] 条。按读到的先后排。代码的核对看这些条目的全文;
- *   核查模型只看它们的节选([excerpt]:对上事实的行和前后几行,总字数有上限),带着来处(第几步、哪种来源、哪个 App 或网址、网页标题)。
- *   挑选只决定给看哪些,核对规则([Grounding])不变:没读到过的东西,账本里没有,挑多少都证不了。
- * - 助手打进输入框的字不给回答作证:那个输入框里的字、输入框还有焦点时以这些字开头的联想行,挑选时去掉;
- *   结果里恰好和搜索词一样的标题照样留着。不知道哪些是输入框的(旧记录)按整行等于打进去的字去掉。
+ * - - Desensitization before deposit ([Redactor.evidence]), each article is truncated according to the
+ * source; only the most recent version of the same original article will be kept (the source will be
+ * updated accordingly).
+ * Words in the input box read after taking over that are not entered by the assistant (filled in by the
+ * user when taking over) will not be remembered; lines in the command output that appear as they are in
+ * the command itself (echoed) will not be remembered.
+ * - - The total amount has an upper limit ([capChars]): if it exceeds the amount, the oldest one will be
+ * thrown away. This is a safe upper limit on memory that cannot be touched by normal tasks.
+ * - - Items submitted for verification ([forAnswer]): each item containing a certain fact in the answer
+ * (not missing a single item), the item closest to each App or URL mentioned in the answer
+ * (What I read later may be inconsistent with the answer), and the [RECENT] items I read recently.
+ * Arrange in order of reading. The code verification looks at the full text of these entries; the
+ * verification model only looks at their excerpts ([excerpt]: the line that corresponds to the fact and
+ * the lines before and after, the total number of words has an upper limit), and the source (which step,
+ * which source, which App or website, web page title). The selection only determines which ones to show,
+ * and the verification rules ([Grounding]) remain unchanged: things that have not been read before are
+ * not in the ledger, and no matter how much you choose, they cannot be verified.
+ * - - The words entered by the assistant into the input box are not supported by the answer: the words
+ * in the input box, the input box, and the associated lines starting with these words when the focus is
+ * on will be removed during selection;
+ * Titles that happen to be the same as the search terms in the results are still retained. I don’t know
+ * which ones are in the input boxes (old records). I’ll delete the entire line equal to the typed words.
  */
 class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
     private val entries = ArrayDeque<Observation>()
@@ -30,27 +45,35 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
     val isEmpty: Boolean get() = entries.isEmpty()
 
     /**
-     * 记一条观察;脱敏、截短后为空的不记,返回记下的那一条(填好编号、第几步、时刻;[step]、[atMs] 是此刻的)。
-     * 观察里的 [Observation.inputs] 是那一次输入框里的字;[Observation.authored] 是助手自己写的东西(跑的命令):原样出现在里面的行是回显,不记。
+     * Remember an observation; if it is empty after desensitization and truncation, do not remember it.
+     * Return to the one you wrote down (fill in the number, step, and time; [step] and [atMs] are at
+     * this moment). [Observation.inputs] in the observation is the word in the input box at that time;
+     * [Observation.authored] is what the assistant wrote himself (the running command): the lines that
+     * appear as they are are echoed and not recorded.
      */
     fun add(o: Observation, step: Int = o.step, atMs: Long = o.atMs): Observation? {
         val ins = o.inputs?.names?.map(::norm)?.filter { it.isNotEmpty() }
         var lines = Redactor.evidence(o.text).lines()
-        // 接管时用户自己填的字(输入框里不是助手打的)不留
+        // The words filled in by the user themselves during takeover (not typed by the assistant in the
+        // input box) are not retained.
         if (afterTakeover && ins != null) lines = lines.filterNot { l -> norm(l).let { n -> n in ins && typed.none { it in n } } }
         o.authored?.let(::norm)?.takeIf { it.isNotEmpty() }?.let { a -> lines = lines.filterNot { l -> norm(l).let { it.isNotEmpty() && it in a } } }
         val t = clip(o.kind, lines.joinToString("\n"))
         if (t.isBlank()) return null
         val place = o.place?.let { it.copy(name = Redactor.evidence(it.name)) }
-        // 回显已经去掉了,记下的这条不再带着助手自己写的东西
+        // The echo has been removed, and the item written down no longer contains what the assistant
+        // wrote himself.
         return insert(o.copy(text = t, place = place, step = step, atMs = atMs, id = ++seq, authored = null,
             inputs = ins?.let { InputHints(it, o.inputs.focused?.let(::norm)?.takeIf { f -> f.isNotEmpty() }) },
             title = o.title?.let(Redactor::evidence)?.takeIf { it.isNotBlank() }))
     }
 
     /**
-     * 照原样放回一条运行时已经记下的观察(运行记录里的 observed,已脱敏、截短、去掉回显,编号也是那时的):
-     * 不再过滤,只照进账时一样去掉同样的旧一条、守住总量上限。离线重建账本用,和运行时的账本一样。
+     * Put back an observation that has been recorded during the run as it is (the observed in the run
+     * record has been desensitized, truncated, and the echo has been removed, and the number is also the
+     * same at that time): No more filtering, just remove the same old one as when it was entered, and
+     * keep the total upper limit. It is used to reconstruct the ledger offline, which is the same as the
+     * ledger at runtime.
      */
     fun restore(o: Observation): Observation {
         seq = maxOf(seq, o.id)
@@ -65,25 +88,25 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
         return stored
     }
 
-    /** 这段原文(按进账时一样脱敏、截短后)已经在账本里。 */
+    /** This original text (after being desensitized and truncated as when it was entered into the account) is already in the account book. */
     fun has(kind: ObsKind, text: String): Boolean = clip(kind, Redactor.evidence(text)).let { t -> entries.any { it.text == t } }
 
-    /** 助手用 type_text 打进去的字;只记不是密码框的。 */
+    /** The assistant uses type_text to type in the words; just note that they are not in the password box. */
     fun noteTyped(text: String) {
         norm(text).takeIf { it.isNotEmpty() }?.let { typed += it }
     }
 
-    /** 交给用户接管过:之后读屏里输入框中不是助手打的字不再进账。 */
+    /** Handed over to the user: after that, words entered in the input box in the screen reading that were not typed by the assistant will no longer be credited. */
     fun noteTakeover() {
         afterTakeover = true
     }
 
-    /** 同一份账本的副本(运行时把账本交给核查器时用,之后的读屏不影响这份)。 */
+    /** A copy of the same ledger (used when handing the ledger to the verifier at runtime, subsequent screen readings will not affect this copy). */
     fun copy(): EvidenceLedger = EvidenceLedger(capChars).also { c ->
         c.entries.addAll(entries); c.typed.addAll(typed); c.total = total; c.seq = seq; c.afterTakeover = afterTakeover
     }
 
-    /** 交给核对的条目:见类说明。每条已去掉输入框回显;去掉后没字的不选。 */
+    /** Items submitted for verification: See class description. The input box of each item that has been removed will be displayed; if there is no word after being removed, it will not be selected. */
     fun forAnswer(goal: String, answer: String): List<Observation> {
         val cands = entries.mapNotNull(::withoutEcho)
         val holds = cands.indices.filter { i -> Grounding.check(goal, answer, listOf(cands[i].text)).let { it.claims.size > it.unmatched.size } }
@@ -94,13 +117,13 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
         return (holds + latest + recent).distinct().sorted().map { cands[it] }
     }
 
-    /** 最近进账的那一条的编号(还没进账为 0);和 [readSince] 一起判断某个时刻之后有没有重新读过。 */
+    /** The number of the most recently credited item (0 if it has not yet been credited); together with [readSince], it is judged whether it has been re-read after a certain time. */
     val lastId: Int get() = seq
 
-    /** 编号 [id] 之后读到过东西(读屏、网页、命令输出与文件;工具报告的事实不算读)。 */
+    /** Things have been read since number [id] (reading screens, web pages, command output, and files; facts reported by tools do not count as reading). */
     fun readSince(id: Int): Boolean = entries.any { it.id > id && it.kind != ObsKind.Fact }
 
-    /** 回答里的事实在其中对得上的条目(已去掉输入框回显,按读到的先后);回答里没有可核对的事实时为空。回答的来源由它来找。 */
+    /** Entries where the facts in the answer match (the input box echo has been removed, in order of reading); it is empty when there are no verifiable facts in the answer. The source of the answer comes from it. */
     fun supporting(goal: String, answer: String): List<Observation> =
         entries.mapNotNull(::withoutEcho).filter { e -> Grounding.check(goal, answer, listOf(e.text)).let { it.claims.size > it.unmatched.size } }
 
@@ -109,9 +132,11 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
         val lines = e.text.lines()
         val ins = e.inputs?.names
         val kept = if (ins == null) lines.filterNot { norm(it) in typed } else {
-            // 装着打进去的字的输入框,每个去掉一行(同样字的结果标题照样留着)
+            // In the input box containing the typed words, remove one line from each one (result titles
+            // with the same words remain as they are)
             val left = ins.filter { n -> typed.any { it in n } }.groupingBy { it }.eachCount().toMutableMap()
-            // 还有焦点的输入框里是打进去的字:以这些字开头、更长的行是联想
+            // There are also words typed in the focused input box: lines starting with these words and
+            // longer are association
             val suggesting = e.inputs?.focused?.let { f -> typed.filter { it in f } }.orEmpty()
             lines.filterNot { l ->
                 val n = norm(l)
@@ -123,21 +148,21 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
     }
 
     companion object {
-        /** 账本总字数的安全上限。 */
+        /** The safe upper limit for the total number of words in the ledger. */
         const val STORE_CHARS = 400_000
-        /** 交给核查模型的节选总字数的目标上限(含有回答事实的条目一条不丢,放不下时每条再缩短)。 */
+        /** The target upper limit for the total number of words in the excerpts submitted to the verification model (no entries containing answers to facts will be lost, and each entry will be shortened if it cannot fit). */
         const val EXCERPT_CHARS = 6_000
-        /** 节选时对上事实的行前后各留几行(放不下时逐步减到 0)。 */
+        /** When excerpting, leave a few lines before and after the actual line (gradually reduce it to 0 when it cannot fit). */
         const val EXCERPT_CONTEXT = 2
-        /** 没有对上事实的条目(某处最近的一次、最近读的)只给开头这么多字。 */
+        /** Entries that do not correspond to facts (most recent somewhere, most recently read) are only given so many words at the beginning. */
         const val HEAD_CHARS = 600
-        /** 放不下时每条节选至少留这么多字。 */
+        /** If you can’t fit it all in, leave at least this many words for each excerpt. */
         const val MIN_EXCERPT = 300
-        /** 交给核对的最近几条。 */
+        /** Submit the most recent items for verification. */
         const val RECENT = 1
-        /** 读屏、网页、别的 AI 的回答每条至多这么多字。 */
+        /** Answers from screen readers, web pages, and other AIs can have at most this many words each. */
         const val READ_CHARS = 6_000
-        /** 命令输出、文件内容、工具事实每条至多这么多字(按头尾截短)。 */
+        /** Command output, file content, and tool facts can each contain at most this many words (truncated from beginning to end). */
         const val OUTPUT_CHARS = 4_000
 
         private val WS = Regex("\\s+")
@@ -145,14 +170,15 @@ class EvidenceLedger(private val capChars: Int = STORE_CHARS) {
         private val PLACE_SPLIT = Regex("[^\\p{L}\\p{N}]+")
         private val PLACE_NOISE = setOf("com", "cn", "net", "org", "www", "http", "https", "android", "app", "html", "m")
 
-        /** App 或网址里能在题目、回答里提到的词(包名、域名的各段,太短太常见的不算)。 */
+        /** Words in the app or website that can be mentioned in questions and answers (paragraphs of package names and domain names, those that are too short and too common will not be counted). */
         private fun placeNames(where: String): List<String> =
             where.lowercase().split(PLACE_SPLIT).filter { it.length >= 3 && it !in PLACE_NOISE }
 
         /**
-         * 给核查模型看的节选:[text] 里 [hits] 这几行和前后各 [context] 行,省掉的地方写一行「[省略 N 行]」;没有对上的行时
-         * (或 [withHead])另给开头 [HEAD_CHARS] 字。
-         * [cap] 是这一条至多多少字(按行截,截掉的同样标出)。
+         * Excerpt for the verification model: the lines [hits] in [text] and the lines [context] before
+         * and after. Write a line "[N lines omitted]" in the omitted place; if there is no corresponding
+         * line (or [withHead]), add the word [HEAD_CHARS] at the beginning. [cap] is the maximum number
+         * of characters in this sentence (truncated by line, the truncated parts are also marked).
          */
         fun excerpt(text: String, hits: Set<Int>, context: Int, cap: Int = Int.MAX_VALUE, withHead: Boolean = false): String {
             val ls = text.lines()

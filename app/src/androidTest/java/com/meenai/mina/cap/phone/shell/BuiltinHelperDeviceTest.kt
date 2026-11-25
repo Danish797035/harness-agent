@@ -25,10 +25,12 @@ import org.junit.runner.RunWith
 import com.meenai.mina.shell.IHarnessShell
 
 /**
- * 真机测试:内置助手经无线调试起来、交接 Binder、在自己的虚拟屏上注入点击,解绑后助手留着、再绑定直接可用。
- * 前提:安卓 12+,无线调试开着。配对二选一:
- * - 带 `-e pairingCode <6 位码>`(可加 `-e pairingPort <端口>`),此时系统的「使用配对码配对」窗口要开着;
- * - 已经用 Mina 的钥匙配对过:带 `-e assumePaired true`。
+ * Real machine test: The built-in assistant is wirelessly debugged, handed over to Binder, and clicked
+ * on your own virtual screen. After unbinding, the assistant remains and can be used directly after
+ * rebinding. Prerequisite: Android 12+, wireless debugging is on. Choose one of two pairs:
+ * - - With `-e pairingCode <6-digit code>` (`-e pairingPort <port>` can be added), the system's "Pair using
+ * pairing code" window should be open at this time;
+ * - - Already paired with Mina's key: with `-e assumePaired true`.
  */
 @RunWith(AndroidJUnit4::class)
 class BuiltinHelperDeviceTest {
@@ -84,14 +86,15 @@ class BuiltinHelperDeviceTest {
             assertNotNull("display $displayId not visible", dm.getDisplay(displayId))
             assertTrue("injectTap", bound.injectTap(displayId, 100, 100))
 
-            // 解绑:屏被撤掉,和服务结束一样;助手进程和它的 Binder 还在
+            // Unbinding: The screen is removed, just like the service ends; the assistant process and
+            // its Binder are still there
             main.runOnMainSync { conn.unbind() }
             assertNull(conn.shell.value)
             assertTrue("display not released on unbind", poll(5_000) { dm.getDisplay(displayId) == null })
             assertTrue("helper died on unbind", shell.asBinder().pingBinder())
             assertSame(shell, phone.hub.shell.value)
 
-            // 再绑定:直接拿到同一个助手,还能接着用
+            // Rebind: Get the same assistant directly and still use it
             main.runOnMainSync { conn.bind() }
             val again = runBlocking { withTimeout(5_000) { conn.shell.filterNotNull().first() } }
             assertSame(shell, again)

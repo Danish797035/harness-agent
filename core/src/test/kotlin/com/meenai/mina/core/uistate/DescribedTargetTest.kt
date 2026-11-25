@@ -61,7 +61,8 @@ class DescribedTargetTest {
 
     @Test fun substringOnlyMatchesActionableElements() {
         val els = listOf(label("@e1", "请先阅读用户协议"), button("@e2", "同意用户协议并继续", y = 300))
-        // 「用户协议」只是正文里的一段:包含这一层只认能点的
+        // The "User Agreement" is just a paragraph in the text: only those that can be included in this
+        // layer are recognized
         assertEquals("@e2", (DescribedTarget.match(els, ElementQuery("用户协议")) as DescribedMatch.Found).element.ref)
         assertEquals(DescribedMatch.None, DescribedTarget.match(listOf(els[0]), ElementQuery("用户协议")))
     }

@@ -12,33 +12,39 @@ import android.os.LocaleList
 import java.util.Locale
 
 /**
- * App 界面的语言:跟随系统,或者选定下面的一种。资源里英文是默认(`values/`),简体中文在 `values-zh/`、繁体中文在 `values-b+zh+Hant/`,
- * 其他语言各在 `values-<语言>/`(印尼语沿用安卓的旧代码 `values-in/`)。安卓按语言和文字体系挑资源,
- * 所以「跟随系统」时系统语言有译文就显示它,没有就显示英文;某种语言缺了哪条,那条也显示英文。
+ * App interface language: Follow the system, or select one of the following. In the resources, English
+ * is the default (`values/`), Simplified Chinese is at `values-zh/`, Traditional Chinese is at
+ * `values-b+zh+Hant/`, and other languages are at `values-<language>/` (Indonesian follows Android’s old
+ * code `values-in/`). Android selects resources based on language and text system, so when "Following
+ * the System" is used, it will be displayed if the system language has a translation, and if it is not,
+ * it will be displayed in English; if a certain language is missing, that one will also be displayed in
+ * English.
  *
- * 安卓 13 起由系统的「应用语言」管(LocaleManager):系统记住选择、套到整个进程、重建界面,
- * 系统设置里的「应用语言」和这里的开关是同一个值。安卓 11、12 没有这项,由这里记在本地,
- * 经 [wrap] 套到界面的 Context、经 [resources] 套到界面以外取文字的地方,换了之后重建当前界面。
+ * Starting from Android 13, the system's "Application Language" is managed (LocaleManager): the system
+ * remembers the selection, applies it to the entire process, and rebuilds the interface. The
+ * "Application Language" in the system settings and the switch here are the same value. Android 11 and
+ * 12 do not have this item. It is recorded here locally, and is applied to the Context of the interface
+ * via [wrap]. via [resources]. After changing it, the current interface is rebuilt.
  */
 enum class AppLanguage(val tag: String?, val speechTag: String?) {
     System(null, null),
     English("en", "en-US"),
     Hindi("hi", "hi-IN");
 
-    /** 语言代码(不带文字体系和地区);跟随系统时为 null。 */
+    /** Language code (without script and region); null when following a system. */
     val language: String? get() = tag?.let { Locale.forLanguageTag(it).language.let(::modernCode) }
 
     companion object {
         private const val PREFS = "app_language"
         private const val KEY_TAG = "tag"
 
-        /** 安卓 12 及以前选定的语言;null 表示跟随系统。进程里读一次,换的时候更新。 */
+        /** The selected language for Android 12 and earlier; null means follow the system. Read once in the process and update when changing. */
         @Volatile
         private var legacyTag: String? = null
         @Volatile
         private var legacyLoaded = false
 
-        /** 安卓 12 及以前按选定语言建出的资源,跟着语言换。 */
+        /** Resources created in Android 12 and earlier according to the selected language will be changed according to the language. */
         @Volatile
         private var cached: Pair<String, Resources>? = null
 
@@ -52,12 +58,15 @@ enum class AppLanguage(val tag: String?, val speechTag: String?) {
             },
         )
 
-        /** 语言标签对应哪一项:见 [fromTag];标签里没写文字体系时,按 ICU 的常见写法补出来。 */
+        /** Which item the language label corresponds to: see [fromTag]; if the text system is not written in the label, fill it in according to the common writing method of ICU. */
         fun fromTag(tag: String?): AppLanguage = fromTag(tag) { ULocale.addLikelySubtags(ULocale.forLanguageTag(it)).script }
 
         /**
-         * 中文按文字体系分:写的或 [likelyScript] 补出的是 Hant 就是繁體中文,别的中文是简体中文;
-         * 其他语言按语言代码对上一项(地区不管),对不上的是英文。以前选「中文」存下的 zh-Hans 仍是简体中文。
+         * Chinese is divided according to the writing system: Hant written or [likelyScript] is
+         * Traditional Chinese, other Chinese is Simplified Chinese; other languages match the
+         * previous item according to the language code (regardless of region), and the ones that do not
+         * match are English. The zh-Hans saved by selecting "Chinese" before are still in Simplified
+         * Chinese.
          */
         internal fun fromTag(tag: String?, likelyScript: (String) -> String): AppLanguage {
             if (tag.isNullOrEmpty()) return System
@@ -66,7 +75,7 @@ enum class AppLanguage(val tag: String?, val speechTag: String?) {
             return entries.firstOrNull { it.tag != null && it.language == code } ?: English
         }
 
-        /** 安卓上 java.util.Locale 仍给几种语言用旧代码(印尼语是 in、希伯来语是 iw…),统一成现行代码再比。 */
+        /** On Android, java.util.Locale still uses the old codes for several languages (Indonesian is in, Hebrew is iw...), and they are unified into the current codes for comparison. */
         internal fun modernCode(language: String): String = when (language) {
             "in" -> "id"
             "iw" -> "he"
@@ -74,7 +83,7 @@ enum class AppLanguage(val tag: String?, val speechTag: String?) {
             else -> language
         }
 
-        /** 换语言并重建界面。安卓 13 起交给系统(系统自己重建);之前记在本地,重建 [context] 所在的界面。 */
+        /** Change the language and rebuild the interface. Hand it over to the system starting from Android 13 (the system rebuilds itself); previously recorded locally, rebuild the interface where [context] is located. */
         fun set(context: Context, language: AppLanguage) {
             if (systemManaged) {
                 context.getSystemService(LocaleManager::class.java).applicationLocales =
@@ -89,22 +98,25 @@ enum class AppLanguage(val tag: String?, val speechTag: String?) {
             context.activity()?.recreate()
         }
 
-        /** App 启动时调:安卓 12 及以前选了语言时,把进程的默认 Locale(日期、数字的格式)也换成它。 */
+        /** Adjust when app starts: When selecting a language in Android 12 and before, change the default Locale of the process (date and number format) to it. */
         fun applyDefaultLocale(context: Context) {
             if (systemManaged) return
             val locales = legacyLocales(context) ?: Resources.getSystem().configuration.locales
             Locale.setDefault(locales[0])
         }
 
-        /** 套上 App 语言的 Context:在 Activity 的 attachBaseContext 和非 Activity 建界面的地方用。安卓 13 起原样返回。 */
+        /** Apply App language Context: Used in Activity's attachBaseContext and non-Activity interfaces. Returns as is since Android 13. */
         fun wrap(base: Context): Context {
             val locales = legacyLocales(base) ?: return base
             return base.createConfigurationContext(Configuration().apply { setLocales(locales) })
         }
 
         /**
-         * 界面以外取文字用的资源:跟着 App 语言。安卓 13 起也按系统记下的应用语言另建一份,
-         * 不直接用 Application 的资源:进程不是系统按 App 正常拉起时(如测试启动),那份资源还是系统语言。
+         * Resources for fetching text outside the interface: Follow the App language. Starting from
+         * Android 13, another copy is created according to the application language recorded by the
+         * system, and the resources of Application are not directly used: when the process is not
+         * started normally by the system (such as test startup), the resource is still in the system
+         * language.
          */
         fun resources(app: Context): Resources {
             val tag = if (systemManaged) {

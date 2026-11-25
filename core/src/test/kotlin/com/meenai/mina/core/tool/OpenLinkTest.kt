@@ -95,7 +95,7 @@ class OpenLinkTest {
         assertEquals("invalid_link", d(s).execute(call("""{"action":"$a"}""")).content.s("error"))
         assertEquals("invalid_link", d(s).execute(call("""{"action":"$a","uri":"https://x.com"}""")).content.s("error"))
         assertEquals("invalid_link", d(s).execute(call("""{"action":"$a","uri":"package:not a package"}""")).content.s("error"))
-        // 其他设置页不带数据
+        // Other settings pages have no data
         assertEquals("invalid_link", d(s).execute(call("""{"action":"android.settings.WIFI_SETTINGS","uri":"package:com.x.y"}""")).content.s("error"))
         assertTrue(s.opened.isEmpty())
         val r = d(s).execute(call("""{"action":"$a","uri":"package:com.x.y"}"""))
@@ -154,13 +154,13 @@ class OpenLinkTest {
         val r = d(s).execute(call("""{"uri":"someapp://other/2"}"""))
         assertEquals("invalid_link", r.content.s("error"))
         assertTrue(r.content.s("message").contains("reference notes"))
-        // 包名也要和列出的一致
+        // The package name must also be consistent with what is listed
         assertEquals("invalid_link", d(s).execute(call("""{"uri":"https://example.com/a","package":"com.other.app"}""")).content.s("error"))
         assertEquals("invalid_link", d(s).execute(call("""{"uri":"someapp://page/1","package":"com.other.app"}""")).content.s("error"))
         assertEquals("invalid_link", toolDispatcher(s, deepLinks = true).execute(call("""{"uri":"someapp://page/1"}""")).content.s("error"))
         assertTrue(s.opened.isEmpty())
         assertTrue(d(s).execute(call("""{"uri":"someapp://page/1"}""")).content["ok"]!!.jsonPrimitive.boolean)
-        // 设置页不需要列出
+        // Settings page does not need to be listed
         assertTrue(toolDispatcher(s, deepLinks = true).execute(call("""{"action":"android.settings.SETTINGS"}""")).content["ok"]!!.jsonPrimitive.boolean)
     }
 

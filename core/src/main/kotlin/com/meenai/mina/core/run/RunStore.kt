@@ -1,6 +1,6 @@
 package com.meenai.mina.core.run
 
-/** 运行状态的最小持久化记录。运行中断后只告知并允许重跑，不从屏幕中途续跑。 */
+/** Minimal persistent record of running status. After the operation is interrupted, you will only be notified and allowed to rerun, and will not resume running from the screen. */
 data class StoredRun(
     val id: RunId,
     val threadId: String,
@@ -18,7 +18,7 @@ interface RunStore {
     fun get(id: RunId): StoredRun?
     fun all(): List<StoredRun>
 
-    /** 重启时逐个标记中断，不能静默把工具调用再跑一遍。[live] 里是此刻还在跑的运行,不动它们。 */
+    /** When restarting, interrupts are marked one by one, and the tool call cannot be run silently again. [live] contains the operations that are still running at the moment, so don’t move them. */
     fun interruptUnfinished(live: Set<RunId> = emptySet()): List<StoredRun> {
         val interrupted = all().filter { it.phase != RunPhase.Ended && it.phase != RunPhase.Interrupted && it.id !in live }
         interrupted.forEach { save(it.copy(phase = RunPhase.Interrupted)) }

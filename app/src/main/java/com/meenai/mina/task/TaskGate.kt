@@ -10,14 +10,18 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
 /**
- * AgentLoop 在每个会改动屏幕的工具之前调用 [pass]。按先后检查:
- * 1. 手机操作助手不可用 → 暂停,等它恢复且用户点「继续」;
- * 2. 任务被挪到主屏(用户在主屏打开了这个 App)→ 暂停,用户点「继续」后才把它挪回虚拟屏;
- *    Mina 不自己判断用户是否用完,避免在用户眼前把 App 抽走;
- * 3. 屏幕熄灭或锁屏 → 等待解锁,亮屏并解锁后自动继续。
- * 前两条只在这一步用的是手机(phone 为 true)时才查:网页、沙箱上的步骤不需要助手,也不会被挪到主屏。
- * 另外,用户在浏览器页上亲手摸了借给任务的页面([onUserOnPage])→ 不论哪种屏都先停下,用户点「继续」再接着做。
- * 不碰界面的步骤(模型推理、读屏)不经过这里,照常进行。
+ * AgentLoop calls [pass] before every tool that changes the screen. Check in sequence: 1. The mobile
+ * operation assistant is unavailable → pause, wait for it to resume and the user clicks "Continue"; 2.
+ * The task is moved to the home screen (the user opens the app on the home screen) → pause, and the user
+ * clicks "Continue" before moving it back to the virtual screen; Mina does not judge whether the user
+ * has finished using it, so as to avoid taking the app away in front of the user; 3. The screen goes out
+ * or locks the screen → waits for unlocking, and then automatically continues after the screen is turned
+ * on and unlocked. The first two are only checked when a mobile phone is used in this step (phone is
+ * true): steps on the web page and sandbox do not require an assistant, and will not be moved to the
+ * home screen. In addition, the user touches the page where the task is lent ([onUserOnPage]) on the
+ * browser page → No matter which screen is used, it stops first, and the user clicks "Continue" to
+ * continue. The steps that do not touch the interface (model reasoning, screen reading) do not pass
+ * through here and proceed as usual.
  */
 class TaskGate(
     private val locked: StateFlow<Boolean>,
@@ -26,12 +30,12 @@ class TaskGate(
 ) {
     private val movedAway = MutableStateFlow(false)
     private val userOnPage = MutableStateFlow(false)
-    /** 用户自己按了暂停:下一步改动屏幕之前停下,点「继续」再接着做。 */
+    /** The user pressed pause himself: stop before changing the screen next, click "Continue" and continue. */
     private val userPaused = MutableStateFlow(false)
     private val resumes = MutableStateFlow(0)
-    /** 发现被挪走那一刻的点击计数:之后点的「继续」都算数,哪怕 Agent 还没走到 gate。 */
+    /** The click count at the moment when it is discovered that it has been moved: all subsequent clicks of "Continue" count, even if the Agent has not yet reached the gate. */
     @Volatile private var resumesAtMove = 0
-    /** 按下暂停那一刻的点击计数:按下之前点的「继续」不算。 */
+    /** The click count at the moment when pause is pressed: pressing "Continue" previously clicked does not count. */
     @Volatile private var resumesAtPause = 0
 
     fun onTaskMovedAway() {
@@ -39,28 +43,29 @@ class TaskGate(
         movedAway.value = true
     }
 
-    /** 已发现被挪走、还没挪回:任务服务据此立即显示暂停,不必等到下一个改动屏幕的工具。 */
+    /** It has been found that it has been moved but has not been moved back: the task service is immediately suspended accordingly, without waiting for the next tool to change the screen. */
     val movedAwayPending: Boolean get() = movedAway.value
 
     /**
-     * 用户在浏览器页上亲手摸了借给任务的页面(他在操作,Mina 不能同时动):下一个会改动屏幕的工具之前停下,
-     * 等用户点「继续」;任务服务据此立即显示暂停。
+     * The user touches the page lent to the task on the browser page (he is operating, Mina cannot move
+     * at the same time): it stops before the next tool that will change the screen, and waits for the
+     * user to click "Continue"; the task service immediately displays a pause accordingly.
      */
     fun onUserOnPage() { userOnPage.value = true }
 
-    /** 用户在借出的页面上操作、还没点「继续」。 */
+    /** The user is operating on the lending page and has not clicked "Continue". */
     val userOnPagePending: Boolean get() = userOnPage.value
 
-    /** 用户按了暂停、还没点「继续」:任务服务据此立即显示暂停,不必等到下一个改动屏幕的工具。 */
+    /** The user pressed pause but did not click "Continue": the task service immediately displays the pause accordingly, without having to wait for the next tool to change the screen. */
     val userPausedPending: Boolean get() = userPaused.value
 
-    /** 用户按了暂停。正在等模型的这一步照样做完,下一步改动屏幕之前停下。 */
+    /** The user pressed pause. The step of waiting for the model to be completed is still completed. Stop before changing the screen in the next step. */
     fun pause() {
         if (!userPaused.value) resumesAtPause = resumes.value
         userPaused.value = true
     }
 
-    /** 用户点了「继续」。只对点击之后才开始的、或正在进行的暂停有效;用户在页面上操作的那种暂停当场解除。 */
+    /** The user clicked "Continue". It is only valid for pauses that started after clicking or are in progress; pauses that the user operates on the page are released on the spot. */
     fun resume() {
         resumes.update { it + 1 }
         userOnPage.value = false
@@ -76,7 +81,7 @@ class TaskGate(
                     userOnPage.first { !it }
                 }
                 userPaused.value -> {
-                    // 还没走到这里就已经点了「继续」:不再停
+                    // I've already clicked "Continue" before I got here: Don't stop anymore
                     if (resumes.value != resumesAtPause) {
                         userPaused.value = false
                         continue
@@ -103,42 +108,42 @@ class TaskGate(
         }
     }
 
-    /** 要用户在手机上亲手处理一步,处理好了点「继续」(界面上算「要你处理」)。 */
+    /** The user is required to handle one step manually on the mobile phone, and click "Continue" when the process is completed (the interface counts as "I want you to handle it"). */
     suspend fun pauseForUser(why: String, setWaiting: (TaskState?) -> Unit) {
         val seen = resumes.value
         setWaiting(TaskState.Held(GateReason("paused", why, resumable = true, needsYou = true)))
         resumes.first { it != seen }
     }
 
-    /** [seen]:从这个点击计数之后的「继续」才算;默认取当前值(先记下再显示暂停,显示后立刻点的也算)。 */
+    /** [seen]: only "Continue" taps after this click count count; defaults to the current value (recording first before showing pause still counts an immediate tap). */
     private suspend fun pauseUntilResume(why: String, setWaiting: (TaskState?) -> Unit, seen: Int = resumes.value) {
         setWaiting(TaskState.Held(paused(why)))
         resumes.first { it != seen }
     }
 
     companion object {
-        /** 锁屏或熄屏:解锁后自动继续(运行记录里记成 waiting_unlock)。 */
+        /** Lock or turn off the screen: Automatically continue after unlocking (recorded as waiting_unlock in the running record). */
         val LOCKED = GateReason("waiting_unlock")
 
-        /** 暂停,用户点「继续」后才接着做(运行记录里记成 paused,带上原因)。 */
+        /** Pause, and the user clicks "Continue" before continuing (recorded as paused in the running record, with the reason). */
         fun paused(why: String) = GateReason("paused", why, resumable = true)
 
-        /** 等用户在手机上动一下手(比如在系统的选择框里选一个),动完自动继续(运行记录里记成 waiting_user)。 */
+        /** Wait for the user to move their hands on the phone (for example, select one in the system selection box), and then automatically continue after the movement (recorded as waiting_user in the running record). */
         fun userStep(why: String) = GateReason("waiting_user", why, needsYou = true)
 
-        /** 系统在用户屏上问打开 [app] 的哪一个时请用户选的那句;名字读不到时不说名字。 */
+        /** The system asks the user to choose which one of [app] to open on the user screen; it does not say the name when the name cannot be read. */
         fun pickCopy(app: String?) = app?.let { tr(R.string.gate_pick_app, it) } ?: tr(R.string.gate_pick_system)
 
-        /** 选出来的 [app] 要用户亲手处理时的那句。 */
+        /** The selected [app] is the sentence when the user needs to handle it personally. */
         fun finishCopy(app: String?) = app?.let { tr(R.string.gate_finish_app, it) } ?: tr(R.string.gate_finish_unknown)
 
         val MOVED_AWAY: String get() = tr(R.string.gate_moved_away)
         val MOVE_BACK_FAILED: String get() = tr(R.string.gate_move_back_failed)
         val SHELL_DOWN: String get() = tr(R.string.gate_shell_down)
-        /** 用户在浏览器页上亲手操作借给任务的页面时暂停的原因(界面据此认出这种暂停)。 */
+        /** The reason why the user paused while physically working on the page lent to the task on the browser page (how the interface recognizes this pause). */
         val USER_ON_PAGE: String get() = tr(R.string.gate_user_on_page)
 
-        /** 用户自己按了暂停。 */
+        /** The user pressed pause themselves. */
         val USER_PAUSED: String get() = tr(R.string.gate_user_paused)
     }
 }

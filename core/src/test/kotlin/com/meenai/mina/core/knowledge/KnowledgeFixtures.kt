@@ -5,7 +5,7 @@ import java.io.File
 import java.net.URLClassLoader
 import java.nio.file.Files
 
-/** 临时资源目录:写入 [files](相对路径 → 内容),按构建时同样的规则校验并生成索引,返回以它为类路径的加载器。 */
+/** Temporary resource directory: write [files] (relative path → content), verify and generate an index according to the same rules as when building, and return the loader with it as the class path. */
 fun fixtureLoader(files: Map<String, String>): ClassLoader {
     val root = Files.createTempDirectory("kn").toFile().apply { deleteOnExit() }
     files.forEach { (p, t) -> File(root, p).apply { parentFile.mkdirs() }.writeText(t) }

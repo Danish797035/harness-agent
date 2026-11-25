@@ -9,24 +9,30 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
 /**
- * `files/sandbox/` 这棵树的主人:谁要往树里写,都先在这里拿到许可。进程里一份,由 App 给出,经构造参数交给要写的地方。
+ * `files/sandbox/` The owner of this tree: Anyone who wants to write in the tree must get permission
+ * here first. A copy in the process is given by the App and passed to the place to be written via the
+ * construction parameters.
  *
- * - [exclusive]:改树的结构、或删整片的(安装/解包/换根文件系统、重置、清空工作区)。拿到时没有别人在写。
- * - [shared]:往已有的树里添东西的(技能同步、跑命令、网页下载、附件导入)。可以同时有很多个,
- *   但和 [exclusive] 互斥:重置删到一半时,不会有人又在里面建出目录(那样最后的 rmdir 会 ENOTEMPTY)。
+ * - - [exclusive]: Change the tree structure, or delete the entire piece (install/unpack/change the root
+ * file system, reset, clear the workspace). No one else was writing when I got it.
+ * - - [shared]: Adding things to existing trees (skill synchronization, running commands, downloading
+ * web pages, importing attachments). There can be many at the same time,
+ * But it is mutually exclusive with [exclusive]: when the reset is halfway through, no one will create a
+ * directory in it (in this way, the last rmdir will be ENOTEMPTY).
  *
- * 有人在等 [exclusive] 时,新来的 [shared] 也排在它后面,重置不会被源源不断的命令饿死。
- * 同一条协程链里已经拿着(任一种)时再拿直接放行,嵌套调用不会自己锁死自己。
+ * When someone is waiting for [exclusive], the new [shared] is also queued behind it, and the reset will
+ * not be starved to death by a steady stream of commands. If the same coroutine chain is already holding
+ * (either type), it will be released directly. Nested calls will not lock themselves.
  */
 class SandboxTree {
-    /** 拿到它才能开始:[shared] 只短暂持有,[exclusive] 全程持有,所以写者排队时新读者也等着。 */
+    /** You need to get it to start: [shared] is only held briefly, [exclusive] is held full time, so new readers are waiting while writers queue up. */
     private val entry = Mutex()
-    /** 有 [shared] 在用时锁着。 */
+    /** There is [shared] locked while in use. */
     private val noShared = Mutex()
     private val count = Mutex()
     private var holders = 0
 
-    /** 这条协程链此刻拿着哪几棵树的许可。 */
+    /** Which trees does this coroutine chain hold permissions for at this moment? */
     private class Held(val trees: Set<SandboxTree>) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<Held>
     }

@@ -1,13 +1,16 @@
 package com.meenai.mina.core.userscreen
 
 /**
- * 用户的一句话里带着他此刻的屏幕时怎么写:单独一行 `[[screen:<编号>]]`,其余各行是附言(可以没有)。
- * 这句话照常存进对话、交给任务、作为插话或回答;对话页、卡片据此画成截图气泡,给模型时据此换成说明(见 [UserScreenPrompt])。
+ * How to write when the user's sentence refers to his current screen: a single line `[[screen:<number>]]`,
+ * and the other lines are postscript (optional). This sentence is stored in the dialogue, handed over to
+ * the task, as an interruption or answer as usual; the dialogue page and card are drawn as screenshot
+ * bubbles accordingly, and are converted into instructions when given to the model (see
+ * [UserScreenPrompt]).
  */
 object UserScreenMessage {
     private val LINE = Regex("^\\[\\[screen:([A-Za-z0-9_-]{1,64})]]$")
 
-    /** 一句话拆开:[screens] 是里面带的屏幕编号(按出现先后),[words] 是附言(去掉首尾空白,没有为空串)。 */
+    /** Break it down in one sentence: [screens] is the screen number inside (in order of appearance), [words] is the postscript (remove the leading and trailing blanks, if not, it will be an empty string). */
     data class Parsed(val screens: List<String>, val words: String) {
         val hasScreen: Boolean get() = screens.isNotEmpty()
     }
@@ -17,7 +20,7 @@ object UserScreenMessage {
         return "[[screen:$id]]"
     }
 
-    /** 屏幕那一行在前,附言在后;附言为空时只有那一行。 */
+    /** The line on the screen is in front, and the postscript is in the back; when the postscript is empty, there is only that line. */
     fun compose(id: String, words: String): String = listOf(line(id), words.trim()).filter(String::isNotEmpty).joinToString("\n")
 
     fun parse(text: String): Parsed {

@@ -49,7 +49,7 @@ class ProviderStoreTest {
 
     private val none = Capabilities(toolCalls = false, vision = false, contextTokens = 64_000, reasoning = false)
 
-    /** 存一条配置并让它当主模型(没人用的配置会被清掉)。 */
+    /** Save a configuration and make it the main model (configurations no one uses will be cleared). */
     private fun ProviderStore.saveAsMain(c: ProviderConfig, apiKey: String?) {
         save(c, apiKey)
         assertTrue(choose(ModelRole.Main, RoleChoice.Model(c.id)))
@@ -58,7 +58,7 @@ class ProviderStoreTest {
     private fun connected(s: ProviderStore, name: String = "P", key: String = "k") =
         s.connect(name, ProviderConfig.Kind.OpenAiCompat, "https://${name.lowercase()}.test/v1", key, listOf(ListedModel("m1"), ListedModel("m2")))
 
-    // ---------- 用途的选择 ----------
+    // ---------- Choice of use ----------
 
     @Test fun modelContextSurvivesPruningAndIsSharedOnlyWithinTheSameProviderAndModel() {
         val s = store()
@@ -119,7 +119,7 @@ class ProviderStoreTest {
             store().provider(p.id)!!.contextSettings)
     }
 
-    /** 写到一半断掉的文件不能变成空配置:从上一份好的副本恢复,Key 也还在。 */
+    /** A file that is broken in the middle of writing cannot be turned into an empty configuration: restore from the last good copy, and the key is still there. */
     @Test fun truncatedConfigRecoversFromLastGoodCopy() {
         val s = store()
         s.saveAsMain(cfg("a"), "sk-a")
@@ -134,7 +134,7 @@ class ProviderStoreTest {
         assertEquals("sk-a", reopened.apiKey("a"))
     }
 
-    /** 一条读不出来的配置留在文件里,不能因为写回把它永久删掉。 */
+    /** An unreadable configuration remains in the file and cannot be permanently deleted due to writeback. */
     @Test fun unreadableEntryIsLeftOnDiskInsteadOfBeingDropped() {
         val s = store()
         s.saveAsMain(cfg("a"), "sk-a")
@@ -180,7 +180,8 @@ class ProviderStoreTest {
         val s = store()
         s.saveAsMain(cfg("a", vision = true), "sk-a")
         assertEquals("a", s.configFor(ModelRole.Light)?.id)
-        // 不再有「主模型能看图就兼任看图」的隐含规则
+        // There is no longer an implicit rule that "the main model can also view pictures if it can view
+        // pictures"
         assertNull(s.configFor(ModelRole.Vision))
         val m = s.modelFor(ModelRole.Main)
         assertEquals("套上计量后能力照旧", cfg("a", vision = true).capabilities, m?.capabilities)
@@ -199,7 +200,7 @@ class ProviderStoreTest {
         assertTrue(built.last().first.capabilities.vision)
         assertEquals("sk-a", built.last().second)
         assertTrue("用户说了主模型能看图,主模型自己办事也直接看截图", s.configFor(ModelRole.Main)!!.capabilities.vision)
-        // 重开仍在
+        // Reopening is still happening
         assertEquals(RoleChoice.SameAsMain, store().roles.value.vision)
         assertTrue(s.choose(ModelRole.Vision, RoleChoice.Off))
         assertFalse("换走了就回到存着的标记", s.configFor(ModelRole.Main)!!.capabilities.vision)
@@ -230,7 +231,8 @@ class ProviderStoreTest {
         val reopened = store()
         assertEquals(mapOf("m1" to true), reopened.provider(p.id)!!.visionOverrides)
         assertTrue("重开仍在", reopened.configFor(ModelRole.Main)!!.capabilities.vision)
-        // 用户也能关掉:看图用主模型时主模型也按用户说的不附图,看图这一路照旧
+        // Users can also turn it off: when viewing pictures using the main model, the main model does
+        // not attach pictures as the user said, and the process of viewing pictures remains the same.
         assertTrue(s.choose(ModelRole.Vision, RoleChoice.SameAsMain))
         assertTrue(s.setModelVision(p.id, "m1", false))
         assertFalse(s.configFor(ModelRole.Main)!!.capabilities.vision)
@@ -282,7 +284,7 @@ class ProviderStoreTest {
         assertEquals("m1" to "m2", main.model to vision.model)
         assertTrue("选作主模型就记工具调用", main.capabilities.toolCalls)
         assertTrue("选作看图就算能看图", vision.capabilities.vision)
-        // 轻量不要求任何能力
+        // Lightweight does not require any ability
         assertTrue(s.use(ModelRole.Light, p.id, "m2", none))
         assertEquals(vision.id, s.configFor(ModelRole.Light)?.id)
         assertFalse(s.use(ModelRole.Main, "missing", "m1", none))
@@ -313,7 +315,7 @@ class ProviderStoreTest {
         assertEquals("m1", built.single().first.model)
     }
 
-    // ---------- 没人用的配置删掉 ----------
+    // ---------- Delete configurations that no one uses ----------
 
     @Test
     fun configsNoRoleUsesAreDeletedButTheProviderKeyStays() {
@@ -322,10 +324,10 @@ class ProviderStoreTest {
         s.use(ModelRole.Main, p.id, "m1", none)
         s.use(ModelRole.Light, p.id, "m2", none)
         assertEquals(listOf("m1", "m2"), s.list().map { it.model })
-        // 轻量改回用主模型:m2 没人用了
+        // Lightly changed back to the main model: m2 no one uses it anymore
         assertTrue(s.choose(ModelRole.Light, RoleChoice.SameAsMain))
         assertEquals(listOf("m1"), s.list().map { it.model })
-        // 换主模型:m1 没人用了
+        // Change the main model: m1 no one uses it anymore
         s.use(ModelRole.Main, p.id, "m2", none)
         assertEquals(listOf("m2"), s.list().map { it.model })
         assertEquals("k", s.providerKey(p.id))
@@ -352,7 +354,8 @@ class ProviderStoreTest {
         assertEquals(2, s.list().size)
         val reopened = store()
         assertEquals(listOf("a"), reopened.list().map { it.id })
-        // 手改坏的文件:看图指向不存在的配置,退回不用
+        // Manually modified files: The picture points to a non-existent configuration and is returned
+        // without use.
         val f = File(tmp.root, "providers.json")
         f.writeText(f.readText().replace("\"Vision\":{\"use\":\"none\"}", "\"Vision\":{\"use\":\"model\",\"config\":\"gone\"}"))
         assertEquals(RoleChoice.Off, store().roles.value.vision)
@@ -387,7 +390,7 @@ class ProviderStoreTest {
         assertNull(ProviderStore(tmp.root, AesGcmKeyCipher { otherKey }).apiKey("a"))
     }
 
-    /** 试调用通过的模型名随服务商存下;再连一次同一家时合并;旧文件没有这一项时为空。 */
+    /** The name of the model passed through the trial call is saved with the service provider; it is merged when connecting to the same provider again; it is empty when the old file does not have this item. */
     @Test
     fun verifiedModelsPersist() {
         val s = store()
@@ -413,33 +416,34 @@ class ProviderStoreTest {
         assertEquals(listOf(p), reopened.providers.value)
         assertEquals(listed, reopened.providers.value.single().models)
         assertEquals("sk-d", reopened.providerKey(p.id))
-        // 同一家再连一次:更新 Key 和列表,不重复添加
+        // Connect to the same company again: update Key and list, do not add repeatedly
         val again = s.connect("DeepSeek", ProviderConfig.Kind.OpenAiCompat, "https://api.deepseek.com/", "sk-new", listOf(ListedModel("c")))
         assertEquals(p.id, again.id)
         assertEquals(1, s.providers.value.size)
         assertEquals("sk-new", s.providerKey(p.id))
         assertEquals(listOf("c"), store().providers.value.single().models!!.map { it.id })
-        // 没列过的是 null,列过但没有的是空列表
+        // Those that have not been listed are null, and those that have been listed but are not in the
+        // list are empty lists.
         s.rememberModels(p.id, emptyList())
         assertEquals(emptyList<ListedModel>(), store().providers.value.single().models)
     }
 
-    // ---------- 跳过测试直接存下 ----------
+    // ---------- Skip the test and save directly ----------
 
-    /** 跳过测试存下的那家带标记;重新读文件也在(旧版本的文件没有这一项,按测过算)。 */
+    /** The one saved by skipping the test is marked; re-reading the file is also included (older version of the file does not have this item, it is counted as tested). */
     @Test
     fun untestedProviderPersistsItsFlag() {
         val s = store()
         val p = s.connect("X", ProviderConfig.Kind.OpenAiCompat, "https://x.test/v1", "k", emptyList(), untested = true)
         assertTrue(p.savedUntested)
         assertTrue("重新读入还在", store().provider(p.id)!!.savedUntested)
-        // 不是跳过测试存下的那些没有这个标记
+        // Those saved without skipping tests do not have this mark
         val other = s.connect("Y", ProviderConfig.Kind.OpenAiCompat, "https://y.test/v1", "k", emptyList())
         assertFalse(other.savedUntested)
         assertFalse(store().provider(other.id)!!.savedUntested)
     }
 
-    /** 列过一次模型、或试通过一个模型,「没测过」就不再成立。 */
+    /** Once a model has been listed or a model has been tested, "not tested" is no longer true. */
     @Test
     fun listingOrVerifyingClearsTheUntestedFlag() {
         val s = store()
@@ -454,7 +458,7 @@ class ProviderStoreTest {
         assertEquals(setOf("m1"), s.provider(verified.id)!!.verifiedModels)
     }
 
-    /** 主模型在它那家还没测试通过(没有列表、手填、没核实)时给出那一家;核实过、或这家有列表时不算。 */
+    /** The main model gives that company when it has not passed the test (no list, manual filling, not verified); it does not count when it has been verified or the company has a list. */
     @Test
     fun untestedMainProviderFollowsTheMainModel() {
         val s = store()
@@ -470,7 +474,7 @@ class ProviderStoreTest {
         assertNull("从列表里选的不算", s.untestedMainProvider())
     }
 
-    /** 跳过测试再存一次已经列过模型的那家:已有的列表留着,不要被空表盖掉,也仍然是「测过」。 */
+    /** Skip the test and save again the company that has already listed the model: keep the existing list, do not overwrite it with an empty list, and it is still "tested". */
     @Test
     fun savingUntestedAgainKeepsAnExistingModelList() {
         val s = store()
@@ -492,7 +496,7 @@ class ProviderStoreTest {
         assertEquals(listOf("k2", "k2"), s.list().map { s.apiKey(it.id) })
         s.modelFor(ModelRole.Main)
         assertEquals("k2", built.last().second)
-        // Key 文件里只有一份(按服务商存)
+        // There is only one copy of the Key file (stored by service provider)
         val keys = kotlinx.serialization.json.Json.parseToJsonElement(File(tmp.root, "provider-keys.json").readText())
         assertEquals(setOf(p.id), (keys as kotlinx.serialization.json.JsonObject).keys)
     }
@@ -512,7 +516,7 @@ class ProviderStoreTest {
         assertEquals(1, s.configs.value.size)
     }
 
-    // ---------- 删除服务商 ----------
+    // ---------- Delete service provider ----------
 
     @Test
     fun removeProviderDropsItsModelsAndKeyAndResetsItsRoles() {
@@ -527,7 +531,7 @@ class ProviderStoreTest {
         assertEquals(RoleChoices(main = "other", vision = RoleChoice.Off, light = RoleChoice.SameAsMain), s.roles.value)
         assertNull(s.providerKey(p.id))
         assertEquals(listOf("P other"), s.providers.value.map { it.name })
-        // 重开后数据一致
+        // Data will be consistent after restarting
         val reopened = store()
         assertEquals(listOf("other"), reopened.list().map { it.id })
         assertEquals(s.roles.value, reopened.roles.value)
@@ -545,12 +549,13 @@ class ProviderStoreTest {
         s.removeProvider(a.id)
         assertNull(s.roles.value.main)
         assertEquals(b.id, s.configFor(ModelRole.Vision)?.providerId)
-        // 重开时不会把剩下的那条当成主模型(那是旧版本的规则)
+        // When reopening, the remaining one will not be regarded as the main model (that is the rule of
+        // the old version)
         assertNull(store().roles.value.main)
         assertEquals(b.id, store().configFor(ModelRole.Vision)?.providerId)
     }
 
-    // ---------- 旧版本的文件 ----------
+    // ---------- Old version files ----------
 
     private fun enc(k: String): String = java.util.Base64.getEncoder().encodeToString(AesGcmKeyCipher { key }.encrypt(k.toByteArray()))
 
@@ -558,7 +563,7 @@ class ProviderStoreTest {
         """{"id":"$id","name":"$name","kind":"OpenAiCompat","baseUrl":"$url","model":"$model","toolCalls":true,"vision":$vision,""" +
             """"contextTokens":64000,"reasoning":false,"groundingVerified":false,"promptCaching":"implicit"}"""
 
-    /** 旧版本的文件:只有模型配置,Key 按配置 id 存,角色只记显式指定的。 */
+    /** Old version of the file: only model configuration, Key is stored according to configuration id, and roles are only remembered if they are explicitly specified. */
     private fun writeLegacyFiles(roles: String = """{"Main":"c2","Vision":"c3"}""") {
         File(tmp.root, "providers.json").writeText(
             """{"providers":[""" +
@@ -578,24 +583,25 @@ class ProviderStoreTest {
         val ds = s.providers.value[0]
         val local = s.providers.value[1]
         assertNull("还没列过模型", ds.models)
-        // Key 归到服务商
+        // Key returned to service provider
         assertEquals("sk-ds", s.providerKey(ds.id))
         assertEquals("sk-local", s.providerKey(local.id))
-        // 显式指定的照旧;没人用的 c1 删掉
+        // Explicitly specified ones remain as usual; unused c1 is deleted.
         assertEquals(RoleChoices(main = "c2", vision = RoleChoice.Model("c3"), light = RoleChoice.SameAsMain), s.roles.value)
         assertEquals(listOf("c2", "c3"), s.list().map { it.id })
         assertEquals(listOf(ds.id, local.id), s.list().map { it.providerId })
         assertEquals("deepseek-reasoner", s.configFor(ModelRole.Main)?.model)
         s.modelFor(ModelRole.Vision)
         assertEquals("c3" to "sk-local", built.last().first.id to built.last().second)
-        // 按配置 id 存的旧 Key 清掉了
+        // The old Key saved according to the configuration ID has been cleared.
         val keys = kotlinx.serialization.json.Json.parseToJsonElement(File(tmp.root, "provider-keys.json").readText())
         assertEquals(setOf(ds.id, local.id), (keys as kotlinx.serialization.json.JsonObject).keys)
     }
 
     @Test
     fun legacyDefaultsAreWrittenOutAsTheyWorked() {
-        // 没指定主模型:那时用第一个配置;它不能看图,所以看图不用;轻量跟随主模型
+        // The main model is not specified: the first configuration is used at that time; it cannot view
+        // pictures, so it is not used for viewing pictures; it follows the main model lightly
         writeLegacyFiles(roles = "{}")
         val s = store()
         assertEquals(RoleChoices(main = "c1", vision = RoleChoice.Off, light = RoleChoice.SameAsMain), s.roles.value)
@@ -642,7 +648,8 @@ class ProviderStoreTest {
     fun interruptedMigrationIsRedoneWithoutLosingKeys() {
         writeLegacyFiles()
         store()
-        // 模拟中途断掉:配置文件回到旧格式,Key 文件里新旧两份都在
+        // The simulation is interrupted midway: the configuration file returns to the old format, and
+        // both the old and new copies of the Key file are present.
         val migratedKeys = File(tmp.root, "provider-keys.json").readText()
         writeLegacyFiles()
         val legacyKeys = kotlinx.serialization.json.Json.parseToJsonElement(File(tmp.root, "provider-keys.json").readText())
@@ -656,14 +663,14 @@ class ProviderStoreTest {
         assertEquals(s.providers.value.map { it.id }.toSet(), (keys as kotlinx.serialization.json.JsonObject).keys)
     }
 
-    // ---------- 看图定位已验证 ----------
+    // ---------- Picture positioning verified ----------
 
     @Test
     fun groundingVerifiedFollowsTheVisionModelAndPersists() {
         val s = store()
         val p = connected(s)
         s.use(ModelRole.Main, p.id, "m1", none)
-        // 没有看图模型时不动
+        // Does not move when the model is not viewed
         s.setVisionGroundingVerified(true)
         assertFalse(s.list().single().capabilities.groundingVerified)
         s.use(ModelRole.Vision, p.id, "m2", none)
@@ -671,7 +678,7 @@ class ProviderStoreTest {
         assertTrue(s.configFor(ModelRole.Vision)!!.capabilities.groundingVerified)
         assertFalse(s.configFor(ModelRole.Main)!!.capabilities.groundingVerified)
         assertTrue(store().configFor(ModelRole.Vision)!!.capabilities.groundingVerified)
-        // 看图用主模型时改的是主模型那条
+        // When using the main model to look at the picture, the line on the main model was changed.
         s.choose(ModelRole.Vision, RoleChoice.SameAsMain)
         assertFalse(s.configFor(ModelRole.Vision)!!.capabilities.groundingVerified)
         s.setVisionGroundingVerified(true)
@@ -690,7 +697,7 @@ class ProviderStoreTest {
         assertEquals(RoleChoices(main = null, vision = RoleChoice.SameAsMain, light = RoleChoice.SameAsMain), r.keepOnly(emptySet()))
     }
 
-    // ---------- 按模型指定的接口 ----------
+    // ---------- Interface specified by model ----------
 
     private val chat = ModelEndpoint(ModelProtocol.ChatCompletions, "https://x.test/openai/v1", "reasoning_content")
     private val messages = ModelEndpoint(ModelProtocol.Messages, "https://x.test/anthropic/v1")
@@ -721,7 +728,7 @@ class ProviderStoreTest {
         store().modelFor(ModelRole.Light)
         assertEquals(listOf(messages, null), endpoints)
         assertEquals(listOf("k", "k"), built.map { it.second })
-        // 重新列出、地址换了,下次建模型用新的
+        // Listed again, the address has been changed, use the new one next time when building a model
         val moved = messages.copy(baseUrl = "https://y.test/anthropic/v1")
         s.rememberModels(p.id, listOf(ListedModel("b", endpoint = moved)))
         s.modelFor(ModelRole.Main)
@@ -740,9 +747,9 @@ class ProviderStoreTest {
         assertEquals(ProviderConfig.Kind.Anthropic to "https://api.anthropic.com", ProviderStore.adapterFor(anthropicConfig, null))
     }
 
-    // ---------- 请求头 ----------
+    // ---------- Request header ----------
 
-    /** 声明了会话头的服务商:同一段对话建的模型带同一个会话号,换一段对话就换;User-Agent 每个都带。 */
+    /** The service provider that declares the session header: the model built in the same conversation will have the same session number, and it will be changed when the conversation is changed; User-Agent will be included in each one. */
     @Test
     fun sessionHeaderIsStableWithinAConversationAndDiffersAcross() {
         val s = store()
@@ -756,7 +763,7 @@ class ProviderStoreTest {
         assertTrue(setups.all { it.headers["User-Agent"] == "Mina/1.2.3" })
     }
 
-    /** 列表把模型指到 Responses 的(同一服务商下只说这一种协议的模型):走真的 Responses 适配器,照样带客户端标识和会话号。 */
+    /** The list points the model to Responses (only the model of this protocol is mentioned under the same service provider): the real Responses adapter still has the client ID and session number. */
     @Test
     fun responsesRoutedModelCarriesTheSessionHeader() = runTest {
         val server = okhttp3.mockwebserver.MockWebServer().also { it.start() }
@@ -789,7 +796,7 @@ class ProviderStoreTest {
         assertEquals(mapOf("User-Agent" to "Mina/1.2.3"), setups.single().headers)
     }
 
-    /** 会话头随服务商存下;旧版本存下的(没有这一项)按地址对得上的预设补上,预设的地址就会带。 */
+    /** The session header is saved with the service provider; if it is saved in the old version (without this item), fill it in according to the default address that matches, and the default address will be brought. */
     @Test
     fun sessionHeaderPersistsAndIsFilledFromThePresetForOldFiles() {
         val goUrl = ProviderPresets.all.first { it.sessionHeader != null }
@@ -804,7 +811,7 @@ class ProviderStoreTest {
         assertTrue("written back", f.readText().contains("sessionHeader"))
     }
 
-    /** 试调用走真的适配器:带客户端标识和声明的会话头、带一个试用的工具;回了工具调用才算通过,服务端的报错原样带回。 */
+    /** The trial call is a real adapter: a session header with client identification and declaration, and a trial tool; the tool call is passed only after the tool call is returned, and the server-side error report is brought back as it is. */
     @Test
     fun probeGoesThroughTheRealAdapterWithHeaders() = runTest {
         val server = okhttp3.mockwebserver.MockWebServer().also { it.start() }
@@ -830,7 +837,8 @@ class ProviderStoreTest {
             assertTrue(e.error.message.orEmpty(), e.error.message.orEmpty().contains("MissingSessionID"))
             assertNull(server.takeRequest().getHeader("x-test-session"))
 
-            // Responses 不给回复上限;回了函数调用就算通过
+            // Responses does not give an upper limit for responses; if the function call is returned, it
+            // will pass.
             server.enqueue(okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
                 "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"c1\",\"name\":\"get_time\",\"arguments\":\"{}\"}}\n\n" +
                     "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
@@ -847,7 +855,7 @@ class ProviderStoreTest {
         }
     }
 
-    /** 接口通、模型只回了话不调用工具:不是失败,但要分得出来。 */
+    /** The interface is fluent and the model only responds without calling tools: it is not a failure, but it must be distinguished. */
     @Test
     fun probeThatGetsOnlyTextReportsNoToolCall() = runTest {
         val server = okhttp3.mockwebserver.MockWebServer().also { it.start() }
@@ -861,7 +869,7 @@ class ProviderStoreTest {
         }
     }
 
-    /** 试调用给 Messages 的回复上限留得够一次工具调用(16 个 token 装不下)。 */
+    /** The upper limit of the reply to Messages is left enough for one tool call (16 tokens cannot be accommodated). */
     @Test
     fun probeLeavesRoomForAToolCall() = runTest {
         val server = okhttp3.mockwebserver.MockWebServer().also { it.start() }
@@ -879,7 +887,7 @@ class ProviderStoreTest {
         }
     }
 
-    // ---------- 用量 ----------
+    // ---------- Dosage ----------
 
     @Test
     fun everyModelHandedOutIsMeteredUnderTheRoleItWasAskedFor() = runTest {

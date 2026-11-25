@@ -50,7 +50,9 @@ class ScheduleTaskTest {
         assertEquals(86_400_000L, saved?.intervalMs)
     }
 
-    // 没有准时闹钟权限:照样存下,但结果里明说,模型据此告诉用户,不等到点才悄悄失败
+    // There is no punctual alarm clock permission: it is still saved, but the result clearly states that
+    // the model will tell the user accordingly, and it will fail silently without waiting until the
+    // time.
     @Test fun missingExactAlarmPermissionIsReportedAtCreation() = runBlocking {
         var saved: TriggerDefinition? = null
         val tools = toolDispatcher(FakeScreen(), conversationId = "conversation", scheduleTrigger = { saved = it; Scheduled(false, userNotified = true) })
@@ -62,7 +64,8 @@ class ScheduleTaskTest {
         assertTrue(result.content["message"].toString().contains("alarms & reminders"))
         assertTrue(saved != null)
 
-        // 这次没发出提示(提示过了或通知被关):结果照实说
+        // No prompt was sent this time (the prompt passed or the notification was turned off): the
+        // result is true.
         val silent = toolDispatcher(FakeScreen(), conversationId = "conversation", scheduleTrigger = { Scheduled(false) })
             .execute(Part.ToolCall("s", "schedule_task", """{"goal":"明天查天气","at":"2026-10-26T09:00:00+08:00"}"""), ActionPass())
         assertEquals(false, silent.content["userNotified"]?.toString()?.toBoolean())

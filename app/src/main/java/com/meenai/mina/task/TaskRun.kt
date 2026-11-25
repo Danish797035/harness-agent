@@ -141,11 +141,15 @@ import com.meenai.mina.core.assembly.toolDispatcher
 import com.meenai.mina.core.cap.web.WEB
 
 /**
- * 一个任务的全部状态:虚拟屏、循环、关卡、接管、静音、监视。[TaskService] 只管服务生命周期、意图分发与通知。
- * 本任务自己的流只在它是「显示中」的任务([service.taskState.shownRun])时同步写到服务对外的流;
- * 别的任务(并行时)、或被新任务换下去的旧任务的写入只落在自己这份,不会盖掉显示中的那个。
- * [scope] 是服务的作用域:旁路协程挂在它下面,不随任务协程一起取消,由 [execute] 收尾时取消。
- * [slot] 决定它的通知编号与按钮请求码;[parallel] 为 true 时(开关 parallelTasks)打开 App 前查别的任务是否在用。
+ * All statuses of a task: virtual screen, loop, level, takeover, mute, monitoring. [TaskService] only
+ * cares about the service life cycle, intent distribution and notification. This task's own stream is
+ * only synchronously written to the service's external stream when it is a "displayed" task
+ * ([service.taskState.shownRun]); the writing of other tasks (in parallel), or the old task replaced by
+ * the new task only falls on its own part, and will not overwrite the one being displayed. [scope] is
+ * the scope of the service: the bypass coroutine is hung below it and is not canceled along with the
+ * task coroutine. It is canceled by [execute] at the end. [slot] determines its notification number and
+ * button request code; when [parallel] is true (switch parallelTasks), check whether other tasks are in
+ * use before opening the App.
  */
 class TaskRun(
     val conversationId: String,
@@ -162,17 +166,17 @@ class TaskRun(
     internal var mcpExternalId: String? = null
     internal val conditionCheck get() = triggerActionGoal != null
     @Volatile private var children: ChildAgentRunner? = null
-    /** 自己的一份;显示中时同步写到服务对外的那份。[show] 时整份抄过去。 */
-    /** App 给的模型来源、评测钩子、屏幕画面的开关。 */
+    /** Your own copy; when it is displayed, it is written to the service's external copy simultaneously. [show] is copied in full. */
+    /** The app provides model sources, evaluation hooks, and screen screen switches. */
     private val env = TaskEnvironment.of(service)
-    /** 这段对话对外的会话号:这次运行建的模型(主、轻量、看图,及核查、意图判断、停止交代等旁路)都用它。 */
+    /** The external conversation number of this dialogue: all the models built in this run (main, lightweight, picture viewing, and bypasses such as verification, intention judgment, stop explanation, etc.) use this. */
     private val session = ModelSession.of(conversationId)
-    /** App 给的手机服务(共用的 shell 连接、「去设置」提示)、记忆、经验路线、异常退出后的恢复。 */
+    /** The mobile phone services provided by the App (shared shell connection, "go to settings" prompt), memory, experience route, and recovery after abnormal exit. */
     private val phoneServices = PhoneServices.of(service)
     private val memoryRuntime = MemoryRuntime.of(service)
     private val routeStore = FileRouteStore.shared(service)
     private val recovery = TaskRecovery.of(service)
-    /** 这次运行里经计量的模型请求(含旁路调用);界面实时读它的快照。 */
+    /** The measured model requests (including bypass calls) in this run; the interface reads a snapshot of it in real time. */
     private val usageTally = com.meenai.mina.core.usage.RunUsageTally()
 
     private inner class Mirrored<T>(initial: T, private val shown: MutableStateFlow<T>) {
@@ -189,7 +193,7 @@ class TaskRun(
         fun copyOut() { shown.value = own.value }
     }
 
-    /** 静音等恢复记录按它分开,几个任务各记各的。 */
+    /** Mute and other recovery records are separated according to it, and several tasks are recorded separately. */
     val key: String = UUID.randomUUID().toString()
     private val inbox = RunInbox()
 
@@ -198,12 +202,12 @@ class TaskRun(
     private val _generatedImages = Mirrored<List<GeneratedImageUi>>(emptyList(), service.taskState._generatedImages)
     private val _state = Mirrored<TaskState>(TaskState.Running(0, TaskService.PREPARING), service.taskState._state)
     private val _activeModel = Mirrored<String?>(null, service.taskState._activeModel)
-    /** 同一状态带上对话编号,和 [_state] 一起写:界面据此只收屏上那个对话的状态。 */
+    /** The same status carries the conversation number and is written together with [_state]: the interface will only collect the status of that conversation on the screen. */
     private val _tagged = Mirrored<Pair<String, TaskState>?>(conversationId to _state.value, service.taskState._shownTask)
     private val _takeoverStage = Mirrored(Takeover.Stage.None, service.taskState._takeoverStage)
     private val _frames = Mirrored<Bitmap?>(null, service.taskState._frames)
     private val _activities = Mirrored<List<RunEvent.Activity>>(emptyList(), service.taskState._activities)
-    /** 活动只追加;发布的是前 n 条的只读视图,每来一条不复制已有的。 */
+    /** The activity only appends; the read-only view of the first n items is published, and the existing ones are not copied for each new item. */
     private val activityLog = ArrayList<RunEvent.Activity>()
     private fun logView(n: Int): List<RunEvent.Activity> = object : AbstractList<RunEvent.Activity>() {
         override val size = n
@@ -211,28 +215,30 @@ class TaskRun(
     }
     private val _steers = Mirrored<List<SteerNote>>(emptyList(), service.taskState._steers)
     private val _displayId = Mirrored(-1, env.agentDisplayId)
-    /** 虚拟屏上打开过 App:画中画据此才出来(只建了空屏、没打开过 App 时没有画面)。 */
+    /** The App has been opened on the virtual screen: Picture-in-Picture appears accordingly (only a blank screen is created, and there is no picture when the App has not been opened). */
     private val _appShown = Mirrored(false, env.agentAppShown)
-    /** 正在用内置浏览器:画中画改显示网页画面。 */
+    /** Using the built-in browser: picture-in-picture changes to display the web page. */
     private val _webOpen = Mirrored(false, env.webScreenOpen)
 
     val state: StateFlow<TaskState> = _state.flow
     val activeModel: StateFlow<String?> = _activeModel.flow
     val runId: StateFlow<String?> = _runId.flow
-    /** 本任务导出的文件;结束时随这一轮存进对话。 */
+    /** The file exported by this task; saved into the conversation with this round at the end. */
     val sharedFiles: StateFlow<List<SharedFile>> = _sharedFiles.flow
     val generatedImages: StateFlow<List<GeneratedImageUi>> = _generatedImages.flow
     val takeoverStage: StateFlow<Takeover.Stage> = _takeoverStage.flow
     val frames: StateFlow<Bitmap?> = _frames.flow
-    /** 本任务到此刻的活动(实际做过的事);悬浮胶囊的卡片按任务取,不只看显示中的那个。 */
+    /** The activities from this task to this moment (actually done things); the cards of the suspended capsule are taken according to the task, not just the one on the display. */
     val activities: StateFlow<List<RunEvent.Activity>> = _activities.flow
-    /** 本任务的虚拟屏编号;屏到用到系统命令、事件工具或第一次打开 App 时才建,之前和释放之后为 -1。 */
+    /** The virtual screen number of this task; the screen is created when system commands, event tools, or the first time you open the app are used. It is -1 before and after it is released. */
     val displayId: StateFlow<Int> = _displayId.flow
-    /** 此刻在用内置浏览器(工具的界面是网页);没用、任务结束后为 false。 */
+    /** The built-in browser is being used at the moment (the interface of the tool is a web page); it is useless and will be false after the task is completed. */
     val webOpen: StateFlow<Boolean> = _webOpen.flow
-    /** 本任务进行中插的话和它们的去向;悬浮胶囊的对话卡片按任务取。 */
+    /** The words inserted during this task and their whereabouts; the dialogue cards of the suspended capsule are obtained according to the task. */
     val steers: StateFlow<List<SteerNote>> = _steers.flow
-    // 带对话编号的那份先写:收不带编号的状态时读到的编号就已经是这个任务的(界面据此不把别的对话的状态接到屏上)
+    // Write the one with the conversation number first: the number read when receiving the status
+    // without a number is already for this task (the interface will not connect the status of other
+    // conversations to the screen accordingly)
     private val mirrored = listOf(_runId, _sharedFiles, _generatedImages, _tagged, _state, _activeModel, _takeoverStage, _frames, _displayId, _appShown, _webOpen, _activities, _steers)
 
     private fun setState(s: TaskState) = synchronized(service.taskState.shownLock) {
@@ -240,20 +246,20 @@ class TaskRun(
         _state.value = s
     }
 
-    /** 让界面显示这个任务:成为显示中的任务,并把自己的各项抄到服务对外的流。 */
+    /** Let the interface display this task: become the displayed task, and copy its own items to the external flow of the service. */
     fun show() = synchronized(service.taskState.shownLock) {
         service.taskState.shownRun = this
         mirrored.forEach { it.copyOut() }
     }
 
-    /** 跑 [execute] 的协程,由服务启动后填上。 */
+    /** The coroutine running [execute] is filled in after the service is started. */
     @Volatile var job: Job? = null
         internal set(v) {
             field = v
             if (cancelRequested) v?.cancel()
         }
     @Volatile private var cancelRequested = false
-    /** 用户点了停止:还没交给模型的插话一起作废,不当成下一件事。 */
+    /** The user clicks stop: the interruptions that have not yet been handed over to the model are invalidated and will not be regarded as the next thing. */
     @Volatile private var stopPressed = false
     @Volatile private var loop: AgentLoop? = null
     val activeAsk: Delivery.Ask? get() = loop?.activeAsk
@@ -263,10 +269,10 @@ class TaskRun(
     @Volatile var muteFailedFor: String? = null
         private set
     @Volatile private var awake: KeepAwake? = null
-    /** shell 进程没了,虚拟屏和上面的 App 一起没了;任务没法接着做。 */
+    /** The shell process is gone, and the virtual screen and the App on it are gone together; the task cannot be continued. */
     @Volatile var shellDied = false
         internal set
-    /** 发布与收尾互斥;[ended] 之后不再写状态,迟到的发布不能盖掉终态或重新拿锁。 */
+    /** Release and closing are mutually exclusive; no state will be written after [ended], and late release cannot overwrite the final state or retake the lock. */
     private val publishLock = Any()
     private var ended = false
 
@@ -279,7 +285,8 @@ class TaskRun(
             t != null -> scope.launch { t.cancel() }
             running != null -> inbox.cancel()
             else -> {
-                // 刚从队里放出来、协程还没挂上时点的取消:挂上时立即取消
+                // Cancellation when the coroutine has just been released from the team and has not yet
+                // been hung up: Cancel immediately when hung up
                 cancelRequested = true
                 job?.cancel()
             }
@@ -290,11 +297,13 @@ class TaskRun(
         val g = gate ?: return
         val wasOnPage = g.userOnPagePending
         g.resume()
-        // 用户在页面上操作的那种暂停:循环可能还没走到关卡(还在想),按它此刻的状态重新显示,不再写着暂停
+        // The kind of pause that the user operates on the page: the loop may not have reached the level
+        // yet (still thinking about it), and it will be redisplayed according to its current state, and
+        // it will no longer say pause.
         if (wasOnPage) loop?.state?.value?.takeIf { it is TaskState.Running }?.let(::publish)
     }
 
-    /** 用户按了暂停:正在等模型的那一步做完后,在下一个改动屏幕的动作前停下;界面上马上显示暂停。 */
+    /** The user presses pause: after the step of waiting for the model to be completed, it stops before the next action of changing the screen; pause is immediately displayed on the interface. */
     fun pause() {
         val g = gate ?: return
         g.pause()
@@ -306,7 +315,7 @@ class TaskRun(
     fun skip(waitKey: Int?) { takeover?.let { t -> scope.launch { t.skip(waitKey) } } }
     fun putAside(waitKey: Int?) { takeover?.let { t -> scope.launch { t.putAside(waitKey) } } }
 
-    /** 回答提问;已经不在等(超时后才答、已答过)时调 [tooLate] 告诉用户这条回答没用上。 */
+    /** When answering a question; when it is no longer waiting (answer after timeout or has already been answered), [tooLate] is called to tell the user that this answer is useless. */
     fun answer(text: String, tooLate: () -> Unit) {
         if (loop == null) return
         if (_state.value is TaskState.WaitingInput) scope.launch {
@@ -316,13 +325,17 @@ class TaskRun(
     }
 
     /**
-     * 同一对话在任务进行中的新原话，交给下一次模型步；准备阶段也会先排在 Inbox。
-     * [messageId] 是界面给这句话的编号,界面据此标出它的去向(见 [SteerNote])。
+     * New original words of the same conversation while the task is in progress will be handed over to
+     * the next model step; the preparation phase will also be queued in Inbox first. [messageId] is the
+     * number given to this sentence by the interface, and the interface marks its destination
+     * accordingly (see [SteerNote]).
      */
     fun steer(text: String, messageId: String = UUID.randomUUID().toString()) {
         synchronized(service.taskState.shownLock) {
             _steers.value = _steers.value + SteerNote(messageId, text, SteerState.Pending)
-            // 收件箱收下了就马上告诉用户:模型此刻的请求已撤掉,下一步就带着这句话想(交给模型时再改成已加入)
+            // After accepting it in the inbox, the user will be informed immediately: The request for
+            // the model at this moment has been withdrawn, and the next step will be with this sentence
+            // in mind (change it to added when it is handed over to the model)
             if (inbox.steer(messageId, text) == InputReceipt.Accepted) markSteers(setOf(messageId), SteerState.Received, from = SteerState.Pending)
             else {
                 if (stopPressed) markSteers(setOf(messageId), SteerState.Cancelled)
@@ -334,13 +347,14 @@ class TaskRun(
         }
     }
 
-    /** 远程追加只归当前任务;与状态发布互斥,收件箱再原子核对是否已经结束/取消。 */
+    /** Remote append only belongs to the current task; it is mutually exclusive with status publishing, and the inbox is atomically checked to see whether it has ended/cancelled. */
     fun steerRemote(text: String): String? = synchronized(publishLock) delivery@{
         if (ended || stopPressed || mcpExternalId == null || _state.value !is TaskState.Running) return@delivery null
         if (loop?.state?.value?.let { it !is TaskState.Running } == true) return@delivery null
         val id = UUID.randomUUID().toString()
         synchronized(service.taskState.shownLock) {
-            // 先记消息,再唤醒模型;消费事件可能紧跟着发生,不能把 Joined 改回 Received。
+            // Remember the message first, and then wake up the model; consumption events may occur
+            // immediately, and you cannot change Joined back to Received.
             _steers.value = _steers.value + SteerNote(id, text, SteerState.Received, remote = true)
             if (inbox.steerCurrent(id, text) != InputReceipt.Accepted) {
                 _steers.value = _steers.value.filterNot { it.id == id }
@@ -350,14 +364,14 @@ class TaskRun(
         }
     }
 
-    /** 撤回手机上插的、模型还没取走的那句;已取走、已收尾或是电脑追加的(收件箱拒绝)返回 false,去向不变。 */
+    /** Undo the sentence that was inserted on the mobile phone and the model has not been taken away; the sentence that has been taken away, ended or added by the computer (inbox rejection) returns false, and the destination remains unchanged. */
     fun withdrawSteer(messageId: String): Boolean = synchronized(service.taskState.shownLock) {
         if (!inbox.withdrawSteer(messageId)) return@synchronized false
         markSteers(setOf(messageId), SteerState.Withdrawn)
         true
     }
 
-    /** 手机插话可转下一任务;远程插话只能用于当前任务,未消费的一律作废,不改变来源和权限。 */
+    /** Chatting on the mobile phone can be transferred to the next task; remote chatting can only be used for the current task, and any unconsumed items will be invalidated, and the source and permissions will not be changed. */
     fun handoffUnconsumed(cancelled: Boolean = stopPressed) {
         val left = inbox.handoffUnconsumed()
         val (discard, next) = left.partition { cancelled || it.currentTaskOnly }
@@ -366,29 +380,29 @@ class TaskRun(
         next.forEach { service.deferMessage(conversationId, it.text) }
     }
 
-    /** 已交给这个任务的插话,随这一轮存进对话。 */
-    /** 这次任务真的用过的能力组(手机、网页、沙箱);记进这一轮,下一轮开局预先展开。 */
+    /** Interruptions that have been given this task are saved into the dialogue with this round. */
+    /** The ability groups (mobile phone, web page, sandbox) that were really used in this mission will be recorded in this round, and the next round will start in advance. */
     @Volatile var usedGroups: List<String> = emptyList()
         private set
 
     fun joinedSteers(): List<String> = joined().map { it.text }
 
-    /** 和 [joinedSteers] 一一对应:每句插话打断的那段回复,没打断的是空串。 */
+    /** One-to-one correspondence with [joinedSteers]: the reply that is interrupted by each interruption is an empty string. */
     fun joinedInterrupted(): List<String> = joined().map { it.interrupted.orEmpty() }
 
-    /** 和 [joinedSteers] 一一对应:每句插话交给模型之前已经说完的那段回复,没有的是空串。 */
+    /** Corresponds one-to-one with [joinedSteers]: each interjection is given to the reply that has been finished before the model, and the missing part is an empty string. */
     fun joinedFinished(): List<String> = joined().map { it.finished.orEmpty() }
 
     private fun joined() = _steers.value.filter { it.state == SteerState.Joined }
 
-    /** 插话撤掉的那段回复,等这一批插话里第一句交给模型时挂到它上面。 */
+    /** The reply to which the interjection was removed will be attached to the first sentence of this batch of interjections when it is handed over to the model. */
     private val steerJoin = SteerJoin()
 
     private fun joinSteer(id: String) {
         synchronized(service.taskState.shownLock) { _steers.value = steerJoin.joined(_steers.value, id) }
     }
 
-    /** 把 [ids] 这几句改成 [to];给了 [from] 时只改还在那个状态的(收下和交给模型可能先后颠倒,不往回改)。 */
+    /** Change the sentences [ids] to [to]; when giving [from], only change the ones that are still in that state (accepting and handing over the model may be reversed, and will not be changed back). */
     private fun markSteers(ids: Set<String>, to: SteerState, from: SteerState? = null) {
         if (ids.isEmpty()) return
         synchronized(service.taskState.shownLock) {
@@ -396,7 +410,7 @@ class TaskRun(
         }
     }
 
-    /** 运行事件里界面要跟的两样:实际做过的事,和插话已交给模型。 */
+    /** The interface in the running event should be the same: the actual thing done, and the intervention has been handed over to the model. */
     private val liveEvents = object : RunSink {
         override fun event(e: RunEvent) {
             when {
@@ -411,7 +425,7 @@ class TaskRun(
         }
     }
 
-    /** 通知和卡片的按钮都带着它所属的申报 [key];点在已经换掉的旧通知、旧卡片上不算数。 */
+    /** The notification and card buttons all carry the declaration [key] they belong to; clicking on old notifications and old cards that have been replaced does not count. */
     fun confirm(choice: ConfirmChoice, key: Int?) {
         val running = loop
         val waiting = _state.value as? TaskState.WaitingConfirmation
@@ -421,8 +435,11 @@ class TaskRun(
     }
 
     /**
-     * 任务的终态:[execute] 收尾之后才写,不经 [publish]。不论显示的是不是自己,都先把本次的运行编号记到
-     * 自己对话名下([TaskService.endedRunIds]),界面收到结束状态时按对话取;显示中时也写 [TaskService.endedRunId]。
+     * The final state of the task: [execute] is written after the completion, without [publish].
+     * Regardless of whether it is you who is displayed, you should first record this run number under
+     * your own conversation name ([TaskService.endedRunIds]). When the interface receives the end
+     * status, press the dialogue button to retrieve it; when it is being displayed, also write
+     * [TaskService.endedRunId].
      */
     fun end(end: TaskState) = synchronized(service.taskState.shownLock) {
         service.taskState._endedRunIds.value = service.taskState._endedRunIds.value + (conversationId to _runId.value)
@@ -430,14 +447,14 @@ class TaskRun(
         setState(end)
     }
 
-    /** 超出并行上限在排队;放出来开跑时 [dequeue]。 */
+    /** Queuing when the parallel upper limit is exceeded; [dequeue] when released and started to run. */
     fun queue(position: Int) { setState(TaskState.Held(GateReason.queued(trPlural(R.plurals.queue_ahead, position)))) }
     fun dequeue() { setState(TaskState.Running(0, TaskService.PREPARING)) }
 
-    /** 本任务的沙箱:一个任务一份(导出额度按任务算),工作区是本对话的。 */
+    /** The sandbox of this task: one copy per task (the export amount is calculated based on the task), and the workspace belongs to this conversation. */
     private val sandbox by lazy { AndroidSandbox(service, SandboxState.get(service), onShared = ::addShared) }
 
-    /** 沙箱导出了一个文件(share_file 或 `mina share`)。 */
+    /** The sandbox exported a file (share_file or `mina share`). */
     fun addShared(f: SharedFile) = synchronized(service.taskState.shownLock) { _sharedFiles.value = _sharedFiles.value + f }
 
     fun updateGeneratedImage(img: GeneratedImageUi) = synchronized(service.taskState.shownLock) {
@@ -457,24 +474,29 @@ class TaskRun(
 
     fun clearTakeoverStage() { _takeoverStage.value = Takeover.Stage.None }
 
-    /** 此刻要显示的状态;已收尾时为空,不再重画通知。 */
+    /** The status to be displayed at this moment; it is empty when it has ended, and the notification will not be redrawn. */
     fun shownState(): TaskState? = synchronized(publishLock) { if (ended) null else _state.value }
 
-    /** 因模型失败、主模型在它那家还没测试通过时,提示去那家「重新测试」(见 [RetestHint])。测试换了主模型时不看设置里的配置。 */
+    /** Because the model fails and the main model has not passed the test at that store, you are prompted to go to that store to "retest" (see [RetestHint]). When testing the main model, the configuration in the settings is not checked. */
     private fun withRetestHint(end: TaskState): TaskState {
         if (end !is TaskState.Failed || env.modelFactory !== TaskEnvironment.defaultModelFactory) return end
         return RetestHint.apply(end, ProviderStore.get(service).untestedMainProvider()) { tr(R.string.fail_model_untested, it) }
     }
 
     suspend fun execute(priorTurns: List<Turn>): TaskState {
-        // 手机一侧(内置助手、无障碍、虚拟屏)第一次 launch_app 时才接上:只用网页、沙箱的任务不需要它们
+        // The phone side (built-in assistant, accessibility, virtual screen) is only connected when
+        // launching_app for the first time: tasks that only use web pages and sandboxes do not require
+        // them
         var connection: com.meenai.mina.cap.phone.shell.ShellBinding? = null
         var phone: PhoneSide? = null
-        // 虚拟屏、网页显示等:建好当场归它,收尾时一起放掉;不经「建完再记到变量」,取消落在中间也不会漏
+        // Virtual screens, web page displays, etc.: return them immediately after they are built, and
+        // release them together at the end; there is no need to "record the variables after they are
+        // built", and they will not be missed if they are canceled in the middle.
         val resources = ResourceScope()
         var watcher: DeviceStateWatcher? = null
         var mute: AudioMute? = null
-        // 模型标下的任务结束时各 App 的去留(在手机端口上);收尾时交给内置助手
+        // When the task under the model is completed, the destination of each App (on the mobile phone
+        // port); at the end, hand it over to the built-in assistant
         var afterTask: com.meenai.mina.core.uistate.AfterTaskMarks? = null
         var shellDeath: IBinder.DeathRecipient? = null
         var shellBinder: IBinder? = null
@@ -482,19 +504,24 @@ class TaskRun(
         val traceTicket = traces.ticket()
         var record: RunHandle? = null
         var runStore: RunStore? = null
-        // 这次运行里经计量的模型请求(含旁路调用),收尾时记进运行记录
+        // The measured model requests (including bypass calls) in this run will be recorded in the run
+        // record at the end.
         val tally = usageTally
         tally.onChange = { scope.launch { publishUsage() } }
-        // 第一次打开网址时才建;没建过就不用关
+        // It will be created only when the URL is opened for the first time; if it has not been created
+        // before, there is no need to close it.
         var webStack: WebStack? = null
-        // 当前界面(手机/网页)要看分发器;画中画的画面来源随它切换
+        // The current interface (mobile phone/web page) depends on the distributor; the source of the
+        // picture-in-picture picture is switched with it.
         var dispatcher: ToolDispatcher? = null
         var mcpEvents: AutoCloseable? = null
         var liveFeed: AutoCloseable? = null
-        // 询问 / 自主:开工时取一份,开发者选项里换开关时跟着变;收尾时交还
+        // Inquiry / Autonomy: Take a copy when starting work, and change it when the switch is changed
+        // in the developer options; return it at the end
         val approvalControl = (service.application as HarnessApp).approvalControl
         var approval: RunApproval? = null
-        // 任务期间的旁路协程(助手连接状态、静音与挪走监视、状态发布),任务结束一并取消
+        // Bypass coroutine during the task (assistant connection status, mute and removal monitoring,
+        // status release), canceled when the task ends
         val side = CoroutineScope(
             scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]) +
                 CoroutineExceptionHandler { _, e -> Log.w(TAG, "task side job failed", e) },
@@ -503,20 +530,26 @@ class TaskRun(
         try {
             val model = env.modelFactory(service, session) ?: return TaskState.Failed(tr(R.string.fail_no_main_model), FailKind.Environment)
             _activeModel.value = model.name
-            // 用户在浏览器页上对着一页问的:那一页借给这个任务当当前网页标签(见 PageLoans);开跑时页面还开着才借得到
+            // The user asks a page on the browser page: Which page is lent to this task as the current
+            // web page label (see PageLoans); it can only be borrowed when the page is still open when
+            // running.
             val pageLoan = if (provenance.origin == RunOrigin.Ui) withContext(Dispatchers.Main) { UserBrowser.existing()?.claim(conversationId, key) } else null
             val light = env.lightModelFactory(service, session)
             val vision = env.visionModelFactory(service, session)
 
             val (knowledge, skills) = withContext(Dispatchers.IO) {
-                // 用户对某个 App/站点的补充放在私有目录 personal/apps、personal/sites 下
+                // The user's additions to an App/site are placed in the private directories
+                // personal/apps and personal/sites
                 val userNotes = KnowledgeStore.loadNotes(File(service.filesDir, "personal"))
-                // 自学的 App 知识里改名前写下的工具名换成现在的
+                // In the self-study app knowledge, the tool name written before the name was changed to
+                // the current one
                 val learnedNotes = legacyNames().let { legacy -> memoryRuntime.appKnowledge().notes().mapValues { it.value.copy(text = legacy.rewrite(it.value.text)) } }
                 KnowledgeStore(KnowledgeStore.loadBundled(), userNotes, learnedNotes) to GuideCatalog.loadBundled()
             }
             val appAccess = (service.application as HarnessApp).appAccess
-            // 应用访问边界:工具和预览画面共用一份(下面接手机端口时建),窗口没变时核对结果直接沿用,预览不必每一帧都问窗口
+            // Application access boundary: The tool and preview screen share one copy (built when
+            // connecting to the mobile port below). When the window does not change, the verification
+            // result is directly used. The preview does not need to ask the window every frame.
             var accessGuard: com.meenai.mina.core.uistate.AppAccessScreenPort? = null
             suspend fun previewAllowed(): Boolean {
                 val guard = accessGuard ?: return false
@@ -527,30 +560,38 @@ class TaskRun(
                 catch (_: com.meenai.mina.core.access.AppAccessDenied) { false }
             }
             val metrics = mainScreenMetrics()
-            // 在 App 里操作的节奏(设置 › 干活时);评测、真机验收按钩子覆盖
+            // The rhythm of operation in the App (Settings › While working); evaluation and real machine
+            // acceptance are covered by hooks
             val pace = env.evalHooks.operatingPace ?: FeatureFlags.get(service).operatingPace()
-            // 助手是否连着;没接上手机之前当作连着(网页、沙箱的步骤不看它)
+            // Whether the assistant is connected; it is considered connected until it is connected to
+            // the phone (do not look at it in the web page and sandbox steps)
             val shellUp = MutableStateFlow(true)
             val states = DeviceStateWatcher(service) { id -> phone?.shell?.topTaskId(id) ?: -1 }.also { watcher = it }
 
-            /** 接上手机:连内置助手、等无障碍、备好(到第一次 launch_app 才建的)虚拟屏;缺一样就报 phone_unavailable。 */
+            /** Connect the phone: Connect the built-in assistant, wait for accessibility, and prepare the virtual screen (built until the first launch_app); if anything is missing, it will report phone_unavailable. */
             suspend fun connectPhone(): AndroidScreen {
-                // 版本要求只属于手机操作;旧系统仍可聊天、使用网页和沙箱,也不应被引导去配对不支持的助手。
+                // The version requirement is for mobile operation only; old systems can still chat, use
+                // web pages and sandboxes, and should not be directed to pair with unsupported
+                // assistants.
                 if (Build.VERSION.SDK_INT < Prerequisites.MIN_SDK) throw PhoneUnavailable(TaskService.TOO_OLD)
                 val conn = connection ?: phoneServices.sharedShell.acquire().also { connection = it }
                 val shell = withTimeoutOrNull(SHELL_WAIT_MS) { conn.shell.filterNotNull().first() }
                     ?: run {
                         phoneServices.setupPrompt.request()
-                        // 只用 USB 命令起过的助手停了:照实说要再运行命令,不让人去找无线调试
+                        // The assistant that was started using only USB commands stopped: tell the truth
+                        // and run the command again, and prevent people from looking for wireless
+                        // debugging
                         throw PhoneUnavailable(
                             if (phoneServices.shellControl.restart == HelperRestart.UsbCommand) NO_PHONE_HELPER_USB else NO_PHONE_HELPER,
                         )
                     }
-                // 服务卡在「开着却没运行」、正在自动重启时多等一会儿,修好了接着做,放弃了照常报错
+                // The service is stuck at "open but not running" and is automatically restarting. Wait
+                // for a while, fix it and continue working on it. Give up and report the error as usual.
                 val a11y = AccessibilityRepair.awaitService(ScreenAccessibility.instance, phoneServices.recovery.accessibilityRepair.phase, A11Y_WAIT_MS)
                     ?: throw PhoneUnavailable(NO_ACCESSIBILITY)
                 recovery.beginRun(shell, key)
-                // 只有用过手机的任务才跟着 shell 的死活:shell 没了,虚拟屏和上面的 App 一起没了
+                // Only the tasks of using the mobile phone will depend on the life and death of the
+                // shell: the shell is gone, and the virtual screen is gone together with the App on it.
                 shellDeath = IBinder.DeathRecipient {
                     shellDied = true
                     val running = loop
@@ -565,7 +606,9 @@ class TaskRun(
                     } catch (e: Exception) {
                         if (e is CancellationException || e !is IllegalStateException && e !is RemoteException) throw e
                         if (!parallel || !service.otherRunHasDisplay(this@TaskRun)) throw e
-                        // 外壳建不出第二块屏:这次运行期间不再并行;本任务排在后面,等别的任务的屏都放掉再建
+                        // The second screen cannot be built in the shell: there will be no parallelism
+                        // during this run; this task is queued at the back and will be built after all
+                        // the screens of other tasks have been released.
                         service.taskState.markSecondDisplayFailed()
                         publish(TaskState.Held(GateReason.queued(WAITING_DISPLAY)))
                         while (service.otherRunHasDisplay(this@TaskRun)) delay(DISPLAY_RETRY_MS)
@@ -578,7 +621,9 @@ class TaskRun(
                 }
                 val audio = recovery.audioMute(shell, key).also { mute = it }
                 val muter = appMuter(shell, audio)
-                // 占用登记里的名字:另一份用户里的那份单独占,和本来那份互不挡;占着的任务还在不在用它,问内置助手
+                // Occupy the name in the registration: the share in another user is occupied separately,
+                // and the original share is not blocking each other; if the occupied task still uses it,
+                // ask the built-in assistant
                 fun claimKey(pkg: String, user: Int?) = if (user == null) pkg else "$pkg@$user"
                 fun stillUsed(pkg: String, user: Int?): () -> Boolean = {
                     runCatching { if (user == null) shell.displayOfPackage(pkg) else shell.displayOfPackageInUser(pkg, user) }.getOrDefault(-1) >= 0
@@ -589,15 +634,19 @@ class TaskRun(
                     reserve = { pkg -> service.reservePackage(pkg, key, stillUsed(pkg, null)) },
                     reserveCopy = { pkg, user -> service.reservePackage(claimKey(pkg, user), key, stillUsed(pkg, user)) },
                     appFree = { pkg, user -> service.packageFree(claimKey(pkg, user), key, stillUsed(pkg, user)) },
-                    // 模型要了等:等的时候界面写「等另一个任务用完某 App」(仍是在干活,不算要你处理),等完放回原来那句
+                    // The model needs to wait: When waiting, the interface says "Waiting for another
+                    // task to finish using an app" (it is still working, it does not need you to deal
+                    // with it), and after waiting, put back the original sentence
                     awaitApp = { pkg, user, timeoutMs, free ->
                         waitingForApp(ConfirmationNotifier.appLabel(service, pkg)) { service.awaitPackage(claimKey(pkg, user), key, timeoutMs, free) }
                     },
                     clipSaved = { original, ours -> recovery.saveClip(original, ours) },
                     handedOver = { handoverRef?.handedOver == true },
-                    // 打字一段一段出来;App 知识说限制浏览快慢的 App 打得更慢
+                    // Type out paragraphs; App knowledge says that apps that limit browsing speed will
+                    // make typing slower.
                     typing = { pkg -> pace.typing(PlacePace.of(pkg?.let(skills::appPace))) },
-                    // 启动前就静上,开头几秒也没声;启动被拒就还原
+                    // Quiet before starting, and there will be no sound for the first few seconds;
+                    // restore if startup is refused.
                     beforeOpen = muter::beforeOpen,
                     notOpened = muter::notOpened,
                     appAccess = appAccess,
@@ -609,7 +658,8 @@ class TaskRun(
             }
             val phoneScreen = LazyPhoneScreen(metrics.widthPixels, metrics.heightPixels,
                 listApps = { withContext(Dispatchers.IO) { launchableApps(service.packageManager, service.packageName) } },
-                // 另一份用户里的 App 要问内置助手:助手已经连着才问,不为它去接
+                // Another user's App needs to ask the built-in assistant: the assistant will only ask if
+                // it is already connected, and will not be connected for it.
                 appCopies = {
                     phoneServices.hub.shell.value?.let { s ->
                         withContext(Dispatchers.IO) { runCatching { AppCopyReader.read(s, launchableApps(service.packageManager, service.packageName)) }.getOrNull() }
@@ -622,14 +672,16 @@ class TaskRun(
                 windowToken = { ScreenAccessibility.windowGeneration() },
             ).also { accessGuard = it }
             afterTask = phoneScreen.afterTask
-            // 挪回虚拟屏后等窗口出现,Agent 接下来读屏才读得到
+            // After moving back to the virtual screen, wait for the window to appear, and the Agent will
+            // read the screen next.
             suspend fun moveTask(taskId: Int, to: Int): Boolean {
                 val p = phone ?: return false
                 val moved = withContext(Dispatchers.IO) { runCatching { p.shell.moveTask(taskId, to) }.getOrDefault(false) }
                 if (moved && to == p.display.current?.displayId) p.screen.awaitContent()
                 return moved
             }
-            // 挪回去的 App 原本就在虚拟屏上,屏一定已经建好;没有屏就没有可挪回的
+            // The app to be moved back was originally on the virtual screen, and the screen must have
+            // been built; without a screen, there is nothing to move back.
             suspend fun moveBackToAgent(taskId: Int): Boolean {
                 val id = phone?.display?.current?.displayId ?: return false
                 return moveTask(taskId, id)
@@ -639,9 +691,10 @@ class TaskRun(
                 t != null && t.taskId >= 0 && moveBackToAgent(t.taskId)
             }
             gate = taskGate
-            // 用户在「干活时」关掉了常亮就不拿唤醒锁
+            // If the user turns off the always-on light "while working", the wake lock will not be
+            // taken.
             awake = if (FeatureFlags.get(service).keepScreenOn()) KeepAwake(service.wakeLock.lease(), side) else null
-            // 记录开不起来就不记,任务照跑
+            // If the record cannot be opened, it will not be recorded and the task will continue to run.
             val sink: RunSink = withContext(Dispatchers.IO) {
                 runCatching {
                     val runs = RunStore(service).also { runStore = it }
@@ -651,10 +704,12 @@ class TaskRun(
             val trace = record?.takeIf { traceTicket != null }?.let { run ->
                 resources.acquire(Dispatchers.IO, traces.store::finish) { traces.start(traceTicket, run.runId) }
             }
-            // 装了哪些 App:每个任务读一次,读不到就当没有;参考资料用
+            // What apps are installed: Read each task once, if you can’t read it, just ignore it; use it
+            // as reference material.
             val apps = try { phoneScreen.listApps() } catch (e: CancellationException) { throw e } catch (e: Exception) { emptyList() }
             val speed = FeatureFlags.get(service).speedFlags()
-            // 记忆与个人技能:进程内同一份;总开关关着就不给记忆(不检索、不注入、不提取、没有记忆工具)
+            // Memory and personal skills: the same copy in the process; no memory is given when the
+            // master switch is turned off (no retrieval, no injection, no extraction, no memory tool)
             val switches = memoryRuntime.settings().switches.value.let { sw ->
                 sw.copy(learnSkills = env.evalHooks.learnSkills ?: sw.learnSkills, autoRemember = env.evalHooks.rememberMemory ?: sw.autoRemember)
             }
@@ -662,24 +717,34 @@ class TaskRun(
             val profileSnapshot = if (switches.useMemory) withContext(Dispatchers.IO) {
                 runCatching { memoryRuntime.profile().snapshot() }.onFailure { Log.w(TAG, "profile unavailable", it) }.getOrDefault(emptyList())
             } else emptyList()
-            // 用户本次说的话:记忆的引文、按用户要求写下技能的引文都据此核对(只在内存里,任务开始清空)
+            // What the user said this time: memorized quotations and quotations of skills written
+            // according to user requirements are all checked accordingly (only in memory, the task
+            // starts to be cleared)
             val utterances = UserUtterances()
-            // 改名前沉淀的个人技能:里面的旧工具名载入时换成现在的
+            // Personal skills accumulated before the name change: the old tool names inside are replaced
+            // with the current ones when loading
             val catalog = GuideCatalog.withPersonal(skills, memoryRuntime.skills(), legacyNames()::rewrite)
-            // 内置浏览器:每个任务自己的后台网页显示、标签池和脚本引擎,第一次打开网址时才建(只用手机的任务不建);
-            // 系统里没有 WebView 时不提供网页工具
+            // Built-in browser: Each task has its own background web page display, tag pool and script
+            // engine, which are built when the URL is opened for the first time (not built for tasks
+            // that only use mobile phones); web tools are not provided when there is no WebView in the
+            // system
             val webInstalled = runCatching { WebViewCompat.getCurrentWebViewPackage(service) != null }.getOrDefault(false)
             val web = if (!webInstalled) null else LazyWebPort {
                 val stack = resources.acquire(Dispatchers.Main, WebStack::close) { WebStack.create(
                         service, key, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
-                        // 下载、上传走本对话的工作区:只是 App 私有目录里的文件夹,不要求沙箱已装好
+                        // Download and upload the workspace of this conversation: just a folder in the
+                        // App's private directory, and does not require the sandbox to be installed.
                         workspace = SandboxDirs(service).let { d -> WebStack.Workspace(d.workspace(conversationId), d.gate, d.tree) },
                     ) }
                 webStack = stack
-                // 模型用 web_keep_open 标过的那一页,任务结束时留在后台,记在这一轮名下(对话里那一轮下面显示、关了补一句)
+                // The page marked by the model with web_keep_open will be left in the background when
+                // the task is completed, and will be recorded under the name of this round (the round
+                // will be displayed below in the dialogue, and a sentence will be added if it is closed)
                 stack.keepOrigin = { KeptOrigin(conversationId, _runId.value, goal) }
                 side.launch {
-                    // 网页界面时画中画显示网页显示的画面;换界面时先清掉上一边的画面;怎么显示见 WebPreview
+                    // In the web interface, picture-in-picture displays the screen displayed on the web
+                    // page; when changing the interface, first clear the previous screen; how to display
+                    // it, see WebPreview
                     var last: String? = null
                     while (true) {
                         delay(WEB_FRAME_MS)
@@ -688,7 +753,8 @@ class TaskRun(
                             _frames.value = null
                             last = surface
                         }
-                        // 当前标签是借来的那一页时它就在用户眼前,和接管中一样不放画面
+                        // When the current tab is the borrowed page, it is right in front of the user,
+                        // and the screen is not displayed just like during takeover.
                         val show = WebPreview.of(onWeb = surface == WEB, hasTab = stack.hasVisibleTab, handedOver = stack.handedOver || stack.onBorrowedTab)
                         when (show) {
                             WebPreview.Frames -> withContext(Dispatchers.IO) { stack.host.latestFrame() }?.let { _frames.value = it }
@@ -701,7 +767,9 @@ class TaskRun(
                 stack.screen
             }
             if (conditionCheck && !webInstalled) return TaskState.Failed(tr(R.string.fail_no_web), FailKind.Environment)
-            // 借来的页面:开局就建好网页这一套,把它当当前标签借进去;用户摸了它就暂停(此刻正在手机屏上操作时不算)
+            // Borrowed page: Create a web page at the beginning and borrow it as the current label; it
+            // will be paused when the user touches it (it does not count when operating on the mobile
+            // phone screen at the moment)
             if (pageLoan != null && web != null && web.prepare()) webStack?.let { stack ->
                 withContext(Dispatchers.Main) {
                     stack.borrowedTouches = { pageLoan.touches }
@@ -716,7 +784,8 @@ class TaskRun(
                     })
                 }
             }
-            // 这个对话里用户发来的屏幕(跟着对话存在工作区里)
+            // The screen sent by the user in this conversation (saved in the workspace along with the
+            // conversation)
             val userScreens = (service.application as HarnessApp).userScreens.source(conversationId)
             val runSpec = RunSpec(RunId(key), goal, conversationId,
                 priorTurns,
@@ -732,7 +801,8 @@ class TaskRun(
                         conversationId = conversationId, inlineScreen = speed.inlineScreen,
                         adaptiveVision = speed.adaptiveVision)
                     AgentLoop(model, childTools, SystemPrompt.identity(), maxSteps = childSpec.stepBudget ?: AgentLoop.UNLIMITED_STEPS,
-                        // 子任务跟着询问 / 自主;询问时它也过关卡,子任务里花钱的一步一律不做
+                        // The subtask follows the inquiry/autonomous; it also passes the level when
+                        // asked, and the step in the subtask that costs money will not be done.
                         confirmations = runApproval.gate(), approvals = runApproval, autonomous = runApproval.startedAutonomous,
                         reviewFinalAnswer = false, flags = speed, outwardPacing = OutwardPacing.human())
                 },
@@ -740,7 +810,8 @@ class TaskRun(
                 ownerAlive = { job?.isActive == true },
             ).also { children = it } else null
             val tools = toolDispatcher(accessedPhone, model.capabilities.vision, catalog, recordFrames = true, vision = vision?.let { VisionService(it, BitmapImageOps) },
-                // 设置里允许 Mina 改自己时,才把 settings_list、settings_set 发给模型
+                // Only when Mina is allowed to change herself in the settings, settings_list and
+                // settings_set are sent to the model.
                 selfConfig = if (FeatureFlags.get(service).selfConfig()) {
                     com.meenai.mina.settings.SelfConfigImpl(FeatureFlags.get(service))
                 } else null,
@@ -749,16 +820,23 @@ class TaskRun(
                 deepLinks = speed.deepLinks, memory = memory, profile = if (memory != null) memoryRuntime.profile() else null,
                 utterances = utterances, conversationId = conversationId,
                 web = web,
-                // 同一个网站一页一页看:换页前补足停留,不连着秒开(快/标准/像人按设置里的操作节奏)
+                // View the same website page by page: make up the pause before changing the page, and
+                // open it in seconds (fast/standard/like the operating rhythm in the settings)
                 webPacing = { pace.webPacing() },
-                // 停留时像人一样把页面轻轻滚几下
+                // When staying, gently scroll the page a few times like a human would
                 webIdleScroll = { IdleScroll(Random.Default) },
-                // 在 App 里一步一步操作:动作之间停一会儿,限制浏览快慢的 App 停得更久、屏数有上限(按设置里的操作节奏)
+                // Step by step operation in the app: pause for a while between actions, apps that limit
+                // browsing speed will pause longer, and there is an upper limit on the number of screens
+                // (according to the operating rhythm in the settings)
                 appPacing = { pace.appPacing() },
                 appIdleScroll = { IdleScroll(Random.Default) },
-                // 上传只认本对话工作区里的普通文件(与沙箱同一套路径规则);技能目录、工作区外一律越界
+                // Upload only recognizes ordinary files in the workspace of this conversation (the same
+                // set of path rules as the sandbox); the skill directory and outside the workspace are
+                // all out of bounds
                 workspacePath = web?.let { { p: String -> sandbox.uploadCheck(conversationId, p) } },
-                // 工作区 = 对话:同一对话的追问接着用上一轮的文件,不同对话互不可见
+                // Workspace = Conversation: Questions in the same conversation will continue to use the
+                // files of the previous round, and different conversations will not be visible to each
+                // other.
                 sandbox = sandbox, workspace = { conversationId },
                 onSandboxCommand = { sandboxNote(StatusCopy.sandboxCommand(it, sandboxOnline())) },
                 onSandboxProgress = { sandboxNote(StatusCopy.sandboxProgress(it, sandboxOnline())) },
@@ -769,9 +847,12 @@ class TaskRun(
                 scheduleTrigger = if (provenance.origin == RunOrigin.Ui) { trigger -> TriggerRuntime.schedule(service, trigger) } else null,
                 scheduleAdmin = if (provenance.origin == RunOrigin.Ui) LocalScheduleAdmin(service) else null,
                 childHost = childRunner,
-                // 用户要求时写下或改写个人技能(和自学收下的放在同一处,设置里立刻能看到)
+                // Write or rewrite personal skills when requested by the user (put them in the same
+                // place as those collected by self-study, and you can see them immediately in the
+                // settings)
                 personalSkills = memoryRuntime.skills(),
-                // 这个对话之前几轮的运行记录(只读;history_read 只认 runSpec 里这个对话的轮次)
+                // The running records of previous rounds of this conversation (read-only; history_read
+                // only recognizes the rounds of this conversation in runSpec)
                 runRecords = RunStore(service).reader(),
                 imageService = (service.application as HarnessApp).imageService,
                 onImageProgress = { isGenerating, prompt, modelName ->
@@ -812,12 +893,14 @@ class TaskRun(
             val agent = AgentLoop(
                 model, tools,
                 SystemPrompt.identity(),
-                // 助手断开、被挪走只在这一步用的是手机时才查
+                // If the assistant is disconnected or moved, it will only be checked when a mobile phone
+                // is used in this step.
                 gate = { w ->
                     if (phoneScreen.acquired && dispatcher?.surface != WEB) phone?.screen?.let { awaitUserPick(it, taskGate, w) }
                     taskGate.pass({ phoneScreen.acquired && dispatcher?.surface != WEB }, w)
                 }, knowledge = knowledge, sink = sink, trace = trace, installedApps = { apps },
-                // 选渠道用的事实:装了哪些 App、在 Mina 里登录过哪些网站、有没有内置浏览器
+                // Facts to use when choosing channels: Which apps are installed, which websites have
+                // been logged into Mina, and whether there is a built-in browser
                 channelFacts = {
                     val registry = WebSites.registry(service)
                     ChannelFacts(
@@ -830,18 +913,22 @@ class TaskRun(
                 maxSteps = env.evalHooks.maxSteps ?: AgentLoop.UNLIMITED_STEPS,
                 reviewFinalAnswer = false,
                 inputTimeoutMs = TaskService.INPUT_TIMEOUT_MS,
-                // 询问 / 自主:询问时只有花钱的一步先问(有确认关卡和 request_confirmation);自主时连付款也不问。
-                // 开工时询问、中途换成自主的,下一步起不再问;开工时自主的,换成询问留给下一个任务
+                // Inquiry / Autonomy: When inquiring, you only have to ask first to spend money (there
+                // is a confirmation level and request_confirmation); when you are autonomous, you don’t
+                // even ask about payment. Ask when starting work, change to independent in the middle,
+                // and no longer ask from the next step; ask autonomously when starting, change to asking
+                // and leave it to the next task
                 confirmations = runApproval.gate(),
                 approvals = runApproval,
                 autonomous = runApproval.startedAutonomous,
                 confirmTimeoutMs = TaskService.CONFIRM_TIMEOUT_MS,
                 selfPackage = service.packageName,
                 flags = speed,
-                // 只在 lightSteps 打开、轻量模型能调工具时生效
+                // Only takes effect when lightSteps is turned on and the lightweight model can be
+                // adjusted with tools
                 router = if (model is FreeKeyRouter) null else light?.let { ModelRouter(model, it) },
                 intentJudge = if (provenance.origin == RunOrigin.Ui) light ?: model else null,
-                // 选路线是辅助判断:用轻量模型,没配用主模型
+                // Route selection is an auxiliary judgment: use a lightweight model, not a main model
                 routes = if (speed.replay) RouteMatcher(light ?: model, routeStore, knowledge) else null,
                 skills = catalog,
                 memory = memory,
@@ -849,7 +936,8 @@ class TaskRun(
                 profileSnapshot = profileSnapshot,
                 streamReplies = true,
                 userScreens = userScreens,
-                // 同一网站、App 里连着联系别人、提交:两次之间隔一段随机的时间
+                // When contacting and submitting to others on the same website or app: there will be a
+                // random period of time between the two attempts.
                 outwardPacing = OutwardPacing.human(),
                 freeKeyRouter = (service.application as? HarnessApp)?.freeKeyRouter,
             )
@@ -859,7 +947,8 @@ class TaskRun(
             kit = LearnKit(switches, memory, utterances, tools, agent, catalog, knowledge, model, light, runStore, agent.flags.replay, priorTurns)
             suspend fun <T> io(fallback: T, call: () -> T): T =
                 withContext(Dispatchers.IO) { runCatching(call).getOrDefault(fallback) }
-            // 接管期间才订阅主屏的无障碍事件:平时没人订阅,服务不复制事件
+            // Only subscribe to the accessibility events of the home screen during the takeover period:
+            // no one subscribes to them normally, and the service does not copy the events.
             var counter: HandoverActivityCounter? = null
             var counting: Job? = null
             val handover = Takeover(object : TakeoverPort {
@@ -872,7 +961,8 @@ class TaskRun(
                 override suspend fun moveBack(taskId: Int) = moveBackToAgent(taskId)
                 override fun setSound(packageName: String, on: Boolean) {
                     val p = phone ?: return
-                    // 交出去的若是目标 App,按目标所属的那份算;别的按本来那份
+                    // If the target App is handed over, it will be counted according to the target's
+                    // share; otherwise, it will be calculated according to the original share.
                     val user = p.screen.target.value?.takeIf { it.packageName == packageName }?.let { copyUser(it.userId) }
                     if (on) {
                         if (!p.audio.release(packageName, user)) Log.w(TAG, "could not restore sound of $packageName for takeover")
@@ -883,7 +973,7 @@ class TaskRun(
                 override fun watchInput(packageName: String) {
                     counting?.cancel()
                     val c = HandoverActivityCounter(packageName).also { counter = it }
-                    // 立即订阅:接着发生的第一下操作不能漏
+                    // Subscribe now: The first action that happens next cannot be missed
                     val a11y = phone?.a11y ?: return
                     counting = side.launch(start = CoroutineStart.UNDISPATCHED) {
                         a11y.eventsFor(Display.DEFAULT_DISPLAY).collect { e ->
@@ -905,9 +995,10 @@ class TaskRun(
                 override suspend fun resume(result: HandBack) { inbox.send(RunInput.HandBack(result)) }
                 override fun cancel() { inbox.cancel() }
 
-                // 网页界面:把当前标签(同一个页面)拿到主屏的接管界面;手机界面返回 null,走挪任务
+                // Web interface: take the current tab (the same page) to the takeover interface of the
+                // home screen; the mobile interface returns null and moves the task
                 override suspend fun showWeb(reason: String, key: Int): Boolean? {
-                    // 没打开过网页就不会在网页界面上
+                    // If you have not opened the web page, you will not be on the web interface.
                     val w = webStack ?: return null
                     if (tools.surface != WEB) return null
                     val message = takeoverMessage(_state.value)
@@ -931,7 +1022,8 @@ class TaskRun(
                     val previous = _state.value as? TaskState.Running
                     if (it is TaskState.Running && previous != null && previous.preview != it.preview &&
                         previous.copy(preview = it.preview) == it) {
-                        // 文字增量只刷新聊天；通知、接管和设备唤醒不需要每个 token 都重跑。
+                        // Text increments only refresh the chat; notifications, takeovers, and device
+                        // wakeups do not need to be rerun for every token.
                         synchronized(publishLock) { if (!ended) setState(it) }
                         return@collect
                     }
@@ -946,7 +1038,9 @@ class TaskRun(
                     if (!name.isNullOrBlank()) _activeModel.value = name
                 }
             }
-            // 别的任务的接管进出队时,本任务的接管通知要跟着换(排到最前、或后面多了一个)
+            // When the acceptance of other tasks enters and exits the queue, the acceptance notification
+            // of this task must be changed accordingly (it will be queued to the front, or there will be
+            // one more at the end)
             if (parallel) side.launch { service.takeoverQueue.changes.collect { service.refreshNotifications(this@TaskRun) } }
             side.launch {
                 combine(handover.stage, handover.problem) { stage, _ -> stage }.collect {
@@ -983,12 +1077,16 @@ class TaskRun(
             takeover = null
             handoverRef = null
             sideScope = null
-            // 借来的页面还回浏览器页(在关掉网页这一套之前)
+            // Return the borrowed page to the browser page (before closing the web page)
             withContext(Dispatchers.Main + NonCancellable) { runCatching { UserBrowser.existing()?.loans?.end(key) } }
             withContext(Dispatchers.IO + NonCancellable) {
-                // 前面哪步抛错,屏和网页显示也照放(按建的反序)
+                // If there is an error in the previous step, the screen and web page display will also
+                // be displayed (in the reverse order of creation)
                 try {
-                    // 先定 Mina 屏上 App 的去留(留下的挪到主屏后面、正在出声的关掉)并释放屏,再还原静音:留下的不会突然出声
+                    // First decide where to keep the apps on the Mina screen (move the remaining apps to
+                    // the back of the home screen and turn off the ones that are making sounds), release
+                    // the screen, and then restore to mute: the remaining ones will not suddenly make
+                    // sounds.
                     val apps = phone?.takeIf { !shellDied }?.let { p ->
                         p.display.current?.let { d -> AppsAfterTaskEnd.finish(p.shell, d.displayId, afterTask) }
                     }
@@ -998,29 +1096,33 @@ class TaskRun(
                         r.close()
                         if (BuildConfig.DEBUG) runStore?.mirrorToExternal(r.runId)
                     }
-                    // 恢复抛错也要撤掉「在跑」的登记,否则这份记录永远不归恢复处理
+                    // When recovering an error, you must also remove the "running" registration,
+                    // otherwise this record will never be restored.
                     try { mute?.restoreAll() } finally { recovery.endRun(key) }
                     watcher?.close()
                 } finally {
                     resources.close()
                 }
             }
-            // 屏释放后、对外报结束前清掉:界面看到任务结束时已经没有屏了
+            // Clear the screen after it is released and before the end of the external report: the
+            // interface sees that there is no screen when the task ends.
             _displayId.value = -1
             _appShown.value = false
             if (connection != null) phoneServices.sharedShell.release()
         }
     }
 
-    /** 手机一侧:用过手机的任务才有。 */
+    /** Mobile phone side: Only tasks that have been used on mobile phones are available. */
     private class PhoneSide(
         val shell: com.meenai.mina.shell.IHarnessShell, val a11y: ScreenAccessibility, val screen: AndroidScreen,
         val display: LazyAgentDisplay, val audio: AppMuter,
     )
 
     /**
-     * 这次任务的静音规则(见 [AppMuter]):Mina 自己不静;没有桌面入口的系统包不静(系统界面、选择框一类);
-     * 用户在主屏上看得见的不静;没静成的记下,任务进度上提示可能出声。
+     * The mute rules for this task (see [AppMuter]): Mina herself will not mute; system packages that do
+     * not have a desktop entrance will not mute (system interfaces, selection boxes, etc.); things
+     * visible to the user on the home screen will not mute; notes that are not muted, the task progress
+     * prompt may sound.
      */
     private fun appMuter(shell: com.meenai.mina.shell.IHarnessShell, audio: AudioMute): AppMuter {
         val pm = service.packageManager
@@ -1040,15 +1142,17 @@ class TaskRun(
         )
     }
 
-    /** 任务所属的用户 → 静音按哪一份:本来那份(或读不到)为 null,另一份用户里的为那个用户编号。 */
+    /** The user to whom the task belongs → Which copy to mute: the original copy (or cannot be read) is null, and the one in the other user copy is that user number. */
     private fun copyUser(userId: Int): Int? = userId.takeIf { it >= 0 && it != AppCopyReader.myUser }
 
     @Volatile private var handoverRef: Takeover? = null
     @Volatile private var sideScope: CoroutineScope? = null
 
     /**
-     * 系统在用户主屏上问打开哪一个(见 [AndroidScreen.userPick]):停在这里,胶囊上请用户在屏幕上选一下,选好自动接着做;
-     * 选出来的 App 要用户亲手处理的,留在主屏,请用户处理好了点继续。不在等时直接返回。
+     * The system asks the user on the home screen which one to open (see [AndroidScreen.userPick]): stop
+     * here, ask the user to select the capsule on the screen, and then automatically continue after
+     * selecting the app; the selected App needs to be handled by the user personally and remains on the
+     * home screen, and the user is asked to continue after processing. Return directly without waiting.
      */
     private suspend fun awaitUserPick(screen: AndroidScreen, gate: TaskGate, setWaiting: (TaskState?) -> Unit) {
         val pick = screen.userPick.value ?: return
@@ -1059,16 +1163,20 @@ class TaskRun(
     }
 
     /**
-     * 目标 App 换了就静音(启动前多半已静上,这里补上没静成的),并盯着它有没有被用户挪到主屏。
-     * Mina 屏上冒出别的 App(从目标 App 里点开的、另一份顶上来的)也是第一次看到就静;静音按「包 + 用户」,另一份单独静。
-     * 用户接管期间屏上的事归用户,不去静。
+     * Mute the target app after changing it (mostly it has been muted before starting, here are the ones
+     * that have not been muted), and keep an eye on whether it has been moved to the home screen by the
+     * user. When another App pops up on Mina's screen (clicked from the target App and another one is on
+     * top), it will be muted when it is first seen; to mute it, press "Package + User" and the other app
+     * will be muted alone. What is on the screen during user acceptance belongs to the user and remains
+     * unchanged.
      */
     private fun watchTarget(p: PhoneSide, states: DeviceStateWatcher) {
         val side = sideScope ?: return
         side.launch(Dispatchers.IO) {
             p.screen.foregroundApps().collect { t ->
                 if (handoverRef?.handedOver != true) p.audio.opened(t.packageName, copyUser(t.userId))
-                // 窗口变得很密:两次之间至少隔一会儿,中间的变化合成一次
+                // The window becomes very dense: there is at least a while between the two times, and
+                // the changes in the middle are synthesized once
                 delay(FOREGROUND_GAP_MS)
             }
         }
@@ -1076,14 +1184,14 @@ class TaskRun(
             p.screen.target.filterNotNull().collectLatest { t ->
                 _appShown.value = true
                 if (handoverRef?.handedOver != true) p.audio.opened(t.packageName, copyUser(t.userId))
-                // 有目标 App 就说明 launch_app 已经建好了屏
+                // If there is a target App, it means launch_app has already built the screen.
                 val displayId = p.display.current?.displayId
                 if (t.taskId >= 0 && displayId != null) {
                     states.taskMovedAway(displayId, t.taskId).collect {
-                        // 用户点「我来处理」后 App 本来就该在主屏
+                        // After the user clicks "I will handle it", the App should be on the home screen
                         if (handoverRef?.handedOver == true) return@collect
                         gate?.onTaskMovedAway()
-                        publish(_state.value) // 立即显示暂停,不等下一个改动屏幕的工具
+                        publish(_state.value) // Display is paused immediately, without waiting for the next tool that changes the screen.
                     }
                 }
             }
@@ -1091,8 +1199,10 @@ class TaskRun(
     }
 
     /**
-     * 用户在浏览器页上亲手摸了借给这个任务的页面:正在干活时马上显示暂停,下一个会改动屏幕的工具之前停下,
-     * 用户点「继续」再接着做(见 [TaskGate.onUserOnPage])。等用户回答、接管中等别的状态不动。主线程。
+     * The user touches the page assigned to this task on the browser page: it is paused immediately
+     * while working, stopped before the next tool that will change the screen, and the user clicks
+     * "Continue" to continue (see [TaskGate.onUserOnPage]). Waiting for the user to answer, taking over,
+     * and other states remain unchanged. main thread.
      */
     private fun userOnPage() {
         if (_state.value !is TaskState.Running) return
@@ -1101,7 +1211,7 @@ class TaskRun(
         publish(_state.value)
     }
 
-    /** 任务收尾后判结局、学东西要用的;[execute] 里填上。 */
+    /** After the task is completed, you will determine the outcome and learn things you need to use; fill in [execute]. */
     private class LearnKit(
         val switches: MemorySwitches, val memory: MemoryStore?, val utterances: UserUtterances?, val dispatcher: ToolDispatcher,
         val agent: AgentLoop, val catalog: GuideCatalog, val knowledge: KnowledgeStore,
@@ -1110,15 +1220,17 @@ class TaskRun(
     )
     @Volatile private var kit: LearnKit? = null
 
-    /** 停下时正在写的那段字(模型请求已流出的可见文字);收尾前取,收尾后状态就换成终态了。 */
+    /** The text that was being written when stopped (the visible text that the model requested has flowed out); it is taken before the end, and the state is changed to the final state after the end. */
     fun draftText(): String? = (_state.value as? TaskState.Running)?.preview?.takeIf(String::isNotBlank)
 
-    /** 停止后有没有可交代的:做过至少一件事,或停下时已经写出了字。 */
+    /** Is there anything to explain after stopping: I have done at least one thing, or I have already written something when I stopped. */
     fun hasStopMaterial(draft: String?): Boolean = synchronized(activityLog) { activityLog.isNotEmpty() } || !draft.isNullOrBlank()
 
     /**
-     * 用户停止之后:按这次已经做了的事写几行交代(见 [StopSummary]),只读运行记录,不再操作任何东西。
-     * 轻量模型优先,没配用主模型;没模型、出错、超时就按记录直接拼。没什么可交代的为 null。
+     * After the user stops: Write a few lines to explain what has been done this time (see
+     * [StopSummary]), only read the running record, and no longer operate anything. The lightweight
+     * model is given priority, and the main model is not used. If there is no model, error, or timeout,
+     * just press the record to fight directly. null if there is nothing to explain.
      */
     suspend fun stopSummary(draft: String?): String? {
         val k = kit
@@ -1126,7 +1238,7 @@ class TaskRun(
         val recorded = withContext(Dispatchers.IO) { runId?.let { id -> runCatching { k?.runStore?.events(id) }.getOrNull() } }
         val events = recorded?.takeIf { e -> e.any { it is RunEvent.Activity } } ?: synchronized(activityLog) { activityLog.toList() }
         if (!StopSummary.worthSaying(events, draft)) return null
-        // 还没开出模型就停下的(准备阶段):按设置现取
+        // It stops before the model is opened (preparation stage): Press settings to get it now
         val (main, light) = if (k != null) k.model to k.light else withContext(Dispatchers.IO) {
             runCatching { env.modelFactory(service, session) }.getOrNull() to runCatching { env.lightModelFactory(service, session) }.getOrNull()
         }
@@ -1137,9 +1249,13 @@ class TaskRun(
     }
 
     /**
-     * 结果交给用户之后调用(不拖慢、不改交出的回答):回答按用户的要求判结局([OutcomeJudge],轻量模型优先),
-     * 记进运行记录和这一轮对话;只有办成的([LearnGate])才记路线、给回放的路线记成功。
-     * 放弃、失败、取消的不判(结局已经清楚),返回 null;判不成是 [RunOutcome.Unknown]。
+     * After the result is handed over to the user, it is called (without delaying or changing the
+     * handed-over answer): the answer is determined according to the user's requirements
+     * ([OutcomeJudge], lightweight model is preferred), and recorded in the running record and this
+     * round of dialogue; only the route that is completed ([LearnGate]) is recorded, and the replayed
+     * route is recorded as successful. If there is no judgment for giving up, failure, or cancellation
+     * (the ending is already clear), null will be returned; if the judgment is not successful, it is
+     * [RunOutcome.Unknown].
      */
     suspend fun settleOutcome(end: TaskState, conversations: ConversationStore): JudgedOutcome? {
         val k = kit ?: return null
@@ -1153,7 +1269,8 @@ class TaskRun(
                 .onFailure { Log.w(TAG, "could not save run outcome", it) }
         }
         k.agent.noteOutcome(judged.outcome)
-        // 只有办成的才记成路线;从落盘的运行事件里取
+        // Only those that are completed will be recorded as routes; they will be taken from the running
+        // events placed on the disk.
         if (runId != null && LearnGate.shouldSaveRoute(k.routesOn, end, judged.outcome, runId, goal)) k.runStore?.let { s ->
             saveRoute(goal, withContext(Dispatchers.IO) { s.events(runId) }, k.dispatcher.index)
         }
@@ -1161,8 +1278,10 @@ class TaskRun(
     }
 
     /**
-     * 结果通知发出之后调用:记下用到的个人技能的结果、提取记忆、起草技能,提示挂到这一轮的结果卡片上并存进对话。
-     * 在进程级的作用域里跑,服务退出也不中断。
+     * Called after the result notification is sent: write down the results of the personal skills used,
+     * retrieve memories, draft skills, and the prompts are hung on the result card of this round and
+     * saved in the dialogue. It runs in the process-level scope and will not be interrupted when the
+     * service exits.
      */
     suspend fun learnAfter(end: TaskState, outcome: RunOutcome?, conversations: ConversationStore) {
         val k = kit ?: return
@@ -1194,7 +1313,7 @@ class TaskRun(
         }
     }
 
-    /** 办成的运行记成路线;记不成(不该记、写盘失败)不影响任务结局。 */
+    /** Successful runs are recorded as routes; failed runs (should not be recorded, disk writing failed) will not affect the task outcome. */
     private suspend fun saveRoute(goal: String, events: List<RunEvent>, tools: ToolIndex) = withContext(Dispatchers.IO) {
         runCatching {
             val route = RouteRecorder.record(goal, events, System.currentTimeMillis(), tools) ?: return@runCatching
@@ -1205,14 +1324,14 @@ class TaskRun(
         }.onFailure { Log.w(TAG, "route not saved", it) }
     }
 
-    /** 主屏上该包最上面那个窗口的标题;窗口按从上到下排列。 */
+    /** The title of the top window of this package on the Home screen; windows are arranged from top to bottom. */
     private fun mainWindowTitle(a11y: ScreenAccessibility, packageName: String): String? = runCatching {
         a11y.windowsOn(Display.DEFAULT_DISPLAY).firstNotNullOfOrNull { w ->
             w.title?.toString()?.takeIf { it.isNotBlank() && w.root?.packageName?.toString() == packageName }
         }
     }.getOrNull()
 
-    /** 沙箱这一步的说明写到任务卡片上(当前这一步的 note)。 */
+    /** The instructions for the sandbox step are written on the task card (note for the current step). */
     private fun sandboxNote(text: String) {
         val s = _state.value as? TaskState.Running ?: return
         publish(s.copy(note = text))
@@ -1221,8 +1340,11 @@ class TaskRun(
     private fun sandboxOnline() = (sandbox.status() as? SandboxStatus.Ready)?.network == true
 
     /**
-     * 等另一个任务放开 [app] 的这段时间:对外的进展写「等另一个任务用完 [app]」,仍是 Running,不是暂停、也不要你处理;
-     * 等完(放开了、等不到、被停掉)把等之前那一句放回去。等之前不在干活(比如已经停下来要你处理)就不改。
+     * During the period of waiting for another task to be released [app]: For external progress, write
+     * "Waiting for another task to be completed [app]", it is still Running, not paused, and does not
+     * require you to handle it; after waiting (released, unable to wait, stopped), put back the sentence
+     * before waiting. Don't change it until you are no longer working (for example, it has stopped and
+     * asked you to handle it).
      */
     private suspend fun <T> waitingForApp(app: String, wait: suspend () -> T): T {
         val before = _state.value as? TaskState.Running ?: return wait()
@@ -1235,23 +1357,27 @@ class TaskRun(
         }
     }
 
-    /** 模型用量变了:把实时用量推到界面上(只在任务还在跑时)。 */
+    /** The model usage has changed: push the real-time usage to the interface (only while the task is still running). */
     private fun publishUsage() {
         val s = _state.value
         if (s is TaskState.Running) publish(s)
     }
 
     private fun publish(state: TaskState) {
-        // 被挪走后到 gate 拦下之前,循环可能还在推理:对外先显示暂停
-        // 循环自己报的终态不往外发:终态只由 [end] 在记好运行编号之后写,否则界面先收到结束、拿不到编号
+        // After being moved and before being blocked by the gate, the loop may still be reasoning: it
+        // will first display the pause to the outside world. The final state reported by the loop itself
+        // will not be sent out: the final state is only written by [end] after remembering the run
+        // number, otherwise the interface will receive the end first and the number will not be
+        // obtained.
         if (!TaskService.loopMayPublish(state)) return
         val shown = when {
             state is TaskState.Running && gate?.movedAwayPending == true -> TaskState.Held(TaskGate.paused(TaskGate.MOVED_AWAY))
-            // 用户在借出的页面上操作:到关卡之前也先显示暂停
+            // The user operates on the borrowed page: pause is also displayed before reaching the level.
             state is TaskState.Running && gate?.userOnPagePending == true -> TaskState.Held(TaskGate.paused(TaskGate.USER_ON_PAGE))
-            // 用户自己按了暂停
+            // The user pressed pause
             state is TaskState.Running && gate?.userPausedPending == true -> TaskState.Held(TaskGate.paused(TaskGate.USER_PAUSED))
-            // 实时用量:每次模型调用、每次记下上下文都跟着更新
+            // Real-time usage: every time the model is called and every time the context is written
+            // down, it is updated.
             state is TaskState.Running -> {
                 val u = usageTally.snapshot()
                 if (u.calls == 0 && u.contextTokens == 0) state else state.copy(usage = u)
@@ -1271,7 +1397,7 @@ class TaskRun(
         service.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(it)
     }
 
-    /** 网页接管界面顶部的说明:接管原因的话,付款时再带上商品、金额、地址。 */
+    /** Instructions at the top of the web page takeover interface: If there is a reason for the takeover, please bring the product, amount, and address when making payment. */
     private fun takeoverMessage(state: TaskState): String? {
         val w = state as? TaskState.WaitingTakeover ?: return null
         return listOfNotNull(
@@ -1283,11 +1409,11 @@ class TaskRun(
     }
 
     private companion object {
-        /** 网页界面时画中画取画面的间隔。 */
+        /** The interval between picture-in-picture images in the web interface. */
         const val WEB_FRAME_MS = 500L
         const val SHELL_WAIT_MS = 15_000L
         const val DISPLAY_RETRY_MS = 1_000L
-        /** Mina 屏上的前台 App 两次重读之间至少隔这么久。 */
+        /** It takes at least this long between rereads of the front-end app on Mina's screen. */
         const val FOREGROUND_GAP_MS = 300L
         val WAITING_DISPLAY: String get() = tr(R.string.task_waiting_display)
         const val A11Y_WAIT_MS = 5_000L

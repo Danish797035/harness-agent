@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 「再发一次」这类回答不是答案:用户的话已经在对话里。只认明确的重复请求,不误伤「稍后再试」。 */
+/** "Send it again" is not an answer: the user's words are already part of the conversation. Only recognize clear repeat requests and don't accidentally "try again later". */
 class RepeatRequestTest {
     @Test fun asksToSendTheSameRequestAgain() {
         assertTrue(RepeatRequest.matches("I wasn't able to run the search yet — send it again and I'll search right away."))

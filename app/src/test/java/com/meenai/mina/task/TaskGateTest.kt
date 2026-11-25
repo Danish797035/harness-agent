@@ -40,7 +40,7 @@ class TaskGateTest {
         assertFalse(passed)
         assertEquals(TaskState.Held(TaskGate.LOCKED), reported.last())
 
-        locked.value = LockState.Reading(interactive = true, keyguardLocked = true).locked // 亮屏但还在锁屏界面
+        locked.value = LockState.Reading(interactive = true, keyguardLocked = true).locked // The screen is on but still on the lock screen
         runCurrent()
         assertFalse(passed)
         locked.value = LockState.Reading(interactive = true, keyguardLocked = false).locked
@@ -49,10 +49,10 @@ class TaskGateTest {
         assertEquals(null, reported.last())
     }
 
-    /** 用户自己按暂停:下一个改动屏幕的动作之前停下,点「继续」才走;按下之前点的「继续」不算。 */
+    /** The user presses pause by himself: he stops before the next action of changing the screen and clicks "Continue"; pressing "Continue" previously clicked does not count. */
     @Test
     fun userPauseWaitsForContinue() = runTest {
-        gate.resume() // 暂停之前的「继续」不算数
+        gate.resume() // "Continue" before pausing does not count
         gate.pause()
         assertTrue(gate.userPausedPending)
         var passed = false
@@ -70,7 +70,7 @@ class TaskGateTest {
 
     @Test
     fun movedAwayPausesUntilUserContinuesThenMovesBack() = runTest {
-        gate.resume() // 暂停之前的「继续」不算数
+        gate.resume() // "Continue" before pausing does not count
         gate.onTaskMovedAway()
         var passed = false
         launch { gate.pass { reported += it }; passed = true }
@@ -84,13 +84,13 @@ class TaskGateTest {
         assertTrue(passed)
         assertEquals(1, moveBackCalls)
 
-        // 挪回来之后不再暂停
+        // No longer pause after moving back
         reported.clear()
         gate.pass { reported += it }
         assertEquals(listOf<TaskState?>(null), reported)
     }
 
-    /** 用户在借出的页面上动手:不论哪种屏都停下,点「继续」当场放行;之前的「继续」不算,也不挪任何东西。 */
+    /** The user takes action on the borrowed page: no matter what kind of screen, stop, click "Continue" to release on the spot; the previous "Continue" does not count, and nothing is moved. */
     @Test
     fun userOnPagePausesAnyStepUntilContinue() = runTest {
         gate.onUserOnPage()
@@ -105,7 +105,7 @@ class TaskGateTest {
         assertTrue(passed)
         assertFalse(gate.userOnPagePending)
         assertEquals(0, moveBackCalls)
-        // 还没走到关卡就点了继续:不再停
+        // Before reaching the level, I clicked Continue: No Stop.
         gate.onUserOnPage()
         gate.resume()
         reported.clear()
@@ -139,13 +139,13 @@ class TaskGateTest {
         runCurrent()
         assertEquals(TaskState.Held(TaskGate.paused(TaskGate.SHELL_DOWN)), reported.last())
 
-        gate.resume() // 助手还没恢复:继续无效
+        gate.resume() // The assistant has not been restored yet: continuing is invalid.
         runCurrent()
         assertFalse(passed)
 
         shellUp.value = true
         runCurrent()
-        assertFalse(passed) // 恢复了也要等用户点继续
+        assertFalse(passed) // Even after restoring, you have to wait for the user to click continue.
         gate.resume()
         runCurrent()
         assertTrue(passed)
@@ -155,7 +155,8 @@ class TaskGateTest {
     fun movedAwayMeansOnMainAndNotOnAgentDisplay() {
         assertTrue(DeviceStateWatcher.isMovedAway(agentTop = 5, mainTop = 7, taskId = 7))
         assertFalse(DeviceStateWatcher.isMovedAway(agentTop = 7, mainTop = 3, taskId = 7))
-        // Agent 自己关掉了 App:不在任何屏最上面,不算被拿走
+        // The Agent closed the App by himself: it is not at the top of any screen and does not count as
+        // being taken away.
         assertFalse(DeviceStateWatcher.isMovedAway(agentTop = -1, mainTop = 3, taskId = 7))
         assertFalse(DeviceStateWatcher.isMovedAway(agentTop = -1, mainTop = -1, taskId = -1))
     }
@@ -164,7 +165,8 @@ class TaskGateTest {
     fun continueTappedRightAsPauseIsShownIsNotLost() = runTest {
         gate.onTaskMovedAway()
         var passed = false
-        // 通知一显示「已暂停」用户就点了继续:点击发生在 setWaiting 回调期间
+        // As soon as the notification shows "Paused", the user clicks to continue: the click occurs
+        // during the setWaiting callback
         launch {
             gate.pass { reported += it; if (it is TaskState.Held && moveBackCalls == 0) gate.resume() }
             passed = true
@@ -183,7 +185,8 @@ class TaskGateTest {
 
     @Test
     fun continueTappedAfterMoveDetectedButBeforeGateCounts() = runTest {
-        // 发现被挪走后通知立即显示暂停;用户在 Agent 走到 gate 之前就点了继续
+        // After discovering that it has been moved, the notification immediately displays pause; the
+        // user clicks Continue before the Agent reaches the gate.
         gate.onTaskMovedAway()
         gate.resume()
         gate.pass { reported += it }
@@ -191,7 +194,7 @@ class TaskGateTest {
         assertEquals(null, reported.last())
     }
 
-    /** 网页、沙箱上的步骤不需要内置助手,也不会被挪到主屏:只看锁屏。 */
+    /** Steps on web pages and sandboxes do not require built-in assistants, and will not be moved to the home screen: only the lock screen is viewed. */
     @Test
     fun shellAndMovedAwayOnlyCheckedForPhoneSteps() = runTest {
         shellUp.value = false
@@ -203,7 +206,7 @@ class TaskGateTest {
         runCurrent()
         assertFalse(passed)
         assertEquals(TaskState.Held(TaskGate.paused(TaskGate.SHELL_DOWN)), reported.last())
-        // 锁屏照样挡网页的步骤
+        // Steps to lock screen and still block web pages
         reported.clear()
         locked.value = true
         var webPassed = false

@@ -85,62 +85,70 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * [ScreenPort] 的安卓实现:读 Agent 虚拟屏的无障碍窗口,在这块屏上操作。
- * 每个动作之后等界面安静下来,用控件树指纹(辅以画面)核实有没有生效,并检查前台是否被别的 App 切走。
- * 虚拟屏用到时才建(第一次 launch_app,或系统命令、事件工具):没建之前读屏是一块空屏,其余动作失败 [NO_APP_OPEN],这些动作自己不会去建屏。
- * 屏建好不等于打开过 App:只跑系统命令的任务屏上是空的。
+ * Android implementation of [ScreenPort]: read the barrier-free window of the Agent virtual screen and
+ * operate on this screen. After each action, wait for the interface to quiet down, use the control tree
+ * fingerprint (supplemented by the screen) to verify whether it has taken effect, and check whether the
+ * front desk has been cut away by other apps. The virtual screen is only built when it is used (the
+ * first launch_app, or system command or event tool): before it is built, the screen reading is an empty
+ * screen, and other actions fail [NO_APP_OPEN]. These actions will not build the screen by themselves.
+ * Just because the screen is created does not mean that the app has been opened: the screen will be
+ * empty for tasks that only run system commands.
  */
 class AndroidScreen(
     private val a11y: ScreenAccessibility,
     private val shell: IHarnessShell,
     private val display: LazyAgentDisplay,
-    /** 剪贴板暂时换成 Mina 的文字时为 true,还原后为 false;任务服务据此记下,进程意外结束后下次启动还原。 */
+    /** It is true when the clipboard is temporarily changed to Mina's text, and false after restoration; the task service records this and starts the restoration next time after the process ends unexpectedly. */
     private val clipHeld: (Boolean) -> Unit = {},
-    /** 剪贴板是全局的:几个任务同时跑时粘贴兜底共用一把锁。 */
+    /** The clipboard is global: when several tasks are running at the same time, they share the same lock. */
     private val clipLock: Lock = ReentrantLock(),
-    /** 并行任务时为 true:打开 App 前先查它是不是正在 Mina 的另一块屏上给别的任务用。 */
+    /** True for parallel tasks: Before opening the app, check whether it is being used for other tasks on another screen of Mina. */
     private val checkOtherTasks: Boolean = false,
-    /** 并行任务时替本任务占下这个包;别的任务已占着(且还在用)时返回 false。 */
+    /** When a parallel task occurs, this package is occupied for this task; false is returned when other tasks already occupy it (and are still using it). */
     private val reserve: (String) -> Boolean = { true },
-    /** 同 [reserve],占的是装在另一份用户(用户编号)里的那份:和本来那份分开占,两个任务能各用一份。 */
+    /** Same as [reserve], it occupies the share installed in another user (user number): it is occupied separately from the original share, and one share can be used for each of the two tasks. */
     private val reserveCopy: (String, Int) -> Boolean = { _, _ -> true },
-    /** 换剪贴板成功后交出用户原来的文字和 Mina 放进去的文字,供加密留底(进程被杀后据此还原)。 */
+    /** After successfully changing the clipboard, hand over the user's original text and the text put in by Mina for encryption and retention (restore accordingly after the process is killed). */
     private val clipSaved: (original: String, ours: String) -> Unit = { _, _ -> },
-    /** App 此刻在用户手上(接管中):这时主屏上开出什么都是用户的事,不去挪。 */
+    /** The App is currently in the hands of the user (under control): What is opened on the home screen at this time is the user's business and cannot be moved. */
     private val handedOver: () -> Boolean = { false },
-    /** 手势的节奏:落指前的停顿、按住时长、落点偏差、滑动的弧线和快慢(见 [GesturePacing])。 */
+    /** The rhythm of the gesture: the pause before the finger is dropped, the holding time, the deviation of the landing point, the arc and speed of the sliding (see [GesturePacing]). */
     private val pacing: GesturePacing = GesturePacing.human(),
-    /** 在这个包名的 App 里打字的节奏(见 [TypingPacing]);默认一次写入全文。 */
+    /** The rhythm of typing in the App of this package name (see [TypingPacing]); the default is to write the entire text at once. */
     private val typing: (String?) -> TypingPacing = { TypingPacing.Instant },
-    /** 发出启动之前:要开的是 [packageName](装在 [user] 那份用户里的;null 为本来那份)。任务服务据此先静上,开头就没声。 */
+    /** Before issuing the start: [packageName](装在 [user] 那份用户里的;null 为本来那份) is to be opened. Accordingly, the task service starts quietly and is silent at the beginning. */
     private val beforeOpen: (packageName: String, user: Int?) -> Unit = { _, _ -> },
-    /** 启动被拒、没开出来:撤回 [beforeOpen] 提前做的。 */
+    /** The startup was rejected and did not open: withdraw [beforeOpen] made in advance. */
     private val notOpened: (packageName: String, user: Int?) -> Unit = { _, _ -> },
     override val appAccess: com.meenai.mina.core.access.AppAccessPolicy = com.meenai.mina.core.access.AppAccessPolicy.ALLOW,
-    /** 并行任务时:按占用登记,本任务此刻能不能占这个包([user] 那份;null 为本来那份)。只查不占。 */
+    /** During parallel tasks: According to the occupation registration, whether this task can occupy this package at this time ([user] share; null is the original share). Only checking but not accounting. */
     private val appFree: (packageName: String, user: Int?) -> Boolean = { _, _ -> true },
     /**
-     * 并行任务时:等别的任务放开这个包,最多那么久;[free] 是完整的判断(别的屏上没有它、登记里也没人占)。
-     * 任务服务据此登记「谁在等谁」、认出互相等,等的时候界面写「等另一个任务用完某 App」。
+     * During parallel tasks: wait for other tasks to release this package, up to that long; [free] is a
+     * complete judgment (it is not on other screens, and no one is occupying it in the registration).
+     * The task service registers "who is waiting for whom" and recognizes each other. When waiting, the
+     * interface writes "Waiting for another task to finish an App".
      */
     private val awaitApp: suspend (packageName: String, user: Int?, timeoutMs: Long, free: suspend () -> Boolean) -> AppWait =
         { _, _, _, _ -> AppWait.Unsupported },
 ) : ScreenPort {
-    /** 屏还没建时为 -1;只在确认屏已建好之后用。 */
+    /** -1 when the screen has not been built; only used after confirming that the screen has been built. */
     private val displayId get() = display.current?.displayId ?: -1
-    /** 屏已经建好(不等于打开过 App)。 */
+    /** The screen has been created (which does not mean the app has been opened). */
     private val hasDisplay get() = display.current != null
     private val ids = NodeIds()
 
-    /** 最近一次 launch_app 成功打开的包,用于判断是否被切走。 */
+    /** The latest package successfully opened by launch_app is used to determine whether it has been removed. */
     @Volatile private var targetPackage: String? = null
 
-    /** 最近一次打开 App 时系统问「打开哪一个」的那个窗口所在的包:它在前台不算被切走。 */
+    /** The last time you opened the app, the system asked "Which one to open?" */
     @Volatile private var chooserPackage: String? = null
 
     /**
-     * Agent 正在用的 App 及其任务编号(打开时不在最上面则为 -1);任务服务据此静音、监视是否被挪走。
-     * [userId] 是那个任务所属的用户(装了两份时分得出是哪一份);读不到为 -1。
+     * The App that the Agent is using and its task number (-1 if it is not at the top when opened); the
+     * task service is muted accordingly and monitors whether it has been moved. [userId] is the user to
+     * whom the task belongs (when two copies are installed, you can find out which copy it is); if it
+     * cannot be read, it is -1.
      */
     data class TargetApp(val packageName: String, val taskId: Int, val userId: Int = -1)
 
@@ -149,13 +157,16 @@ class AndroidScreen(
 
     private val systemPickers: Set<String> by lazy { SystemPickers.resolve(a11y.packageManager) }
 
-    /** 系统设置所在的包(按 Settings.ACTION_SETTINGS 解析):目标 App 在自己任务里打开的设置页不算被切走。 */
+    /** The package where the system settings are located (parsed according to Settings.ACTION_SETTINGS): The settings page opened by the target App in its own task is not considered to be cut away. */
     private val settingsPackage: String? by lazy { SystemPickers.settingsPackage(a11y.packageManager) }
 
     private fun windows() = a11y.windowsOn(displayId)
     /**
-     * 应用访问的窗口探针:屏上各 App 窗口的归属,只读根节点的包名、不读内容。读不到根节点的那一项为 null(归属未知);
-     * 没有 App 窗口时是最上面任务的 App,也没有就是空屏(空列表)。规则和读屏结果里的窗口归属一致。
+     * Window probe for application access: the ownership of each App window on the screen, only the
+     * package name of the root node can be read, and the content cannot be read. The item that cannot
+     * read the root node is null (unknown ownership); if there is no App window, it is the App with the
+     * top task, and if there is no App window, it is a blank screen (empty list). The rules are
+     * consistent with the window ownership in the screen reading results.
      */
     suspend fun accessPackages(): List<String?> = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext emptyList()
@@ -167,19 +178,21 @@ class AndroidScreen(
     private fun read() = ScreenReader.read(windows(), display.width, display.height)
     private fun treeHash() = ScreenReader.hash(windows())
 
-    /** 显式使用系统命令或事件工具时按需建屏;普通任务等到第一次打开 App 才建。 */
+    /** Create screens on demand when explicitly using system commands or event tools; common tasks wait until the first time you open the app. */
     suspend fun ensureDisplay() { display.get() }
 
-    // ---------- 读屏 ----------
+    // ---------- Screen Reading ----------
 
     override suspend fun snapshot(): ScreenSnapshot = capture(register = true)
 
-    // 不进编号登记表:模型手里最新的 ref 仍然有效
+    // Not entering the number registration list: the latest ref in the model's hands is still valid
     override suspend fun peek(): ScreenSnapshot = capture(register = false)
 
     private suspend fun capture(register: Boolean): ScreenSnapshot = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext ScreenSnapshot(snapshotId(), null, emptyList(), display.width, display.height, hasWindow = false)
-        // 上一个动作过了一会儿才开到用户主屏上的:先挪回来再读(只在模型要读的这一屏上做,不在判效果的那一眼里做)
+        // The previous action took a while to open on the user's home screen: move it back first and
+        // then read it (only do it on the screen where the model is to be read, not on the one where the
+        // effect is judged)
         val late = if (register) lateSpill() else null
         val r = read()
         val after = treeHash()
@@ -196,14 +209,15 @@ class AndroidScreen(
             hasWindow = r.anyAppWindow,
             unreadableApp = if (r.topPackage == null) foregroundTaskPackage() else null,
             windows = r.windows,
-            // 还在等用户在主屏上选:照样说一声
+            // Still waiting for the user to make a selection on the home screen: Just say it anyway
             opened = late?.opened ?: _userPick.value?.let { OpenedElsewhere(it.packageName, it.app, pulledBack = false, picker = true) },
         )
     }
 
     /**
-     * 窗口内容读不到时(安全窗口、启动画面、显示在别处),按 Agent 屏上最上面的任务认前台是哪个 App;
-     * 屏还没建、没有任务或问不到为 null。
+     * When the window content cannot be read (safe window, startup screen, displayed elsewhere), press
+     * the top task on the Agent screen to identify which App is in the foreground; if the screen has not
+     * been created, there is no task, or the task cannot be asked, it will be null.
      */
     private fun foregroundTaskPackage(): String? {
         if (!hasDisplay) return null
@@ -213,8 +227,11 @@ class AndroidScreen(
     }
 
     /**
-     * Mina 屏上最上面的那个 App(包名、任务、所属用户),每换一个给一次:订阅时先给一次,之后窗口一变(开了新页面、
-     * 从别的 App 里点开了另一个 App、另一份顶上来)就重读。屏还没建、没有任务时不给。在调用方的线程上问内置助手。
+     * The app at the top of Mina's screen (package name, task, and user) will be given once every time
+     * you change it: give it once when subscribing, and then reread it when the window changes (a new
+     * page opens, another app is clicked from another app, another one comes up). It will not be given
+     * if the screen has not been built yet and there are no tasks. Ask the built-in helper on the
+     * caller's thread.
      */
     fun foregroundApps(): Flow<TargetApp> = flow {
         emit(Unit)
@@ -230,8 +247,12 @@ class AndroidScreen(
     override suspend fun screenshotPng(): ByteArray? = withContext(Dispatchers.IO) { display.current?.latestFramePng() }
 
     /**
-     * 认屏上文字。自绘界面几乎没有无障碍事件,事件安静了画面可能还在过渡:先等画面停稳再认;认的过程中换了整页就按新的一页再认
-     * (规则见 [StillFrameRead])。局部在动(动图头像、光标)不影响字的位置,照用,不再整个丢掉。
+     * Recognize the text on the screen. There are almost no accessibility issues in the self-drawn
+     * interface. The screen may still be transitioning when the event is quiet: wait for the screen to
+     * stop before recognizing it; if the entire page is changed during the recognition process, click on
+     * the new page to recognize it again (see [StillFrameRead] for rules). Partially moving parts
+     * (animated avatars, cursors) will not affect the position of the words, so you can use them as they
+     * are and no longer throw them away entirely.
      */
     override suspend fun readVisibleText(): List<VisibleTextLine>? = withContext(Dispatchers.IO) {
         if (!hasDisplay || frameBlack() == true) return@withContext null
@@ -253,9 +274,10 @@ class AndroidScreen(
         if (!hasDisplay) return@withContext ScreenDiagnosis.classify(
             ScreenFacts(currentApp = null, hasWindow = false, readableElements = 0, changing = false, blackFrames = emptyList(), texts = emptyList(), passwordField = false),
         )
-        // 先看界面会不会安静下来:一直有变化就是还在加载
+        // First check whether the interface will become quieter: there are always changes but it is
+        // still loading.
         val quiet = withEventClock { clock -> clock.awaitQuiet(QUIET_MS, CHECK_CAP_MS) }
-        // 安静时取两次画面,两次都黑才可能是防截屏
+        // Take the picture twice when it is quiet. If it is black both times, it may be anti-screenshot.
         val black = mutableListOf<Boolean>()
         frameBlack()?.let(black::add)
         if (quiet) {
@@ -283,7 +305,7 @@ class AndroidScreen(
         withEventClock { clock -> clock.awaitQuiet(QUIET_MS, timeoutMs) }
     }
 
-    /** 这块虚拟屏的下一条界面事件(悬停一类不算);屏还没开时等满时限。 */
+    /** The next interface event of this virtual screen (hovering does not count); wait for the time limit to expire before the screen is opened. */
     override suspend fun awaitChange(timeoutMs: Long): Boolean = withContext(Dispatchers.IO) {
         if (!hasDisplay) { delay(timeoutMs.coerceAtLeast(0)); return@withContext false }
         withTimeoutOrNull(timeoutMs.coerceAtLeast(0)) { a11y.eventsFor(displayId).first { it.eventType and IGNORED_EVENTS == 0 } } != null
@@ -372,7 +394,7 @@ class AndroidScreen(
         SystemCommandResult(result.getInt("exitCode", -1), result.getString("output").orEmpty())
     }
 
-    // ---------- 动作 ----------
+    // ---------- Action ----------
 
     override suspend fun tapRef(ref: String, snapshotId: String): ActionResult = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext NO_APP_OPEN
@@ -399,7 +421,8 @@ class AndroidScreen(
         verified { doubleTapAt(pacing.near(x, y)) }
     }
 
-    // 双击只能是一次手势里的两笔:分两次下发,中间的回调延迟可能超过系统认双击的时限
+    // Double-click can only be two strokes in one gesture: it is sent in two times, and the callback
+    // delay in the middle may exceed the time limit for the system to recognize a double-click.
     private suspend fun doubleTapAt(at: Pair<Int, Int>): Boolean {
         delay(pacing.approach())
         return a11y.taps(displayId, at.first.toFloat(), at.second.toFloat(), 2, pacing.doublePress(), pacing.doubleGap())
@@ -414,7 +437,8 @@ class AndroidScreen(
         if (!hasDisplay) return@withContext NO_APP_OPEN
         if (paths.isEmpty() || paths.size > 2 || paths.any { it.size < 2 || it.size > 32 }) return@withContext ActionResult.Failed("invalid_gesture")
         verified {
-            // 一根手指照着画好的路径走,按节奏排快慢;几根手指一起动的只让时长浮动一点
+            // Follow the drawn path with one finger and arrange the speed according to the rhythm;
+            // moving several fingers together will only make the duration fluctuate a little.
             if (paths.size == 1) return@verified drag(paths.single(), durationMs, bow = false)
             delay(pacing.approach())
             a11y.gesture(displayId, paths.map(::pathOf), pacing.duration(durationMs))
@@ -433,7 +457,7 @@ class AndroidScreen(
         }
         val node = start?.let { ancestorOrSelf(it) { n -> n.isScrollable } }
         if (node == null) {
-            // 没有可滚动的控件时用屏幕中部的滑动代替
+            // Use a swipe in the middle of the screen when there are no scrollable controls
             val cx = display.width / 2
             val (from, to) = if (down) display.height * 3 / 4 to display.height / 4 else display.height / 4 to display.height * 3 / 4
             val r = swipe(cx, from, cx, to)
@@ -444,8 +468,11 @@ class AndroidScreen(
     }
 
     /**
-     * 停留时顺手轻轻滚一下:在占了大半屏的那块可滚动内容(信息流、正文)正中慢慢划 [fraction] 个屏高,停稳再抬手、不甩。
-     * 弹着输入法、输入框拿着焦点、上面盖着别的窗口(弹框、浮层)、没有够大的可滚动内容时不滚。
+     * When staying, scroll gently: slowly draw [fraction] screen heights in the middle of the scrollable
+     * content (information flow, text) that takes up more than half of the screen, stop, then raise your
+     * hand without shaking. It does not scroll when the input method is playing, the input box holds the
+     * focus, is covered by other windows (pop-up boxes, floating layers), and does not have scrollable
+     * content large enough.
      */
     override suspend fun idleScroll(fraction: Double): Boolean = withContext(Dispatchers.IO) {
         if (!hasDisplay || imeBox() != null || focusedEditable() != null) return@withContext false
@@ -458,7 +485,7 @@ class AndroidScreen(
         if (dist < IDLE_MIN_PX) return@withContext false
         val cx = area.centerX()
         val mid = area.centerY()
-        // 往下看(fraction 为正)手指往上划
+        // Look down (fraction is positive) and move your finger upwards
         val (from, to) = if (fraction > 0) mid + dist / 2 to mid - dist / 2 else mid - dist / 2 to mid + dist / 2
         drag(listOf(cx to from, cx to to), IDLE_SCROLL_MS, bow = true)
     }
@@ -479,7 +506,9 @@ class AndroidScreen(
             is Field.Found -> f
             is Field.Missing -> return@withContext when {
                 f.reason != NO_FOCUS -> ActionResult.Failed(f.reason)
-                // 屏上什么都没拿着输入焦点、也没弹输入法:没有框接得住粘贴,不去粘(粘了界面别处一动就会被当成「可能打进去了」)
+                // There is no input focus on anything on the screen, and no input method pops up: there
+                // is no frame to hold the paste, and there is no way to paste it (if you move it
+                // elsewhere on the interface, it will be regarded as "possibly entered")
                 !somethingHoldsInputFocus() -> ActionResult.Failed(NO_FOCUS)
                 else -> typeUnseen(text)
             }
@@ -488,14 +517,17 @@ class AndroidScreen(
         val original = FieldShape.of(field)
         if (!field.isFocused) field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val web = inWebView(field)
-        // 网页编辑区要粘贴才收得到输入;密码框不经剪贴板
+        // The webpage editing area requires pasting to receive input; the password box does not go
+        // through the clipboard.
         var pasteUnavailable = web && field.isPassword
         val placeholder = ScreenReader.placeholderOf(field)
         val io = object : TextField {
             override fun read(): String? {
                 if (field.refresh()) return ScreenReader.fieldText(field, placeholder, text)
-                // 有的 App 内容一变就换掉输入控件:当前拿着输入焦点的那个和原来的类型、资源 ID、位置都对得上才改读它,
-                // 否则算读不回,也不往别的框里写
+                // Some apps replace input controls as soon as the content of the app changes: read it
+                // only when the one currently holding the input focus matches the original type,
+                // resource ID, and location. Otherwise, it will not be read back and it will not be
+                // written to another box.
                 val now = focusedEditable()?.takeIf { sameField(original, it) } ?: return null
                 field = now
                 return ScreenReader.fieldText(now, placeholder, text)
@@ -509,14 +541,17 @@ class AndroidScreen(
             }
         }
         val textsBefore = read().texts.toSet()
-        // 像人一样一段一段打出来(见 TypingPacing);密码框、要粘贴才收得到的网页框照旧一次写入。
-        // 写不进、框不接受半截字时停下,下面照旧整段写入并读回核对
+        // Type it out paragraph by paragraph like a human being (see TypingPacing); the password box and
+        // the web page box that need to be pasted to be received are still written at once. Stop when
+        // writing fails and the box does not accept half a word. Next, write the entire paragraph and
+        // read it back for verification.
         typing(field.packageName?.toString()).forField(web, field.isPassword).leadIn(io, text)
         var frozen = false
         val verification = typeAndVerify(
             io, text, TYPE_ATTEMPTS,
             settle = { withEventClock { clock -> clock.awaitQuiet(READBACK_QUIET_MS, READBACK_CAP_MS) } },
-            // 读回一直不变时,看界面上有没有冒出含所输文字的新文字(联想词等)
+            // When the readback remains unchanged, check whether there are new words (associative words,
+            // etc.) containing the entered words popping up on the interface.
             reacted = {
                 val typed = text.filterNot { it.isWhitespace() }
                 (read().texts.toSet() - textsBefore).any { typed in it.filterNot { c -> c.isWhitespace() } }.also { frozen = it }
@@ -528,7 +563,7 @@ class AndroidScreen(
             HINT_READBACK_FROZEN.takeIf { frozen },
             HINT_PASTE_UNAVAILABLE.takeIf { pasteUnavailable },
         ).joinToString(" ").ifEmpty { null }
-        // 字可能只是显示出来、App 并没收到:不能报「一致」
+        // The words may only be displayed but not received by the App: "Consistent" cannot be reported.
         val reported = if (pasteUnavailable && verification != Verification.MISMATCH) Verification.UNKNOWN else verification
         ok(verification = reported, hint = hint, secret = field.isPassword, relocatedTo = found.relocatedTo)
     }
@@ -547,30 +582,34 @@ class AndroidScreen(
         verified(relocatedTo = found.relocatedTo) { if (inWebView(field)) inputText(field, "") == true else setText(field, "") }
     }
 
-    // ---------- 树里看不到的输入框 ----------
+    // ---------- Input box not visible in the tree ----------
 
     /**
-     * 往这一点上的输入框里打字:先点它,等界面安静;点出了树里看得到、拿着焦点的输入框就照常对着它打,
-     * 否则按 [typeUnseen] 粘贴并核对,粘贴前的屏上文字在点完之后读(点出的光标、键盘不算打进去的字)。
-     * 点了就换到别的 App(点到了链接、按钮)时不打字。
+     * To type into the input box at this point: click it first and wait for the interface to be quiet;
+     * click on the input box that is visible in the tree and have the focus, then type on it as usual,
+     * otherwise press [typeUnseen] to paste and check. The text on the screen before pasting will be
+     * read after clicking (the clicked cursor and keyboard are not counted as the words typed). No
+     * typing when switching to other apps (clicking on links or buttons).
      */
     override suspend fun typeAt(x: Int, y: Int, text: String): ActionResult = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext NO_APP_OPEN
         val tapped = verified { tapAt(x, y) }
         if (tapped !is ActionResult.Ok) return@withContext tapped
-        // 点了开出了别的 App(开到用户主屏上又挪回来的也是):不打字,照实报这一下点的结果
+        // Clicking on it opens another app (the same applies to opening it on the user's home screen and
+        // then moving it back): Don't type, report the result of this click as it is.
         if (tapped.opened != null) return@withContext tapped
         tapped.appSwitched?.takeIf { !tapped.switchedByTarget }?.let { return@withContext UnseenField.tapSwitched(it) }
         if (focusedEditable() != null) return@withContext typeText(null, null, text)
         typeUnseen(text, atPoint = true)
     }
 
-    /** 清空这一点上的输入框,做法同 [typeAt]。 */
+    /** Clear the input box at this point, the method is the same as [typeAt]. */
     override suspend fun clearAt(x: Int, y: Int): ActionResult = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext NO_APP_OPEN
         val tapped = verified { tapAt(x, y) }
         if (tapped !is ActionResult.Ok) return@withContext tapped
-        // 点了开出了别的 App(开到用户主屏上又挪回来的也是):不清空,照实报这一下点的结果
+        // Clicked and opened another app (the same applies to the one that was opened on the user's home
+        // screen and then moved back): Do not clear it. Report the result of this click as it is.
         if (tapped.opened != null) return@withContext tapped
         tapped.appSwitched?.takeIf { !tapped.switchedByTarget }?.let { return@withContext UnseenField.tapSwitched(it) }
         if (focusedEditable() != null) return@withContext clearText(null, null)
@@ -578,10 +617,15 @@ class AndroidScreen(
     }
 
     /**
-     * 树里没有拿着焦点的输入框:输入框可能在 App 自己画的界面里,树读不到它,焦点在它上面。
-     * 先全选(替换原有的字,和对着节点设字一样),再经剪贴板粘贴,按键只发到 Mina 的屏;之后比打字前后屏上读到的文字
-     * 核对([UnseenField.typed])。不要求弹着输入法:按键发到这块屏拿着焦点的窗口,框不经输入法也收得到;
-     * 没弹输入法而前后一点没变,就请模型先点输入框。弹着输入法时键盘上的字不算屏上的字。
+     * There is no input box with focus in the tree: the input box may be in the interface drawn by the
+     * App itself, and the tree cannot read it, and the focus is on it. First select all (replace the
+     * original words, the same as setting words for nodes), then paste through the clipboard, and the
+     * keystrokes will only be sent to Mina's screen; then compare the words read on the screen before
+     * and after typing ([UnseenField.typed]). The input method is not required to be played: the keys
+     * are sent to the window with the focus on this screen, and the frame can be received without going
+     * through the input method; if the input method is not played and nothing has changed, please ask
+     * the model to click on the input box first. When playing the input method, the words on the
+     * keyboard are not counted as the words on the screen.
      */
     private suspend fun typeUnseen(text: String, atPoint: Boolean = false): ActionResult {
         val ime = imeBox()
@@ -607,8 +651,10 @@ class AndroidScreen(
     }
 
     /**
-     * 剪贴板换成 [text]、全选、Ctrl+V,等 App 读走(画面变了)或超时再还原。返回 null:剪贴板不能安全使用(读不到用户原来的内容),
-     * 什么都没动;false:粘贴键发不出去。剪贴板的保存、还原、加密留底和 [inputText] 同一套。
+     * Change the clipboard to [text], select all, Ctrl+V, wait for the app to read (the screen has
+     * changed) or timeout before restoring. Return null: The clipboard cannot be used safely (the user's
+     * original content cannot be read), and nothing is moved; false: The paste key cannot be sent.
+     * Clipboard saving, restoration, and encryption are the same as [inputText].
      */
     private fun pasteUnseen(text: String, beforeFrame: IntArray?): Boolean? {
         clipLock.lock()
@@ -618,7 +664,8 @@ class AndroidScreen(
             runCatching { shell.savedClipText() }.getOrNull()?.let { clipSaved(it, text) }
             ctrlKey(KeyEvent.KEYCODE_A)
             if (!ctrlKey(KeyEvent.KEYCODE_V)) return false
-            // App 处理粘贴键时就读剪贴板:画面变了再还原,最多等一会儿
+            // The app reads the clipboard when processing the paste key: the screen has changed and then
+            // restored, it will take a while at most.
             val deadline = SystemClock.uptimeMillis() + PASTE_WAIT_MS
             while (SystemClock.uptimeMillis() < deadline && !FrameMath.differs(beforeFrame, frameSignature())) Thread.sleep(POLL_MS)
             return true
@@ -629,7 +676,7 @@ class AndroidScreen(
         }
     }
 
-    /** 和 [typeUnseen] 同样的前提;全选后按删除键,没弹输入法而界面一点没变时请模型先点输入框([UnseenField.cleared])。 */
+    /** The same premise as [typeUnseen]; after selecting all, press the delete key. If the input method does not pop up and the interface does not change at all, please click the input box ([UnseenField.cleared]) on the model first. */
     private suspend fun clearUnseen(atPoint: Boolean = false): ActionResult {
         val keyboardUp = imeBox() != null
         val r = verified { ctrlKey(KeyEvent.KEYCODE_A) && shell.injectKey(displayId, KeyEvent.KEYCODE_DEL) }
@@ -638,10 +685,10 @@ class AndroidScreen(
 
     private fun ctrlKey(keyCode: Int): Boolean = runCatching { shell.injectCtrlKey(displayId, keyCode) }.getOrDefault(false)
 
-    /** 这块屏上弹着输入法(这时按返回,安卓先收起输入法)。 */
+    /** There is an input method popping up on this screen (press return at this time, Android will put away the input method first). */
     fun keyboardUp(): Boolean = hasDisplay && imeBox() != null
 
-    /** 这块屏上输入法窗口的范围(0–999 的 [l,t,r,b]);没弹输入法为 null。弹着时它上面的字不算屏上的字。 */
+    /** The range of the input method window on this screen ([l,t,r,b] from 0–999); the input method is null if there is no input method. The words on it when playing are not counted as the words on the screen. */
     private fun imeBox(): List<Int>? {
         val w = windows().firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
         val r = android.graphics.Rect().also(w::getBoundsInScreen)
@@ -650,21 +697,28 @@ class AndroidScreen(
     }
 
     /**
-     * 启动到虚拟屏;[cold] 时先结束进程,回到 App 的初始页面。用户正在主屏用这个 App 时不启动也不结束它,
-     * 稍等后重试,仍不行就交给 Agent 去暂停或请用户接管。虚拟屏在这里第一次用到时才建。
+     * Start to the virtual screen; when [cold], end the process first and return to the initial page of
+     * the App. The user does not start or end the app when using it on the home screen. If the user
+     * waits and tries again, if it still doesn't work, the agent is asked to pause or ask the user to
+     * take over. The virtual screen was built when it was first used here.
      */
     override suspend fun openApp(packageName: String, cold: Boolean): ActionResult = open(packageName, null, cold)
 
     /**
-     * 打开装在另一份用户 [userId] 里的那份(调用方先按 [appCopies] 核对过):内置助手启动前再按同一规则核一次那份用户能不能用,
-     * 不能用为 copy_not_found;占用、冷启动都只看这一份。[userId] 就是 Mina 自己的用户时等于 [openApp]。
+     * Open the copy installed in another user [userId] (the caller first checked it by pressing
+     * [appCopies]): before starting the built-in assistant, check again according to the same rule
+     * whether the user copy can be used, and it cannot be used as copy_not_found; only this copy is
+     * considered for occupation and cold start. [userId] is equal to [openApp] when it is Mina's own
+     * user.
      */
     override suspend fun openAppCopy(packageName: String, userId: Int, cold: Boolean): ActionResult =
         open(packageName, userId.takeIf { it != myUser }, cold)
 
     /**
-     * 等别的任务放开 [packageName](模型打开它时要了等):放开指别的屏上已经没有它、占用登记里也没有别的任务占着。
-     * 只在并行任务时有意义,否则没有别的任务和它争。
+     * Wait for other tasks to be released [packageName] (模型打开它时要了等): Release means that there is no
+     * longer it on other screens, and there are no other tasks occupying it in the occupation
+     * registration. It only makes sense when running parallel tasks, otherwise there will be no other
+     * tasks competing with it.
      */
     override suspend fun awaitAppFree(packageName: String, userId: Int?, timeoutMs: Long): AppWait {
         if (!checkOtherTasks) return AppWait.Unsupported
@@ -674,20 +728,24 @@ class AndroidScreen(
         }
     }
 
-    /** 这个包([user] 那份)此刻开在 Mina 的另一块屏上(别的任务手里)。 */
+    /** This package (the [user] one) is currently open on another screen of Mina (in the hands of another task). */
     private fun onOtherDisplay(packageName: String, user: Int?): Boolean {
         val other = runCatching { if (user == null) shell.displayOfPackage(packageName) else shell.displayOfPackageInUser(packageName, user) }.getOrDefault(-1)
         return other >= 0 && other != display.current?.displayId
     }
 
-    /** [openApp] / [openAppCopy] 的共同部分;[user] 为空是本来那份。 */
+    /** The common part of [openApp] / [openAppCopy]; if [user] is empty, it is the original share. */
     private suspend fun open(packageName: String, user: Int?, cold: Boolean): ActionResult = withContext(Dispatchers.IO) {
-        // 同一个 App 不能同时在两块屏上:系统会把整个任务挪过来,等于从另一个任务手里抢走它。装了两份的,两份各算各的
+        // The same app cannot be on two screens at the same time: the system will move the entire task
+        // over, which is equivalent to taking it away from the other task. If it contains two portions,
+        // each of the two portions will be counted as its own.
         if (checkOtherTasks) {
             if (onOtherDisplay(packageName, user)) return@withContext IN_USE_BY_OTHER
             if (!(if (user == null) reserve(packageName) else reserveCopy(packageName, user))) return@withContext IN_USE_BY_OTHER
         }
-        // 打开前最上面的窗口:之后冒出来的才可能是这次打开引起的选择框(上次没选、又打开一次时还是同一个选择框)
+        // The top window before opening: the selection box that pops up later may be the selection box
+        // caused by this opening (it was not selected last time, but it is still the same selection box
+        // when it is opened again)
         val before = if (hasDisplay) topWindowPackage().takeIf { it != chooserPackage } else null
         val id = display.get().displayId
         beforeOpen(packageName, user)
@@ -715,8 +773,11 @@ class AndroidScreen(
     }
 
     /**
-     * 把文字分享给 [packageName]:和 [openApp] 一样第一次用时才建屏、用户正在主屏用它时不打开,打开后同样等它到前台、
-     * 认系统问打开哪一个。这个 App 不收文字分享为 cannot_share。只打开分享页,发不发由模型在那一页上点。
+     * Share text to [packageName]: Just like [openApp], the screen is created for the first time. It is
+     * not opened when the user is using it on the home screen. After opening it, it also waits for it to
+     * come to the front desk, and the recognition system asks which one to open. This App does not
+     * accept text sharing as cannot_share. Only the sharing page is opened, and the model clicked on
+     * that page is not posted.
      */
     override suspend fun shareText(packageName: String, text: String): ActionResult = withContext(Dispatchers.IO) {
         if (checkOtherTasks) {
@@ -740,9 +801,12 @@ class AndroidScreen(
     }
 
     /**
-     * 在 Mina 的屏上打开 Mina 的兼容性自检页([intent] 指明组件;只给兼容性自检用)。那一页只对 shell 这一级的调用方开放,
-     * 交给内置助手以 shell 身份直接启动到这块屏(助手只认这一个组件);shell 启动不受后台启动页面的限制,Mina 在不在前台都一样。
-     * 之后和 [openApp] 一样等它到 Mina 屏的最上面;第一次用时建屏。
+     * Open Mina's compatibility self-test page on Mina's screen ([intent] specifies the component; only
+     * for compatibility self-test). That page is only open to callers at the shell level, leaving it to
+     * the built-in assistant to boot directly to this screen as a shell (the assistant only recognizes
+     * this component); shell startup is not restricted by the background startup page, and it does not
+     * matter whether Mina is in the foreground. Then wait for it to reach the top of the Mina screen
+     * like [openApp]; build the screen when using it for the first time.
      */
     suspend fun openOwnPage(intent: Intent): ActionResult = withContext(Dispatchers.IO) {
         val before = if (hasDisplay) topWindowPackage().takeIf { it != chooserPackage } else null
@@ -756,60 +820,78 @@ class AndroidScreen(
     }
 
     /**
-     * 启动发出之后:等 [packageName] 到 Mina 屏的最上面,或系统先问打开哪一个([before] 是启动前最上面的窗口所在的包)。
-     * [sharing]:这次是分享(App 有几个收分享的页面时系统问用哪一个,选项里不一定有 App 名):最上面换成了系统包的窗口也算在问。
+     * After startup is issued: wait[packageName]Go to the top of the Mina screen, or the system will ask
+     * which one to open first ([before]is the package where the top window is located before
+     * startup).[sharing]: This time it’s about sharing (the system asks which one to use when there are
+     * several sharing pages in the App, and the App name may not be included in the options): The top
+     * window is replaced by the system package window, which counts as asking.
      */
     private suspend fun awaitOpened(packageName: String, before: String?, hint: String?, sharing: Boolean = false, user: Int? = null): ActionResult {
         targetPackage = packageName
         chooserPackage = null
         requestedUser = user
-        // 打开了:Mina 屏上最上面的任务是它(问不到任务时退回看无障碍读到的最上面的窗口);指定了哪一份时还得是那份用户的任务
+        // Opened: Mina is the top task on the screen (if you cannot ask for a task, return to the top
+        // window for accessibility); when you specify which task it is, it must be the user's task.
         fun launched(): Boolean = (foregroundTaskPackage()?.let { it == packageName } ?: (ScreenReader.topPackage(windows()) == packageName)) &&
             (user == null || userOf(runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)).let { it < 0 || it == user })
         fun picker(): String? = if (sharing) systemPickerOf(packageName, before) else null
         val deadline = SystemClock.uptimeMillis() + LAUNCH_WAIT_MS
-        // 系统先问打开哪一个时 App 不会自己到前台:看到选择框就不再干等
+        // When the system first asks which one to open, the app will not go to the foreground by itself:
+        // it will stop waiting when it sees the selection box.
         while (!launched() && chooserOf(packageName, before) == null && picker() == null && SystemClock.uptimeMillis() < deadline) delay(POLL_MS)
         waitStable(SETTLE_CAP_MS)
         val onTop = launched()
         val task = if (onTop) shell.topTaskId(displayId) else -1
         _target.value = TargetApp(packageName, task, if (task >= 0) userOf(task) else user ?: -1)
         if (!onTop && user != null) {
-            // 要的是另一份,系统却先问打开哪一个:自己逐个点选项,认开出来的是哪一份,不交给模型猜
+            // What I want is another copy, but the system first asks which one to open: I click on the
+            // options one by one and identify which copy is opened, without leaving it to the model to
+            // guess.
             if (chooserTargets(packageName, before) != null) return resolveCopyChooser(packageName, user, before, hint)
-            // 直接开出来的是这个 App 的别的那份:照实失败,不当成要的那份
+            // What is directly opened is the other copy of this App: it fails as it is and is not the
+            // desired copy.
             if (foregroundTaskPackage() == packageName) return copyNotOpened(user, userOf(runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)))
         }
-        // 系统在问打开哪一个(App 装了两份等):算打开了,等模型选;选完 App 到了前台,之后的动作照常认它是目标。
-        // App 已在最上面时盖着的系统窗口(权限框)不算
+        // The system is asking which one to open (there are two copies of the App installed, etc.): it
+        // is considered open and waits for the model to be selected; after selecting the App, it comes
+        // to the foreground, and subsequent actions will recognize it as the target. The system window
+        // (permission box) covered when the App is on top does not count
         if (!onTop) chooserOf(packageName, before)?.let { first ->
-            // 第一次碰到时才去问装了几份,好标出哪个是另一份
+            // The first time I saw it, I asked how many copies were packed so I could mark which one was
+            // the other.
             if (profiles == null) otherProfiles()
             val choice = chooserOf(packageName, before) ?: first
             chooserPackage = choice.packageName
             return ok().copy(chooser = choice, appSwitched = null, switchedByTarget = false)
         }
-        // 分享时系统问用这个 App 的哪个分享页:同样算打开了,等模型选
+        // When sharing, the system asks which sharing page of this app to use: it is also considered
+        // open, and waits for the model to be selected.
         if (!onTop) picker()?.let { pkg ->
             chooserPackage = pkg
             return ok(hint = HINT_SHARE_PICKER).copy(appSwitched = null, switchedByTarget = false)
         }
-        // 没打开就照实说,并说清此刻最上面的是什么,不报成功
+        // If you haven’t opened it, tell the truth and tell the truth about what is on top at the
+        // moment. If you don’t open it, you will not be reported as successful.
         if (!onTop) {
             val now = foregroundTaskPackage() ?: ScreenReader.topPackage(windows())
-            // 要的是另一份,最上面却是这个 App 的别的那份
+            // I want another copy, but the other copy of this app is on top.
             val copy = if (user != null && now == packageName) " (a different copy of the app)" else ""
             return ActionResult.Failed("app_not_in_front", hint = now?.let { "In the foreground now: $it$copy." } ?: "Nothing came to the foreground.")
         }
-        // 打开了,但另一个包的窗口盖在上面(权限弹窗、账号选择器):照实说是谁,仍算打开了
+        // It's open, but another package's window is covering it (permission pop-up window, account
+        // selector): tell the truth who it is, it's still open
         val cover = ScreenReader.topPackage(windows())?.takeIf { it != packageName }
         return ok(hint = hint).let { if (cover != null) it.copy(coveredBy = cover, appSwitched = null, switchedByTarget = false) else it }
     }
 
     /**
-     * 要的是另一份用户 [user] 里的那份,系统却在 Mina 屏上问打开哪一个(选项可能名字一模一样,看不出哪个是哪份):
-     * 逐个点选项,等开出来,读最上面任务所属的用户;是要的那份就算打开。不是就按一次返回让它退到后台(那可能是用户手上那份的任务,
-     * 不结束它),再打开一次、点下一个。都试过还不是,照实失败 copy_not_opened,说开出来的是哪一份;不把错的那份当成功。
+     * What you want is the copy in another user [user], but the system asks which one to open on the
+     * Mina screen (the options may have the same names, and you can’t tell which one is which): Click on
+     * the options one by one, wait for them to open, and read the user to whom the top task belongs; if
+     * it is the one you want, open it. Instead of just pressing return once to let it go to the
+     * background (that may be the task on hand of the user and not ending it), open it again and click
+     * on the next one. I've tried it all, but it still doesn't work. If it fails copy_not_opened, tell
+     * me which copy was opened; don't treat the wrong copy as a success.
      */
     private suspend fun resolveCopyChooser(packageName: String, user: Int, before: String?, hint: String?): ActionResult {
         fun topTask() = runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)
@@ -840,7 +922,7 @@ class AndroidScreen(
             if (runCatching { shell.startAppInUser(displayId, packageName, user, false) }.getOrDefault(ShellService.START_ERROR) != ShellService.START_OK) break
             val until = SystemClock.uptimeMillis() + LAUNCH_WAIT_MS
             while (chooserTargets(packageName, before) == null && SystemClock.uptimeMillis() < until) {
-                // 这一次直接开出了要的那份
+                // This time I directly issued the requested portion.
                 opened()?.let { return it }
                 delay(POLL_MS)
             }
@@ -848,7 +930,7 @@ class AndroidScreen(
         return copyNotOpened(user, shown)
     }
 
-    /** 要的那份 [user] 没打开;[shown] 是开出来的那份所属的用户(没开出来或读不到为 null / 负数)。 */
+    /** The requested copy [user] is not opened; [shown] is the user to whom the opened copy belongs (null/negative number if it is not opened or cannot be read). */
     private fun copyNotOpened(user: Int, shown: Int?): ActionResult.Failed {
         val what = when {
             shown == null || shown < 0 -> "Nothing from the app came to the front."
@@ -858,7 +940,7 @@ class AndroidScreen(
         return ActionResult.Failed(COPY_NOT_OPENED, "$what Requested: the copy in user $user.")
     }
 
-    /** 系统在 Mina 屏上问打开哪一个时,那几个选项的中心点(屏上像素,先后同选项);不是在问为 null。认法同 [chooserOf]。 */
+    /** When the system asks which one to open on the Mina screen, the center point of those options (pixels on the screen, the same options one after another); if it is not asking, it is null. The recognition method is the same as [chooserOf]. */
     private fun chooserTargets(packageName: String, before: String?): List<Pair<Int, Int>>? {
         val w = ScreenReader.contentWindows(windows()).firstOrNull { it.root != null } ?: return null
         val pkg = w.root?.packageName?.toString() ?: return null
@@ -870,18 +952,22 @@ class AndroidScreen(
     }
 
     /**
-     * 打开链接或设置页。和 [openApp] 一样第一次用时才建屏;用户在主屏用着那个 App 时不打开。
-     * 设置页预期落在系统设置所在的包,指定了 App 的落在那个 App;落到别处(系统选择器、跳转页)照样成功,带提示。
+     * Open a link or settings page. Like [openApp], the screen is created for the first time; the user
+     * does not open the app when using it on the home screen. The settings page is expected to fall in
+     * the package where the system settings are located, and the specified App falls in that App;
+     * falling elsewhere (system selector, jump page) will still be successful, with prompts.
      */
     override suspend fun openLink(action: String?, uri: String?, packageName: String?): ActionResult = withContext(Dispatchers.IO) {
-        // 指定了 App 的由应用访问边界看过;没指定的,名单非空时在这里挑一个没被禁用的接手
+        // If the App is specified, it will be viewed by the application access boundary; if it is not
+        // specified, if the list is not empty, pick one that is not disabled to take over.
         val pinned = packageName ?: allowedLinkHandler(action, uri)
         val id = display.get().displayId
         val expected = pinned ?: settingsPackage.takeIf { action != null }
         if (checkOtherTasks && expected != null && !reserve(expected)) return@withContext IN_USE_BY_OTHER
         val before = ScreenReader.topPackage(windows())
         val beforeTree = treeHash()
-        // 事先知道由谁打开的(指定了 App、设置页、只有一个 App 接的链接):启动前先静上
+        // Know who opened it in advance (specified App, settings page, and only one link to the App):
+        // Quit before starting
         val early = expected ?: linkHandler(action, uri)
         early?.let { beforeOpen(it, null) }
         val code = shell.startView(id, action, uri, pinned)
@@ -902,10 +988,12 @@ class AndroidScreen(
         while (!landed() && SystemClock.uptimeMillis() < deadline) delay(POLL_MS)
         waitStable(SETTLE_CAP_MS)
         val top = ScreenReader.topPackage(windows())
-        // 只认真正打开链接的 App:落在系统选择器或别处时不把它当成目标
+        // Only target the app that is opening the link: do not target it if it falls in the system
+        // selector or elsewhere
         val opened = top?.takeIf { if (expected != null) it == expected else it !in systemPickers }
         if (opened != null) {
-            // 事先不知道由谁打开的链接,落地后再占;占不到也不撤回(外壳那边已查过别的屏)
+            // If you don’t know who opened the link in advance, you will occupy it after landing; if you
+            // cannot occupy it, you will not withdraw it (I have checked other screens on the shell)
             if (checkOtherTasks) reserve(opened)
             targetPackage = opened
             requestedUser = null
@@ -916,8 +1004,11 @@ class AndroidScreen(
     }
 
     /**
-     * 禁用名单非空、链接没指定 App 时由谁打开:系统默认的那个没被禁用就用它,不然用第一个没被禁用的;能接的全被禁用就拒绝。
-     * 名单为空、或没有 App 能接时为 null(照常交给系统,不多查一次)。
+     * When the disabled list is not empty and the link does not specify an App, who should open it: use
+     * the system default one that is not disabled, otherwise use the first one that is not disabled;
+     * reject all available connections if they are disabled. If the list is empty or there is no App
+     * that can be connected, it will be null (leave it to the system as usual, without checking it
+     * again).
      */
     private fun allowedLinkHandler(action: String?, uri: String?): String? {
         val access = appAccess.current()
@@ -936,7 +1027,7 @@ class AndroidScreen(
         return default?.takeIf { it in allowed } ?: allowed.first()
     }
 
-    /** 没指定 App 的链接由谁打开:系统直接定下的那一个;要问用户选(落在系统选择器)或读不到为 null。 */
+    /** It is not specified who opens the link of the App: the one directly determined by the system; if it needs to be asked by the user to choose (falling in the system selector) or if it cannot be read, it will be null. */
     private fun linkHandler(action: String?, uri: String?): String? = runCatching {
         if (action != null || uri == null) return null
         val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(uri)).addCategory(Intent.CATEGORY_BROWSABLE)
@@ -947,8 +1038,10 @@ class AndroidScreen(
         "The link opened, but the screen shows ${top ?: "no app yet"} instead of $expected: a system chooser or a redirect page may have taken it. Observe before acting."
 
     /**
-     * 有任务被挪回这块屏后,等它的窗口出现在无障碍窗口列表里再让 Agent 读屏;
-     * 否则紧接着的 observe 可能读到一块空屏。等不到也返回,由 Agent 自己读屏判断。
+     * After a task is moved back to this screen, wait until its window appears in the accessible window
+     * list before letting the Agent read the screen; otherwise, the subsequent observe may read an empty
+     * screen. It will return if it cannot wait, and it will be judged by the Agent himself by reading
+     * the screen.
      */
     suspend fun awaitContent(): Boolean = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext false
@@ -960,12 +1053,17 @@ class AndroidScreen(
 
     override suspend fun listApps(): List<Pair<String, String>> = withContext(Dispatchers.IO) { launchableApps(a11y.packageManager, a11y.packageName) }
 
-    // ---------- 系统动作 ----------
+    // ---------- System Action ----------
 
     /**
-     * 经安卓标准 intent 做系统动作(见 [SystemIntents])。先在 Mina 这边查谁接(能力检测,不用建屏):没有就 not_supported;
-     * 有几个时按 [SystemIntents.choose] 直接指定一个。再交给内置助手启动到 Mina 的屏(第一次用时建屏),动作前后照常盯着主屏。
-     * 闹钟、计时器本该悄悄设好:之后读系统的下一个闹钟核对;App 却开了界面时照实报。闹钟列表、新日程要等那个 App 到最上面。
+     * Perform system actions via Android standard intent (see [SystemIntents]). First check who will
+     * answer Mina (capability test, no need to build a screen): if not, it is not_supported; if there
+     * are several, press [SystemIntents.choose] to directly specify one. Then let the built-in assistant
+     * boot to Mina's screen (set up the screen when you use it for the first time), and stare at the
+     * home screen as usual before and after the action. Alarm clocks and timers should be set quietly
+     * and then read the next alarm clock of the system to check; however, the App reports accordingly
+     * when the interface is opened. The list of alarm clocks and new schedules should wait for that app
+     * to be at the top.
      */
     override suspend fun systemAction(action: SystemAction): SystemActionResult = withContext(Dispatchers.IO) {
         val intent = SystemIntents.toIntent(SystemIntents.spec(action))
@@ -976,7 +1074,8 @@ class AndroidScreen(
             }
         }.getOrDefault(emptyList())
         val default = runCatching { pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName }.getOrNull()
-        // 由谁接只有这里知道:跳过被禁用的;能接的全被禁用就拒绝
+        // The only way to know who will pick up is here: skip the ones that are disabled; reject all the
+        // ones that can be picked up if they are disabled.
         val access = appAccess.current()
         val allowedHandlers = if (access.blocked.isEmpty()) handlers else handlers.filter { access.denial(it.packageName) == null }
         if (handlers.isNotEmpty() && allowedHandlers.isEmpty()) access.denial(handlers.first().packageName)?.let { throw it }
@@ -990,9 +1089,11 @@ class AndroidScreen(
         val id = display.get().displayId
         val topBefore = ScreenReader.topPackage(windows())
         val w = armSpillWatch()
-        // 接手的页面要求的权限(设闹钟)shell 可能没有:备一个以 Mina 身份启动的
+        // The page you took over may not have the permissions required by the shell (setting the alarm
+        // clock): prepare one started as Mina.
         val asMina = PendingIntent.getActivity(a11y, SYSTEM_ACTION_REQUEST, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        // 悄悄设好的(闹钟、计时器)不开界面,不去静它:时钟到点要响
+        // Quietly set (alarm clock, timer) without opening the interface or silencing it: the clock will
+        // ring at one o'clock
         if (!action.silent) beforeOpen(pkg, null)
         val code = runCatching { shell.startSystemAction(id, intent, asMina) }.getOrDefault(ShellService.START_ERROR)
         if (code != ShellService.START_OK && !action.silent) notOpened(pkg, null)
@@ -1006,7 +1107,8 @@ class AndroidScreen(
         fun top() = ScreenReader.topPackage(windows())
         var alarmAfter = alarmBefore.getOrNull()
         if (action is SystemAction.SetAlarm && alarmBefore.isSuccess) {
-            // 时钟 App 多半在后台写好再登记:等系统的下一个闹钟变了,最多等一会儿
+            // Most clock apps are written in the background and then registered: wait for the next alarm
+            // clock of the system to change, and wait for a while at most.
             val deadline = SystemClock.uptimeMillis() + ALARM_WAIT_MS
             while (SystemClock.uptimeMillis() < deadline) {
                 alarmAfter = runCatching { alarms?.nextAlarmClock?.triggerTime }.getOrNull()
@@ -1019,7 +1121,7 @@ class AndroidScreen(
         }
         waitStable(SETTLE_CAP_MS)
         val landed = top() == pkg
-        // 本该悄悄设好的,屏上却多了那个 App 的界面
+        // It was supposed to be set up quietly, but there was an interface for that app on the screen.
         val showing = action.silent && landed && topBefore != pkg
         if (landed && (!action.silent || showing)) {
             targetPackage = pkg
@@ -1037,7 +1139,7 @@ class AndroidScreen(
     private fun hintNotInFront(top: String?, expected: String) =
         "$expected took the action, but the screen shows ${top ?: "no app yet"}. Observe before acting."
 
-    // ---------- 滚轮 ----------
+    // ---------- Roller ----------
 
     override suspend fun setWheel(ref: String, snapshotId: String, value: String): WheelOutcome = withContext(Dispatchers.IO) {
         if (!hasDisplay) return@withContext WheelOutcome(false, null, null, 0, "none", error = "no_app_open")
@@ -1045,7 +1147,9 @@ class AndroidScreen(
         val driver = WheelDriver(
             display.width, display.height,
             quiet = { q, cap -> withEventClock { it.awaitQuiet(q, cap) } },
-            // 慢拖:按节奏走时末尾减速到停、松手不甩,免得转过头;慢拖拖不动时换成快快划一下
+            // Slow dragging: When walking according to the rhythm, slow down to a stop at the end and
+            // let go, so as not to turn your head; when slow dragging cannot be moved, switch to a quick
+            // stroke.
             drag = { points, slow -> drag(points, if (slow) WHEEL_DRAG_MS else WHEEL_SWIPE_MS, bow = false) },
             ocr = { readVisibleText() },
             imeShown = { imeBox() != null },
@@ -1054,15 +1158,17 @@ class AndroidScreen(
         driver.set(node, value)
     }
 
-    // ---------- 打开哪一个 ----------
+    // ---------- Which one to open ----------
 
-    /** 最上面一个读得到的窗口(不论类型:系统的选择框有的是应用窗口,有的是系统窗口)所在的包。 */
+    /** The package where the top readable window (regardless of type: some system selection boxes are application windows, some are system windows) is located. */
     private fun topWindowPackage(): String? =
         ScreenReader.contentWindows(windows()).firstNotNullOfOrNull { it.root?.packageName?.toString() }
 
     /**
-     * 打开 [packageName] 后系统在问打开哪一个:最上面换成了别的系统包的窗口([before] 是打开前最上面的),窗口里的选项提到这个 App 的名字。
-     * 不是为 null。只认系统包:别的 App 的窗口提到这个名字不算。
+     * After opening [packageName], the system asks which one to open: the top one is replaced by the
+     * window of another system package ([before] was the top one before opening), and the options in the
+     * window mention the name of this App. Not null. Only recognize system packages: mentioning this
+     * name in other App windows does not count.
      */
     private fun chooserOf(packageName: String, before: String?): LaunchChoice? {
         val w = ScreenReader.contentWindows(windows()).firstOrNull { it.root != null } ?: return null
@@ -1074,7 +1180,7 @@ class AndroidScreen(
         return LaunchChoice(pkg, options)
     }
 
-    /** 最上面一个读得到的窗口换成了系统包的(不是 [packageName]、也不是启动前的 [before]):那个包;不是为 null。 */
+    /** The top window that can be read is replaced by the system package (not [packageName], nor [before] before startup): that package; is not null. */
     private fun systemPickerOf(packageName: String, before: String?): String? {
         val pkg = topWindowPackage() ?: return null
         return pkg.takeIf { it != packageName && it != before && isSystemPackage(it) }
@@ -1082,7 +1188,7 @@ class AndroidScreen(
 
     private val systemPackages = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
-    /** 系统自带的包;Mina 自己看不到的包(安卓 11 起的包可见性)问内置助手。 */
+    /** For packages that come with the system; for packages that Mina cannot see (package visibility starting from Android 11), ask the built-in assistant. */
     private fun isSystemPackage(pkg: String): Boolean = pkg in systemPickers || systemPackages.getOrPut(pkg) {
         val flags = runCatching { a11y.packageManager.getApplicationInfo(pkg, 0).flags }.getOrNull()
         if (flags != null) flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
@@ -1094,7 +1200,7 @@ class AndroidScreen(
         pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
-    /** 也装在别的用户里的 App(包名 → 那几份用户的名字);第一次问内置助手,之后用这份。问不到时不记,下次再问。 */
+    /** Apps that are also installed in other users (package name → names of those users); ask the built-in assistant for the first time, and then use this one. Don't remember when you can't ask, and ask again next time. */
     @Volatile private var profiles: Map<String, List<String>>? = null
 
     override suspend fun otherProfiles(): Map<String, List<String>> = withContext(Dispatchers.IO) {
@@ -1109,23 +1215,27 @@ class AndroidScreen(
         })
     }
 
-    /** 能打开的另一份 App(规则见 [AppCopies],内置助手判哪几份用户能用);每次现问,问不到为空。 */
+    /** Another App that can be opened (for rules, see [AppCopies], the built-in assistant determines which apps can be used by users); if asked every time, it will be empty if not asked. */
     override suspend fun appCopies(): List<AppCopy> = withContext(Dispatchers.IO) {
         runCatching { AppCopyReader.read(shell, listApps()) }.getOrNull().orEmpty()
             .also { copies -> copiedPackages = copiedPackages + copies.map { it.packageName } }
     }
 
-    /** 列出过另一份的包:换没换成另一份([switchedTo])只对它们问。 */
+    /** Packages that have been listed in another copy: only ask them if they have been changed to another copy ([switchedTo]). */
     @Volatile private var copiedPackages: Set<String> = emptySet()
 
-    /** 任务所属的用户;任务不存在或问不到为 -1。 */
+    /** The user to whom the task belongs; -1 if the task does not exist or cannot be requested. */
     private fun userOf(task: Int): Int = if (task < 0) -1 else runCatching { shell.userOfTask(task) }.getOrDefault(-1)
 
-    // ---------- 核实 ----------
+    // ---------- Verification ----------
 
     /**
-     * 执行动作,等界面安静后比对前后指纹;再看前台有没有被切走。动作前后盯着主屏:动作让 App 开到了用户主屏上就挪回来,
-     * 结果里报 opened(见 [takeSpill])。上一个动作过了一会儿才开到主屏上的,这一个动作不做,先说屏幕变了。
+     * Execute the action, wait for the interface to be quiet, and then compare the front and rear
+     * fingerprints; then check to see if the front desk has been cut away. Staring at the home screen
+     * before and after the action: The action causes the app to open on the user's home screen and then
+     * move it back, and the result will be reported as opened (see [takeSpill]). It took a while for the
+     * previous action to open the home screen. If you don't do this action, let's talk about the screen
+     * changing first.
      */
     private suspend fun verified(relocatedTo: String? = null, action: suspend () -> Boolean): ActionResult {
         lateSpill()?.let { return ActionResult.Failed("opened_elsewhere", hintLateSpill(it.opened)) }
@@ -1136,63 +1246,67 @@ class AndroidScreen(
             clock.mark()
             if (action()) awaitChange(clock, beforeTree, beforeFrame) else null
         } ?: return ActionResult.Failed("action_failed")
-        // 从挪回来的任务里又打开了一个的,一并算进来
+        // Another one was opened from the moved tasks, and they are included together.
         val profile = adoptFromAdopted(w)
         val spill = takeSpill(w)
         return ok(changed = changed || spill?.opened?.pulledBack == true, relocatedTo = relocatedTo, spill = spill, inProfile = profile)
     }
 
-    // ---------- 开到用户主屏上的 ----------
+    // ---------- Open to the user's home screen ----------
 
-    /** 一次动作的盯梢:[since] 开始的时刻,[topBefore] 那时主屏最上面的任务,[agentTopBefore] 那时 Mina 屏上最上面的任务。 */
+    /** Tracking of an action: [since] is the starting time, [topBefore] is the top task on the main screen at that time, [agentTopBefore] is the top task on the Mina screen at that time. */
     private class Watch(val since: Long, val topBefore: Int, val agentTopBefore: Int)
 
-    /** 挪回来的 App 和(系统问打开哪一个时)认出的选项。 */
+    /** The apps you moved back and the options you recognize (when asked which one to open). */
     private class Spill(val opened: OpenedElsewhere, val chooser: LaunchChoice?)
 
-    /** 最近一次动作的盯梢;过了 [SPILL_WINDOW_MS] 清掉。 */
+    /** Tracking of the latest action; cleared after [SPILL_WINDOW_MS]. */
     @Volatile private var watch: Watch? = null
 
-    /** 已经判过的记录到哪个时刻:同一条不判两次。 */
+    /** To what time will the judgment be recorded? The same sentence will not be judged twice. */
     @Volatile private var consumed = 0L
 
-    /** 从用户主屏挪回 Mina 屏上的任务,和从它们里面打开的:它们在最上面算目标 App 打开的,不算被切走。 */
+    /** Tasks moved back to the Mina screen from the user's home screen, and tasks opened from them: they are counted as being opened by the target app at the top, and are not counted as being removed. */
     private val adopted: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
-     * 系统在用户主屏上问打开哪一个、等用户选的那一次:[taskId] 问的那个窗口的任务,[packageName] 它的包,[app] 问的是哪个 App,
-     * [topBefore] 它出来前主屏最上面的任务,[agentTop] 那时 Mina 屏上最上面的任务,[since] 它出来的时刻。
-     * 选择框从不挪:挪了屏它要按新屏重建,有的重建时自己关掉;Mina 也不替别的 App 重新打开它(打开的一方得是原来那个 App)。
+     * The system asks which one to open on the user's home screen and waits for the user to select it:
+     * [taskId] asks about the task in that window, [packageName] asks about its package, [app] asks
+     * about which app, [topBefore] asks about the top task on the home screen before it appears,
+     * [agentTop] asks about the top task on the Mina screen at that time, [since] when it appears. The
+     * selection box is never moved: if the screen is moved, it will be rebuilt on the new screen, and
+     * some will be closed when rebuilt; Mina will not reopen it for other apps (the one that opens it
+     * must be the original app).
      */
     class UserPick(val taskId: Int, val packageName: String, val app: String?, val topBefore: Int, val agentTop: Int, val since: Long)
 
     private val _userPick = MutableStateFlow<UserPick?>(null)
-    /** 正等着用户在主屏上选;任务据此停住,胶囊上请用户选一下。 */
+    /** It is waiting for the user to select it on the home screen; the task is stopped accordingly, and the user is asked to select it on the capsule. */
     val userPick: StateFlow<UserPick?> = _userPick.asStateFlow()
 
-    /** 用户选完之后:选出来的 App 要用户亲手处理([NeedsUser],留在主屏),其余的已经办好(结果在下一次读屏或动作里报)。 */
+    /** After the user has finished selecting: the selected App needs to be processed by the user personally ([NeedsUser], stay on the home screen), and the rest has been done (the results will be reported in the next screen reading or action). */
     sealed interface PickResult {
         data object Settled : PickResult
         class NeedsUser(val taskId: Int, val packageName: String, val app: String?, val userId: Int) : PickResult
     }
 
-    /** 等用户的那些事办完之后要告诉模型的,下一次读屏或动作时报出去。 */
+    /** After the user completes the tasks, the model must be informed, and the next time the user reads the screen or performs an action, it will be reported. */
     @Volatile private var pendingReport: Spill? = null
 
-    /** 用户在主屏上点东西的时刻和包(只在动作前后那一小段里记)。 */
+    /** The time and context when the user clicked something on the home screen (only recorded in the short period before and after the action). */
     private val userTaps = java.util.concurrent.ConcurrentLinkedDeque<MainScreenSpill.Tap>()
     private val spillScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var tapWatch: Job? = null
     @Volatile private var tapWatchUntil = 0L
 
-    /** 不算开到主屏上的:Mina 自己、桌面 App(按 HOME 解析,不写死)。 */
+    /** Not counting those opened on the home screen: Mina itself, desktop App (press HOME to analyze, do not hardcode). */
     private val notSpills: Set<String> by lazy {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         runCatching { a11y.packageManager.queryIntentActivities(home, 0).map { it.activityInfo.packageName } }.getOrDefault(emptyList())
             .toSet() + a11y.packageName
     }
 
-    /** 动作之前:请内置助手盯着主屏,记下此刻两块屏最上面的任务;没有屏、接管中或助手不支持时为 null(不盯)。 */
+    /** Before taking action: Please use the built-in assistant to stare at the home screen and write down the task on the top of the two screens at the moment; it will be null (not staring) when there is no screen, it is being taken over, or the assistant does not support it. */
     private fun armSpillWatch(): Watch? {
         if (!hasDisplay || handedOver()) return null
         val since = SystemClock.uptimeMillis()
@@ -1202,7 +1316,7 @@ class AndroidScreen(
         return Watch(since, top, agentTop).also { watch = it }
     }
 
-    /** 盯梢期间记下用户在主屏上的点按(Mina 自己的浮层不算);到期自己停。 */
+    /** During the tracking period, record the user's clicks on the home screen (Mina's own floating layer does not count); it will stop when it expires. */
     private fun watchUserTaps(until: Long) {
         tapWatchUntil = maxOf(tapWatchUntil, until)
         if (tapWatch?.isActive == true) return
@@ -1227,8 +1341,10 @@ class AndroidScreen(
     }
 
     /**
-     * 动作之后:问内置助手这次动作开始后主屏冒出来的任务,按 [MainScreenSpill] 判;开到主屏上的挪回 Mina 的屏,
-     * 开在用户正用着的 App 里的只报不动。没有为 null。
+     * After the action: Ask the built-in assistant about the tasks that will appear on the home screen
+     * after the action starts. Press [MainScreenSpill] to confirm; if it is opened on the home screen,
+     * move it back to Mina's screen. If it is opened in the app that the user is using, it will only be
+     * reported. None is null.
      */
     private suspend fun takeSpill(w: Watch?): Spill? {
         if (w == null || handedOver()) return null
@@ -1239,10 +1355,13 @@ class AndroidScreen(
         for (v in MainScreenSpill.decide(arrivals, w.since, SPILL_WINDOW_MS, w.topBefore, notSpills, userTaps.toList())) {
             val a = v.arrival
             val pkg = a.packageName ?: continue
-            // 开到用户主屏上的不在应用访问边界看的那块屏上:被禁用的不挪、不读
+            // Open to the part of the user's home screen that is not visible within the application
+            // access boundary: disabled items cannot be moved or read.
             appAccess.current().denial(pkg)?.let { throw it }
             last = when (v) {
-                // 系统问打开哪一个的先按选择框处理;要用户亲手处理的弹窗(登录验证、账号确认一类)留在主屏,不挪到 Mina 的屏上
+                // If the system asks which one to open, press the selection box first; pop-up windows
+                // that require the user to handle by themselves (such as login verification and account
+                // confirmation) remain on the home screen and are not moved to Mina's screen.
                 is MainScreenSpill.PullBack -> leaveForUser(a, pkg, w) ?: leavePopup(a, pkg) ?: pullBack(a, pkg) ?: last
                 is MainScreenSpill.InUse -> Spill(OpenedElsewhere(pkg, appLabel(pkg), pulledBack = false, inProfile = inProfileOf(pkg, a.userId)), null)
             }
@@ -1252,8 +1371,9 @@ class AndroidScreen(
     }
 
     /**
-     * 上一次动作的盯梢还没过期时再问一次(那个动作过了一会儿才开出来的);过期了就清掉。
-     * 用户在主屏上选完、处理完之后要说的,先说这个。
+     * Ask again when the tracking of the last action has not expired (that action was launched after a
+     * while); clear it when it expires. What the user wants to say after selecting and processing on the
+     * home screen, let’s talk about this first.
      */
     private suspend fun lateSpill(): Spill? {
         pendingReport?.let { pendingReport = null; return it }
@@ -1264,15 +1384,20 @@ class AndroidScreen(
     }
 
     /**
-     * 冒到主屏上的是要用户亲手处理的弹窗(登录验证、账号确认、付款确认一类):不挪,留在用户屏上。
-     * 判据:系统账号登录服务(登记了账号认证器、没有桌面图标的包)的页面,顶层窗口不是整屏(对话框、底部弹层),窗口里有密码框,或页面本身不进最近任务(excludeFromRecents)。
-     * 这类窗口挪到 Mina 的屏上就从用户眼前消失,用户也就没法在主屏上点确认。不是为 null。
-     * noHistory 不算:很多 App 的开屏页带着它,算进来就把普通 App 当成了弹窗。
+     * What pops up on the home screen are pop-ups that require users to handle by themselves (login
+     * verification, account confirmation, payment confirmation, etc.): they do not move and stay on the
+     * user's screen. Criteria: On the page of the system account login service (a package with an
+     * account authenticator registered and no desktop icon), the top window is not the entire screen
+     * (dialog box, bottom pop-up layer), there is a password box in the window, or the page itself does
+     * not enter recent tasks (excludeFromRecents). This kind of window disappears from the user's eyes
+     * when it is moved to Mina's screen, and the user cannot click OK on the home screen. Not null.
+     * noHistory does not count: many apps have it on their opening pages, and ordinary apps are treated
+     * as pop-up windows when included.
      */
     private suspend fun leavePopup(a: MainScreenSpill.Arrival, pkg: String): Spill? =
         if (needsUserWindow(a, pkg)) popup(a, pkg) else null
 
-    /** 主屏上这个任务的顶层窗口是不是一个要用户亲手处理的弹窗(见 [leavePopup])。最多多等两次 [POPUP_SETTLE_MS]。 */
+    /** Is the top-level window for this task on the home screen a pop-up window that requires the user to handle manually (see [leavePopup]). Wait up to two more [POPUP_SETTLE_MS]. */
     private suspend fun needsUserWindow(a: MainScreenSpill.Arrival, pkg: String): Boolean {
         if (isAuthenticatorUi(pkg)) return true
         val activity = a.topActivity?.let {
@@ -1280,7 +1405,9 @@ class AndroidScreen(
         }
         if (activity != null && activity.flags and ActivityInfo.FLAG_EXCLUDE_FROM_RECENTS != 0) return true
         val metrics = a11y.resources.displayMetrics
-        // 刚冒出来的窗口可能还在开场动画里(画得比整屏小),等它停稳再看一次,免得把普通 App 当成弹窗
+        // The window that just popped up may still be in the opening animation (drawn smaller than the
+        // entire screen). Wait until it stops and look at it again to avoid treating the ordinary app as
+        // a pop-up window.
         var window = topWindowOf(pkg)
         if (window == null) {
             delay(POPUP_SETTLE_MS)
@@ -1299,22 +1426,28 @@ class AndroidScreen(
         ScreenReader.contentWindows(a11y.windowsOn(Display.DEFAULT_DISPLAY)).firstOrNull { it.root?.packageName?.toString() == pkg }
 
     /**
-     * 这个包是不是系统的账号登录服务:登记了账号认证器(AccountManager.authenticatorTypes,平台数据),自己又没有桌面图标
-     * (没有 LAUNCHER 入口)。这种包没有自己的首页,冒到主屏上的只会是加账号、登录、验证、验证码一类页面,本身就是用户的事,
-     * 整屏、没有密码框也不能挪到 Mina 的屏上。有桌面图标的认证器包(同步联系人的聊天 App、邮箱 App 等)不算,
-     * 它们的会话、分享、写信页照常挪回。认证器表每次现读:新装的认证器也认得出,这一步只在有页面冒到主屏时才走。
+     * Is this package the system's account login service? The account authenticator
+     * (AccountManager.authenticatorTypes, platform data) is registered, but there is no desktop icon (no
+     * LAUNCHER entry). This kind of package does not have its own homepage. The only pages that pop up
+     * on the home screen are pages such as adding an account, logging in, verifying, and verifying
+     * codes. They are the user's business. The entire screen cannot be moved to Mina's screen without a
+     * password box. Authenticator packages with desktop icons (chat apps, email apps, etc. that
+     * synchronize contacts) are not counted, and their conversation, sharing, and writing pages will be
+     * moved back as usual. The authenticator table reads every time: The newly installed authenticator
+     * can also be recognized. This step is only taken when a page pops up on the home screen.
      */
     private fun isAuthenticatorUi(pkg: String): Boolean {
         val authenticators = runCatching { AccountManager.get(a11y).authenticatorTypes.mapNotNull { it.packageName }.toSet() }
             .getOrDefault(emptySet())
         if (pkg !in authenticators) return false
-        // 有桌面图标的包对 Mina 一定看得见(清单里查了 LAUNCHER);查不到才算没有
+        // Packages with desktop icons must be visible to Mina (check LAUNCHER in the list); if you can't
+        // find it, it's not there.
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg)
         val hasLauncher = runCatching { a11y.packageManager.queryIntentActivities(launcher, 0).isNotEmpty() }.getOrDefault(true)
         return MainScreenSpill.authenticatorUi(pkg, authenticators, hasLauncher)
     }
 
-    /** 窗口没有遮住整块屏:对话框、底部弹层、悬浮窗一类。 */
+    /** The window does not cover the entire screen: dialog boxes, bottom pop-ups, floating windows, etc. */
     private fun isNarrow(window: AccessibilityWindowInfo, metrics: android.util.DisplayMetrics): Boolean {
         val bounds = Rect()
         window.getBoundsInScreen(bounds)
@@ -1325,8 +1458,10 @@ class AndroidScreen(
         Spill(OpenedElsewhere(pkg, appLabel(pkg), pulledBack = false, inProfile = inProfileOf(pkg, a.userId), needsUser = true), null)
 
     /**
-     * 开到主屏上的是系统问「用哪一个打开」的窗口(系统的选择器,或系统包的窗口里的选项对得上装了两份的 App;
-     * 各系统的选择框不一定是原版那个):不挪,留给用户在自己屏上选,记下来让任务等着。不是为 null。
+     * What opens on the home screen is a window where the system asks "Which one to open with?" (The
+     * options in the system selector or system package window correspond to the two installed apps; the
+     * selection box of each system is not necessarily the original one): Do not move it, leave it to the
+     * user to choose on their own screen, write it down and let the task wait. Not null.
      */
     private suspend fun leaveForUser(a: MainScreenSpill.Arrival, pkg: String, w: Watch): Spill? {
         val system = isSystemPackage(pkg)
@@ -1337,14 +1472,15 @@ class AndroidScreen(
         return Spill(OpenedElsewhere(pkg, app, pulledBack = false, picker = true), choice)
     }
 
-    /** 把开到主屏上的任务挪到 Mina 的屏(只挪,不替它重新打开),等它到最上面;挪不动为 null。 */
+    /** Move the task opened on the home screen to Mina's screen (only move it, do not reopen it), and wait for it to reach the top; if it cannot be moved, it is null. */
     private suspend fun pullBack(a: MainScreenSpill.Arrival, pkg: String, byUser: Boolean = false): Spill? {
         if (!runCatching { shell.moveTask(a.taskId, displayId) }.getOrDefault(false)) {
             Log.w(TAG, "could not move task ${a.taskId} ($pkg) from the main screen")
             return null
         }
         adopted += a.taskId
-        // 事先不知道会开出哪个 App:挪回来后再占;占不到也不撤回
+        // You don’t know in advance which app will be released: you can move it back and then occupy it;
+        // if you can’t occupy it, you won’t withdraw it.
         if (checkOtherTasks) reserve(pkg)
         val deadline = SystemClock.uptimeMillis() + LAUNCH_WAIT_MS
         while (runCatching { shell.topTaskId(displayId) }.getOrDefault(-1) != a.taskId && SystemClock.uptimeMillis() < deadline) delay(POLL_MS)
@@ -1354,8 +1490,10 @@ class AndroidScreen(
     }
 
     /**
-     * 主屏上这个系统包的窗口是不是在问打开哪一个:事先不知道是为哪个 App 问的,拿装了两份的 App 的名字去对窗口里的选项
-     * (同一个 App 装了两份正是会这样问的情形);只读这个系统窗口,对不上为 null。
+     * Is the system package window on the home screen asking which one to open: I don’t know in advance
+     * which app it is asking for, so use the name of the two installed apps to compare the options in
+     * the window (this is the case when the same app is installed twice); if you only read this system
+     * window, it will be null if it does not match.
      */
     private suspend fun mainChooser(pkg: String): LaunchChoice? {
         val w = ScreenReader.contentWindows(a11y.windowsOn(Display.DEFAULT_DISPLAY)).firstOrNull { it.root?.packageName?.toString() == pkg } ?: return null
@@ -1368,9 +1506,13 @@ class AndroidScreen(
     }
 
     /**
-     * 任务在下一个改动屏幕的动作前调:等用户在主屏上选完(选之前一直盯着主屏)。选完后,开到主屏上的普通页面挪回 Mina 的屏
-     * (只挪,打开它的仍是原来那个 App);要用户亲手处理的(要输密码、窗口读不到,像付款、指纹)留在主屏,返回 [PickResult.NeedsUser];
-     * 开在了 Mina 屏上的一并算进来;用户把问题关了就照实说。没在等时为 null。
+     * The task is adjusted before the next action of changing the screen: wait for the user to finish
+     * selecting on the home screen (keep staring at the home screen before selecting). After selecting,
+     * open the normal page on the home screen and move it back to Mina's screen (only move it, the
+     * original app that opens it is still the same); those that require the user to handle manually
+     * (requiring a password, the window cannot be read, such as payment, fingerprints) remain on the
+     * home screen and return to [PickResult.NeedsUser]; those that are open on the Mina screen are also
+     * included; if the user closes the problem, tell the truth. It is null when not waiting.
      */
     suspend fun awaitUserPick(): PickResult? = withContext(Dispatchers.IO) {
         val p = _userPick.value ?: return@withContext null
@@ -1394,7 +1536,7 @@ class AndroidScreen(
                     pendingReport = pullBack(opened, pkg)
                     return@withContext PickResult.Settled
                 }
-                // 选中的 App 开在了 Mina 的屏上(从那边打开的)
+                // The selected app is opened on Mina's screen (opened from there)
                 val top = runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)
                 if (top >= 0 && top != p.agentTop && top !in adopted) {
                     adopted += top
@@ -1414,7 +1556,7 @@ class AndroidScreen(
         }
     }
 
-    /** 用户处理完([PickResult.NeedsUser])点了继续:它还在主屏上就挪回 Mina 的屏接着做,已经关了就照实说。 */
+    /** The user clicks Continue after processing ([PickResult.NeedsUser]): if it is still on the home screen, move it back to Mina's screen and continue, if it is already closed, just tell the truth. */
     suspend fun afterUserStep(r: PickResult.NeedsUser) = withContext(Dispatchers.IO) {
         val still = runCatching { shell.displayOfTask(r.taskId) }.getOrDefault(-1) == Display.DEFAULT_DISPLAY
         val moved = if (still) pullBack(MainScreenSpill.Arrival(r.taskId, r.packageName, r.userId, 0, Display.DEFAULT_DISPLAY, false, true, Display.DEFAULT_DISPLAY), r.packageName, byUser = true) else null
@@ -1422,13 +1564,18 @@ class AndroidScreen(
     }
 
     /**
-     * 主屏上这个 App 的窗口要用户亲手处理:有密码框,或树里读不出东西而截主屏时系统报防截屏窗口(截到的画面不留,马上丢掉)。
-     * 只看有没有,不读里面写了什么。
+     * The window of this App on the home screen requires the user to handle it manually: there is a
+     * password box, or when the home screen cannot be read and the system takes a screenshot of the home
+     * screen, the system reports a screenshot window (the captured screen is not retained and is
+     * immediately thrown away). Just look to see if it is there, not what is written in it.
      */
     private suspend fun needsUser(pkg: String): Boolean {
-        // 读的是用户主屏上的窗口,应用访问边界看不到:被禁用的不读
+        // What is read is the window on the user's home screen, and the application access boundary is
+        // not visible: disabled ones are not read.
         appAccess.current().denial(pkg)?.let { throw it }
-        // 刚上来的窗口要一会儿才读得到:读得到内容(或看到密码框)就下结论,到时限还读不到再看是不是防截屏
+        // It will take a while to read the window that just came up: draw a conclusion when you can read
+        // the content (or see the password box). If you still can't read it by the time limit, check
+        // whether it is anti-screenshot.
         val deadline = SystemClock.uptimeMillis() + PICK_READ_MS
         while (true) {
             val mine = ScreenReader.contentWindows(a11y.windowsOn(Display.DEFAULT_DISPLAY)).filter { it.root?.packageName?.toString() == pkg }
@@ -1445,8 +1592,10 @@ class AndroidScreen(
     }
 
     /**
-     * 动作之前 Mina 屏上最上面的是挪回来的任务(或从它里面打开的),动作之后最上面换成了另一个任务:
-     * 这个也是那条路上打开的,一并算进来。装了两份的 App 报开的是哪一份。
+     * Before the action, the topmost task on Mina's screen was the task that was moved back (or opened
+     * from it). After the action, the topmost task was changed to another task: this one was also opened
+     * on that road, and is included in the calculation. If there are two copies of the app installed,
+     * which one should be opened?
      */
     private suspend fun adoptFromAdopted(w: Watch?): String? {
         if (w == null || w.agentTopBefore !in adopted) return null
@@ -1457,7 +1606,7 @@ class AndroidScreen(
         return inProfileOf(pkg, runCatching { shell.userOfTask(top) }.getOrDefault(-1))
     }
 
-    /** 装了两份的 App 开的是哪一份:和 Mina 同一个用户的是本来那份;只装了一份或看不出为 null。 */
+    /** Which version of the app is opened when two copies are installed: the one used by the same user as Mina is the original one; if only one copy is installed or cannot be seen, it is null. */
     private suspend fun inProfileOf(pkg: String, userId: Int): String? {
         if (userId < 0 || pkg !in otherProfiles()) return null
         return if (userId == myUser) OpenedElsewhere.MAIN_PROFILE else OpenedElsewhere.OTHER_PROFILE
@@ -1498,7 +1647,7 @@ class AndroidScreen(
         }
     }
 
-    /** 等界面稳定后比对指纹(规则见 [ChangeWait]);确认变了立即返回 true。 */
+    /** Compare fingerprints after the interface is stable (see [ChangeWait] for rules); return true immediately if confirmed. */
     private suspend fun awaitChange(clock: EventClock, beforeTree: Long, beforeFrame: IntArray?): Boolean =
         ChangeWait.awaitStableChange(
             now = SystemClock::uptimeMillis,
@@ -1509,21 +1658,24 @@ class AndroidScreen(
             beforeFrame = beforeFrame,
         )
 
-    /** 前台不是目标 App、也不是它调起的系统页面或系统选择器时,返回当前前台包名及是否由目标 App 打开。 */
+    /** When the foreground is not the target App, nor the system page or system selector it calls up, the current foreground package name and whether it is opened by the target App are returned. */
     private fun switchedTo(): AppSwitch.Switch? {
         val target = _target.value
         return AppSwitch.switchedTo(
             targetPackage,
             ScreenReader.topPackage(windows()),
-            // 从用户主屏挪回来的(及从它们里面打开的)也是目标 App 这一路打开的
+            // What is moved back from the user's home screen (and what is opened from them) is also the
+            // target app that is opened this way.
             sameTask = {
                 val top = runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)
                 top >= 0 && (target != null && target.taskId == top || top in adopted)
             },
             partOfTask = chooserPackage?.let { systemPickers + it } ?: systemPickers,
             settingsPage = { it == settingsPackage },
-            // 同一个 App 装了两份:最上面换成了另一份用户里的那份(不是目标任务、也不是挪回来的)也算被切走
-            // 只在目标是另一份、或这个 App 列出过另一份时才问任务(只装一份的 App 每个动作不多问两次)
+            // The same App is installed twice: the top one is replaced by the one from another user (not
+            // the target task, nor the one that was moved back). It is also considered to be cut away.
+            // The task is only asked when the target is another copy, or the App has listed another copy
+            // (an App with only one copy installed is not asked more than twice for each action)
             otherCopy = {
                 target != null && target.userId >= 0 && (target.userId != myUser || target.packageName in copiedPackages) && run {
                     val top = runCatching { shell.topTaskId(displayId) }.getOrDefault(-1)
@@ -1534,8 +1686,9 @@ class AndroidScreen(
     }
 
     /**
-     * 打开时目标 App 还没到前台(系统先问打开哪一个、启动慢),之后它到了最上面:记下它的任务编号,
-     * 任务服务才能据此静音、盯着它有没有被挪走。
+     * When opening, the target App has not yet reached the foreground (the system first asks which one
+     * to open, and the startup is slow), and then it reaches the top: write down its task number, so
+     * that the task service can mute it accordingly, and keep an eye on whether it has been moved.
      */
     private suspend fun adoptTargetTask(): String? {
         val t = _target.value ?: return null
@@ -1544,11 +1697,12 @@ class AndroidScreen(
         if (task < 0) return null
         val user = userOf(task)
         _target.value = TargetApp(t.packageName, task, user)
-        // 系统问过打开哪一个(装了两份):报开的是哪一份
+        // The system asked which one to open (two copies were installed): which one was reported to be
+        // opened?
         return inProfileOf(t.packageName, user)
     }
 
-    /** 带上「是否被切走」的动作结果;[spill] 是这个动作开到用户主屏上的 App,[inProfile] 见 [ActionResult.Ok.inProfile]。 */
+    /** Bring the action result of "whether it was cut away"; [spill] is the App that this action opens on the user's home screen, [inProfile] see [ActionResult.Ok.inProfile]. */
     private suspend fun ok(
         changed: Boolean? = null, relocatedTo: String? = null, verification: Verification? = null,
         hint: String? = null, secret: Boolean = false, spill: Spill? = null, inProfile: String? = null,
@@ -1565,12 +1719,15 @@ class AndroidScreen(
         )
     }
 
-    /** 打开 App 时要的那份用户(另一份);要的是本来那份、或这次不是打开 App 为 null。 */
+    /** The user wants the copy when opening the App (another copy); the user wants the original copy, or it is null if the App is not opened this time. */
     @Volatile private var requestedUser: Int? = null
 
     /**
-     * 目标 App 装了两份(列出过另一份、要的就是另一份,或打开的就是另一份)时,此刻 Mina 屏上是哪一份:(inProfile, 所属用户)。
-     * 只装一份、最上面不是它或读不到为 null;只装一份的 App 不多问。
+     * When the target App is installed in two copies (the other one is listed, the other one is
+     * requested, or the other one is opened), which one is on the Mina screen at this moment:
+     * (inProfile, owned by the user). If only one copy is installed, if it is not at the top or cannot
+     * be read, it will be null; if only one copy of the App is installed, no further questions will be
+     * asked.
      */
     private fun shownCopy(): Pair<String, Int>? {
         val t = _target.value ?: return null
@@ -1580,11 +1737,13 @@ class AndroidScreen(
         return (if (user == myUser) OpenedElsewhere.MAIN_PROFILE else OpenedElsewhere.OTHER_PROFILE) to user
     }
 
-    // ---------- 编号解析 ----------
+    // ---------- Number analysis ----------
 
     /**
-     * 把编号解析成可操作的节点;经过重定位时第二个值是找回的元素现在的名字,否则为 null。
-     * 最新快照里的节点还在且没变就直接用;快照过期或节点变了,按原元素特征在当前界面里找唯一对应者。
+     * Parse the number into an operable node; the second value is the current name of the retrieved
+     * element after relocation, otherwise it is null. If the node in the latest snapshot is still there
+     * and has not changed, use it directly; if the snapshot expires or the node changes, find the unique
+     * corresponding one in the current interface based on the characteristics of the original element.
      */
     private fun resolve(ref: String, snapshotId: String): Pair<AccessibilityNodeInfo, String?>? {
         val (entry, snapshot) = when (val l = ids.lookup(ref, snapshotId)) {
@@ -1602,7 +1761,7 @@ class AndroidScreen(
         }
     }
 
-    /** 节点还在,且类型、名字、资源 ID、位置都和快照时一样(列表复用后同一个节点可能换了内容)。 */
+    /** The node is still there, and the type, name, resource ID, and location are the same as in the snapshot (the same node may have changed content after the list is reused). */
     private fun unchanged(entry: NodeEntry): Boolean {
         val n = entry.node
         if (!n.refresh()) return false
@@ -1611,15 +1770,17 @@ class AndroidScreen(
     }
 
     private sealed interface Field {
-        /** [tapped]:给的元素本身不是输入框,点了它之后才出现(或聚焦了)真正的输入框。 */
+        /** [tapped]: The given element itself is not an input box. The real input box appears (or is focused) only after clicking it. */
         class Found(val node: AccessibilityNodeInfo, val tapped: Boolean = false, val relocatedTo: String? = null) : Field
         class Missing(val reason: String) : Field
     }
 
     /**
-     * 找要输入的框。给了编号:元素本身或它里面的输入框;都不是、而它看上去是输入入口(首页那条「假搜索框」:
-     * 可点、不是按钮、带提示语或名字像搜索)时先点它,点成功且出现了一个点之前没有的、拿着焦点的输入框,才用那个框。
-     * 没给编号:当前拿着输入焦点的框。
+     * Find the box to enter. Given the number: neither the element itself nor the input box inside it,
+     * but it looks like an input entrance (the "fake search box" on the homepage: clickable, not a
+     * button, with a prompt or a name like search), click it first, and only use that box if the click
+     * succeeds and an input box with focus appears that was not there before. Not numbered: The box
+     * currently holding input focus.
      */
     private suspend fun findField(ref: String?, snapshotId: String?, tapToFocus: Boolean = true): Field {
         if (ref != null && snapshotId != null) {
@@ -1638,7 +1799,7 @@ class AndroidScreen(
         return focusedEditable()?.let { Field.Found(it) } ?: Field.Missing(NO_FOCUS)
     }
 
-    /** 认「同一个输入框」用的特征:类型、资源 ID、位置大小。 */
+    /** Characteristics used to identify "the same input box": type, resource ID, location size. */
     private data class FieldShape(val cls: String?, val rid: String?, val rect: android.graphics.Rect) {
         companion object {
             fun of(n: AccessibilityNodeInfo) =
@@ -1649,7 +1810,8 @@ class AndroidScreen(
     private fun sameField(a: FieldShape, n: AccessibilityNodeInfo): Boolean {
         val b = FieldShape.of(n)
         if (a.cls != b.cls || a.rid != b.rid) return false
-        // 大小要几乎一样;位置允许整页挪动一点(输入时页面常会上移),和编号找回用同一个上限
+        // The sizes should be almost the same; the position allows the entire page to move a little (the
+        // page often moves up when typing), and the same upper limit is used for number retrieval.
         val short = min(display.width, display.height)
         val sizeTol = short * SAME_FIELD_SIZE
         val moveTol = short * RELOCATE_MAX_SHIFT
@@ -1657,7 +1819,7 @@ class AndroidScreen(
             kotlin.math.hypot((a.rect.centerX() - b.rect.centerX()).toDouble(), (a.rect.centerY() - b.rect.centerY()).toDouble()) <= moveTol
     }
 
-    /** 像输入入口:可点,不是按钮类,且带提示语或名字像搜索。 */
+    /** Image input entrance: clickable, not button type, and with prompts or names like search. */
     private fun looksLikeInputEntry(n: AccessibilityNodeInfo): Boolean {
         val target = ancestorOrSelf(n) { it.isClickable } ?: return false
         val cls = target.className?.toString().orEmpty()
@@ -1668,13 +1830,15 @@ class AndroidScreen(
     }
 
     /**
-     * 这块屏上有东西拿着输入焦点(哪怕不是树里的输入框,比如 App 自己画的界面整块拿着焦点),或弹着输入法。
-     * 都没有时按键没有框可去:树里看不到的输入框也只有拿着焦点才收得到粘贴。
+     * There is something on this screen holding the input focus (even if it is not the input box in the
+     * tree, such as the entire interface drawn by the App itself holding the focus), or the input method
+     * is playing. When there are none, there is no box to press the button: the input box that cannot be
+     * seen in the tree can only be received and pasted with the focus.
      */
     private fun somethingHoldsInputFocus(): Boolean =
         imeBox() != null || ScreenReader.contentWindows(windows()).any { it.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) != null }
 
-    /** 这块屏上拿着输入焦点的可编辑框;焦点落在容器(如网页)上时找它里面聚焦的可编辑节点。 */
+    /** This screen holds the editable box with input focus; when the focus falls on a container (such as a web page), look for the focused editable node inside it. */
     private fun focusedEditable(): AccessibilityNodeInfo? {
         for (w in ScreenReader.contentWindows(windows())) {
             val focused = w.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: continue
@@ -1684,9 +1848,9 @@ class AndroidScreen(
         return null
     }
 
-    // ---------- 底层操作 ----------
+    // ---------- Low-level operations ----------
 
-    /** 优先对节点(或最近的可点祖先)发点击;不行再在其中心做手势,最后注入触摸。 */
+    /** Click on the node (or the nearest pointable ancestor) first; if not, gesture at its center, and finally inject touch. */
     private suspend fun click(node: AccessibilityNodeInfo): Boolean {
         val target = ancestorOrSelf(node) { it.isClickable && it.isEnabled }
         if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
@@ -1696,7 +1860,7 @@ class AndroidScreen(
 
     private suspend fun tapAt(x: Int, y: Int): Boolean = touch(pacing.near(x, y))
 
-    /** 在这一点上点一下:先停一会儿再落指,按住随机的一小会儿。无障碍手势不行时由内置助手注入触摸。 */
+    /** Click at this point: pause for a moment, then lower your finger and hold for a random moment. Built-in assistant injects touch when accessibility gestures fail. */
     private suspend fun touch(at: Pair<Int, Int>): Boolean {
         val (x, y) = at
         delay(pacing.approach())
@@ -1707,8 +1871,12 @@ class AndroidScreen(
     }
 
     /**
-     * 一根手指沿 [points] 滑动。有节奏时按 [GesturePacing.stroke] 排好每个点的时刻,由内置助手逐点注入(App 看到先快后慢的真实速度);
-     * 助手注不了时退回无障碍手势沿同一条弧线走(系统按路径匀速走,只少了快慢)。不加节奏时和以前一样:无障碍手势按给定时长匀速走折线。
+     * Slide a finger along [points]. When there is a rhythm, press [GesturePacing.stroke] to arrange the
+     * time of each point, and the built-in assistant will inject it point by point (the App will see the
+     * real speed of first fast and then slow); when the assistant cannot notice, return to the
+     * barrier-free gesture and walk along the same arc (the system will follow the path at a constant
+     * speed, only the speed is missing). Without rhythm, it is the same as before: the barrier-free
+     * gesture moves at a constant speed for a given duration.
      */
     private suspend fun drag(points: List<Pair<Int, Int>>, durationMs: Long, bow: Boolean): Boolean {
         if (!pacing.paced) return a11y.gesture(displayId, pathOf(points), durationMs)
@@ -1733,14 +1901,18 @@ class AndroidScreen(
     }
 
     /**
-     * 网页里的编辑区(contenteditable)只认真实输入:SET_TEXT 只改了网页上的字,编辑器收不到 input 事件,
-     * App 会当作没输入(「完成」不亮、退出不保存)。这类输入框改用选中原内容再粘贴或按删除键。
+     * The editing area (contenteditable) in the web page only accepts actual input: SET_TEXT only
+     * changes the words on the web page. The editor cannot receive the input event, and the App will
+     * treat it as no input ("Complete" will not light up, exit without saving). For this type of input
+     * box, select the original content and then paste it or press the delete key.
      */
     private fun inWebView(node: AccessibilityNodeInfo) = ancestorOrSelf(node) { it.className == WEB_VIEW } != null
 
     /**
-     * 选中原内容后粘贴(或按删除键清空)。返回 null 表示剪贴板不能安全使用(读不到用户原来的内容等),没有改动任何东西。
-     * 剪贴板只在这一次粘贴期间是 Mina 的:App 读完(字变了)或超时就还原。
+     * Select the original content and paste it (or press the delete key to clear it). Returning null
+     * means that the clipboard cannot be used safely (the user's original content cannot be read, etc.)
+     * and nothing has been changed. The clipboard is Mina's only during this pasting period: the app
+     * will restore it after reading (the words have changed) or timeout.
      */
     private fun inputText(node: AccessibilityNodeInfo, text: String): Boolean? {
         node.refresh()
@@ -1764,7 +1936,8 @@ class AndroidScreen(
             runCatching { shell.savedClipText() }.getOrNull()?.let { clipSaved(it, text) }
             selectAll()
             if (!node.performAction(AccessibilityNodeInfo.ACTION_PASTE)) return false
-            // App 是异步去读剪贴板的:等字变了再还原,最多等一会儿
+            // The app reads the clipboard asynchronously: wait for the word to change and then restore
+            // it. Wait a while at most.
             val deadline = SystemClock.uptimeMillis() + PASTE_WAIT_MS
             while (SystemClock.uptimeMillis() < deadline) {
                 if (node.refresh() && node.text?.toString().orEmpty() != before) break
@@ -1805,29 +1978,29 @@ class AndroidScreen(
         return null
     }
 
-    // ---------- 画面 ----------
+    // ---------- Screen ----------
 
-    /** 预览帧的粗粒度亮度格子;没有画面时为 null。 */
+    /** The coarse-grained brightness grid of the preview frame; null if there is no frame. */
     private fun frameSignature(): IntArray? {
         val bmp = display.current?.frames?.value ?: return null
         return runCatching { FrameMath.lumaGrid(bmp.width, bmp.height, bmp::getPixel) }.getOrNull()
     }
 
-    /** 画面是否全黑(防截屏窗口在虚拟屏上画成黑色);没有画面时为 null。 */
+    /** Whether the screen is completely black (the anti-screenshot window is drawn black on the virtual screen); if there is no screen, it is null. */
     private fun frameBlack(): Boolean? {
         val bmp = display.current?.frames?.value ?: return null
         return runCatching { FrameMath.isBlack(bmp.width, bmp.height, bmp::getPixel) }.getOrNull()
     }
 
-    // ---------- 事件时钟 ----------
+    // ---------- Event clock ----------
 
-    /** 记录这块屏上最近一次界面事件的时间。 */
+    /** Record the time of the latest interface event on this screen. */
     private class EventClock {
         private val last = AtomicLong(SystemClock.uptimeMillis())
         fun mark() = last.set(SystemClock.uptimeMillis())
         fun quietForMs() = SystemClock.uptimeMillis() - last.get()
 
-        /** 等到连续 [quietMs] 没有界面事件;[capMs] 内等到返回 true。 */
+        /** Wait until there is no interface event in consecutive [quietMs]; wait until it returns true in [capMs]. */
         suspend fun awaitQuiet(quietMs: Long, capMs: Long): Boolean {
             val deadline = SystemClock.uptimeMillis() + capMs.coerceAtLeast(0)
             while (true) {
@@ -1840,7 +2013,7 @@ class AndroidScreen(
         }
     }
 
-    /** 在订阅该屏无障碍事件期间执行 [block];订阅先于 block 建立,不会漏掉动作引起的第一批事件。 */
+    /** Execute [block] during the subscription to the screen accessibility events; the subscription is established before the block, so the first batch of events caused by the action will not be missed. */
     private suspend fun <T> withEventClock(block: suspend (EventClock) -> T): T = coroutineScope {
         val clock = EventClock()
         val job = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -1855,27 +2028,30 @@ class AndroidScreen(
 
     private companion object {
         const val TAG = "MinaScreen"
-        /** 动作开始后多久之内主屏冒出来的任务算这个动作开出来的。 */
+        /** The tasks that appear on the home screen within a certain period of time after the action starts are considered to be initiated by this action. */
         const val SPILL_WINDOW_MS = 6_000L
         /**
-         * 窗口的宽、高都至少有主屏的这么多才算整屏的页面;比这小的是对话框、底部弹层一类。
-         * 留得宽一些:状态栏、导航栏、挖孔会让整屏 App 的窗口也比屏小一截,横屏时导航栏还在侧边。
+         * The width and height of the window must be at least as much as the main screen to be
+         * considered a full-screen page; smaller than this are dialog boxes and bottom pop-ups. Keep it
+         * wider: the status bar, navigation bar, and hole-digging will make the full-screen App window
+         * smaller than the screen. The navigation bar is still on the side when the screen is
+         * horizontal.
          */
         const val FULL_SCREEN_SHARE = 0.8f
-        /** 刚冒出来的窗口可能还在开场动画里:等这么久再看一次,确认它是不是一直不是整屏。 */
+        /** The window that just popped up may still be in the opening animation: wait this long and look at it again to confirm whether it is not the entire screen. */
         const val POPUP_SETTLE_MS = 300L
         const val MAX_USER_TAPS = 32
-        /** 用户在主屏的选择框里选了之后,等选中的 App 上来最多多久;等着用户选时多久看一次。 */
+        /** After the user makes a selection in the selection box on the home screen, how long should the user wait for the selected app to come up? How often should the user wait for the selected app to be viewed. */
         const val PICK_WAIT_MS = 3_000L
         const val PICK_POLL_MS = 300L
-        /** 选择框关掉之前多久冒出来的也算选出来的(看选择框关没关是隔一会儿看一次的)。 */
+        /** The items that pop up before the selection box is closed are also considered selected (you need to check whether the selection box is closed or not after a while). */
         const val PICK_SLACK_MS = 1_000L
-        /** 选出来的 App 上来后,至多等这么久读它的窗口,看要不要用户亲手处理。 */
+        /** After the selected App is uploaded, you can wait at least this long to read its window and see if the user needs to handle it personally. */
         const val PICK_READ_MS = 2_000L
         val NO_APP_OPEN = ActionResult.Failed("no_app_open")
         const val NO_FOCUS = "no_focus"
         const val PER_USER_RANGE = 100_000
-        /** Mina 所在的用户:本来那份 App 在这里。 */
+        /** User where Mina is: The original app is here. */
         val myUser: Int get() = AppCopyReader.myUser
         const val COPY_NOT_FOUND = "copy_not_found"
         const val COPY_NOT_OPENED = "copy_not_opened"
@@ -1885,13 +2061,13 @@ class AndroidScreen(
 
         const val QUIET_MS = 500L
 
-        /** 停留里轻轻滚的那块可滚动内容至少占屏幕这么大。 */
+        /** The piece of scrollable content gently scrolling in Stay takes up at least this much of the screen. */
         const val IDLE_MIN_AREA = 0.5
 
-        /** 停留里轻轻滚一下至少这么多像素(再少看不出)。 */
+        /** Stay and roll gently to at least this many pixels (any less you won’t be able to see it). */
         const val IDLE_MIN_PX = 8
 
-        /** 停留里轻轻滚一下的时长:够慢,当慢拖,停稳再抬手。 */
+        /** The duration of rolling gently while staying: slow enough, drag slowly, stop and then raise your hand. */
         const val IDLE_SCROLL_MS = 900L
         const val CHECK_CAP_MS = 1_500L
         const val SECOND_LOOK_QUIET_MS = 300L
@@ -1903,13 +2079,13 @@ class AndroidScreen(
         const val IN_USE_RETRY_MS = 3_000L
         const val IN_USE_POLL_MS = 500L
         const val POLL_MS = 100L
-        /** 设闹钟后等系统的下一个闹钟变,最多这么久、这么久看一次。 */
+        /** After setting the alarm clock, wait for the next alarm clock of the system to change, and you can only watch it once in this long time. */
         const val ALARM_WAIT_MS = 3_000L
         const val ALARM_POLL_MS = 150L
         const val SYSTEM_ACTION_REQUEST = 0x5A
-        /** 拖滚轮的时长:不短于节奏里的慢拖时长,松手时已经停住。 */
+        /** The duration of dragging the roller: no shorter than the slow drag duration in the rhythm, and it has stopped when you let go. */
         const val WHEEL_DRAG_MS = 1_000L
-        /** 慢拖拖不动时快划一下的时长(像人手划滚轮)。 */
+        /** The duration of a quick swipe when slow dragging stops (like a human hand swiping a scroll wheel). */
         const val WHEEL_SWIPE_MS = 400L
         const val TYPE_ATTEMPTS = 2
         const val WEB_VIEW = "android.webkit.WebView"
@@ -1928,7 +2104,8 @@ class AndroidScreen(
         const val HINT_COLD_IGNORED = "coldIgnored: app has a task outside Harness Agent's screen, so it was not restarted (that would wipe the user's state there). It was opened as-is; navigate back to its start screen yourself if needed."
         const val MAX_ANCESTORS = 8
 
-        // 悬停、触摸探索、手势识别、无障碍焦点这些不是界面内容的变化
+        // Hover, touch exploration, gesture recognition, and accessibility focus are not changes in
+        // interface content.
         const val IGNORED_EVENTS = AccessibilityEvent.TYPE_VIEW_HOVER_ENTER or AccessibilityEvent.TYPE_VIEW_HOVER_EXIT or
             AccessibilityEvent.TYPE_TOUCH_EXPLORATION_GESTURE_START or AccessibilityEvent.TYPE_TOUCH_EXPLORATION_GESTURE_END or
             AccessibilityEvent.TYPE_GESTURE_DETECTION_START or AccessibilityEvent.TYPE_GESTURE_DETECTION_END or
@@ -1937,7 +2114,7 @@ class AndroidScreen(
     }
 }
 
-/** 桌面上能打开的 App(包名, 显示名),不含 Mina 自己;只用包管理器,不要内置助手和无障碍。 */
+/** Apps that can be opened on the desktop (package name, display name), excluding Mina itself; only use the package manager, without built-in assistants and accessibility. */
 fun launchableApps(pm: android.content.pm.PackageManager, ownPackage: String): List<Pair<String, String>> {
     val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     return pm.queryIntentActivities(launcher, 0)
@@ -1946,3 +2123,4 @@ fun launchableApps(pm: android.content.pm.PackageManager, ownPackage: String): L
         .distinctBy { it.first }
         .sortedBy { it.second }
 }
+

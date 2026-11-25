@@ -12,7 +12,7 @@ import com.meenai.mina.core.tool.ToolConfig
 import com.meenai.mina.core.tool.ToolDispatcher
 import com.meenai.mina.core.uistate.Interfaces
 
-/** 每个 Run 在开局由 Provider 打开能力；Provider 捕获自己的端口与资源，不进入核心循环。 */
+/** The Provider opens the capabilities of each Run at the start; the Provider captures its own ports and resources without entering the core loop. */
 internal interface CapabilityProvider {
     val id: String
     fun open(spec: RunSpec): Capability?

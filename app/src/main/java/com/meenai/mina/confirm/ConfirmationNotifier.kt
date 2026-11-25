@@ -15,16 +15,18 @@ import com.meenai.mina.core.gate.ConfirmationRequest
 import com.meenai.mina.core.risk.IrrevAction
 
 /**
- * 确认卡片和通知上的文字。字段都是模型写的:只当纯文本用(不解析任何标记);
- * 换行、行分隔符压成空格,去掉控制字符、零宽字符和文字方向控制符;
- * 字段里的「·」和冒号换成别的符号,拼不出假的「· 金额:」一类字段。
+ * Confirm the text on cards and notifications. The fields are all written by the model: they can only be
+ * used as plain text (no tags are parsed); line breaks and line delimiters are pressed into spaces, and
+ * control characters, zero-width characters and text direction control characters are removed; "·" and
+ * colons in the fields are replaced with other symbols, so that fake "· Amount:" fields cannot be
+ * spelled out.
  */
 object ConfirmationCopy {
-    /** 收起时那一行里内容显示的字数。 */
+    /** The number of words displayed in that line when collapsed. */
     const val CONTENT_MAX = 60
-    /** 展开的卡片和通知里内容最多显示的字数(和申报时的上限一致)。 */
+    /** The maximum number of words that can be displayed in expanded cards and notifications (the same as the upper limit when reporting). */
     const val DETAIL_MAX = 200
-    /** 确认卡片上的说明:只有花钱的操作要你同意,每次只同意这一次。 */
+    /** Confirm the instructions on the card: You only need to agree to the operation of spending money, and only agree to this once at a time. */
     val NOTE: String get() = tr(R.string.confirm_note)
 
     fun actionLabel(action: IrrevAction): String = when (action) {
@@ -38,10 +40,10 @@ object ConfirmationCopy {
 
     fun title(r: ConfirmationRequest) = tr(R.string.confirm_title, actionLabel(r.action))
 
-    /** 收起的一行:「在 <App 名> · 对象:<对谁> · 内容:<前 60 字> · 金额:<多少>」;空的字段不写。 */
+    /** The collapsed line: "In <App name> · Object: <To whom> · Content: <First 60 words> · Amount: <How much>"; empty fields are not written. */
     fun body(r: ConfirmationRequest, appName: String): String = fields(r, appName, CONTENT_MAX).joinToString(" · ")
 
-    /** 展开的卡片和通知大字:一行一个字段,内容显示完整(最多 200 字)。 */
+    /** Expanded card and notification large text: one field per line, with complete content displayed (up to 200 words). */
     fun detail(r: ConfirmationRequest, appName: String): String = fields(r, appName, DETAIL_MAX).joinToString("\n")
 
     private fun fields(r: ConfirmationRequest, appName: String, contentMax: Int): List<String> {
@@ -63,12 +65,12 @@ object ConfirmationCopy {
         .trim()
 }
 
-/** 确认关卡的醒目通知:和接管同一个高优先级频道,按钮「同意」「不同意」。 */
+/** Eye-catching notice for confirming the level: and taking over the same high-priority channel, buttons "Agree" and "Disagree". */
 object ConfirmationNotifier {
-    /** 通知按钮和卡片按钮带上它,服务据此丢掉点在旧通知、旧卡片上的回答。 */
+    /** Notification buttons and card buttons bring it, and the service accordingly discards answers clicked on old notifications and old cards. */
     const val EXTRA_REQUEST = "confirmation_request"
 
-    /** App 的显示名;读不到(没装、包不可见)时用包名。 */
+    /** The display name of the App; use the package name when it cannot be read (not installed, the package is not visible). */
     fun appLabel(context: Context, packageName: String): String = try {
         val pm = context.packageManager
         pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString().ifBlank { packageName }
@@ -76,19 +78,19 @@ object ConfirmationNotifier {
         packageName
     }
 
-    /** 每次申报一个编号:循环每次申报都新建一个等待状态,同一进程里的服务和界面拿到的是同一个对象。 */
+    /** Declare a number each time: Each time the loop declares, a new waiting state is created. The service and interface in the same process get the same object. */
     fun requestKey(state: TaskState.WaitingConfirmation): Int = System.identityHashCode(state)
 
-    /** 按钮 Intent 的 data:每次申报、每个按钮各不相同,系统不会把旧通知上的按钮换成新申报的。 */
+    /** The data of the button Intent: each declaration and each button are different. The system will not replace the button on the old notification with the newly declared one. */
     fun intentData(key: Int, approve: Boolean) = "mina-confirm://request/$key/" + if (approve) "approve" else "decline"
 
     fun build(
         context: Context, channel: String, state: TaskState.WaitingConfirmation, service: Class<*>, approveAction: String, declineAction: String,
         contentIntent: PendingIntent,
-        /** 几个任务同时等确认时各用一段请求码,按钮再带上 [runExtra] 标明是哪个任务的。 */
+        /** When several tasks are waiting for confirmation at the same time, each uses a request code, and the button carries [runExtra] to indicate which task it is. */
         codeOffset: Int = 0,
         runExtra: Pair<String, String>? = null,
-        /** 照发但不响、不弹横幅(悬浮胶囊正在显示时),见 [alertQuietly]。 */
+        /** It still sends but does not sound or banner pops up (when the suspended capsule is being displayed), see [alertQuietly]. */
         quiet: Boolean = false,
     ): Notification {
         val r = state.request
@@ -102,11 +104,12 @@ object ConfirmationNotifier {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT,
             )
             return Notification.Action.Builder(null, context.getString(title), pi).apply {
-                // 锁屏上点「同意」要先解锁
+                // Click "Agree" on the lock screen to unlock it first
                 if (approve && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setAuthenticationRequired(true)
             }.build()
         }
-        // 锁屏上只露出要同意哪一类操作,对象和内容解锁后才看得到
+        // Only the type of operation you need to agree to is shown on the lock screen. The objects and
+        // content can only be seen after unlocking them.
         val public = Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(ConfirmationCopy.title(r))

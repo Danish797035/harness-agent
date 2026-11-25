@@ -15,11 +15,12 @@ class FeatureFlagsSpeedTest {
 
     @Test fun earlierUpgradeOnlyAddsReplayOnce() {
         val prefs = FeatureFlagsCapsuleTest.MemoryPrefs()
-        // 上一版升级过、用户又关掉了连续操作:这次只加上回放,不动别的
+        // The previous version has been upgraded, and the user has turned off continuous operation: this
+        // time only playback is added, and nothing else is done.
         prefs.edit().putString("speed_flags", "inlineScreen,adaptiveVision").putBoolean("speed_defaults_applied_v2", true).commit()
         val flags = FeatureFlags(prefs)
         assertEquals(SpeedFlags(inlineScreen = true, adaptiveVision = true, replay = true), flags.speedFlags())
-        // 升级之后用户手动关掉回放就保持关闭
+        // After the upgrade, if the user manually turns off playback, it will remain turned off.
         flags.setSpeed(flags.speedFlags().copy(replay = false))
         assertFalse(FeatureFlags(prefs).speedFlags().replay)
     }

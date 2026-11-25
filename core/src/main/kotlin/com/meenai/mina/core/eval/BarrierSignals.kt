@@ -1,8 +1,10 @@
 package com.meenai.mina.core.eval
 
 /**
- * 屏上看得出的障碍:登录墙、人机验证各自的字样(登录框、验证码输入、重新登录按钮……)。
- * 评测只在屏上真有这种字样时才认模型报告的障碍([RunFacts.takeoverBarrier]),不只听模型说。
+ * Visible obstacles on the screen: login wall, respective words for human-machine verification (login
+ * box, verification code input, re-login button...). The reviewer only recognized the obstacle reported
+ * by the model when there were such words on the screen ([RunFacts.takeoverBarrier]), not just what the
+ * model said.
  */
 object BarrierSignals {
     private val SIGNALS = mapOf(
@@ -13,10 +15,11 @@ object BarrierSignals {
         "captcha" to listOf("人机验证", "安全验证", "滑块验证", "拖动滑块", "请完成验证", "验证您是真人", "captcha", "verify you are human", "not a robot"),
     )
 
-    /** [texts](一屏的元素文字)里有 [kind] 这种障碍的字样;不认识的障碍种类为 false。 */
+    /** [texts] (一屏的元素文字) contains the words [kind] for obstacles; the type of obstacle that is not recognized is false. */
     fun shows(kind: String, texts: List<String>): Boolean {
         val words = SIGNALS[kind] ?: return false
         val text = texts.joinToString("\n").lowercase()
         return words.any { it in text }
     }
 }
+

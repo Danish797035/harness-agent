@@ -1,33 +1,35 @@
 package com.meenai.mina.core.uistate
 
 /**
- * 判动作效果用的全部门槛,集中在一处。都是先定的初值,要按真机上记下的运行(动作前后的界面与结果)校准,
- * 改动时连同 ActionEffectTest、FrameDiffTest 的样例一起看。坐标都按 0–999 归一化。
+ * All thresholds for judging action effects are gathered in one place. They are all predetermined
+ * initial values, which need to be calibrated according to the operations recorded on the real machine
+ * (the interface and results before and after the action). When making changes, look at the samples of
+ * ActionEffectTest and FrameDiffTest together. Coordinates are normalized to 0–999.
  */
 object EffectTuning {
-    // ---- 界面结构 ----
-    /** 明显变了:至少这么多处变化…… */
+    // ---- Interface structure ----
+    /** Obviously changed: at least this many changes... */
     const val MAJOR_MIN = 3
-    /** ……且至少占元素的这个比例。 */
+    /** ...and account for at least this proportion of the elements. */
     const val MAJOR_SHARE = 0.10
-    /** 同一个输入框换了字:前后中心相距不超过这么远。 */
+    /** The same input box has changed words: the distance between the front and back centers is no more than this far. */
     const val NEAR = 50
-    /** 读回时认同一个输入框:中心相距不超过这么远。 */
+    /** When reading back, identify an input box: the centers are no more than this far apart. */
     const val SAME_FIELD = 120
-    /** 有信息量的元素少于这么多(自绘界面)时,大面积的画面变化也算明显变了。 */
+    /** When there are less than this many information-rich elements (self-drawn interface), large-area screen changes can be considered obvious changes. */
     const val FEW_ELEMENTS = 3
 
-    // ---- 画面(旁证;格子与阈值见 FrameTuning) ----
-    /** 坐标动作看落点周围多大一块(半宽)。 */
+    // ---- Picture (circumstantial evidence; see FrameTuning for grid and threshold) ----
+    /** The coordinate action depends on the size of the area (half width) around the landing point. */
     const val POINT_REGION = 60
 
-    // ---- 等待 ----
-    /** 端口没有在动作里等过界面时,判效果前等界面稳定的上限。 */
+    // ---- wait ----
+    /** When the port does not wait for the interface in the action, the upper limit of the stability of the interface before the effect is determined. */
     const val SETTLE_MS = 1_500L
-    /** 看起来没变时再等这么久重看一次(界面可能是异步更新的)。 */
+    /** If it seems the same, wait this long and watch it again (the interface may be updated asynchronously). */
     const val RECHECK_MS = 700L
-    /** 动作前看一眼最多花的时间;来不及就只按端口的事实判。 */
+    /** It takes the most time to take a look before taking action; if it is too late, just judge based on the facts of the port. */
     const val PROBE_MS = 1_000L
-    /** 动作之后判效果最多多花的时间(等待加读界面);到了就按已有的事实下结论。 */
+    /** The maximum amount of time it will take to judge the effect after the action (waiting for the additional reading interface); when it arrives, draw conclusions based on the existing facts. */
     const val BUDGET_MS = 2_500L
 }

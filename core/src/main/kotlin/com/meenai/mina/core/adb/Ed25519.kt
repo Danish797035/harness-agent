@@ -3,9 +3,11 @@ package com.meenai.mina.core.adb
 import java.math.BigInteger
 
 /**
- * edwards25519 上的点运算(扩展齐次坐标 X:Y:Z:T,x=X/Z、y=Y/Z、xy=T/Z),公式与编码按 RFC 8032 §5.1。
- * 只给配对时的 SPAKE2 用:每次配对只做几次标量乘,BigInteger 足够快;不追求常数时间,
- * 因为私钥是一次性的,配对码在局域网对话框里本来就可见。
+ * Point operations on edwards25519 (extended homogeneous coordinates X:Y:Z:T, x=X/Z, y=Y/Z, xy=T/Z), the
+ * formula and encoding are according to RFC 8032 §5.1. Only used for SPAKE2 during pairing: only a few
+ * scalar multiplications are performed for each pairing, BigInteger is fast enough; constant time is not
+ * pursued, because the private key is one-time, and the pairing code is already visible in the LAN
+ * dialog box.
  */
 internal class EdPoint private constructor(
     private val x: BigInteger,
@@ -40,13 +42,13 @@ internal class EdPoint private constructor(
         return acc
     }
 
-    /** 仿射坐标 (x, y),都在 [0, p) 内。 */
+    /** Affine coordinates (x, y), are all within [0, p). */
     fun affine(): Pair<BigInteger, BigInteger> {
         val zi = z.mod(P).modInverse(P)
         return (x * zi).mod(P) to (y * zi).mod(P)
     }
 
-    /** 32 字节:y 小端,最高位放 x 的奇偶。 */
+    /** 32 bytes: y is little endian, and the highest bit holds the parity of x. */
     fun encode(): ByteArray {
         val zi = z.mod(P).modInverse(P)
         val ax = x * zi % P
@@ -62,10 +64,11 @@ internal class EdPoint private constructor(
     override fun hashCode(): Int = encode().contentHashCode()
 
     companion object {
-        // 不用 BigInteger.TWO:安卓 13 才有这个字段,安卓 12 上类一加载就抛 NoSuchFieldError,配对时整个进程崩掉
+        // No need BigInteger.TWO: This field is only available in Android 13. NoSuchFieldError is thrown
+        // as soon as the class is loaded in Android 12, and the entire process crashes during pairing.
         private val TWO = BigInteger.valueOf(2)
         val P: BigInteger = TWO.pow(255) - BigInteger.valueOf(19)
-        /** 素数阶子群的阶。 */
+        /** The order of the subgroup of prime order. */
         val L: BigInteger = TWO.pow(252) + BigInteger("27742317777372353535851937790883648493")
         private val D: BigInteger = (BigInteger.valueOf(-121665) * BigInteger.valueOf(121666).modInverse(P)).mod(P)
         private val D2 = D * TWO % P
@@ -77,7 +80,7 @@ internal class EdPoint private constructor(
             decode(hex("5866666666666666666666666666666666666666666666666666666666666666")),
         )
 
-        /** RFC 8032 §5.1.3;不在曲线上或编码不规范时返回 null。 */
+        /** RFC 8032 §5.1.3; Returns null if not on the curve or if the encoding is not standardized. */
         fun decode(bytes: ByteArray): EdPoint? {
             if (bytes.size != 32) return null
             val raw = bytes.copyOf()

@@ -23,7 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 一屏:登录、两个关注、删除、一个搜索框和「提交订单」;记下端口收到的动作。 */
+/** One screen: login, two followings, deletion, a search box and "submit order"; note the actions received by the port. */
 private class Shop : ScreenPort by FakeScreen() {
     val calls = mutableListOf<String>()
     private var reads = 0
@@ -39,7 +39,7 @@ private class Shop : ScreenPort by FakeScreen() {
     override suspend fun typeText(ref: String?, snapshotId: String?, text: String) = ActionResult.Ok(changed = true).also { calls += "type $ref $text" }
 }
 
-/** 按描述指目标:先在此刻那一屏里换成编号,之后判定、审批、执行和按编号的一样;对不上就不做。 */
+/** Point to the object according to the description: first change the number on the current screen, and then judge, approve, and execute the same as according to the number; if it does not match, do not do it. */
 class DescribedActionsTest {
     private val sink = object : RunSink { override fun event(e: com.meenai.mina.core.record.RunEvent) {} }
 
@@ -85,7 +85,7 @@ class DescribedActionsTest {
         assertEquals("confirmation_required", o.code)
         assertEquals(IrrevAction.order, o.hit?.action)
         assertTrue(screen.calls.isEmpty())
-        // 删除不花钱:按描述找到就做
+        // Deletion costs nothing: just follow the description and find it.
         assertTrue(run(executor(toolDispatcher(screen)), "phone_tap", """{"element":"删除"}""") is ActionOutcome.Ran)
         assertEquals(listOf("tap @e4"), screen.calls)
     }

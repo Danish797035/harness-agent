@@ -4,8 +4,11 @@ import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.record.RunSink
 
 /**
- * 运行记录按因果先后写:一次调用里读到、记进证据账本的观察([observed])先存着,跟在这次调用的工具结果后面写出;
- * 没有工具结果的读取(交还时读的一屏、批做完后看的一眼)在下一条别的事件之前写出。模型回复与工具结果之间不插别的。
+ * The running records are written in order of cause and effect: the observations ([observed]) read in a
+ * call and recorded in the evidence ledger are stored first, and are written after the tool results of
+ * this call; reads without tool results (a screen read when returning, a glance after the batch is
+ * completed) are written before the next other event. There is nothing between the model response and
+ * the tool results.
  */
 internal class RecordOrder(private val sink: RunSink) : RunSink {
     private val pending = mutableListOf<RunEvent.Observed>()

@@ -2,9 +2,9 @@ package com.meenai.mina.cap.web.cdp
 
 import com.meenai.mina.core.cap.web.cdp.CdpTargetInfo
 
-/** 标签与 DevTools 目标的对应:先在标签里写下标记,再逐个候选目标求值找它。 */
+/** Correspondence between labels and DevTools goals: first write the mark in the label, and then evaluate the candidate goals one by one to find it. */
 object TargetMatch {
-    /** 页面里放标记的全局变量名;找到后删掉。 */
+    /** Put the marked global variable name on the page; delete it after finding it. */
     const val KEY = "__minaDevtoolsMark"
 
     fun markScript(marker: String): String = "window['$KEY']='$marker';1"
@@ -12,8 +12,9 @@ object TargetMatch {
     const val CLEAR_SCRIPT = "delete window['$KEY'];1"
 
     /**
-     * 要逐个试的目标:只要页面、没被别的客户端连着(有 webSocketDebuggerUrl)、不是别的标签已认领的;
-     * 网址和标签当前网址相同的排前面(多半就是它)。
+     * The goals to try one by one: as long as the page is not connected to other clients (there is
+     * webSocketDebuggerUrl), and is not claimed by other tags; the URL and the current URL of the tag
+     * are the same (most likely it is).
      */
     fun candidates(targets: List<CdpTargetInfo>, claimed: Set<String>, tabUrl: String?): List<CdpTargetInfo> =
         targets.filter { it.type == "page" && it.webSocketDebuggerUrl != null && it.id !in claimed }

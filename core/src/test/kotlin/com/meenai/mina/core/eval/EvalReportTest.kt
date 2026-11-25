@@ -45,7 +45,7 @@ class EvalReportTest {
         val md = EvalReport.markdown("r1", "m", listOf(s to o, s2 to o2.copy(inputTokens = 1000, cachedTokens = 900, outputTokens = 7)), emptyList(), null)
         assertTrue(md, md.lines().any { it.startsWith("| t-a |") && it.endsWith("| 1000000 | 40.0% | 200000 |") })
         assertTrue(md, md.lines().any { it.startsWith("| t-b |") && it.endsWith("| 1000 | 90.0% | 7 |") })
-        // 汇总:按 token 加权的命中率,以及每题命中率的中位数
+        // Summary: hit rate weighted by token, and median hit rate for each question
         assertTrue(md, "| 缓存命中率(cached/input) | 40.0% |" in md)
         assertTrue(md, "| 每题缓存命中率中位数 | 65% |" in md)
     }
@@ -54,7 +54,8 @@ class EvalReportTest {
         val none = EvalReport.markdown("r1", "m", scores, emptyList(), null)
         assertFalse("花费" in none)
         val priced = EvalReport.markdown("r1", "m", scores, emptyList(), Prices(inputPerM = 1.0, outputPerM = 2.0, cachedPerM = 0.5))
-        // 每题: 未缓存输入 0.6M×1 + 缓存 0.4M×0.5 + 输出 0.2M×2 = 1.2;四题 4.8
+        // Each question: uncached input 0.6M×1 + cached 0.4M×0.5 + output 0.2M×2 = 1.2; four questions
+        // 4.8
         assertTrue("花费" in priced)
         assertTrue(priced, "4.8" in priced)
     }

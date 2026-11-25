@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.app.AlarmManager
 
-/** 开机广播的入口:清单里登记的是这个全名;实现在手机能力里。 */
+/** Entrance to boot broadcast: The full name is registered in the list; it is implemented in the mobile phone capabilities. */
 class BootRestoreReceiver : BootRestoreHandler() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
@@ -16,7 +16,9 @@ class BootRestoreReceiver : BootRestoreHandler() {
             TriggerRuntime.rearm(context)
             com.meenai.mina.ui.router.MagicubeReminder.scheduleDailyAlarm(context)
         }
-        // 开机时局域网那种电脑连接开着就重新监听(USB 那种不跨重启:换了开机编号,这里已按关着算,上次的连接信息也清掉)
+        // When starting up, the LAN type computer connection is open and the monitoring is restarted
+        // (the USB type does not restart: after changing the boot number, it has been turned off here,
+        // and the last connection information is also cleared)
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) (context.applicationContext as com.meenai.mina.HarnessApp).mcp.ensureRunning()
     }
 }

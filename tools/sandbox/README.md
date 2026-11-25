@@ -1,65 +1,112 @@
-# 沙箱原生程序:来源、许可证与源码发布
+# Sandboxed Native Programs: Sources, Licenses and Source Code Release
 
-Harness 的沙箱带三个可执行文件,都在 `app/src/main/jniLibs/arm64-v8a/`,随 APK 安装到 `nativeLibraryDir`。
-Harness 只以子进程方式运行它们,不链接它们。
+Harness's sandbox comes with three executable files, all in `app/src/main/jniLibs/arm64-v8a/`, which
+are installed with the APK into `nativeLibraryDir`. Harness only runs them as child processes and
+does not link them.
 
-| 文件 | 是什么 | 来源 | 版本 | 许可证 |
+| document | what is | source | Version | license |
 |---|---|---|---|---|
-| `libproot.so` | PRoot 本体,静态链接 talloc | PRoot:`sources.lock` 里的 `proot` 源码包,加 `patches/proot-*.patch`;talloc:`sources.lock` 里的 `talloc` 源码包,只编 `talloc.c`,未修改 | PRoot 5.4.0、talloc 2.4.3 | GPL-2.0-or-later(PRoot)、LGPL-3.0-or-later(talloc) |
-| `libproot_loader.so` | PRoot 的载入器(静态、`-nostdlib`) | 同一个 PRoot 源码包 | 5.4.0 | GPL-2.0-or-later |
-| `libharnessrun.so` | Harness 的沙箱启动器(超时、断网、清场) | `app/src/main/cpp/harnessrun/harnessrun.c` | 随 Harness | MIT |
+| `libproot.so` | PRoot ontology, static link talloc | For the `proot` source code package in PRoot:`sources.lock`, add `patches/proot-*.patch`; for the `talloc` source code package in talloc:`sources.lock`, only `talloc.c` is compiled without modification. | PRoot 5.4.0、talloc 2.4.3 | GPL-2.0-or-later(PRoot)、LGPL-3.0-or-later(talloc) |
+| `libproot_loader.so` | PRoot's loader (static, `-nostdlib`) | The same PRoot source code package | 5.4.0 | GPL-2.0-or-later |
+| `libharnessrun.so` | Harness's sandbox launcher (timeout, network disconnection, cleanup) | `app/src/main/cpp/harnessrun/harnessrun.c` | With Harness | MIT |
 
-许可证全文和版权声明(`licenses/THIRD_PARTY_NOTICES.md`)都在仓库根目录的 `licenses/`。
+The full text of the license and copyright statement (`licenses/THIRD_PARTY_NOTICES.md`) are located
+at `licenses/` in the root directory of the repository.
 
-## 自带的运行环境
+## Comes with its own operating environment
 
-运行环境(Alpine 3.22 最小根文件系统 + Python、Node 等软件包)随 APK 发布,在
-`app/src/main/assets/runtime/rootfs.tar.xz`。手机首次启动 Harness 时在后台解到 `files/sandbox/rootfs`,不联网。
+The running environment (Alpine 3.22 minimal root file system + Python, Node and other software
+packages) is released with the APK at `app/src/main/assets/runtime/rootfs.tar.xz`. When Harness is
+started for the first time on the phone, `files/sandbox/rootfs` is detected in the background and is
+not connected to the Internet.
 
-- `runtime/sources.lock`:最小根文件系统的地址与 SHA-256,以及每个软件包的仓库、版本、APKINDEX 校验值、`.apk` 的 SHA-256。
-- `build-runtime.py`:按 `sources.lock` 下载、校验后拼成 `rootfs.tar.xz`。全程不运行 apk:按 apk 的布局解开软件包,
-  并用软件包签过名的元数据写出 `/lib/apk/db/installed`,所以运行环境里的 apk 看到的数据库是一致的。
-  每个 `.apk` 都要核对:锁文件里的 SHA-256、它自己的 RSA 签名(公钥取自钉住的最小根文件系统)、控制段校验值与 APKINDEX 一致、
-  数据段与签过名的 `.PKGINFO` 里的 `datahash` 一致。会在手机上执行的安装脚本与触发器必须逐个列进 `SCRIPTS_NOT_RUN`
-  (按内容的 SHA-256 钉住,并写明为什么不跑也正确),否则构建失败。
-  同时生成 `app/src/main/java/com/meenai/mina/cap/sandbox/BundledRuntime.kt`(版本、SHA-256、大小)与
-  `app/src/main/assets/runtime/packages.json`(所有软件包、版本、许可证;「开源许可」页从它生成)。
-- 产物逐字节可重现:
+- `runtime/sources.lock`: The address and SHA-256 of the minimum root file system, as well as the
+  repository, version, APKINDEX check value of each software package, and the SHA-256 of `.apk`.
+- `build-runtime.py`: Press `sources.lock` to download, verify and spell it into `rootfs.tar.xz`. Do
+  not run the apk throughout the process: Unpack the software package according to the layout of the
+  apk, and use the metadata signed by the software package to write `/lib/apk/db/installed`, so the
+  database seen by the apk in the running environment is consistent. Each `.apk` must check: the
+  SHA-256 in the lock file, its own RSA signature (the public key is taken from the pinned minimum
+  root file system), the control segment checksum is consistent with APKINDEX, and the data segment
+  is consistent with `datahash` in the signed `.PKGINFO`. The installation scripts and triggers that
+  will be executed on the mobile phone must be listed in `SCRIPTS_NOT_RUN` one by one (pin according
+  to the SHA-256 of the content, and it is correct to state why it does not run), otherwise the
+  build will fail. Generates both `app/src/main/java/com/meenai/mina/cap/sandbox/BundledRuntime.kt`
+  (version, SHA-256, size) and `app/src/main/assets/runtime/packages.json` (all packages, versions,
+  licenses; the "Open Source License" page is generated from it).
+- The product is reproducible byte by byte:
 
 ```bash
-python3 tools/sandbox/build-runtime.py --resolve   # 换 Alpine 小版本或软件包后重新求依赖,改写 runtime/sources.lock
-python3 tools/sandbox/build-runtime.py             # 生成 rootfs.tar.xz、BundledRuntime.kt、packages.json
-python3 tools/sandbox/build-runtime.py --check     # 重新生成并与仓库里的产物比较,不一致退出 1
+python3 tools/sandbox/build-runtime.py --resolve   # after changing the Alpine point release or packages, re-resolve dependencies and rewrite runtime/sources.lock
+python3 tools/sandbox/build-runtime.py             # generate rootfs.tar.xz, BundledRuntime.kt and packages.json
+python3 tools/sandbox/build-runtime.py --check     # regenerate and compare with the artifacts in the repo; exit 1 on a mismatch
 ```
 
-`build-runtime.py` 里的 `WANT` 必须与 core 的 `SANDBOX_PACKAGES` 一致(`BundledRuntimeTest` 核对)。
+`WANT` in `build-runtime.py` must be consistent with `SANDBOX_PACKAGES` in core (check
+`BundledRuntimeTest`).
 
-运行环境包含 `tzdata`。每次启动命令时,`ProcRunner.env` 都把手机当前的 IANA 时区写入 `TZ`,
-让命令行、Python 和 Node 的本地时间与手机一致,并保留夏令时和历史偏移规则;手机切换时区后,下一条命令随之更新。
+The operating environment contains `tzdata`. Every time a command is started, `ProcRunner.env`
+writes the current IANA time zone of the phone to `TZ`, making the local time of the command line,
+Python and Node consistent with the phone, and retaining daylight saving time and historical offset
+rules; after the phone switches time zones, the next command is updated accordingly.
 
-## 文件
+## document
 
-- `sources.lock`:每行 `名称 版本 下载地址 SHA-256`。编译和打源码包都只用这里列出的源码包,下载后先核对 SHA-256。
-- `patches/`:对上游源码的修改,文件名 `<名称>-<序号>-<说明>.patch`,按文件名顺序以 `patch -p1` 打上。补丁跟随被修改组件的许可证。
-  - `proot-0001-exitkill.patch`:给 PRoot 的跟踪选项加上 `PTRACE_O_EXITKILL`。这样 PRoot 退出时(即使被 SIGKILL 杀掉),内核会杀掉所有被跟踪的进程,沙箱里的命令不会在后台继续运行。
-  - `proot-0002-seccomp-trap-enosys.patch`:安卓给 App 装的 seccomp 策略对新系统调用(io_uring、clone3、faccessat2、epoll_pwait2、rseq 等)发 SIGSYS,且比后装的任何过滤器优先,沙箱里的程序一试探就被杀。PRoot 在这种 SIGSYS(`si_code == SYS_SECCOMP`)的信号停止处把返回值改成 `-ENOSYS` 并取消信号,程序走自己的退路;arm64 上只带 `AT_EACCESS` 的 faccessat2 改发成 faccessat(App 进程实际与有效身份总相同,两者等价),权限判断仍由内核给出。
-  - `proot-0003-arm64-new-path-syscalls.patch`:PRoot 5.4.0 的 arm64 调用号表只到 statx(291),之后新增的调用 PRoot 认不出,平台放行时它们带着没转换的路径直达内核,按宿主路径执行(例如 musl 的 `faccessat(…, AT_EACCESS)` 先试 faccessat2,判断的是错误的文件)。补上这些编号并加进 PRoot 的 seccomp 跟踪列表:faccessat2、fchmodat2 与 faccessat、fchmodat 一样转换路径;execveat(会绕过 execve 的处理)、openat2(`RESOLVE_*` 规则针对沙箱内的目录树)、io_uring_setup(路径操作不经系统调用)、新挂载接口(open_tree、move_mount、fspick、mount_setattr、open_tree_attr)与 setxattrat 等 *xattrat、file_getattr/file_setattr 一律返回 `-ENOSYS`,调用方退回老的调用,由 PRoot 正常转换。同时修正查表时的越界判断(`index > length` 改为 `>=`)。
-  - `proot-0004-link2symlink-fstat-nonfile.patch`:link2symlink 扩展在 fstat 返回时把描述符的 `/proc` 链接当路径 lstat;管道、套接字等(`pipe:[…]`)lstat 失败后,原代码接着读未初始化的 stat 结构,随栈上残留值不同,时而把成功的 fstat 改成 -1(EPERM)。启动时检查标准描述符的程序(node 会直接 abort)因此随机失败。改为 lstat 失败即不处理;`" (deleted)"` 后缀只在读到链接后检查;链接目标消失时返回 -errno 而不是 -1。
-- `build-native.sh`:从 `sources.lock` 下载源码、核对 SHA-256、打补丁,用 NDK 28.2.13676358(API 30)交叉编译三个程序。
+- `sources.lock`: `Name Version Download Address SHA-256` per line. Only use the source code
+  packages listed here to compile and build source code packages. Check SHA-256 first after
+  downloading.
+- `patches/`: Modifications to the upstream source code, the file name is `<name>-<number>-<description>.patch`,
+  typed in `patch -p1` in the order of file names. Patches follow the license of the component being
+  modified.
+  - `proot-0001-exitkill.patch`: Add `PTRACE_O_EXITKILL` to PRoot's tracking options. In this way,
+    when PRoot exits (even if it is killed by SIGKILL), the kernel will kill all tracked processes,
+    and the commands in the sandbox will not continue to run in the background.
+  - `proot-0002-seccomp-trap-enosys.patch`: Android's seccomp policy for apps sends SIGSYS on newer
+    syscalls (`io_uring`, `clone3`, `faccessat2`, `epoll_pwait2`, `rseq`, etc.) ahead of any later
+    filter, killing sandboxed programs that probe them. PRoot changes the return value to `-ENOSYS` at
+    the signal stop of this SIGSYS (`si_code == SYS_SECCOMP`) and cancels the signal, so the program
+    uses its fallback path; `faccessat2` with only `AT_EACCESS` on arm64 is rewritten to `faccessat`
+    (the app process's real and effective identities are always identical, so both are equivalent), and
+    permission checks remain handled by the kernel.
+  - `proot-0003-arm64-new-path-syscalls.patch`: The arm64 call number table of PRoot 5.4.0 only
+    reaches statx(291), and PRoot cannot recognize the new calls after that. When the platform
+    releases them, they go directly to the kernel with unconverted paths and are executed according
+    to the host path (for example, musl's `faccessat(…, AT_EACCESS)` tries faccessat2 first and
+    determines the wrong file). Fill in these numbers and add them to PRoot's seccomp tracking list:
+    faccessat2, fchmodat2 and faccessat, fchmodat conversion paths; execveat (will bypass execve
+    processing), openat2 (`RESOLVE_*` The rules are for the directory tree in the sandbox),
+    io_uring_setup (path operations without system calls), new mounting interfaces (open_tree,
+    move_mount, fspick, mount_setattr, open_tree_attr) and setxattrat. *xattrat,
+    file_getattr/file_setattr all return `-ENOSYS`, and the caller returns the old call, which is
+    converted normally by PRoot. At the same time, the out-of-bounds judgment when looking up the
+    table is corrected (`index > length` is changed to `>=`).
+  - `proot-0004-link2symlink-fstat-nonfile.patch`: link2symlink extension uses the `/proc` link of
+    the descriptor as the path lstat when fstat returns; pipe, socket, etc. (`pipe:[…]`). After
+    lstat fails, the original code continues to read the uninitialized stat structure, and changes
+    the successful fstat to -1 (EPERM) depending on the residual value on the stack. Programs that
+    check standard descriptors on startup (node will abort directly) therefore fail randomly.
+    Changed to not processing lstat failure; `" (deleted)"` suffix is only checked after reading
+    the link; when the link target disappears, -errno is returned instead of -1.
+- `build-native.sh`: Download the source code from `sources.lock`, check SHA-256, apply patches, and
+  cross-compile the three programs with NDK 28.2.13676358 (API 30).
 
-## 重现编译
+## Recompile
 
 ```bash
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358
-tools/sandbox/build-native.sh           # 编译并覆盖 app/src/main/jniLibs/arm64-v8a/ 里的产物
-tools/sandbox/build-native.sh --check   # 只重编并与仓库里的产物比较 SHA-256,不一致退出 1
+tools/sandbox/build-native.sh           # build and overwrite the artifacts in app/src/main/jniLibs/arm64-v8a/
+tools/sandbox/build-native.sh --check   # rebuild only and compare SHA-256 with the repo artifacts; exit 1 on a mismatch
 ```
 
-编译时会做路径前缀映射,并且不写 build-id,所以同一个 NDK 编出的产物逐字节相同。用 `--check` 可以确认仓库里的二进制确实来自这些源码。
+Path prefix mapping will be done during compilation, and build-id will not be written, so products
+compiled by the same NDK will be the same byte by byte. Use `--check` to confirm that the binaries
+in the warehouse indeed come from these source codes.
 
-## 发布 APK 时一起发布源码包
+## Publish the source code package when publishing the APK
 
-每次发布 APK,都要把 `sources.lock` 列出的源码包、`patches/`、编译脚本和许可证打包成 `harness-agent-<版本>-gpl-sources.tar.gz`,和 APK 放在同一个发布页。在仓库根目录运行:
+Every time you release an APK, you must package the source code package, `patches/`, compilation
+script and license listed in `sources.lock` into `harness-agent-<version>-gpl-sources.tar.gz`, and put it
+on the same release page as the APK. Run in the root directory of the repository:
 
 ```bash
 VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
@@ -73,12 +120,16 @@ while read -r name version url sum; do
 done < tools/sandbox/sources.lock
 cp -R tools/sandbox/patches tools/sandbox/sources.lock tools/sandbox/build-native.sh tools/sandbox/README.md "$OUT/"
 cp licenses/GPL-2.0.txt licenses/GPL-3.0.txt licenses/LGPL-3.0.txt "$OUT/"
-# 运行环境里每个 GPL/LGPL/MPL 软件包:Alpine 的构建配方(钉在软件包记录的 aports 提交)与上游源码,逐个按 SHA-512 核对
+# for every GPL/LGPL/MPL package in the runtime: the Alpine build recipe (pinned to the aports commit in the package record) and the upstream source, each verified by SHA-512
 python3 tools/sandbox/runtime-sources.py "$OUT/runtime"
 cp tools/sandbox/build-runtime.py tools/sandbox/runtime-sources.py app/src/main/assets/runtime/packages.json "$OUT/runtime/"
 cp -R tools/sandbox/runtime "$OUT/runtime/lock"
 COPYFILE_DISABLE=1 tar -czf "build/gpl-sources/$NAME.tar.gz" -C build/gpl-sources "$NAME"
 ```
 
-运行后得到 `build/gpl-sources/harness-agent-<版本>-gpl-sources.tar.gz`。上传前用 `tar -tzf` 看一眼,确认里面有两个源码包、`patches/`,
-以及 `runtime/` 下每个 GPL/LGPL/MPL 软件包的目录和 `runtime/SOURCES.txt`(gcc 等源码较大,整包约数百 MB)。
+After running, you get `build/gpl-sources/harness-agent-<version>-gpl-sources.tar.gz`. Before uploading,
+use `tar -tzf` to take a look and confirm that there are two source code packages, `patches/`, and
+the directory of each GPL/LGPL/MPL software package under `runtime/` and `runtime/SOURCES.txt` (gcc
+and other source codes are larger, the The whole package is about hundreds of MB).
+
+

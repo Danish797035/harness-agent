@@ -4,9 +4,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * 一条观察是哪一类:[Read] 读到的界面或页面(App 的界面状态、网页正文、网页脚本与网络响应);[Output] 命令与脚本的输出、文件内容与路径;
- * [Reply] 别的 AI 的回答(子任务、外部服务);[UserSaid] 用户给的(对提问的回答、记忆);[Attachment] 用户或工具给的文件、图片;
- * [Fact] 工具结果里的事实(打开了哪个 App、网址与标题)。核心只按这几类处理,不认识具体能力。
+ * Which type of observation is it: The interface or page read by [Read] (App interface status, web page
+ * text, web page script and network response); [Output] command and script output, file content and
+ * path; [Reply] answers from other AIs (subtasks, external services); [UserSaid] users (answers to
+ * questions, memories); [Attachment] files and pictures given by users or tools; [Fact] Facts in tool
+ * results (which app was opened, URL and title). The core is only dealt with according to these
+ * categories and does not recognize specific abilities.
  */
 enum class ObsKind(val wire: String) {
     Read("read"), Output("output"), Reply("reply"), UserSaid("user_said"), Attachment("attachment"), Fact("fact");
@@ -17,10 +20,10 @@ enum class ObsKind(val wire: String) {
     }
 }
 
-/** 观察的出处可信到什么程度。[Untrusted]:网页、渠道里的话、别的 AI 的回答,只当数据,不当指令。 */
+/** To what extent is the source of the observation credible? [Untrusted]: Words on web pages, platforms, and other AI responses should only be treated as data, not instructions. */
 enum class Trust { Trusted, Untrusted }
 
-/** 一个地方是什么:App、站点、网页、命令、文件。 */
+/** What is a place: App, site, web page, command, file. */
 @Serializable
 enum class PlaceKind(val wire: String) {
     @SerialName("app") App("app"),
@@ -31,7 +34,9 @@ enum class PlaceKind(val wire: String) {
 }
 
 /**
- * 在哪里:App(包名)、站点(主机名)、网页(网址)、命令、文件。[name] 是这个地方的原样写法;核查、来源按它对上回答里提到的 App 或网址。
+ * Where: App (package name), site (host name), web page (web address), command, file. [name] is the
+ * original writing of this place; for verification and source, click on the App or URL mentioned in the
+ * answer above.
  */
 @Serializable
 data class Place(val kind: PlaceKind, val name: String) {
@@ -44,18 +49,26 @@ data class Place(val kind: PlaceKind, val name: String) {
     }
 }
 
-/** 一次读取时界面上输入框里的字([names],去掉空白后比)和有输入焦点的那个([focused]);核对时据此分辨助手自己打进去的字。 */
+/** When reading once, the words in the input box on the interface ([names], after removing the blanks) and the one with the input focus ([focused]) are used; when checking, the words typed by the assistant are distinguished based on this. */
 data class InputHints(val names: List<String>, val focused: String? = null)
 
 /**
- * 带出处的一条观察:核心消费的唯一单位。能力在工具结果里给出([com.meenai.mina.core.tool.ToolExecution.observations]),
- * 证据账本按它记,核查、回答来源、运行记录、评测都读它。
+ * An observation with origin: the only unit of core consumption. The ability is given in the tool
+ * results ([com.meenai.mina.core.tool.ToolExecution.observations]), the evidence ledger is recorded
+ * according to it, and the verification, answer source, operation record, and evaluation are all read
+ * from it.
  *
- * - [source] 是给出它的能力的 id(phone、web、sandbox……;核心自己的为 core);[place] 是在哪里读的;[title] 是那一页自己的标题。
- * - [media] 是同一时刻存下的画面编号(可视化模块给的;没有为空)。
- * - [trust]:不可信的(网页、别的 AI 的回答)只当数据。[authored] 是助手自己写的东西(跑的命令):原样出现在 [text] 里的行是回显,不算读到的。
- * - [inputs]:读界面时输入框里的字(见 [InputHints]);不知道为 null。
- * - [id]、[step]、[atMs] 由账本进账时填:本任务里第几条(从 1 起)、第几步、什么时候。能力造它时不用填。
+ * - - [source] is the id that gives its capabilities (phone, web, sandbox...; the core is core); [place]
+ * is where it is read; [title] is the title of that page.
+ * - - [media] is the screen number saved at the same time (given by the visualization module; if not, it
+ * is empty).
+ * - - [trust]: Untrustworthy (webpages, other AI answers) are only treated as data. [authored] is
+ * something written by the assistant (a command run): the lines that appear as they are in [text] are
+ * echoed and not read.
+ * - - [inputs]: The words in the input box when reading the interface (see [InputHints]); if not known,
+ * it is null.
+ * - - When [id], [step], and [atMs] are entered from the ledger, fill in: which item (starting from 1),
+ * which step, and when in this task. There is no need to fill in the ability when creating it.
  */
 data class Observation(
     val kind: ObsKind,
@@ -71,12 +84,13 @@ data class Observation(
     val atMs: Long = 0,
     val id: Int = 0,
 ) {
-    /** 在哪里的原样写法;没有为 null。 */
+    /** where is written as-is; not null. */
     val where: String? get() = place?.name
 
-    /** 按它是什么样的东西分(裁剪、界面上的说法按它定,不按工具)。 */
+    /** It is divided according to what kind of thing it is (cutting, the terms on the interface are determined by it, not by the tool). */
     val form: ObsForm get() = when (kind) {
-        // 读界面状态时总带着输入框(可能一个也没有);读整页、脚本结果、网络响应时没有
+        // When reading the interface status, there is always an input box (maybe none); when reading the
+        // entire page, script results, or network response, there is no input box.
         ObsKind.Read -> if (inputs != null) ObsForm.Interface else ObsForm.Page
         ObsKind.Output -> if (place?.kind == PlaceKind.File) ObsForm.File else ObsForm.Command
         ObsKind.Reply -> ObsForm.Reply
@@ -86,20 +100,23 @@ data class Observation(
     }
 }
 
-/** 一次工具结果里读到的一条观察:账本里的编号和它的形态(裁剪据此决定怎么缩短、缩短后指回哪条)。 */
+/** An observation read in the tool results: the number in the ledger and its shape (the clipper determines how to shorten it and which item to point back to after shortening it). */
 @Serializable data class ReadTag(val obsId: Int, val form: ObsForm)
 
-/** 这条观察在工具结果里的标记。 */
+/** The observation's flag in the tool results. */
 val Observation.tag: ReadTag get() = ReadTag(id, form)
 
-/** 观察的形态:界面状态、页面内容、命令输出、文件、图片、回复、用户说的、事实。 */
+/** Observation forms: interface status, page content, command output, files, pictures, replies, user comments, facts. */
 @Serializable enum class ObsForm { Interface, Page, Command, File, Image, Reply, UserSaid, Fact }
 
-/** 核心自己(不是哪个能力)给出的观察的出处。 */
+/** The source of the observation given by the core self (not which ability). */
 const val CORE_SOURCE = "core"
 
 /**
- * 核查前「再看一眼」:能力此刻的样子([observations],界面状态、网页正文的开头……)和同一时刻的画面([image],要附图时才有)。
- * [protected]:此刻的页面受系统防截屏保护,看不到画面。由能力定义怎么看(见 Capability.freshLook)。
+ * "Take another look" before checking: what the ability looks like at the moment ([observations],
+ * interface status, beginning of the web page text...) and the screen at the same time ([image], only
+ * available if you need to attach a picture). [protected]: The page at this moment is protected by the
+ * system's anti-screenshot protection and the screen cannot be seen. How to see it based on ability
+ * definition (see Capability.freshLook).
  */
 class Look(val observations: List<Observation>, val image: ByteArray? = null, val protected: Boolean = false)

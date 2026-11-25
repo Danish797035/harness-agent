@@ -60,10 +60,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** 按 Markdown 显示一段回答；流式草稿用临时闭合的语法预览。 */
+/** Display a response in Markdown; streaming draft previews with temporarily closed syntax. */
 @Composable
 fun MarkdownText(markdown: String, style: TextStyle, modifier: Modifier = Modifier, streaming: Boolean = false) {
-    // 流式片段更新频繁，在后台解析；上一帧保留到新片段准备好，避免主线程卡顿和文字闪空。
+    // Streaming clips are frequently updated and parsed in the background; the previous frame is
+    // retained until the new clip is ready to avoid main thread lags and text flashes.
     val colors = MinaTheme.colors
     val styles = remember(colors) { MarkdownModel.Styles.of(colors) }
     val blocks = if (streaming) {
@@ -217,7 +218,7 @@ private fun decodeSampledBitmap(filePath: String, maxDimension: Int): Bitmap? {
     return BitmapFactory.decodeFile(filePath, decodeOptions)
 }
 
-/** 表格:各列取本列最宽的格(有上限,超了换行),各行取本行最高的格;整张表可左右滑动。 */
+/** Table: Each column takes the widest cell in the column (there is an upper limit, and if it exceeds the line break), each row takes the highest cell in the row; the entire table can be slid left or right. */
 @Composable
 private fun TableBlock(t: MdBlock.Table, style: TextStyle) {
     val cols = t.header.size
@@ -249,7 +250,8 @@ private fun TableBlock(t: MdBlock.Table, style: TextStyle) {
                 widths[c] = maxOf(widths[c], m.maxIntrinsicWidth(Constraints.Infinity).coerceIn(minCol, maxCol))
             }
             val heights = measurables.chunked(cols).map { row -> row.withIndex().maxOf { (c, m) -> m.minIntrinsicHeight(widths[c]) } }
-            // 同一行的格一样高,边框和表头底色才对齐
+            // The cells in the same row must be of the same height, and the border and header background
+            // must be aligned
             val placeables = measurables.mapIndexed { i, m -> m.measure(Constraints.fixed(widths[i % cols], heights[i / cols])) }
             layout(widths.sum(), heights.sum()) {
                 var y = 0

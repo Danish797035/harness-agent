@@ -31,8 +31,9 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 真机测试:开关 parallelTasks 打开时,两个对话的任务同时跑,各占一块虚拟屏。
- * 需要安卓 14+、内置助手在运行、Mina 无障碍服务已开启。脚本模型按开始顺序分给两个任务。
+ * Real machine test: When the switch parallelTasks is turned on, the two dialogue tasks run at the same
+ * time, each occupying a virtual screen. Requires Android 14+, built-in assistant running, Mina
+ * accessibility service turned on. The script model is divided into two tasks in starting order.
  */
 @RunWith(AndroidJUnit4::class)
 class ParallelDeviceTest {
@@ -49,7 +50,9 @@ class ParallelDeviceTest {
         DeviceSupport.service()
         sh("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
         val flags = FeatureFlags.get(context)
-        // 杀进程测试的第二次运行:第一次被杀时没跑收尾,开关还开着;要还原成第一次开始前记下的,不是此刻的
+        // The second run of the kill process test: the ending was not run when the process was killed
+        // for the first time, and the switch was still on; it needs to be restored to what was written
+        // down before the first start, not at this moment.
         priorFlags = killRecord.takeIf { it.exists() }?.let { runCatching { SpeedFlags.parse(JSONObject(it.readText()).getString(FLAGS_KEY)) }.getOrNull() }
             ?: flags.speedFlags()
         flags.setSpeed(priorFlags.copy(parallelTasks = true))
@@ -73,7 +76,7 @@ class ParallelDeviceTest {
         context.packageManager.resolveActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS), 0)?.activityInfo?.packageName
             ?: error("no clock app handles ACTION_SHOW_ALARMS")
 
-    /** 开一个新对话的任务,等它的模型第一次被调到;返回对话编号。 */
+    /** Open a new dialogue task and wait until its model is called for the first time; return the dialogue number. */
     private fun startTask(goal: String, model: ScriptedModel): String {
         val before = DeviceTaskState.conversationId.value
         TaskService.start(context, goal)
@@ -91,7 +94,7 @@ class ParallelDeviceTest {
         return run.state.value.takeIf { it is TaskState.Succeeded || it is TaskState.Failed || it is TaskState.Cancelled }
     }
 
-    /** 两个任务同时跑在两块屏上,都能做完;期间用户的主屏不受影响。 */
+    /** Two tasks can be completed on two screens at the same time; the user's home screen will not be affected during this period. */
     @Test
     fun twoTasksRunOnTwoDisplays() {
         val mainBefore = DeviceSupport.mainScreenState(shell)
@@ -110,7 +113,8 @@ class ParallelDeviceTest {
         assertNotEquals(displayA, displayB)
         assertTrue(shell.topTaskId(displayA) >= 0)
         assertTrue(shell.topTaskId(displayB) >= 0)
-        // 两块屏各自操作,主屏的焦点与最上面的任务都不变
+        // The two screens operate independently, and the focus of the main screen and the top task
+        // remain unchanged.
         a.feed("phone_back")
         b.feed("phone_back")
         assertEquals(3, a.awaitCall().number)
@@ -125,7 +129,7 @@ class ParallelDeviceTest {
         assertFalse("Mina display left behind", "mina-agent" in sh("dumpsys display"))
     }
 
-    /** 两个任务都要开设置:后开的那个拿到 app_in_use_by_other_task,不把设置从第一个任务手里抢走。 */
+    /** Both tasks need to open settings: the one opened later gets app_in_use_by_other_task, and does not take the settings away from the first task. */
     @Test
     fun sameAppSecondTaskGetsConflictError() {
         val (a, b) = models
@@ -147,12 +151,17 @@ class ParallelDeviceTest {
     }
 
     /**
-     * Review Focus 5:两个任务进行中 Mina 进程被杀,下次启动两个包的 PLAY_AUDIO 都恢复,Mina 的虚拟屏都不在了。
-     * 测试跑在 Mina 进程里,杀进程会连测试一起结束,所以分两次运行,中间由外面杀进程:
-     * 第一次布置好、在 files/parallel-kill-test.json 留下记录(两个包原来的 PLAY_AUDIO 和开始前的开关),然后等着;
-     * 看到记录出现后在开发机上跑 `adb shell am force-stop <Mina 包名>`(这次报崩溃)。
-     * 第二次(进程重新拉起,启动时做恢复)按记录检查,并把开关还原成记录里的(第一次被杀时没跑收尾)。
-     * 注意:force-stop 会把 Mina 从已开启的无障碍服务里去掉(系统行为),第二次运行前要重新开启。
+     * Review Focus 5: The Mina process was killed while the two tasks were in progress. The PLAY_AUDIO
+     * of both packages will be restored next time the two tasks are started, and Mina's virtual screen
+     * will no longer exist. Killing the process will end together with the test, so it is run in two
+     * times, with the process being killed from outside: the first time, arrange it, leave a record in
+     * files/parallel-kill-test.json (two packages include the original PLAY_AUDIO and the switch before
+     * starting), and then wait; after seeing the record appear, run `adb shell am force-stop <Mina package name>`
+     * on the development machine (this time it reports a crash). The second time (the process is
+     * restarted and restored during startup), press the record check and restore the switch to the one
+     * in the record (the ending was not run when it was killed for the first time). Note: force-stop
+     * will remove Mina from the enabled accessibility service (system behavior), and it must be
+     * re-enabled before running it for the second time.
      */
     private val killRecord get() = File(context.filesDir, "parallel-kill-test.json")
 
@@ -170,7 +179,8 @@ class ParallelDeviceTest {
                 }
                 assertFalse("Mina display left behind", "mina-agent" in sh("dumpsys display"))
             } finally {
-                // 收尾里也会还原;这里先还原,断言失败时开关也不留着开
+                // It will also be restored in the ending; it will be restored first here, and the switch
+                // will not be left on when the assertion fails.
                 FeatureFlags.get(context).setSpeed(priorFlags)
             }
             return
@@ -188,8 +198,10 @@ class ParallelDeviceTest {
         assertEquals("ignore", pollUntil(5_000) { shell.getAudioMode(SETTINGS)?.takeIf { it == "ignore" } })
         assertEquals("ignore", pollUntil(5_000) { shell.getAudioMode(clock)?.takeIf { it == "ignore" } })
         record.writeText(prior.toString())
-        // 进程内放到后台的自杀命令不会执行(随测试的 shell 会话一起结束),只能由外面结束:
-        // 看到记录文件出现后在开发机上跑 adb shell am force-stop <包名>。等不到就清掉记录、按失败收尾
+        // The suicide command placed in the background within the process will not be executed (ends
+        // with the test shell session) and can only be terminated from the outside: after seeing the
+        // record file appear, run adb shell am force-stop <package name> on the development machine. If you can't
+        // wait, clear the record and end it as failure.
         Thread.sleep(KILL_WAIT_MS)
         record.delete()
         error("Mina was not killed: run `adb shell am force-stop ${context.packageName}` after ${record.name} appears, then rerun this test")

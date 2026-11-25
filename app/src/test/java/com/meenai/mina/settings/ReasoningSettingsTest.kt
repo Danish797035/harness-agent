@@ -101,11 +101,13 @@ class ReasoningSettingsTest {
         assertEquals(emptyList<String>(), ReasoningOptions.of(direct, ListedModel("m", reasoning = false))!!.levels)
         val xai = ProviderConfig("x", ProviderConfig.Kind.Xai, "https://example.test", "m", caps)
         assertFalse(ReasoningOptions.of(xai, null)!!.fromProvider)
-        // 订阅登录不跟列表里写的别的协议走,档位也按它实际走的 Responses 给(和建模型同一个判断)
+        // Subscription login does not follow other protocols written in the list, and the gear is also
+        // given according to its actual Responses (the same judgment as building the model)
         val viaMessages = ListedModel("m", endpoint = ModelEndpoint(ModelProtocol.Messages, "https://example.test"))
         assertFalse(ReasoningOptions.of(xai, viaMessages)!!.fromProvider)
         assertEquals(ProviderConfig.Kind.Xai, ProviderStore.adapterFor(xai, viaMessages.endpoint).first)
-        // 列表还没加载、或只说了能思考没给档位:兼容接口、Messages、generateContent 都不猜
+        // The list has not been loaded yet, or it only says that it can think but does not give the
+        // level: compatible interfaces, Messages, and generateContent. I don’t even guess.
         val thinking = ListedModel("m", reasoning = true)
         for (kind in listOf(ProviderConfig.Kind.OpenAiCompat, ProviderConfig.Kind.Anthropic, ProviderConfig.Kind.Gemini)) {
             assertNull(ReasoningOptions.of(direct.copy(kind = kind), null))
@@ -113,13 +115,14 @@ class ReasoningSettingsTest {
         }
     }
 
-    // Anthropic 列表写明的档位照给;只接受按预算思考的模型能思考但没有可选档位,也不接受档位
+    // The gears specified in the Anthropic list are accepted; only models that think based on budget are
+    // accepted but can think but have no optional gears and will not accept gears.
     @Test fun anthropicOffersExactlyTheCatalogLevels() {
         val cfg = ProviderConfig("c", ProviderConfig.Kind.Anthropic, "https://api.anthropic.example", "m", caps)
         val adaptive = ListedModel("m", reasoning = true, reasoningEfforts = listOf("low", "medium", "high"),
             thinkingTypes = listOf("adaptive", "enabled"))
         assertEquals(listOf("low", "medium", "high"), ReasoningOptions.of(cfg, adaptive)!!.levels)
-        // 不接受 disabled 的,列表就没有 none
+        // If disabled is not accepted, there will be none in the list.
         assertFalse("none" in ReasoningOptions.of(cfg, adaptive)!!.levels)
         val budgetOnly = ListedModel("m", reasoning = true, reasoningEfforts = emptyList(), thinkingTypes = listOf("enabled", "disabled"))
         assertEquals(emptyList<String>(), ReasoningOptions.of(cfg, budgetOnly)!!.levels)
@@ -131,7 +134,9 @@ class ReasoningSettingsTest {
         assertFalse(s.setReasoningEffort(ModelRole.Main, "none"))
     }
 
-    // 列表写明的思考方式随列表存下,建模型时交给适配器;旧版本存的列表没有这一项,不给档位、不出错
+    // The thinking methods specified in the list are saved with the list and handed over to the adapter
+    // when building the model; the list saved in the old version does not have this item, no gears are
+    // given, and no errors are made.
     @Test fun thinkingTypesSurviveReloadAndOldListsGetNoOptions() {
         val s = store()
         val listed = ListedModel("m", reasoning = true, reasoningEfforts = listOf("none", "high"), thinkingTypes = listOf("adaptive", "disabled"))
@@ -144,7 +149,7 @@ class ReasoningSettingsTest {
         assertEquals(listOf("adaptive", "disabled"), setups.last().thinkingTypes)
         assertEquals("high", setups.last().reasoningEffort)
 
-        // 去掉新字段,模拟旧版本存下的列表
+        // Remove the new fields and simulate the list saved in the old version
         val file = tmp.root.resolve("providers.json")
         file.writeText(file.readText().replace(Regex(""","reasoningEfforts":\[[^]]*]"""), "")
             .replace(Regex(""","thinkingTypes":\[[^]]*]"""), ""))

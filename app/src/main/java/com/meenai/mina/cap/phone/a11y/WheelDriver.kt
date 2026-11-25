@@ -13,40 +13,49 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * 把一个滚轮转到一个值,在一次调用里做完。按控件能做什么依次试(能做就做,做不到退到下一种):
- * 1. 滚轮里有输入框(原版的数字滚轮有):直接把值写进去,让它失去焦点确认,读回来;
- * 2. 滚轮能无障碍「往前/往后滚」(原版的数字滚轮一下一格):读出当前值,按 [WheelSteps] 定方向和下数,一批一批滚,每批读回;
- * 3. 都不行(App 自己画的滚轮):读这一列看得到的几项(无障碍读不到就认屏上的字)估一格多高和当前值,在这一列上慢慢拖
- *    (不甩,免得转过头),读回来再校正;拖了值不动就拖远一点、换快一点再试,还不动报 not_moving 交回模型。
+ * Turn a wheel to a value and do it in one call. Try what the control can do in order (do it if you can,
+ * and fall back to the next one if you can't): 1. There is an input box in the scroll wheel (the
+ * original digital scroll wheel has it): write the value directly into it, let it lose focus to confirm,
+ * and read it back; 2. The scroll wheel can "roll forward/backward" without any hindrance (the original
+ * digital scroll wheel clicks one frame): read the current value, press [WheelSteps] to set the
+ * direction and count down, scroll in batches, and read back in each batch; 3. None of them work (the
+ * scroll wheel drawn by the app itself): read the several items visible in this column (if you can't
+ * read it, just recognize the words on the screen), estimate the height of one grid and the current
+ * value, drag slowly on this column (don't shake it, so as not to turn your head), read it back and then
+ * correct it; if the value does not move, drag it further, change it faster and try again, if it still
+ * does not move, it will report "not_moving" and return the model.
  *
- * 给的编号可以是滚轮,也可以是它显示的某一项(常是选中的那一项):这时滚轮是和这一项横向对齐的那一列,
- * 同一块里并排的别的滚轮(时旁边的分)不读、不拖。
- * 读值、拖动、等界面安静都由 [AndroidScreen] 注入,这里只管步骤。
+ * The number given can be the scroll wheel, or it can be an item it displays (usually the selected
+ * item): at this time, the scroll wheel is in the column horizontally aligned with this item, and other
+ * scroll wheels (minutes next to hours) side by side in the same block are not read or dragged.
+ * Interface functions such as reading, dragging, and so on are all injected by [AndroidScreen]. Here we
+ * only focus on the steps.
  */
 internal class WheelDriver(
     private val width: Int,
     private val height: Int,
-    /** 等到界面连续安静 quietMs,最多等 capMs。 */
+    /** Wait until the interface is continuously quietMs, up to capMs. */
     private val quiet: suspend (quietMs: Long, capMs: Long) -> Unit,
-    /** 一根手指沿这几点拖(像素):[slow] 为 true 时慢拖、松手前停住不甩;false 时像人快快划一下。 */
+    /** Drag a finger along these points (pixels): When [slow] is true, drag slowly and stop before letting go; when false, drag quickly like a person. */
     private val drag: suspend (points: List<Pair<Int, Int>>, slow: Boolean) -> Boolean,
-    /** 认屏上的字(0–999 的坐标);没有为 null。 */
+    /** Identify the words on the screen (coordinates 0–999); null if not. */
     private val ocr: suspend () -> List<VisibleTextLine>?,
-    /** 这块屏上弹着输入法。 */
+    /** There is an input method popping up on this screen. */
     private val imeShown: () -> Boolean,
-    /** 按一下返回(收起输入法)。 */
+    /** Click to return (collapse input method). */
     private val back: () -> Boolean,
 ) {
     private var attempts = 0
 
-    /** 一次读值:选中的那一项 [current](读不出为 null)和这一列看得到的几项(从上到下),[selected] 是选中项的下标。 */
+    /** One-time reading value: the selected item [current] (cannot be read as null) and the several items visible in this column (from top to bottom), [selected] is the subscript of the selected item. */
     private class Reading(val current: String?, val items: List<WheelMath.Item>, val selected: Int) {
         val texts get() = items.map { it.text }
     }
 
     /**
-     * 要转的那一列:从 [root] 往下读,只认横向落在 [left]..[right] 里的项;[mid] 是选中那一格的中线;
-     * [rowHeight] 是一格多高估不出来时的退路(给的是一项时就是它自己的高度)。
+     * The column to be transferred: read down from [root], and only recognize the items that fall
+     * horizontally in [left]..[right]; [mid] is the center line of the selected cell; [rowHeight] is the
+     * retreat when one cell is overestimated (when an item is given, it is its own height).
      */
     private class Column(val root: AccessibilityNodeInfo, val box: Rect, val left: Int, val right: Int, val mid: Int, val rowHeight: Int)
 
@@ -63,7 +72,7 @@ internal class WheelDriver(
         }
         if (WheelMath.matches(from, value)) return outcome(true, from, from, "none")
 
-        // 1. 直接输入
+        // 1. Direct input
         editableOf(wheel ?: start)?.let { field ->
             if (typeInto(field, value)) {
                 now = settled(col)
@@ -71,7 +80,7 @@ internal class WheelDriver(
             }
         }
 
-        // 2. 无障碍滚动
+        // 2. Barrier-free scrolling
         if (wheel != null && canStep(wheel)) {
             val steps = WheelSteps(value, cap = MAX_STEPS)
             var stopped: String? = null
@@ -79,7 +88,8 @@ internal class WheelDriver(
             loop@ while (true) {
                 when (val s = steps.next(now.current, now.texts)) {
                     WheelSteps.Step.Done -> {
-                        // 读到目标时滚轮可能还在动:停稳了再核对一次,不对就接着滚
+                        // The scroll wheel may still be moving when you read the target: when it stops,
+                        // check again. If it is not correct, continue scrolling.
                         now = settled(col)
                         if (WheelMath.matches(now.current, value)) return outcome(true, now.current, from, "actions")
                         if (++rechecks > MAX_RECHECKS) { stopped = "not_reached"; break@loop }
@@ -93,7 +103,7 @@ internal class WheelDriver(
                         quiet(STEP_QUIET_MS, STEP_CAP_MS)
                         wheel.refresh()
                         now = settled(col)
-                        // 一下都没滚动:这一边到头了(或这一边不让滚)
+                        // Not rolling at all: This side is over (or this side is not allowed to roll)
                         if (done == 0 && !WheelMath.matches(now.current, value)) { stopped = "at_end"; break@loop }
                     }
                 }
@@ -101,7 +111,7 @@ internal class WheelDriver(
             if (stopped == "at_end" || stopped == "unknown_value") return outcome(false, now.current, from, "actions", stopped)
         }
 
-        // 3. 拖动
+        // 3. Drag
         return dragTo(col, value, from, now)
     }
 
@@ -113,7 +123,8 @@ internal class WheelDriver(
         while (true) {
             when (val s = plan.next(now.texts, now.selected, now.items.map { it.centerY }, dragged)) {
                 WheelDrags.Step.Done -> {
-                    // 停稳了再核对一次(松手后滚轮还会吸附到最近的一格)
+                    // Stop and check again (the wheel will still snap to the nearest grid after you let
+                    // go)
                     now = settled(col)
                     if (WheelMath.matches(now.current, value)) return outcome(true, now.current, from, "drag")
                     if (++rechecks > MAX_RECHECKS) return outcome(false, now.current, from, "drag", "not_reached")
@@ -129,9 +140,13 @@ internal class WheelDriver(
     }
 
     /**
-     * 在这一列上拖过 [steps] 格(正数手指往上 = 前进),每格 [itemHeight]、再乘 [boost];返回手指实际走过的像素(往上为正),
-     * 拖不出去为 null。手指落在这一列的横向正中,往上拖从这一列靠下的地方起、往下拖从靠上的地方起,可以拖出这一列(手指没抬起,
-     * 滚轮照样跟着走),只夹在屏内。
+     * Drag [steps] cells on this column (positive number means moving your finger up = forward),
+     * multiply [itemHeight] for each cell, and then multiply it by [boost]; return the pixels that the
+     * finger actually walked (up means positive), and it will be null if it cannot be dragged out. Place
+     * your finger on the horizontal center of the column, drag up to start from the lower part of the
+     * column, and drag down to start from the upper part of the column. You can drag out the column (the
+     * finger is not lifted, the scroll wheel will still follow), and it will only be clamped in the
+     * screen.
      */
     private suspend fun dragSteps(col: Column, r: Reading, steps: Int, itemHeight: Int, boost: Double, slow: Boolean): Int? {
         val h = itemHeight.coerceAtLeast(1)
@@ -153,7 +168,7 @@ internal class WheelDriver(
         return dragged
     }
 
-    /** 往滚轮里的输入框写值并确认(失去焦点时原版滚轮按写进去的值定下来);因此弹出的输入法收起来。 */
+    /** Write the value into the input box in the scroll wheel and confirm (the original scroll wheel is set according to the written value when the focus is lost); therefore, the pop-up input method is closed. */
     private suspend fun typeInto(field: AccessibilityNodeInfo, value: String): Boolean {
         val imeBefore = imeShown()
         field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -169,11 +184,14 @@ internal class WheelDriver(
         return set
     }
 
-    // ---------- 读 ----------
+    // ---------- read ----------
 
     /**
-     * 停稳后的读数:滚动、拖动之后滚轮还会转一会儿、吸附到最近的一格(原版数字滚轮一格的动画约 0.3 秒),
-     * 也不一定发无障碍事件。隔 [SETTLE_MS] 连读两次值相同才算停稳,至多读 [MAX_SETTLE_READS] 次。
+     * Readings after stopping: After scrolling and dragging, the wheel will still rotate for a while and
+     * be absorbed to the nearest frame (the animation of one frame of the original digital scroll wheel
+     * is about 0.3 seconds), and accessibility events may not necessarily occur. It will stop when the
+     * same value is read twice in a row every [SETTLE_MS], and it can be read [MAX_SETTLE_READS] times
+     * at most.
      */
     private suspend fun settled(col: Column): Reading {
         var last = read(col)
@@ -196,8 +214,10 @@ internal class WheelDriver(
             val items = if (anchor >= 0) WheelMath.column(found, anchor) else found
             val i = WheelMath.selectedIndex(items, col.mid, WheelMath.itemHeight(items.map { it.centerY }) ?: h)
             if (i >= 0) return Reading(items[i].text, items, i)
-            // 没有哪一项盖住中线:可能是中间那一格没报出来(只报了上下两格),按上下紧挨着的两项推出中间那一格;
-            // 推不出时退回离中线最近的那一项
+            // No item covers the middle line: it may be that the middle square is not reported (only the
+            // upper and lower squares are reported), press the two items immediately above and below to
+            // push out the middle square; if it cannot be pushed out, return to the item closest to the
+            // middle line.
             val below = items.indexOfFirst { it.centerY > col.mid }
             val mid = (if (below > 0) WheelMath.between(items[below - 1].text, items[below].text) else null) ?: run {
                 val j = WheelMath.selected(items.map { it.centerY }, col.mid, WheelMath.itemHeight(items.map { it.centerY }) ?: h)
@@ -208,7 +228,7 @@ internal class WheelDriver(
             }
             return Reading(mid, withMid, below)
         }
-        // 自己画的滚轮:认这一列里的字
+        // The scroll wheel I drew: recognize the words in this column
         val lines = ocr().orEmpty().mapNotNull { l ->
             val cx = px((l.bounds[0] + l.bounds[2]) / 2, width)
             val cy = px((l.bounds[1] + l.bounds[3]) / 2, height)
@@ -219,7 +239,7 @@ internal class WheelDriver(
         return Reading(lines.getOrNull(i)?.text, lines, i)
     }
 
-    /** 这一列里看得到、带字的几项(往下找几层),从上到下;同一项不重复。 */
+    /** Several items with words that can be seen in this column (find a few levels down), from top to bottom; the same item is not repeated. */
     private fun treeItems(col: Column): List<WheelMath.Item> {
         val out = mutableListOf<WheelMath.Item>()
         val r = Rect()
@@ -241,7 +261,7 @@ internal class WheelDriver(
         return out.sortedBy { it.centerY }
     }
 
-    /** 一项的名字;系统单独报的状态(stateDescription,如「已选中」)若被拼进了名字,先拿掉。太长的不算一项。 */
+    /** The name of an item; the status (stateDescription, such as "selected") reported separately by the system. If it is spelled into the name, remove it first. Anything that is too long will not count. */
     private fun itemLabel(n: AccessibilityNodeInfo): String? {
         var label = ScreenReader.ownLabel(n) ?: return null
         val state = n.stateDescription?.toString()?.trim()
@@ -251,11 +271,14 @@ internal class WheelDriver(
         return label.takeIf { it.length <= MAX_ITEM_CHARS }
     }
 
-    // ---------- 认滚轮 ----------
+    // ---------- Recognize the scroll wheel ----------
 
     /**
-     * 能无障碍滚的滚轮:给的节点自己、往上几层里能滚的那个(给的是滚轮里的一项时),或往下找到的;
-     * 往上找到的要横向罩着给的那一项的正中(整页的滚动区罩着几个并排的滚轮,不能拿来滚)。没有为 null。
+     * A scroll wheel that can be scrolled without any obstacles: the given node itself, the one that can
+     * be scrolled a few levels up (when the given item is an item in the roller), or the one found
+     * downward; the one found upward should cover the center of the given item horizontally (the
+     * scrolling area of the entire page is covered by several side-by-side rollers, and cannot be used
+     * for scrolling). None is null.
      */
     private fun scrollableWheel(start: AccessibilityNodeInfo, startBox: Rect): AccessibilityNodeInfo? {
         if (scrollable(start)) return start
@@ -280,13 +303,16 @@ internal class WheelDriver(
     }
 
     /**
-     * 要读的那一列。给的是滚轮(能滚的)或里面装着几项:就是它。给的是一项(自己画的滚轮常这样):
-     * 往上找最近的、里面和它横向对齐的项不少于三项的那一层,只认横向和它对齐的项,所以旁边的滚轮不算进来。
+     * The column to be read. It's given with a roller (that can roll) or several items inside: that's
+     * it. What is given is one item (this is often the case with rollers drawn by myself): Look up for
+     * the nearest layer with no less than three items horizontally aligned with it, and only recognize
+     * items that are horizontally aligned with it, so the roller next to it is not included.
      */
     private fun columnOf(start: AccessibilityNodeInfo, startBox: Rect, wheel: AccessibilityNodeInfo?): Column {
         val ownHeight = startBox.height().coerceAtLeast(1)
         if (wheel != null && wheel != start && Rect().also(wheel::getBoundsInScreen).let { it.width() <= startBox.width() * 2 }) {
-            // 给的是滚轮里的一项、滚轮就这一列宽:读整个滚轮
+            // What is given is one item in the scroll wheel. The scroll wheel is only one column wide:
+            // read the entire scroll wheel.
             val box = Rect().also(wheel::getBoundsInScreen)
             return Column(wheel, box, box.left, box.right, startBox.centerY(), ownHeight)
         }
@@ -314,7 +340,7 @@ internal class WheelDriver(
         it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
     }
 
-    /** 滚轮自己或里面一层的输入框(原版数字滚轮中间那一格就是)。 */
+    /** The scroll wheel itself or the input box on the inner layer (the middle box of the original digital scroll wheel). */
     private fun editableOf(wheel: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (wheel.isEditable) return wheel
         for (i in 0 until wheel.childCount) {
@@ -333,14 +359,14 @@ internal class WheelDriver(
         const val MAX_STEPS = 80
         const val MAX_UP = 5
         const val MAX_DOWN = 4
-        /** 一项的名字常带着状态词(「已选中，21」「Selected, 21」),放宽一些。 */
+        /** The name of an item often carries a status word ("Selected, 21" "Selected, 21"), which is more relaxed. */
         const val MAX_ITEM_CHARS = 24
-        /** 一格多高估不出来时按一屏五行算。 */
+        /** If there is more than one grid and the overestimation cannot be calculated, press one screen and five elements. */
         const val ASSUMED_ROWS = 5
-        /** 一次拖至少能拖这么多格(列表只读到一两项时也拖得开)、至少这么多像素(拖得太短会被当成点按)。 */
+        /** You can drag at least this many cells at a time (you can drag even when the list only reads one or two items), and at least this many pixels (drag too short and it will be regarded as a click). */
         const val MIN_DRAG_ROWS = 3
         const val MIN_DRAG_PX = 48
-        /** 判停稳:隔这么久连读两次值相同;至多读几次;读到目标后停稳了却不对,至多再接着转几次。 */
+        /** Judgment of stable stop: after such a long time, the value of reading twice in succession is the same; it can be read a few times at most; it stops after reading the target but it is wrong, and it can be continued a few times at most. */
         const val SETTLE_MS = 350L
         const val MAX_SETTLE_READS = 5
         const val MAX_RECHECKS = 2

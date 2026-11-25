@@ -61,7 +61,8 @@ internal class Tap(f: ScreenFamily) : ScreenTool(f, "tap") {
         val x = a.coord("x"); val y = a.coord("y")
         val clicks = a.int("clicks", 1, 2) ?: 1
         val target = a.str("target", max = 80)
-        // 执行入口已把描述换成编号;走到这里还带着描述说明没经执行入口,不猜
+        // The execution entry has changed the description into a number; when I get here, there is still
+        // a description indicating that there is no execution entry, no guessing
         if (a.str(DESCRIBED_ELEMENT) != null) throw ArgError(DESCRIBED_ELEMENT, "could not be resolved to an element here; use ref+snapshotId")
         if (ref == null && ctx.described && target == null) {
             throw ArgError("target", "required for a coordinate tap after ${family.tool("describe")}: say what you are tapping")
@@ -86,14 +87,15 @@ internal class Tap(f: ScreenFamily) : ScreenTool(f, "tap") {
     private suspend fun tapAt(ctx: ToolContext, x: Int, y: Int, twice: Boolean) =
         if (twice) ctx.screen.doubleTapXY(x, y) else ctx.screen.tapXY(x, y)
 
-    /** 点 find_visually 找到的点:先重新截图,和找到时的画面差太多(或截不到)就不点。 */
+    /** Click find_visually to find the point: first take a screenshot again. If the picture is too different from the one found (or cannot be taken), then click it. */
     private suspend fun tapLocated(ref: String, snapshotId: String, twice: Boolean, ctx: ToolContext): ToolExecution {
         val (x, y) = locatedPixel(ctx, ref, snapshotId) ?: return fail("ref_expired", Feedback["located_stale"])
         val info = ctx.locatedInfo[ref]
         val target = info?.target
         val r = ctx.action(tapAt(ctx, x, y, twice))
         if (target == null || r.content["ok"] != JsonPrimitive(true)) return r
-        // 没佐证的点:点了有没有用只能看效果,提示里先说清楚
+        // Points without supporting evidence: You can only see the effect if you click on it. Please
+        // explain it clearly in the prompts.
         val hint = listOfNotNull(Feedback["located.unverified"].takeIf { info.unverified }, (r.content["hint"] as? JsonPrimitive)?.content)
         val extra = mapOf("located" to JsonPrimitive(target)) +
             (if (info.unverified) mapOf("unverifiedPoint" to JsonPrimitive(true)) else emptyMap()) +
@@ -106,8 +108,10 @@ internal class Tap(f: ScreenFamily) : ScreenTool(f, "tap") {
 }
 
 /**
- * find_visually 找到的点([ref] 是 @vN)此刻的像素位置:先重新截图,和找到时的画面差太多(或截不到)为 null,不往那里点。
- * 换算像素按此刻的一屏(读不到再退回最近一次)。
+ * find_visually The pixel position of the found point ([ref] is @vN) at the moment: first retake the
+ * screenshot. If it is too different from the picture when it was found (or cannot be captured), it will
+ * be null, so do not click there. Convert pixels to the current screen (return to the most recent one if
+ * it cannot be read).
  */
 internal suspend fun locatedPixel(ctx: ToolContext, ref: String, snapshotId: String): Pair<Int, Int>? {
     val (p, hash) = ctx.located.get(ref, snapshotId) ?: return null
@@ -118,7 +122,7 @@ internal suspend fun locatedPixel(ctx: ToolContext, ref: String, snapshotId: Str
     return toPx(p.x, s.width) to toPx(p.y, s.height)
 }
 
-/** 按编号操作时动作清单里写的对象:看图找到的点写它找的是什么,其余写元素的名字,都没有写编号。 */
+/** When operating by number, the object written in the action list: look at the point found in the picture and write what it is looking for, and write the name of the other elements without writing the number. */
 internal fun refTarget(o: JsonObject, r: ToolExecution, last: ScreenSnapshot?): String? = o.argStr("ref")?.let { ref ->
     (r.content["located"] as? JsonPrimitive)?.content
         ?: last?.elements?.firstOrNull { it.ref == ref }?.name?.takeIf(String::isNotBlank) ?: ref

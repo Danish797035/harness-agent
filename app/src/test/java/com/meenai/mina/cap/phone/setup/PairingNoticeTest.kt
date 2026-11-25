@@ -37,33 +37,35 @@ class PairingNoticeTest {
             PairingNotice.EnterCode(5, "Wrong or expired code: in the pairing window, tap “Pair device with pairing code” again to get a new code, then enter it again"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.WrongCode), PairingDiscovery.Found(5)),
         )
-        // 窗口关了(找不到配对窗口)也留着输入框,说同样的办法
+        // Even if the window is closed (the pairing window cannot be found), the input box is still
+        // left, and the same method is used
         val closed = PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.PairingWindowClosed), PairingDiscovery.Searching)
         closed as PairingNotice.EnterCode
         assertNull(closed.port)
         assertTrue(closed.error!!.endsWith("then enter it again"))
-        // 配对之后的失败请用户回 Mina
+        // If pairing fails, please return to Mina
         assertEquals(
             PairingNotice.Problem("Connected, but couldn’t get ready"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.HelperStartFailed), PairingDiscovery.Found(5)),
         )
     }
 
-    /** 配对失效:引导页让用户重新配对,找到配对窗口后和没配对时一样给输入框;还没找到时照旧请用户回 Mina。 */
+    /** Pairing failure: The guide page asks the user to re-pair. After finding the pairing window, the input box is the same as when it was not paired; if it is not found yet, the user is still asked to return to Mina. */
     @Test
     fun revokedPairingGetsTheInputOnceThePairingWindowIsFound() {
         val revoked = BuiltinShellStatus.Failed(BuiltinShellFailure.AuthorizationRevoked)
         assertEquals(PairingNotice.EnterCode(37001), PairingNotice.of(revoked, PairingDiscovery.Found(37001)))
         assertEquals(PairingNotice.Problem("Pairing expired"), PairingNotice.of(revoked, PairingDiscovery.Searching))
         assertEquals(PairingNotice.Problem("Pairing expired"), PairingNotice.of(revoked, PairingDiscovery.Idle))
-        // 用 USB 启动命令起的助手停了要再运行一次命令,找到配对窗口也不给输入框
+        // The assistant started with the USB startup command stops and I have to run the command again.
+        // When I find the pairing window, there is no input box.
         assertEquals(
             PairingNotice.Problem("Phone helper stopped"),
             PairingNotice.of(BuiltinShellStatus.Failed(BuiltinShellFailure.UsbHelperStopped), PairingDiscovery.Found(37001)),
         )
     }
 
-    /** 找到配对窗口时,通知给不给输入框和无障碍读到码后试不试(PairingScreen.attempt)对每种状态都一致。 */
+    /** When the pairing window is found, the notification of whether to give the input box and whether to try after reading the code without obstacles (PairingScreen.attempt) are consistent for each state. */
     @Test
     fun codeInputMatchesWhatAutoReadWouldTry() {
         val reading = PairingScreenReading("123456", null)
@@ -90,9 +92,10 @@ class PairingNoticeTest {
         val waits = generateSequence(0) { it + 1 }.map { PairingNotice.realertAfter(enter, it) }.takeWhile { it != null }.toList()
         assertEquals(3, waits.size)
         assertEquals(PairingNotice.MAX_REALERTS, waits.size)
-        // 越往后隔得越久
+        // The further back you go, the longer it will take
         assertEquals(waits.filterNotNull().sorted(), waits)
-        // 填错后的提示也会再提醒;别的状态不提醒
+        // If you fill in the wrong information, you will be reminded again; otherwise, there will be no
+        // reminder.
         assertEquals(PairingNotice.REALERT_MS[0], PairingNotice.realertAfter(PairingNotice.EnterCode(5, "x"), 0))
         listOf(PairingNotice.Working, PairingNotice.Done, PairingNotice.Problem("x")).forEach { assertNull(PairingNotice.realertAfter(it, 0)) }
     }
@@ -100,16 +103,18 @@ class PairingNoticeTest {
     @Test
     fun aSubmittedCodeShowsPairingUntilThePairingStarts() {
         val revoked = BuiltinShellStatus.Failed(BuiltinShellFailure.AuthorizationRevoked)
-        // 填了码、配对还没开始:不按填码前的状态算,也不结束(助手原本在运行时也一样,配对开始后状态还会变)
+        // After filling in the code, pairing has not yet started: the status before filling in the code
+        // will not be counted, and it will not end (the same is true when the assistant is originally
+        // running, and the status will change after pairing starts)
         assertEquals(PairingNotice.Working to false, PairingNotice.follow(revoked, PairingDiscovery.Searching, repairing = false, submitted = true))
         assertEquals(PairingNotice.Working to false, PairingNotice.follow(BuiltinShellStatus.Running, PairingDiscovery.Searching, repairing = false, submitted = true))
-        // 没填码时照常按状态算
+        // If you do not fill in the code, it will be calculated according to the status as usual.
         assertEquals(PairingNotice.Problem("Pairing expired") to false, PairingNotice.follow(revoked, PairingDiscovery.Searching, repairing = false, submitted = false))
     }
 
     @Test
     fun followingEndsOnlyWhenRunningOutsideARepair() {
-        // 重新配对时运行中的旧状态不算配好:不发、不结束
+        // When re-pairing, the old running state is not considered a good match: no transmission, no end
         assertEquals(null to false, PairingNotice.follow(BuiltinShellStatus.Running, PairingDiscovery.Searching, repairing = true, submitted = false))
         assertEquals(PairingNotice.Done to true, PairingNotice.follow(BuiltinShellStatus.Running, PairingDiscovery.Idle, repairing = false, submitted = false))
     }
@@ -124,32 +129,33 @@ class PairingNoticeTest {
     fun channelKeepsWhatWorksMigratesOldOnesAndRespectsTheUser() {
         val old = PairingChannel.IDS.first()
         val new = PairingChannel.IDS.last()
-        // 旧版本建的、够高:接着用,不换 id
+        // It was built in an old version and is high enough: continue to use it without changing the ID.
         assertEquals(
             ChannelPlan.Use(old, PairingChannelHealth.Ready),
             PairingChannel.plan(listOf(ChannelSnapshot(old, NotificationManager.IMPORTANCE_HIGH, userSet = false))),
         )
-        // 旧版本建得不够高、用户没动过:换新 id 重建
+        // The old version is not built high enough and has not been touched by users: Rebuild with new
+        // ID
         assertEquals(
             ChannelPlan.Create(new),
             PairingChannel.plan(listOf(ChannelSnapshot(old, NotificationManager.IMPORTANCE_DEFAULT, userSet = false))),
         )
-        // 用户自己调低:不改回去,提示
+        // The user adjusts it down by himself: If he does not change it back, he will be prompted.
         assertEquals(
             ChannelPlan.Use(old, PairingChannelHealth.Lowered),
             PairingChannel.plan(listOf(ChannelSnapshot(old, NotificationManager.IMPORTANCE_DEFAULT, userSet = true))),
         )
-        // 用户关掉:发不出来
+        // User turned off: unable to send
         assertEquals(
             ChannelPlan.Use(new, PairingChannelHealth.Off),
             PairingChannel.plan(listOf(ChannelSnapshot(new, NotificationManager.IMPORTANCE_NONE, userSet = true))),
         )
-        // 最新的 id 也不够高、又没有更新的可换:只能提示
+        // The latest ID is not high enough, and there is no newer one to change: it can only prompt
         assertEquals(
             ChannelPlan.Use(new, PairingChannelHealth.Lowered),
             PairingChannel.plan(listOf(ChannelSnapshot(new, NotificationManager.IMPORTANCE_LOW, userSet = false))),
         )
-        // 新旧都在时看新的
+        // Look at the new when both the old and the new are there
         assertEquals(
             ChannelPlan.Use(new, PairingChannelHealth.Ready),
             PairingChannel.plan(

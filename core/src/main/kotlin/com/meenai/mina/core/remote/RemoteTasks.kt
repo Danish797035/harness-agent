@@ -7,7 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
-/** 电脑交来的一个任务:[state] 为空表示已经交给任务服务、还没登记上(马上就会有)。 */
+/** A task handed over by the computer: [state] is empty, which means it has been handed over to the task service and has not been registered yet (it will be available soon). */
 data class RemoteTask(
     val id: String,
     val conversation: String,
@@ -17,7 +17,7 @@ data class RemoteTask(
     val steers: List<RemoteSteer> = emptyList(),
 )
 
-/** 只报告电脑追加的消息;joined 表示进入当前任务上下文,不是执行成功。 */
+/** Only reports messages appended by the computer; joined means entering the current task context, not successful execution. */
 data class RemoteSteer(val messageId: String, val state: String)
 
 sealed interface StartOutcome {
@@ -26,22 +26,24 @@ sealed interface StartOutcome {
 }
 
 /**
- * App 一侧给电脑连接的任务出入口:任务照旧经任务服务开始、在对话里留记录,状态读任务自己的,这里不另存一份。
- * 只认电脑交来的任务(按 [RemoteTask.id]),手机上发起的任务看不到也动不了。
+ * The task portal connected to the computer on the App side: the task is still started through the task
+ * service, a record is left in the conversation, and the status reads the task's own, and there is no
+ * separate copy here. It only recognizes tasks handed over by the computer (press [RemoteTask.id]).
+ * Tasks initiated on the mobile phone cannot be seen or moved.
  */
 interface RemoteTasks {
     fun start(goal: String, conversation: String?): StartOutcome
     fun get(id: String): RemoteTask?
-    /** 新的在前。 */
+    /** New first. */
     fun list(limit: Int): List<RemoteTask>
-    /** 只在任务正等着回答追问时调用;交给任务时返回 true。 */
+    /** Only called when the task is waiting to answer a question; returns true when handed over to the task. */
     fun answer(id: String, text: String): Boolean
-    /** 原子确认消息进入当前任务的收件箱;不能转成新任务。返回消息编号,拒绝为 null。 */
+    /** Atomic confirmation messages go into the current task's inbox; they cannot be transferred to a new task. Returns the message number, rejects as null. */
     fun steer(id: String, text: String): String?
     fun cancel(id: String): Boolean
 }
 
-/** 任务状态对电脑的说法;只读任务自己的状态,不另记。 */
+/** What the task status says to the computer; only the status of the task itself is read, and nothing else is recorded. */
 object RemoteStatus {
     const val STARTING = "starting"
     const val RUNNING = "running"
@@ -73,7 +75,7 @@ object RemoteStatus {
 
     fun finished(status: String) = status == DONE || status == FAILED || status == CANCELLED
 
-    /** 一个任务此刻的样子:状态、最近的进度说明、等什么、结果。 */
+    /** What a task looks like at the moment: status, recent progress notes, what to wait for, and results. */
     fun describe(t: RemoteTask): JsonObject = buildJsonObject {
         val s = t.state
         val status = of(s)

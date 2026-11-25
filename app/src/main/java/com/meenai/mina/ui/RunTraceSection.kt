@@ -36,14 +36,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-/** 运行还在录 Trace 时,多久重读一次。 */
+/** How often to reread when Trace is still being recorded while running. */
 private const val TRACE_REFRESH_MS = 1_000L
 
 @Composable
 internal fun RunTraceSection(runId: String) {
     val context = LocalContext.current
     val store = (context.applicationContext as HarnessApp).detailedTraces.store
-    // 运行过程页在任务跑着时就能打开:还在录就按秒重读,录完再读最后一次就停
+    // The running process page can be opened while the task is running: while recording, reread by the
+    // second, and after recording, read the last time and stop.
     val loaded by produceState<Pair<TraceArchive, List<TraceRow>>?>(null, runId) {
         var archive: TraceArchive? = null
         while (true) {

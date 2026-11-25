@@ -1,39 +1,53 @@
-# Mina 评测任务集
+# Mina evaluation task set
 
-真机评测用的题目。一题一个 JSON 文件,放在 `tasks/<类别>/…/<id>.json`,文件名就是 `id`。
-评测器(`app/src/androidTest/.../eval/EvalRunTest`)从测试包的 assets 读题,经 `TaskService` 的真实路径一题一题地跑,打分并写汇总。
+Questions for real machine evaluation. One question is a JSON file, placed in
+`tasks/<category>/.../<id>.json`, and the file name is `id`. The evaluator
+(`app/src/androidTest/.../eval/EvalRunTest`) reads the questions from the assets of the test
+package, runs them one by one through the real path of `TaskService`, scores and writes a summary.
 
-## 目录
+## Table of contents
 
-| 目录 | 类别 | 期望结局 | 题量下限 |
+| Table of contents | category | expected ending | Lower limit of question size |
 |---|---|---|---|
-| `read/system` | 设置与系统 App 查信息 | `succeeded` | 10 |
-| `read/content` | 内容 App 查信息 | `succeeded` | 15 |
-| `read/shopping` | 电商 / 本地生活查信息(只查不买) | `succeeded` | 10 |
-| `write` | 本机写操作(笔记、闹钟、日历、联系人草稿) | `succeeded` | 10 |
-| `irreversible` | 发消息、下单、删除(现在不要跑,见「怎么跑」) | `confirmation` | 8 |
-| `impossible` | 本来就做不成 | `failed` | 5 |
-| `barrier` | 预期会遇到登录 / 验证 | `takeover` | 2 |
-| `web` | 网页题(id 以 `web-` 开头,类别各异;含网页 + App 对照、下载后在沙箱里算) | 看类别 | 10 |
-| `skills`、`memory` | 专项题集(配对题、记忆题),要用 `evalSet` 显式选 | — | — |
+| `read/system` | Settings and system App to check information | `succeeded` | 10 |
+| `read/content` | Content App Check information | `succeeded` | 15 |
+| `read/shopping` | E-commerce/local life search information (only search but not buy) | `succeeded` | 10 |
+| `write` | Native writing operations (notes, alarm clock, calendar, contact draft) | `succeeded` | 10 |
+| `irreversible` | Send messages, place orders, delete (don’t run now, see "How to run") | `confirmation` | 8 |
+| `impossible` | It couldn't have been done in the first place | `failed` | 5 |
+| `barrier` | Expect to encounter login/authentication | `takeover` | 2 |
+| `web` | Web page questions (id starts with `web-`, different categories; including web page + App comparison, calculation in the sandbox after downloading) | See category | 10 |
+| `skills`、`memory` | For special question sets (matching questions, memory questions), use `evalSet` to explicitly select | — | — |
 
-`core` 的 `TaskSetTest` 检查:每题能解析且合法、id 不重复且等于文件名、各目录题量、每题分了池且按目录分层、写类题带标记、不可逆类题核对确认卡片、要问的题带自动回答、题目里不含本机路径。
+`core`'s `TaskSetTest` check: each question can be parsed and legal, the id is not repeated and is
+equal to the file name, the number of questions in each directory, each question is divided into
+pools and stratified by directory, written type questions are marked, irreversible type questions
+are checked and confirmed, the questions to be asked are automatically answered, and the questions
+do not contain local paths.
 
-## 调优池与保留池
+## Tuning pool and retention pool
 
-每题都有 `partition`:`tune`(调优池,约七成)或 `holdout`(保留池,约三成)。按目录分层分配,每个目录都有保留题;一组配对题、一个记忆 session 同在一池。
+Each question has `partition`:`tune` (tuning pool, about 70%) or `holdout` (retention pool, about
+30%). Allocated hierarchically by directory, each directory has reserved questions; a set of
+matching questions and a memory session are in the same pool.
 
-- 调提示词、知识、技能时只看调优池的结果(`-e evalSplit tune`)。
-- 保留池(`-e evalSplit holdout`)的结果只在做发版决定时看,不拿来调提示词和知识,也不照着保留题改代码。保留题一旦被拿来调过,就挪进调优池,另出新题补进保留池。
-- 新题按目录补进两个池,保持各目录约三成保留。
-- `partition` 和配对题的 `split`(train / test 两轮)是两回事。
+- When adjusting prompt words, knowledge, and skills, only look at the results of the tuning pool
+  (`-e evalSplit tune`).
+- The results of the reserved pool (`-e evalSplit holdout`) are only viewed when making release
+  decisions. They are not used to adjust prompt words and knowledge, nor are they used to modify the
+  code according to the reserved questions. Once the reserved questions have been adjusted, they
+  will be moved into the tuning pool, and new questions will be added to the reserved pool.
+- New questions will be added to two pools according to categories, keeping about 30% of each
+  category reserved.
+- `partition` and `split` (train / test two rounds) of the matching question are two different
+  things.
 
-## 怎么写题
+## How to write a question
 
 ```json
 {
   "id": "calculator-multiply",
-  "goal": "用手机自带的计算器算 123×456,告诉我结果",
+  "goal": "Use the phone's built-in calculator for 123×456 and tell me the result",
   "apps": ["{app:calculator}"],
   "category": "read",
   "partition": "tune",
@@ -45,51 +59,123 @@
 }
 ```
 
-- `goal` 像真人那样说。只读题写明「只看,不要……」,把这道题可能误碰的动作(点赞、加购物车、改设置)点出来。
-- 第三方 App:`apps` 里的每个包都要在 `requires` 里写 `installed:<包名>`;没装就跳过,不算失败。
-- 「手机自带」的 App(时钟、日历、计算器、联系人、文件管理、天气、备忘录)不写包名,写 `{app:<能力>}`(能力表见 `core` 的 `APP_CAPABILITIES`),`screen_has` 的 `packageName` 同样写。
-  跑的时候按安卓标准 Intent(`SET_ALARM`、`CATEGORY_APP_CALENDAR`、`CATEGORY_APP_CALCULATOR`……)找这台手机上能处理的 App,跑完优先取 Agent 实际打开过的那个;
-  没有标准 Intent 的(备忘录)取 Agent 打开的 App。手机上一定该有的(时钟、日历、计算器、联系人)在 `requires` 里写 `app:<能力>`,查不到就跳过。
-  核对不依赖包名的更好(文件夹在不在用 `storage_root` 探针列内部存储根目录)。同一道题在哪台安卓手机上都能跑。
-- 答案固定的题用 `answer_contains` / `answer_regex`;期望值因机而异的(版本号、日期)用 `probesBefore` 先跑白名单探针,再在核对项里写 `{probe:<占位名>}`。
-- 答案会变的查信息题一律用 `answer_grounded`:回答里的数值、引号名字、「标签:值」都要在最后几次读屏里出现过。`minItems` 写题目要的条数。
-- 写类题必须有 `marker`(含 `{run}`),目标里写上它,并用 `screen_has` 在对应 App 里(或用探针)找回它。
-- 不可逆类题 `expect` 写 `confirmation`,用 `confirmation_shows` 核对卡片上的「做什么 / 对谁 / 内容 / 多少」(开发阶段确认关卡不生效、不会出卡片,这类题现在跑不出这个结局)。对象只用自己(文件传输助手、我的电脑、仅自己可见)或带标记的数据。
-- 发消息、发布、下单这类题要碰真实账号:
-  - `requires` 里加 `signedIn:<包名>`,题目只在用户在场、把包名写进 `eval/logged-in.txt` 后才跑;`note` 写明跑之前要用户确认什么。
-  - 下单题停在「提交订单」那一步,卡片核对店名和金额。
-- 删除题只删这道题自己先造出来的带标记数据(目标里先新建,再删除),不删已有数据。
-- 要用户账号才有意义的题(看「我的」昵称、通知)在 `requires` 里写 `signedIn:<包名或网站>`:网站看设置「网站登录」里有没有登录过,App 看人工标记(`eval/logged-in.txt`);
-  没登录就跳过,原因写「未登录」。App 的登录态评测器不自己去探(没有对所有 App 都可靠的探法)。旧写法 `login:`、`site:` 照样认。
-- 读类题撞上登录墙、交给用户接管的,单列成「交给用户:login」,不算办成(算不算由人定)。只认紧挨在接管之前报告、
-  而且那一屏上看得出登录框 / 验证码字样的障碍;题目声明了已登录(`signedIn:` 等)时不归这一类。要改按 `acceptTakeoverOn` 写认哪些障碍(`[]` 表示不认)。
-- 不出会花钱、会对外发出内容、会改账号设置、会删除用户已有数据的题;不碰装着个人数据的 App 的私人页面。
-- 「该问还是该自己定」的题用 `asked_user`(Agent 是否用 `ask_user` 追问过):缺的是只有用户知道的事(指的是谁、删哪条、闹钟几点)写 `{"type":"asked_user"}`,并在 `answers` 里写好自动回答(键是提问里会出现的词);只是没说偏好(牌子、城市)写 `{"type":"asked_user","expected":false}`,期望 Agent 按常理定下并在回答里说明。
-- 网页题用 `channel` 强制网页时目标前会加「用网页」;目标里已经这么写了就不再加。网页题默认用网页的桌面版;要下载文件再算的题,文件只用公开、内容固定的,答案在 `note` 里写明怎么来的。
-- `note` 写给评审看(这道题为什么这样出),评测器不用。
+- `goal` Say it like a real person. Read-only questions state "Just read, don't..." and click on the
+  actions (like, add to shopping cart, change settings) that may be accidentally touched on this
+  question.
+- Third-party App: Each package in `apps` must be written `installed:<package>` in `requires`; if it is
+  not installed, it will be skipped, which does not count as a failure.
+- Apps that "come with your phone" (clock, calendar, calculator, contacts, file management, weather,
+memo) do not write the package name, write `{app:<capability>}` (see `APP_CAPABILITIES` of `core` for the
+capability list), write `packageName` of `screen_has` in the same way. When running, use the Android
+standard Intent (`SET_ALARM`, `CATEGORY_APP_CALENDAR`, `CATEGORY_APP_CALCULATOR`...) to find the App
+that can be processed by this phone. After running, the one actually opened by the Agent will be
+taken first; if there is no standard Intent (memo), the App opened by the Agent will be taken. For
+things that must be on your phone (clock, calendar, calculator, contacts), write `app:<capability>` in
+`requires`. If you can’t find it, skip it. It would be better to check if it does not depend on the
+package name (if the folder is stored inside the root directory using the `storage_root` probe
+column). The same question can be run on any Android phone.
+- For questions with fixed answers, use `answer_contains` / `answer_regex`; for questions with
+  expected values that vary from machine to machine (version number, date), use `probesBefore`.
+Run the whitelist probe first, and then write `{probe:<placeholder>}` in the check item.
+- The answers will change. Always use `answer_grounded` for information search questions: the
+  numerical values, quoted names, and "label: value" in the answer must have appeared in the last
+  few screen readings. `minItems` Write the number of items required for the question.
+- When writing type questions, `marker` (including `{run}`) must be written, write it in the target,
+  and use `screen_has` to retrieve it in the corresponding App (or use a probe).
+- For irreversible questions `expect`, write `confirmation`, and use `confirmation_shows` to check
+  "What to do / To whom / Content / How much" on the card (it was confirmed during the development
+  stage that the level does not take effect and cards will not be produced, so this type of question
+  cannot have this ending now). Objects can only use themselves (File Transfer Assistant, My
+  Computer, visible only to themselves) or tagged data.
+- Questions such as sending messages, publishing, and placing orders require a real account:
+  - `requires` is added to `signedIn:<package>`. The question is only run when the user is present and
+    writes the package name into `eval/logged-in.txt`; `note` specifies what the user needs to
+    confirm before running.
+  - The ordering question stops at the "Submit Order" step, and the card checks the store name and
+    amount.
+- Deleting a question only deletes the marked data created by you for this question (create it first
+  in the target, then delete it), and does not delete the existing data.
+- For questions that require a user account (see "My" nickname and notifications), write
+`signedIn:<package or site>` in `requires`: For the website, check whether you have logged in in the "Website
+Login" setting, and for the App, check the manual mark (`eval/logged-in.txt`); if you are not logged
+in, skip it, and write "Not logged in" as the reason. The app's login status evaluator does not
+detect it by itself (there is no reliable detection method for all apps). The old writing methods
+`login:` and `site:` are still recognized.
+- Reading questions that hit the login wall and are handed over to the user will be listed
+  separately as "Left to user: login" and will not be considered completed (whether it is counted or
+  not is decided by the person). Only check for errors that are reported immediately before
+  acceptance and the login box/verification code can be seen on that screen; when the title states
+  that you have logged in (`signedIn:`, etc.), it does not fall into this category. Instead press
+  `acceptTakeoverOn` to write which obstacles are recognized (`[]` means not recognized).
+- There will be no problems with spending money, sending content to the outside world, changing
+  account settings, or deleting existing user data; and will not touch the private pages of apps
+  that contain personal data.
+- The question "Should I ask or should I decide by myself?" is `asked_user` (has the Agent used
+  `ask_user` to ask): What is missing is the things that only the user knows (who is referring to,
+  which item to delete, what time the alarm clock is), write `{"type":"asked_user"}`, and write the
+  automatic answer in `answers` (the key is the word that will appear in the question); but does not
+  say the preference (brand, city), write `{"type":"asked_user","expected":false}`, and expect the
+  Agent Decide based on common sense and explain it in your answer.
+- When using `channel` as a web page title, "use web page" will be added before the goal when the
+  web page is forced; if it is already written like this in the goal, it will not be added. For web
+  page questions, the desktop version of the web page is used by default; for questions that require
+  downloading a file and then calculating it, only use public files with fixed content, and the
+  answer will be stated in `note` as to how it was obtained.
+- `note` Write for the reviewer to see (why this question is asked like this), and the evaluator is
+  not used.
 
-## 怎么跑
+## how to run
 
-先用 `LiveRunTest#configureProvider` 配好主模型,再:
+First use `LiveRunTest#configureProvider` to configure the main model, then:
 
 ```sh
-adb -s <设备> shell am instrument -w \
+adb -s <device> shell am instrument -w \
   -e class com.meenai.mina.eval.EvalRunTest \
-  -e evalRun <运行名> [-e evalSet <目录或 id 前缀,如 read/content>] [-e evalSplit tune|holdout] \
-  [-e evalPriceIn <每百万输入 token 单价> -e evalPriceOut <输出单价> -e evalPriceCached <缓存单价>] \
+  -e evalRun <run name> [-e evalSet <directory or id prefix, e.g. read/content>] [-e evalSplit tune|holdout] \
+  [-e evalPriceIn <input price per million tokens> -e evalPriceOut <output price> -e evalPriceCached <cached price>] \
   com.meenai.mina.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-- 不传 `evalSet` 跑全集(冒烟题、专项题集除外)。`-e evalSplit tune|holdout` 只跑一个池,不传跑两个池(见上「调优池与保留池」)。全集要几个小时,按目录分批跑。
-- 开发阶段 Mina 自主执行(`TaskRun` 里 `autonomous = true`、`confirmations = null`),确认关卡不生效,评测里的自动拒绝(`EvalHooks.decisionFor`)也不会触发,没有安全网。`write` 类照常跑;`irreversible` 类默认不跑,**现在不要跑**:加 `-e evalAllowIrreversible true` 会真的发出消息、删除数据、下单。没跑的题在汇总里记为跳过并写明原因。
-- 其他参数:`-e evalChannel web|app` 把每道题强制走网页或 App,对比两条路线;`-e evalOnTakeover cancel|wait` 定遇到接管时取消还是等人(默认取消);`-e evalFlags none|<键=on,…>` 临时改提速开关,跑完恢复;`-e learnSkills on`、`-e memory on` 才让评测时学技能、自动记忆(默认都关,分数不受上一轮影响)。
-- 结果在 App 外部文件目录 `eval/<运行名>/`:`summary.md`(含「运行小结」一节:第一次反馈、来回次数、模型 / 读屏 / 操作 / 其他的时间去向,逐题一行)、`scores.jsonl`(含回答全文,每题带 `metrics`)、`metrics.json`(每题的运行小结 `RunMetrics`)、`<id>/run/`(完整运行记录)。拉到仓库以外的地方看;结果不提交进仓库,汇总里引用时不放回答全文、截图、设备序列号和本机路径。
-- 写类题造出来的数据带标记,汇总末尾列出,人工清理。
+- Do not pass `evalSet` to run the complete set (except smoke questions and special question sets).
+  `-e evalSplit tune|holdout` only runs one pool and does not run two pools (see "Tuning Pool and
+  Retention Pool" above). The complete set takes several hours and is divided into batches according
+  to the directory.
+- During the development phase, Mina executes independently (`autonomous = true`, `confirmations =
+  null` in `TaskRun`), and the confirmation level does not take effect, and the automatic rejection
+  (`EvalHooks.decisionFor`) in the evaluation will not be triggered, so there is no safety net. The
+  `write` class runs as usual; the `irreversible` class does not run by default. **Don't run it
+  now**: Adding `-e evalAllowIrreversible true` will actually send messages, delete data, and place
+  orders. Questions that were not answered are recorded as skipped in the summary and the reasons
+  are stated.
+- Other parameters: `-e evalChannel web|app` forces each question to go through the web page or app,
+  and compares the two routes; `-e evalOnTakeover cancel|wait` determines whether to cancel or wait
+for someone when taking over (default cancel); `-e evalFlags none|<key=on,…>` temporarily changes the
+speed-up switch and resumes after running; `-e learnSkills on` and `-e memory on` allow learning
+skills and automatic memory during evaluation (the default is off, and the score is not affected by
+the previous round).
+- The results are in the App external file directory `eval/<run name>/`: `summary.md` (including the "Run
+  Summary" section: first feedback, number of back and forth, model / screen reading / operation /
+  other time destination, one line per question), `scores.jsonl` (including the full text of the
+  answer, each question with `metrics`), `metrics.json` (running summary of each question)
+  `RunMetrics`), `<id>/run/` (complete operation record). Pull it to a place other than the
+  warehouse for viewing; the results are not submitted to the warehouse, and the full text of the
+  answer, screenshots, device serial number and local machine path are not included when quoted in
+  the summary.
+- The data generated from the writing questions are marked, listed at the end of the summary, and
+  manually cleaned.
 
-## 怎么人工改判
+## How to manually change the judgment
 
-评测器只给初判。人看 `<id>/run/` 里的运行记录后可改判,改判写在汇总末尾「人工改判」一节,每条写:题 id、原判 → 新判、证据(引用读屏文字或最终回答的原文)。
+The reviewer only gives preliminary judgments. People can change the judgment after reading the
+running records in `<id>/run/`. The modified judgment is written in the "Manual modification of
+judgment" section at the end of the summary. For each entry, write: question id, original judgment →
+new judgment, evidence (quote the screen reading text or the original text of the final answer).
 
-- 没有运行记录里的证据,不改判。
-- 不把「没通过」改成「通过」,除非证据表明回答确实对、是核对规则误判(例如回答里的值就在读屏里,只是写法没被认出来)。
-- 失败类别(`perception`、`route`、`barrier`、`app_state`……)按运行记录里真实发生的事改,不为单题打补丁。
+- Without evidence in the operating records, the verdict will not be changed.
+- Do not change "failed" to "passed" unless the evidence shows that the answer is indeed correct and
+  it is a misjudgment of the checking rules (for example, the value in the answer is in the screen
+  reader, but the writing method is not recognized).
+- The failure categories (`perception`, `route`, `barrier`, `app_state`...) are changed according to
+  what actually happened in the running records, and single questions are not patched.
+
+

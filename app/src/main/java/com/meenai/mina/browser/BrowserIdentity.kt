@@ -7,25 +7,30 @@ import kotlinx.serialization.json.contentOrNull
 import java.io.File
 
 /**
- * 浏览器页用手机版还是电脑版网页:
- * - 用户自己浏览默认手机版;在「更多」里换成电脑版的网站记在 [UserSiteModes],下次也用电脑版;
- * - 「给 Mina 登录」(从常用网站打开还没登录的网站)时整个标签照 Mina 办事时的身份走([agentMobile]),
- *   登录留下的 Cookie 和 Mina 办事时看到的网站是同一版,Mina 那边也是登录的。
- * Agent 自己的标签不看这里,按站点记住的那份照旧(默认电脑版)。
+ * Should the browser page use the mobile version or the computer version:
+ * - - The user browses the mobile version by default; the website that changes to the computer version
+ * in "More" is recorded as [UserSiteModes], and the computer version will be used next time;
+ * - - When "Log in to Mina" (open a website that you haven't logged in to from a frequently used
+ * website), the entire tab will appear as Mina does when working ([agentMobile]),
+ * The cookie left after logging in is the same version of the website that Mina saw when she was
+ * working, and Mina is also logged in. The Agent's own tags do not look here, the ones remembered by the
+ * site remain the same (default computer version).
  */
 object BrowserIdentity {
-    /** 返回 true 用手机版。 */
+    /** Return true to use the mobile version. */
     fun mobile(loginForMina: Boolean, agentMobile: Boolean, userDesktop: Boolean): Boolean =
         if (loginForMina) agentMobile else !userDesktop
 
-    /** 从常用网站打开:还没登录的走「给 Mina 登录」。 */
+    /** Open from frequently used websites: If you haven't logged in yet, go to "Log in for Mina". */
     fun loginFlow(site: FavoriteSite): Boolean = !site.loggedIn
 }
 
 /**
- * 用户在浏览器页里换成电脑版的网站(默认手机版)。按主机名记,去掉开头的 www.;子域名跟着上级走
- * (记了 example.com,m.example.com 也用电脑版)。和 Agent 的那份分开存,互不影响。
- * 存在 App 私有目录的一个 JSON 文件里,坏了就从空表开始。
+ * The user switches to the computer version of the website in the browser page (default mobile version).
+ * According to the host name, remove the www. at the beginning; the subdomain name follows the superior
+ * one (I remember example.com, m.example.com also uses the computer version). It is stored separately
+ * from the Agent's share and does not affect each other. It is stored in a JSON file in the App's
+ * private directory. If it is broken, it will start from an empty table.
  */
 class UserSiteModes(dir: File) {
     private val file = File(dir, FILE)
@@ -52,7 +57,7 @@ class UserSiteModes(dir: File) {
         }
     }
 
-    /** 记下这个网站用哪一版;换回手机版时连上级域名的记录一起去掉,否则还会跟着上级走。 */
+    /** Make a note of which version of this website you use; when switching back to the mobile version, delete the record of the upper-level domain name as well, otherwise you will still follow the higher-level domain name. */
     @Synchronized
     fun set(host: String, desktop: Boolean) {
         val k = key(host) ?: return

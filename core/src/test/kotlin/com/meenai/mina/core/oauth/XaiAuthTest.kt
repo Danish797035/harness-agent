@@ -19,8 +19,10 @@ class XaiAuthTest {
     private lateinit var server: MockWebServer
     private val http = OkHttpClient()
 
-    // 绑到 127.0.0.1 并用它拼地址:MockWebServer 默认按本机主机名起服务,有的机器(localhost 被 VPN 改写过)
-    // 解析出的名字不是 localhost,OauthUrls 只放行 https 和本机地址,主机核对就会拒掉它自己的地址
+    // Bind to 127.0.0.1 and use it to spell the address: MockWebServer starts the service based on the
+    // local host name by default. On some machines (localhost has been rewritten by VPN), the name
+    // parsed is not localhost. OauthUrls only allows https and the local address, and the host check
+    // will reject its own address.
     @Before fun setUp() { server = MockWebServer().also { it.start(InetAddress.getByName("127.0.0.1"), 0) } }
     @After fun tearDown() { server.shutdown() }
 
@@ -55,7 +57,7 @@ class XaiAuthTest {
         assertFalse(denied.message.orEmpty(), denied.message.orEmpty().contains(secret))
     }
 
-    /** 用户在浏览器里时网络可能一时不通:连着几次连不上才算失败,中间成功一次就从头数。 */
+    /** The network may be temporarily unavailable when the user is in the browser: it will be considered a failure if it fails to connect several times, and the count will start from the beginning if it succeeds once in the middle. */
     @Test fun devicePollToleratesShortNetworkTrouble() = runTest {
         val grant = DeviceGrant(DeviceChallenge("U", "https://x", null, 600, 1), "d")
         val answers = ArrayDeque(listOf<DevicePoll>(

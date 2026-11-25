@@ -5,20 +5,22 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
- * PKCE(RFC 7636)和回调核对用的随机值。每次登录都新生成,不存盘。
- * 校验串用 base64url 写出 32 个随机字节(43 个字符,落在规范要求的 43–128 之间,字符也都在允许的范围里)。
+ * Random value used for PKCE (RFC 7636) and callback verification. It is newly generated every time you
+ * log in and is not saved. The verification string uses base64url to write 32 random bytes (43
+ * characters, falling between 43-128 required by the specification, and the characters are all within
+ * the allowed range).
  */
 object Pkce {
     private val random = SecureRandom()
 
-    /** 新的校验串(code_verifier)。 */
+    /** New verification string (code_verifier). */
     fun verifier(bytes: Int = 32): String = randomString(bytes)
 
-    /** S256:校验串的 SHA-256,base64url 不带补位。 */
+    /** S256: SHA-256 of the check string, base64url without padding. */
     fun challenge(verifier: String): String =
         b64url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
 
-    /** 回调里原样带回、用来认出是不是这次登录的随机串(state)。 */
+    /** The random string (state) used to identify whether this is the login is returned as it is in the callback. */
     fun state(): String = randomString(24)
 
     private fun randomString(bytes: Int): String = ByteArray(bytes).also(random::nextBytes).let(::b64url)

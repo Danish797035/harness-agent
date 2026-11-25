@@ -4,11 +4,13 @@ import com.meenai.mina.core.cap.web.WebUrlPolicy
 import java.net.URLEncoder
 
 /**
- * 地址栏和首页搜索框里输入的一句话 → 要打开的网址。
- * - 带 `://` 的原样打开(能不能打开由 [WebUrlPolicy.checkNavigable] 再判);
- * - localhost、IPv4、方括号里的 IPv6(可带端口和路径)补上 http://;
- * - 像域名的(由点隔开的英文字母、数字、连字符,最后一段是至少两个字母或 xn-- 开头,可带端口和路径)补上 https://;
- * - 其余(含空格、中文、只有一个词、邮箱这类)用必应搜索。
+ * A sentence entered in the address bar and homepage search box → the URL to be opened.
+ * - - Open it as it is with `://` (whether it can be opened will be judged by
+ * [WebUrlPolicy.checkNavigable]);
+ * - - localhost, IPv4, IPv6 in square brackets (can include port and path) add http://;
+ * - - Like a domain name (English letters, numbers, and hyphens separated by dots, the last paragraph
+ * starts with at least two letters or xn--, and can include ports and paths) add https://;
+ * - - Use Bing to search for the rest (including spaces, Chinese, only one word, email, etc.).
  */
 object AddressInput {
     const val SEARCH_PREFIX = "https://www.bing.com/search?q="
@@ -20,7 +22,7 @@ object AddressInput {
     private val IPV6 = Regex("^\\[[0-9A-Fa-f:.]+]$")
     private val PORT = Regex("^\\d{1,5}$")
 
-    /** 输入为空(只有空白)时为 null。 */
+    /** null if the input is empty (only whitespace). */
     fun resolve(input: String): String? {
         val s = input.trim()
         if (s.isEmpty()) return null
@@ -37,14 +39,14 @@ object AddressInput {
 
     fun search(query: String): String = SEARCH_PREFIX + URLEncoder.encode(query.trim(), "UTF-8")
 
-    /** 网址是必应的搜索结果页时为搜的词,否则为 null。 */
+    /** When the URL is a Bing search result page, it is the search term, otherwise it is null. */
     fun searchQuery(url: String): String? {
         if (!url.startsWith(SEARCH_PREFIX)) return null
         val q = url.removePrefix(SEARCH_PREFIX).substringBefore('&').substringBefore('#')
         return runCatching { java.net.URLDecoder.decode(q, "UTF-8") }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
     }
 
-    /** 开头到第一个 / ? # 为止的主机名和端口;里面带 @ 等不像主机名的字符时为 null。 */
+    /** The host name and port from the beginning to the first /? #; if there are characters such as @ that do not resemble the host name, it is null. */
     private fun authority(s: String): Pair<String, String?>? {
         val auth = s.substringBefore('/').substringBefore('?').substringBefore('#')
         if (auth.isEmpty() || '@' in auth) return null

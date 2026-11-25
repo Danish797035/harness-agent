@@ -25,7 +25,7 @@ import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 
-/** 真正启动 Go 网关,经 WebSocket 接到与 Android 完全相同的隧道与 MCP 入口。 */
+/** Really start the Go gateway and receive the same tunnel and MCP entry as Android via WebSocket. */
 class RelayGatewayIntegrationTest {
     @get:Rule val tmp = TemporaryFolder()
 
@@ -59,13 +59,15 @@ class RelayGatewayIntegrationTest {
             tunnel = RelayClient(scope, { req -> access.handle(req, endpoints::handle) }, allowLoopbackHttp = true)
             tunnel.start(pairing)
             withTimeout(5_000) { tunnel.state.first { it == RelayState.Online } }
-            // The test client stands in for the reverse proxy: the gateway reads the caller from X-Forwarded-For.
+            // The test client stands in for the reverse proxy: the gateway reads the caller from
+            // X-Forwarded-For.
             fun post(body: String, token: String = phoneToken.get(), caller: String = "198.51.100.7"): Pair<Int, String> =
                 http.newCall(Request.Builder().url("$base/mcp").header("Authorization", "Bearer $token").header("X-Forwarded-For", caller)
                     .post(body.toRequestBody("application/json".toMediaType())).build()).execute().use { it.code to it.body!!.string() }
             repeat(5) { assertEquals(401, post("{}", "anonymous-client", caller = "203.0.113.9").first) }
             assertEquals(429, post("{}", "anonymous-client", caller = "203.0.113.9").first)
-            // A locked-out caller learns nothing, not even with the right token; other callers are unaffected.
+            // A locked-out caller learns nothing, not even with the right token; other callers are
+            // unaffected.
             assertEquals(429, post("""{"jsonrpc":"2.0","id":0,"method":"tools/list"}""", caller = "203.0.113.9").first)
             assertEquals(200, post("""{"jsonrpc":"2.0","id":0,"method":"tools/list"}""").first)
             assertEquals(401, post("{}", pairing.deviceToken).first)

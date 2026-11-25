@@ -20,9 +20,12 @@ import com.meenai.mina.core.run.RunSpec
 import java.util.UUID
 
 /**
- * 电脑交来的任务的出入口:经 [TaskService] 开始(和对话界面同一条路,来源沿用已有的远程 MCP 权限策略;CLI 与 MCP 都由这里接入),状态读任务自己的([TaskRun.state]),
- * 这里只记电脑给的编号对应哪个对话、原话,以及任务收尾时的终态(任务对象收尾后就不在了)。
- * 只认这里登记过的编号,手机上发起的任务看不到也动不了。
+ * The entrance and exit of the task handed over by the computer: starting from [TaskService] (the same
+ * path as the dialogue interface, the source follows the existing remote MCP permission policy; CLI and
+ * MCP are accessed from here), the status is read from the task itself ([TaskRun.state]), here only the
+ * number given by the computer corresponds to which dialogue, original words, and the final state at the
+ * end of the task (the task object is gone after the end). Only the numbers registered here are
+ * recognized. Tasks initiated on the mobile phone cannot be seen or moved.
  */
 class RemoteTaskHub(
     private val context: Context,
@@ -49,7 +52,9 @@ class RemoteTaskHub(
     override fun start(goal: String, conversation: String?): StartOutcome {
         val id = UUID.randomUUID().toString()
         val record = try {
-            // 电脑那头能接着回答追问,但不一直守着:追问照常等,到时限就当没回答
+            // The other end of the computer can continue to answer follow-up questions, but it is not
+            // always guarded: follow-up questions will be waited as usual, and when the time limit is
+            // reached, it will be treated as if there is no answer.
             launch(id, goal, conversation ?: RemoteTaskService.newConversation(), Attendance.Reachable)
         } catch (e: Exception) {
             Log.w(TAG, "could not start MCP task", e)
@@ -94,7 +99,7 @@ class RemoteTaskHub(
 
     private fun live(id: String): TaskRun? = runs().firstOrNull { it.mcpExternalId == id }
 
-    /** 状态:收尾了用记下的终态,还在跑(或排队)读任务自己的;交出去很久都没登记上的按没开始成算。 */
+    /** Status: I have finished using the final status I wrote down, and I am still running (or queuing) to read my own tasks; the ones that have been handed in for a long time and have not been registered have not been started yet. */
     private fun remote(r: Record): RemoteTask {
         val run = live(r.id)
         val end = r.final
@@ -107,10 +112,12 @@ class RemoteTaskHub(
     @Synchronized fun attach(id: String, source: RunEventBus): AutoCloseable? =
         buses[RunId(id)]?.let { sink -> source.subscribe(sink) }
 
-    /** 任务收尾(含排队时被取消、服务被系统停掉):记下终态,之后状态都从这里读。 */
+    /** Task ending (including being canceled while queuing, and the service being stopped by the system): Write down the final state, and read all subsequent states from here. */
     @Synchronized fun ended(id: String, end: TaskState, steers: List<SteerNote>) {
         records[id]?.let { record ->
-            // 由收尾方传快照:排队取消可能已移出中心,服务中断也可能来不及改消息展示状态。
+            // The snapshot is transmitted by the end party: the queue cancellation may have been moved
+            // out of the center, the service may be interrupted, and it may be too late to change the
+            // message display status.
             record.steers = remoteSteers(steers, finished = true)
             record.final = end
         }
@@ -119,7 +126,7 @@ class RemoteTaskHub(
 
     private companion object {
         const val TAG = "MinaMcp"
-        /** 只留最近这么多个电脑交来的任务。 */
+        /** Only keep the tasks handed in by so many computers recently. */
         const val KEEP = 100
         const val LOST_MS = 2 * 60_000L
     }

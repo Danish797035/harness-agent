@@ -36,7 +36,7 @@ class SiteLooksTest {
         assertEquals(a, SiteTiles.color("shop.example.com"))
         assertEquals(SiteTiles.color("example.com"), SiteTiles.color("www.example.com"))
         assertTrue(a in SiteTiles.PALETTE)
-        // 不同的主机名大体分散到不同颜色上
+        // Different host names are generally scattered into different colors
         val colors = (1..40).map { SiteTiles.color("site$it.example.com") }.toSet()
         assertTrue(colors.size >= 6)
     }
@@ -53,10 +53,11 @@ class SiteLooksTest {
 
     @Test
     fun otherPagesTitlesDoNotNameTheSite() {
-        // 登录、文章这类页面的标题哪一段是网站名说不准:不起名
+        // It is unclear which paragraph of the title of pages such as login and articles is the name of
+        // the website: Unnamed
         assertNull(SiteNames.pick(null, "示例 - 统一登录", false))
         assertNull(SiteNames.pick(" ", "清新薄荷牙膏 | 购物", false))
-        // 同一个标题在首页上取第一段
+        // Take the first paragraph of the same title on the homepage
         assertEquals("示例" to SiteNames.RANK_HOME_TITLE, SiteNames.pick(null, "示例 - 统一登录", true))
     }
 
@@ -69,7 +70,7 @@ class SiteLooksTest {
         assertEquals(SiteLook(null, 0, 5), s.entries.value["example.com"])
         assertEquals("example", s.face("m.example.com").name)
         assertEquals("购物", s.face("shop.example.com").name)
-        // 首页的名字补上来
+        // Fill in the name of the homepage
         s.named("example.com", "示例", SiteNames.RANK_HOME_TITLE)
         assertEquals("示例", s.face("m.example.com").name)
     }
@@ -96,15 +97,16 @@ class SiteLooksTest {
         assertEquals("购物频道", s.face("shop.example.com").name)
         assertEquals("购物频道", s.face("m.example.com").name)
         s.named("example.com", "购物", SiteNames.RANK_DECLARED)
-        // 别的子域名的首页标题不抢可注册域名上更可靠的名字
+        // If you don’t want to grab the homepage title of another subdomain name, you can register a
+        // more reliable name on the domain name.
         s.named("m.example.com", "移动版", SiteNames.RANK_HOME_TITLE)
         assertEquals("购物", s.face("example.com").name)
         assertEquals("移动版", s.face("m.example.com").name)
-        // 主机名本身:不比原来差就换
+        // The host name itself: Change it if it is not worse than the original one
         s.named("shop.example.com", "购物商城", SiteNames.RANK_DECLARED)
         s.named("shop.example.com", "首页标题", SiteNames.RANK_HOME_TITLE)
         assertEquals("购物商城", s.face("shop.example.com").name)
-        // 存下来了
+        // Saved
         assertEquals(s.entries.value, store().entries.value)
     }
 
@@ -125,10 +127,10 @@ class SiteLooksTest {
         s.iconSaved("m.example.com")
         s.iconSaved("example.com")
         assertEquals(listOf("shop.example.com"), s.iconTargets("shop.example.com"))
-        // 刚存过的不重存,过了一阵再存
+        // What was saved just now will not be saved again, and it will be saved again after a while.
         assertEquals(emptyList<String>(), s.iconTargets("example.com"))
         assertEquals(emptyList<String>(), s.iconTargets("m.example.com"))
-        // 没有自己的图标的子域名用可注册域名的
+        // Subdomains that do not have their own icons use registrable domain names.
         val f = s.face("shop.example.com")
         assertEquals(s.iconFile("example.com"), f.icon)
         assertEquals(1_000L, f.iconAtMs)

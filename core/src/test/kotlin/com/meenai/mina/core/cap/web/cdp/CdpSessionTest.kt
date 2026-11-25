@@ -123,7 +123,7 @@ class CdpSessionTest {
         val server = FakeDevTools()
         val held = ArrayList<JsonObject>()
         server.onMessage = { c, m ->
-            // 攒够一批后倒序回复
+            // After saving up a batch, reply in reverse order
             synchronized(held) {
                 held += m
                 if (held.size == 50) {

@@ -13,27 +13,30 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /**
- * 一次 web_read_page 要什么:[url] 为 null 读当前标签,给了在临时后台标签里读;[unfold] 为真时收起的列表块也全文给出
- * (分段的 offset 按同一种 unfold 算)。
+ * What does a web_read_page require: If [url] is null, the current tag is read, and it is read in the
+ * temporary background tag; when [unfold] is true, the collapsed list block is also given in full (the
+ * offset of the segments is calculated according to the same unfold).
  */
 data class PageRead(
     val maxChars: Int,
     val offset: Int,
     val unfold: Boolean = false,
     val url: String? = null,
-    /** 读之前滚一遍触发懒加载、等正文稳定;核查取证时为 false,只读不动页面。 */
+    /** Scroll once before reading to trigger lazy loading and wait for the text to stabilize; when checking for evidence, it is false and the page will only be read without moving. */
     val lazy: Boolean = true,
 )
 
-/** 这页读出来怎么样:正文够不够、要不要先登录、被不被拒、内容是不是主要在图里。[wire] 是给模型的写法。 */
+/** How does this page read: is the main text sufficient, do you need to log in first, is it rejected, is the content mainly in the pictures? [wire] is the way to write the model. */
 enum class ReadVerdict(val wire: String) {
     OK("ok"), THIN("thin"), NEEDS_SIGN_IN("needs_sign_in"), REFUSED("refused"), IMAGE_TEXT("image_text"),
 }
 
 /**
- * 读页的质量信号:[chars] 是整页正文字数(按这次的收起方式),[textDensity] 是正文里不是链接文字的比例,
- * [cause] 是判定依据的简短说明;[published]/[updated] 是页面自己声明的时间;[dialogs] 是开着的对话框个数(放在正文最前),
- * [folded] 是收起成一行的列表块个数。
+ * The quality signal of page reading: [chars] is the number of text in the whole page (according to the
+ * folding method this time), [textDensity] is the proportion of non-link text in the text, [cause] is a
+ * brief description of the basis for judgment; [published]/[updated] is the time declared by the page
+ * itself; [dialogs] is the number of open dialog boxes (placed at the front of the text), [folded] Is
+ * the number of list blocks collapsed into one line.
  */
 data class ReadQuality(
     val chars: Int,
@@ -47,54 +50,59 @@ data class ReadQuality(
 )
 
 /**
- * 页面脚本的整页读取结果(page.js 的 digest)交到这里:决定哪些列表块收起、拼出正文、判定质量、挑出声明的时间。
- * 页面脚本只按结构采集(地标角色、链接占比、重复的子结构、图片的位置),判断都在这里,不按网站区分。
- * 页面脚本挑候选块用的门槛也从这里给([scriptOptions]),两边只有一份。
+ * The full page read result of the page script (the digest of page.js) is handed here: deciding which
+ * list blocks to collapse, spelling out the text, judging quality, and picking out the time of the
+ * statement. Page scripts are only collected based on structure (landmark roles, link proportions,
+ * repeated substructures, image positions), and the judgments are all here, not differentiated by
+ * website. The threshold used by the page script to select candidate blocks is also given here
+ * ([scriptOptions]), and there is only one copy on both sides.
  */
 object PageDigest {
-    /** 正文短于它算 thin。 */
+    /** Text shorter than that is considered thin. */
     const val THIN_CHARS = 200
-    /** 候选块:至少这么多个链接,链接文字至少占这么多(页面脚本按它挑候选,这里再细判)。 */
+    /** Candidate block: at least this many links, and the link text occupies at least this much (the page script selects candidates according to it, and we will judge it carefully here). */
     const val CANDIDATE_MIN_LINKS = 5
     const val CANDIDATE_LINK_SHARE = 0.5
-    /** 链接文字占一块文字的比例到这里,就是一串链接列表(推荐、目录)。 */
+    /** The ratio of link text to a block of text is here, which is a list of links (recommendations, directories). */
     const val LINK_LIST_SHARE = 0.7
-    /** 子元素重复同一结构(卡片列表)时,链接占比到这里就够。 */
+    /** When sub-elements repeat the same structure (card list), the link ratio is enough here. */
     const val REPEATED_LINK_SHARE = 0.5
     const val MIN_REPEAT = 5
-    /** 地标块(导航、页脚、侧栏)链接至少占这么多才收起;以文字为主的侧栏、页脚照读。 */
+    /** The landmark block (navigation, footer, sidebar) links should occupy at least this much before they are collapsed; text-based sidebars and footers should be read accordingly. */
     const val LANDMARK_LINK_SHARE = 0.3
-    /** 一个列表块占地标以外文字的比例到这里,它就是正文本身(目录页、搜索结果页),不收起。 */
+    /** A list block occupies the proportion of text other than the landmark. It is the main text itself (catalog page, search results page) and is not collapsed. */
     const val DOMINANT_SHARE = 0.4
-    /** 收起之后至少要留下这么多比例的文字;不够就从最大的块起放回。 */
+    /** After folding, at least this proportion of text should be left; if it is not enough, put it back starting from the largest block. */
     const val MIN_LEFT_SHARE = 0.1
-    /** 图片、画布盖住页面开头的比例到这里,而字又少,算 image_text。 */
+    /** The proportion of pictures and canvas covering the beginning of the page is here, and there are few words, so it is considered image_text. */
     const val PICTURE_SHARE = 0.5
     const val PICTURE_MAX_CHARS = THIN_CHARS * 4
-    /** 小于这个边长(CSS 像素)的图不算:图标、头像、分隔线。 */
+    /** Images smaller than this side length (CSS pixels) are not counted: icons, avatars, dividers. */
     const val MIN_PICTURE_PX = 48
-    /** 登录框(密码框所在的那一块)的文字占整页文字的比例到这里,这页就是登录页。 */
+    /** The proportion of the text in the login box (where the password box is located) to the text on the entire page reaches this point, and this page is the login page. */
     const val SIGN_IN_BOX_SHARE = 0.5
     private const val COVER_GRID = 64
     private const val PREVIEW_ITEMS = 6
     private const val PREVIEW_CHARS = 120
     private val LANDMARKS = setOf("navigation", "footer", "complementary")
 
-    /** 登录框、标题、对话框里出现这些字,且有密码框,就是要先登录。比对时去掉空白、不分大小写。 */
+    /** These words appear in the login box, title, and dialog box, and there is a password box, which means you must log in first. Blank spaces are removed and case-insensitive when comparing. */
     private val SIGN_IN_WORDS = listOf("登录", "登入", "登陆", "signin", "login", "logon", "账号", "帐号", "密码", "password")
 
-    /** 页面脚本 digest 的参数(候选块门槛)。 */
+    /** Parameters for page script digest (candidate block threshold). */
     val scriptOptions: String get() = """{"minLinks":$CANDIDATE_MIN_LINKS,"linkShare":$CANDIDATE_LINK_SHARE}"""
 
-    /** 一个链接:[group] 是它所在的列表块(不在块里为 -1)。 */
+    /** A link: [group] is the list block it is in (-1 if not in a block). */
     data class Link(val text: String, val url: String, val group: Int)
 
-    /** 正文的一段:一行文字,或一个可收起的列表块。 */
+    /** A paragraph of text: a line of text, or a collapsible list block. */
     sealed interface Part {
         data class Line(val text: String) : Part
         /**
-         * [kind] 为 navigation/footer/complementary(按地标)或 links(按链接占比认出的列表);[lines] 是块里的文字,
-         * [chars]/[linkChars] 是块里全部文字和链接文字的字数,[repeat] 是同一结构的子元素个数,[links] 是块里的链接个数。
+         * [kind] is navigation/footer/complementary (by landmark) or links (list recognized by link
+         * proportion); [lines] is the text in the block, [chars]/[linkChars] is the number of words of
+         * all text and link text in the block, [repeat] is the number of sub-elements of the same
+         * structure, [links] is the number of links in the block.
          */
         data class Group(
             val kind: String, val label: String, val lines: List<String>,
@@ -105,26 +113,26 @@ object PageDigest {
         }
     }
 
-    /** 一张图在页面上的位置(文档坐标,CSS 像素)。 */
+    /** The position of an image on the page (document coordinates, CSS pixels). */
     data class Box(val x: Int, val y: Int, val w: Int, val h: Int)
 
-    /** 判定用的页面迹象(都来自页面脚本)。 */
+    /** The page signs used for judgment (all come from page scripts). */
     data class Signals(
         val passwordFields: Int = 0,
-        /** 登录框(密码框往上、不含正文的最大那一块,遇到表单或对话框就停)自己的文字占整页文字的比例。 */
+        /** The ratio of the login box's own text to the entire page's text (the largest area from the password box up, excluding text, and stops when it encounters a form or dialog box). */
         val signInBoxShare: Double = 0.0,
-        /** 找登录字样的地方:登录框的文字、页面标题、对话框开头。 */
+        /** Where to find the word login: the text of the login box, the page title, and the beginning of the dialog box. */
         val signInText: List<String> = emptyList(),
-        /** 醒目处的文字(标题、h1–h3、对话框开头),给拦截判定用。 */
+        /** Text in eye-catching places (title, h1-h3, beginning of dialog box) is used for interception and determination. */
         val prominent: List<String> = emptyList(),
-        /** 页面开头的区域(宽, 高)和里面的图片、画布、视频。 */
+        /** The area at the beginning of the page (width, height) and the pictures, canvas, and videos inside. */
         val regionW: Int = 0,
         val regionH: Int = 0,
         val pictures: List<Box> = emptyList(),
         val frames: List<String> = emptyList(),
         val textChars: Int = 0,
         val linkChars: Int = 0,
-        /** 页面声明的时间:(来源, 原值),来源如 ld:datePublished、meta:article:published_time、itemprop:dateModified、time。 */
+        /** The time declared by the page: (source, original value), the source is such as ld:datePublished, meta:article:published_time, itemprop:dateModified, time. */
         val dates: List<Pair<String, String>> = emptyList(),
     )
 
@@ -138,10 +146,10 @@ object PageDigest {
         val signals: Signals,
     )
 
-    /** 拼好的结果;[folded] 是这次收起了几块。 */
+    /** The result of the puzzle; [folded] is that I put away a few pieces this time. */
     data class Rendered(val text: String, val links: List<Pair<String, String>>, val folded: Int)
 
-    // ---------- 解析 ----------
+    // ---------- Analysis ----------
 
     fun parse(o: JsonObject): Digest {
         fun str(e: JsonElement?) = (e as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
@@ -195,12 +203,15 @@ object PageDigest {
         )
     }
 
-    // ---------- 收起 ----------
+    // ----------Collapse ----------
 
     /**
-     * 哪些块收起(按块在 [Digest.parts] 里的序号,只数块)。地标块链接够多就收;链接列表要链接占得多,
-     * 且不能占了地标以外文字的大头(那是正文本身);最大的块是链接列表、又比块外的文字还多时它就是正文,不收;
-     * 收完剩下的文字不到 [MIN_LEFT_SHARE] 时从最大的块起放回。
+     * Which blocks are folded (according to the serial number of the block in [Digest.parts], only the
+     * blocks are counted). If there are enough links in the landmark block, it will be collected; the
+     * link list will take up more links, and it cannot occupy a large part of the text other than the
+     * landmark (that is the text itself); if the largest block is the link list, and it is more than the
+     * text outside the block, it will be the main text and will not be collected; when the remaining
+     * text is less than [MIN_LEFT_SHARE], it will be put back starting from the largest block.
      */
     fun foldSet(parts: List<Part>): Set<Int> {
         val groups = parts.filterIsInstance<Part.Group>()
@@ -215,7 +226,9 @@ object PageDigest {
             val wanted = if (g.landmark) g.linkShare >= LANDMARK_LINK_SHARE
             else (g.linkShare >= LINK_LIST_SHARE || (g.repeat >= MIN_REPEAT && g.linkShare >= REPEATED_LINK_SHARE)) &&
                 g.size() < outsideLandmarks * DOMINANT_SHARE
-            // 最大的块若是链接列表、又比块外的文字还多,它就是正文(地标按页面自己的声明照收)
+            // If the largest block is a link list and there is more text than the text outside the
+            // block, it is the main text (the landmarks are accepted according to the page's own
+            // declaration)
             wanted && !(i == largest && !g.landmark && g.size() > free)
         }.toMutableSet()
         while (fold.isNotEmpty() && total - fold.sumOf { groups[it].size() } < total * MIN_LEFT_SHARE) {
@@ -224,7 +237,7 @@ object PageDigest {
         return fold
     }
 
-    /** 拼正文:对话框在最前,收起的块各占一行。链接表只要还看得见的,同一地址只留一次。 */
+    /** To spell the text: the dialog box is at the front, and the collapsed blocks occupy one line each. As long as the link table is still visible, the same address is only left once. */
     fun render(d: Digest, unfold: Boolean): Rendered {
         val folded = if (unfold) emptySet() else foldSet(d.parts)
         val lines = ArrayList<String>()
@@ -252,11 +265,13 @@ object PageDigest {
         return "<<collapsed $name · $count · $sample>>"
     }
 
-    // ---------- 判定 ----------
+    // ---------- Judgment ----------
 
     /**
-     * 判定这页读得怎么样。[check] 是网页障碍判定(用醒目处的文字、跨源框架、HTTP 状态做的,见 [barrierFacts]),
-     * [httpStatus] 是主文档的 HTTP 错误状态。先看拒绝,再看登录,再看是不是图,最后看字数。
+     * Determine how well the page reads. [check] is the webpage obstacle determination (made with
+     * eye-catching text, cross-origin framework, and HTTP status, see [barrierFacts]), and [httpStatus]
+     * is the HTTP error status of the main document. First look at the rejection, then look at the
+     * login, then look at whether it is a picture, and finally look at the word count.
      */
     fun verdict(chars: Int, s: Signals, check: ScreenCheck?, httpStatus: Int?): Pair<ReadVerdict, String?> {
         val reason = check?.takeoverReason
@@ -281,8 +296,9 @@ object PageDigest {
     }
 
     /**
-     * 页面开头区域里被图盖住的比例:在区域上铺一张格子,数格子中心落在哪张图里;重叠的图只算一次,
-     * 边长小于 [MIN_PICTURE_PX] 的不算。
+     * The proportion of the area at the beginning of the page covered by pictures: spread a grid over
+     * the area and count which picture the center of the grid falls on; overlapping pictures are only
+     * counted once, and those with side lengths less than [MIN_PICTURE_PX] are not counted.
      */
     fun pictureShare(s: Signals): Double {
         val w = s.regionW
@@ -301,7 +317,7 @@ object PageDigest {
         return covered.toDouble() / (rows * cols)
     }
 
-    /** 给 [WebBarrier.classify] 的事实:只拿醒目处的文字(文章里提到「验证码」不算),密码框另判。 */
+    /** Facts for [WebBarrier.classify]: Only the text in eye-catching places (the mention of "verification code" in the article does not count), the password box will be judged separately. */
     fun barrierFacts(d: Digest, httpStatus: Int?, host: String?): WebFacts = WebFacts(
         base = ScreenFacts(
             currentApp = host, hasWindow = true, readableElements = 1, changing = false, blackFrames = emptyList(),
@@ -310,18 +326,19 @@ object PageDigest {
         httpStatus = httpStatus, frameUrls = d.signals.frames, host = host,
     )
 
-    /** 正文里不是链接文字的比例,两位小数;没有字为 0。 */
+    /** The proportion of text in the main text that is not a link, two decimal places; no words are 0. */
     fun density(s: Signals): Double {
         if (s.textChars <= 0) return 0.0
         val share = 1.0 - s.linkChars.coerceAtMost(s.textChars).toDouble() / s.textChars
         return Math.round(share * 100) / 100.0
     }
 
-    // ---------- 时间 ----------
+    // ---------- time ----------
 
     /**
-     * 页面声明的发布时间与更新时间:先看结构化的声明(JSON-LD,再 meta,再 itemprop),最后才看正文里的 <time>;
-     * 同一类里按出现先后。读不懂的值跳过。
+     * The release time and update time of the page declaration: first look at the structured declaration
+     * (JSON-LD, then meta, then itemprop), and finally look at <time> in the text; in the same category,
+     * follow the order of appearance. Unreadable values are skipped.
      */
     fun dates(s: Signals): Pair<String?, String?> {
         fun rank(src: String) = when {
@@ -343,7 +360,7 @@ object PageDigest {
     private val UPDATED_HINTS = listOf("modified", "updated", "lastmod", "revised")
     private val PLAIN_DATE_KEYS = setOf("meta:date", "meta:dc.date")
 
-    /** 整页读取的质量。 */
+    /** Full page read quality. */
     fun quality(d: Digest, r: Rendered, check: ScreenCheck?, httpStatus: Int?): ReadQuality {
         val (v, cause) = verdict(r.text.length, d.signals, check, httpStatus)
         val (pub, upd) = dates(d.signals)
@@ -352,8 +369,11 @@ object PageDigest {
 }
 
 /**
- * 页面上写的时间读成 ISO-8601。按顺序取出数字段:四位的年、月、日,再可能有时、分、秒(小数秒丢掉),
- * 时间后面跟 Z 或 ±时[:分] 就是时区。年月日之间是什么符号都行(-、/、.、年月日)。认不出年月日、数值不成立为 null。
+ * The time written on the page reads ISO-8601. Take out the number fields in order: four-digit year,
+ * month, day, and possibly hour, minute, and second (fractional seconds are discarded). The time
+ * followed by Z or ±hour[:minute] is the time zone. Any symbols between the year, month and day are
+ * acceptable (-, /,., year, month and day). If the year, month, and day cannot be recognized, the value
+ * is null if the value is not valid.
  */
 object DeclaredTime {
     private class Scan(val s: String) {
@@ -374,7 +394,7 @@ object DeclaredTime {
         sc.skipNonDigits()
         val year = sc.digits().takeIf { it.length == 4 }?.toInt() ?: return null
         val nums = ArrayList<Int>()
-        // 月、日:中间隔一个分隔符
+        // Month and day: separated by a separator
         repeat(2) {
             val sep = sc.peek() ?: return null
             if (sep.isDigit() || sep.isWhitespace() && nums.isEmpty()) return null
@@ -384,7 +404,7 @@ object DeclaredTime {
         }
         val date = runCatching { LocalDate.of(year, nums[0], nums[1]) }.getOrNull() ?: return null
         if (sc.peek() == '日') sc.i++
-        // 时间:T 或空格后的 时:分[:秒]
+        // Time: T or hours: minutes [: seconds] after a space
         val tStart = sc.i
         if (sc.peek() == 'T' || sc.peek() == 't' || sc.peek() == ' ') sc.i++ else return date.toString()
         val hour = sc.digits().takeIf { it.length in 1..2 }?.toInt()
@@ -402,7 +422,7 @@ object DeclaredTime {
         return local + (zone(sc) ?: "")
     }
 
-    /** Z、+08:00、+0800、-05 这样的时区;没有为 null。 */
+    /** Time zones such as Z, +08:00, +0800, -05; null if not. */
     private fun zone(sc: Scan): String? {
         while (sc.peek() == ' ') sc.i++
         val c = sc.peek() ?: return null
@@ -423,3 +443,4 @@ object DeclaredTime {
         return "%c%02d:%02d".format(c, h, m)
     }
 }
+

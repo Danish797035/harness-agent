@@ -22,9 +22,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * 用 ChatGPT 登录期间的前台服务:Mina 退到后台、用户在浏览器里登录时撑住进程,系统不冻结它,
- * 本机回调才有人接、换令牌不被耽误。只挂一条安静的通知,上面能「取消」这次登录。
- * 不自己做事:登录跑在 [ChatGptSignIns] 里,这里看着它的 running,登录一结束(成功、失败、取消、超时)就停。
+ * Foreground service during login using ChatGPT: Mina retreats to the background, and the user holds on
+ * to the process when logging in in the browser. The system does not freeze it, and only someone can
+ * answer the local callback, and the token change is not delayed. Just hang a quiet notification, which
+ * can "cancel" this login. Don’t do things by yourself: The login runs in [ChatGptSignIns]. Here you can
+ * watch its running. It will stop as soon as the login is completed (success, failure, cancellation,
+ * timeout).
  */
 class ChatGptSignInService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -35,7 +38,9 @@ class ChatGptSignInService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         TaskService.ensureChannels(this)
-        // startForegroundService 之后必须尽快进前台,哪怕马上就要停;进不了前台就此停下,登录照常(只是少了这层保护)
+        // After startForegroundService, you must enter the foreground as soon as possible, even if you
+        // have to stop immediately; if you cannot enter the foreground, you will stop and log in as
+        // usual (just without this layer of protection)
         val foreground = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -54,7 +59,7 @@ class ChatGptSignInService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
-        // 进程没了登录也就没了,不用重建
+        // If the process is gone and the login is gone, there is no need to rebuild it.
         return START_NOT_STICKY
     }
 
@@ -80,10 +85,10 @@ class ChatGptSignInService : Service() {
     companion object {
         private const val TAG = "MinaChatGpt"
         private const val ACTION_CANCEL = "com.meenai.mina.chatgpt.CANCEL_SIGN_IN"
-        /** 和任务、电脑连接的通知错开。 */
+        /** Notifications related to tasks and computer connections are staggered. */
         private const val NOTIFICATION_ID = 30_002
 
-        /** 登录开始时调(用户刚点了登录,Mina 在前台,可以开前台服务);开不了抛出,由调用方记下。 */
+        /** Called when login starts (the user has just clicked on login, Mina is in the foreground, and can open the front-end service); if it cannot be opened, it will be thrown, and the caller will record it. */
         fun start(context: Context) {
             context.startForegroundService(Intent(context, ChatGptSignInService::class.java))
         }

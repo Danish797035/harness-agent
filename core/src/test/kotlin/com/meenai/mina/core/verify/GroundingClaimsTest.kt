@@ -15,7 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 兜底只核回答里的具体事实:回答自己的叙述(计数、排名、步数)和引用编号不算要核对的值;编造的值照样拦下。 */
+/** Only the specific facts in the answer are checked: the answer's own description (count, ranking, number of steps) and reference number are not counted as values to be checked; fabricated values are still blocked. */
 class GroundingClaimsTest {
     private fun reply(s: String) = ModelReply(listOf(Part.Text(s)), StopReason.EndTurn, null)
     private val criteria = Criteria(listOf("回答给出热榜第一的问题和热度"), "read", fallback = false)
@@ -25,17 +25,20 @@ class GroundingClaimsTest {
     private fun screen(fresh: String = hot, shot: ByteArray? = null) =
         Evidence(freshOf(fresh), shot, EvidenceLedger(), listOf("第1步 phone_launch_app(com.example.qa) 生效"), protected = false)
 
-    // 实测:依据里「可见排名从1到5」的 1、5 被当成屏上的值,屏上只有「1561 万热度」,对的回答被判成核实不了
+    // Actual measurement: 1 and 5 in the "visible ranking from 1 to 5" in the basis are regarded as the
+    // values on the screen. There are only "15.61 million heats" on the screen, and the correct
+    // answer is judged as unverifiable.
     @Test fun narrativeCountsAndRanksInBasisAreNotRequired() = runTest {
         val answer = "热榜前五:\n1. 为什么秋天的天空特别蓝(1561万热度)\n2. 城市里还能看到银河吗\n3. 长期熬夜有哪些代价\n4. 猫为什么喜欢纸箱\n5. 第一份工作该怎么选\n" +
             "依据: 热榜页可见排名从1到5的问题列表,共5条,第1条热度1561万"
         assertEquals(true, Grounding.found("热榜前五是什么", answer, listOf(hot)))
         assertEquals(Verdict.Pass, Verifier(FakeModel(reply(pass)), null).verify("热榜前五是什么", criteria, answer, screen()).verdict)
-        // 结论里的小计数、步数同样不是值
+        // The decimal count and number of steps in the conclusion are also not values.
         assertEquals(true, Grounding.found("热榜第一是什么", "第3步看到热榜,共 5 条,第一是「为什么秋天的天空特别蓝」\n依据: 热榜页", listOf(hot)))
     }
 
-    // 实测:「@e46显」里 \b 不认汉字边界,46 被当成要核对的数
+    // Actual measurement: \b in "@e46Display" does not recognize the boundaries of Chinese characters,
+    // and 46 is regarded as the number to be checked
     @Test fun citationRefsGluedToChineseAreStripped() {
         val styles = listOf(
             "热榜第一是「为什么秋天的天空特别蓝」,1561万热度\n依据: @e46显示「为什么秋天的天空特别蓝」,@e47显示1561 万热度",
@@ -55,10 +58,11 @@ class GroundingClaimsTest {
         assertEquals(Verdict.CannotVerify, v.verdict)
         assertEquals(Verifier.NOT_IN_READS, v.reason)
         assertEquals(listOf("1800万"), v.notFound)
-        // 看过截图也不放过:数能写成文字,文字里没有就是没有
+        // Even after seeing the screenshots, I don’t miss it: numbers can be written in words, but if
+        // they are not in words, they are not there.
         val seen = Verifier(FakeModel(reply(pass)), FakeModel(reply(pass))).verify("热榜第一是什么", criteria, answer, screen(shot = byteArrayOf(1)))
         assertEquals(Verdict.CannotVerify, seen.verdict)
-        // 价格、百分比同理
+        // Price and percentage are the same.
         assertEquals(false, Grounding.found("多少钱", "现价 ¥39\n依据: 商品页", listOf("商品页\n现价 ¥49")))
         assertEquals(false, Grounding.found("好评率", "好评率 97%\n依据: 商品页", listOf("商品页\n好评率 96%")))
     }
@@ -69,12 +73,15 @@ class GroundingClaimsTest {
         val v = Verifier(FakeModel(reply(pass)), null).verify("热榜第一是什么", criteria, answer, screen())
         assertEquals(Verdict.CannotVerify, v.verdict)
         assertEquals(listOf("秋天为什么容易犯困"), v.notFound)
-        // 不加引号的「标签:值」不是字面要核的事实(值的文字对不对由核查模型判,提示词要求名称、标题有原文);写成引文就核
+        // The fact that "tag:value" without quotation marks is not a literal fact needs to be checked
+        // (whether the text of the value is correct or not is determined by the verification model, and
+        // the prompt word requires the name and title to have the original text); it is checked if it is
+        // written as a citation.
         val detail = listOf("标题:为什么秋天的天空特别蓝\n作者 小王")
         assertEquals(false, Grounding.found("文章标题", "标题:「秋天为什么容易犯困」\n依据: 详情页", detail))
         assertEquals(true, Grounding.found("文章标题", "标题:「为什么秋天的天空特别蓝」\n依据: 详情页", detail))
         assertTrue(Verifier.PROMPT, "名称、标题" in Verifier.PROMPT)
-        // 回答自己的结构(「结论:」)不是屏上的字段
+        // The structure of your answer ("Conclusion:") is not a field on the screen
         assertEquals(true, Grounding.found("热榜第一", "结论:第一条最热,是「为什么秋天的天空特别蓝」\n依据: 热榜页", listOf(hot)))
     }
 
@@ -85,7 +92,9 @@ class GroundingClaimsTest {
         assertEquals(false, Grounding.found("什么时候下的单", "10月23日 15:05 下的单\n依据: 订单详情「已发货」", s))
     }
 
-    // 单选框选中、开关开着这类状态不在文字里:看过截图的核查器判 pass 时算数,记为看图核实
+    // Statuses such as the radio button selected and the switch turned on are not included in the text:
+    // the verifier that has seen the screenshot will count when judging pass, and it will be recorded as
+    // verification by looking at the picture.
     @Test fun visualStateIsGroundedByImageOnlyWhenAnImageWasSent() = runTest {
         val shown = "配送方式\n标准配送\n加急配送\n¥12"
         val answer = "现在选的是「标准配送」「已选中」,运费 ¥12\n依据: 配送方式一栏"
@@ -95,10 +104,10 @@ class GroundingClaimsTest {
         assertEquals(Verdict.Pass, v.verdict)
         assertEquals(Verifier.IMAGE, v.groundedBy)
         assertEquals(listOf("已选中"), v.notFound)
-        // 没有截图:同一条回答核实不了
+        // No screenshot: the same answer cannot be verified
         val noImage = Verifier(FakeModel(reply(ok)), null).verify("现在选的是哪种配送", crit, answer, screen(shown))
         assertEquals(Verdict.CannotVerify, noImage.verdict)
-        // 文字全对上时照常是文字核实
+        // When all the text matches, it is text verification as usual.
         val plain = Verifier(FakeModel(reply(ok)), FakeModel(reply(ok))).verify("现在选的是哪种配送", crit, "选的是「标准配送」\n依据: 配送方式一栏", screen(shown, byteArrayOf(1)))
         assertEquals(null, plain.groundedBy)
     }
@@ -120,7 +129,8 @@ class GroundingClaimsTest {
                 return reply(pass)
             }
         }
-        // 每条都含有回答里的值:重问时条目一条不丢,节选更短,动作只留最近的
+        // Each item contains the value in the answer: when re-asking, none of the items will be lost,
+        // the excerpts will be shorter, and only the most recent actions will be retained.
         val old = (1..5).map { "旧读屏$it\n" + "字".repeat(1_500) + "\n" + "字".repeat(1_500) + "\n1561 万热度\n" + "字".repeat(1_500) }
         val e = Evidence(freshOf(hot), null, ledgerOf(old), (1..30).map { "第${it}步 tap 生效" }, protected = false)
         val v = Verifier(slowOnce, null).verify("热榜第一是什么", criteria, "热榜第一是「为什么秋天的天空特别蓝」,1561万热度\n依据: 热榜页", e)

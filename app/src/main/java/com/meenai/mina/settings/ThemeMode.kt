@@ -1,6 +1,6 @@
 package com.meenai.mina.settings
 
-/** 界面配色:跟随系统(默认)、一直浅色、一直深色。 */
+/** Interface color matching: follow the system (default), always light, always dark. */
 enum class ThemeMode {
     System, Light, Dark;
 

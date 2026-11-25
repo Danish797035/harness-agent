@@ -5,17 +5,26 @@ import com.meenai.mina.core.uistate.PlacePace
 import kotlin.random.Random
 
 /**
- * 设置里的「操作节奏」:在 App 里操作快还是像人。手势本身(落指停顿、按住时长、落点偏差、弧线)三种都像人,见 [GesturePacing]。
+ * "Operation rhythm" in settings: Is the operation in the app fast or human-like? The gesture itself
+ * (finger-drop pause, holding time, landing point deviation, arc) are all human-like, see
+ * [GesturePacing].
  *
- * - [FAST]:动作之间不另停、打字一次写入全文、网页换页也不停、不设屏数上限(以前的做法);
- * - [STANDARD](默认):打字一段一段打出来,动作之间停一小会儿(同一屏约 0.5–1.2 秒、新的一屏约 1–2 秒),
- *   网页换页前停 1.5–2.5 秒;App 知识说限制浏览快慢的 App 按慢的那一套(停得更久、按字数读、屏数有上限、打字更慢);
- * - [HUMAN]:所有 App 和网页都按慢的那一套停留和打字;屏数上限仍只给限制浏览快慢的 App。
+ * - - [FAST]: There is no pause between actions, the full text is written once you type, the page does
+ * not stop when changing pages, and there is no upper limit on the number of screens (previous
+ * practice);
+ * - - [STANDARD] (default): Type one paragraph at a time, pausing for a short time between actions
+ * (about
+ * 0.5–1.2 seconds for the same screen, about 1–2 seconds for a new screen), Pause for 1.5-2.5 seconds
+ * before page change; App knowledge says that apps that limit browsing speed should use the slower one
+ * (pause longer, read by the number of words, have an upper limit on the number of screens, and type
+ * more slowly);
+ * - - [HUMAN]: All apps and web pages use the slowest setting to pause and type; the upper limit on the
+ * number of screens is still only for apps that limit browsing speed.
  */
 enum class OperatingPace {
     FAST, STANDARD, HUMAN;
 
-    /** 这个任务在 App 里一步一步操作的节奏。 */
+    /** This task is performed step by step in the app. */
     fun appPacing(random: Random = Random.Default): AppPacing = when (this) {
         FAST -> AppPacing.Off
         STANDARD -> AppPacing.human(random)
@@ -23,9 +32,11 @@ enum class OperatingPace {
     }
 
     /**
-     * 这个任务在网页上一页一页看的节奏(换页前补足的停留)。
-     * 网页以前不论设置都按像人的 4–7 秒停,一个搜索要点好几页就白等半分钟;现在跟着设置走:
-     * [FAST] 不停,[STANDARD] 只停 1.5–2.5 秒,[HUMAN] 照旧像人。
+     * The rhythm of this task is to read page by page on the web page (make up the pause before changing
+     * the page). In the past, regardless of the setting, the web page would stop at a human-like 4-7
+     * seconds, and you would have to wait half a minute for a single search point after several pages.
+     * Now, following the settings: [FAST] will not stop, [STANDARD] will only stop for 1.5-2.5 seconds,
+     * and [HUMAN] will still look like a human.
      */
     fun webPacing(random: Random = Random.Default): PagePacing = when (this) {
         FAST -> PagePacing.Off
@@ -37,7 +48,7 @@ enum class OperatingPace {
         HUMAN -> PagePacing.human(random)
     }
 
-    /** 在 App 知识说 [pace] 的 App 里打字的节奏。 */
+    /** The rhythm of typing in the App Knowledge Says [pace]. */
     fun typing(pace: PlacePace, random: Random = Random.Default): TypingPacing = when {
         this == FAST -> TypingPacing.Instant
         this == HUMAN || pace == PlacePace.CAREFUL -> TypingPacing.human(random, TypingPacing.Limits.CAREFUL)
@@ -47,7 +58,7 @@ enum class OperatingPace {
     companion object {
         val DEFAULT = STANDARD
 
-        /** 存下的名字(大小写不论);认不出为 null。 */
+        /** The saved name (regardless of case); if not recognized, it is null. */
         fun parse(value: String?): OperatingPace? = entries.firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) }
     }
 }

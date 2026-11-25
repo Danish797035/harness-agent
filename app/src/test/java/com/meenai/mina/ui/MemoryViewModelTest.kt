@@ -25,7 +25,8 @@ class MemoryViewModelTest {
     @get:Rule val texts = EnglishTexts()
 
     @get:Rule val tmp = TemporaryFolder()
-    // 来历一行按本机时区显示日期:取本机时区那天的中午,在哪个时区跑都是 10 月 23 日
+    // The origin line displays the date according to the local time zone: take noon of the day in the
+    // local time zone, and it will be October 23rd in any time zone.
     private val said = MemorySource("user_said", "以后点外卖都不要香菜", "c1", LocalDateTime.of(2025, 10, 23, 12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
     private val store = memoryStore().apply {
         add(MemoryKind.fact, "用户住在张江", listOf("家"), MemorySource("manual", atMs = 1)).getOrThrow()
@@ -70,7 +71,7 @@ class MemoryViewModelTest {
         vm.search("咖啡"); runCurrent()
         assertEquals(listOf("用户喝咖啡不加糖"), vm.ui.value.rows.map { it.content })
         vm.search(""); runCurrent()
-        // 空查询按更新时间倒序
+        // Empty query in descending order of update time
         assertEquals(3, vm.ui.value.rows.size)
     }
 
@@ -140,7 +141,8 @@ class MemoryViewModelTest {
         skills.putPending("d1", com.meenai.mina.core.skills.PersonalSkill("wechat-msg", skillMd("wechat-msg", "## 步骤\n1. 点搜索"), com.meenai.mina.core.skills.SkillStatus.pending, "r1", null, 0, emptyList()))
         val vm = skillsVm(skills)
         assertEquals(listOf("d1"), vm.ui.value.skills.drafts.map { it.id })
-        // 改过的全文同样过校验:缺小节、带敏感信息、提到没有的工具都不收
+        // The modified full text will also be checked: missing sections, sensitive information, and
+        // mentioned tools that are not available will not be accepted.
         vm.approveSkill("d1", skillMd("wechat-msg", "## 步骤\n1. 点搜索框")); runCurrent()
         assertTrue(vm.ui.value.message!!.contains("five sections"))
         vm.dismissMessage()

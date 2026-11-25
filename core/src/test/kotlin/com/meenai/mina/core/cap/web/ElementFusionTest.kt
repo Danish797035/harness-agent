@@ -16,7 +16,7 @@ import com.meenai.mina.core.uistate.WebInfo
 
 class ElementFusionTest {
     private val info = WebInfo("https://example.com/", "示例", "t1", 200)
-    // 视图 800x1600,页面 400x800 CSS 像素:倍数 2
+    // View 800x1600, Page 400x800 CSS Pixels: Multiple of 2
     private val w = 800
     private val h = 1600
     private val scale = 2.0
@@ -67,7 +67,7 @@ class ElementFusionTest {
         assertTrue(close.focused)
         assertEquals("回到 首页", home.name)
         assertFalse("AX 说禁用", submit.clickable)
-        // 位置仍是页面脚本的
+        // The location is still that of the page script
         assertEquals(p[0].centerX, close.centerX); assertEquals(p[0].bounds, close.bounds)
         assertEquals(Origin.BOTH, r.origins["@e1"])
         assertEquals(mapOf("@e1" to 11, "@e2" to 12, "@e3" to 13), r.backendIds)
@@ -168,7 +168,7 @@ class ElementFusionTest {
         )
         assertEquals(listOf("内嵌页面:x.test", "半截"), r.elements.map { it.name })
         val half = r.elements[1]
-        // 可见部分 CSS (150..200, 180..200) → 视图 (300..400, 360..400)
+        // Visible CSS (150..200, 180..200) → View (300..400, 360..400)
         near(350, half.centerX); near(380, half.centerY)
     }
 
@@ -215,7 +215,8 @@ class ElementFusionTest {
     }
 
     @Test fun axOnlyDuplicateOfAnUnmatchedPageElementIsDropped() {
-        // 页面脚本的元素没换到节点号,无障碍树里同一个按钮就别再列一遍
+        // The elements of the page script are not changed to the node number. Do not list the same
+        // button in the accessibility tree again.
         val p = page(el("button", "登录", 10, 10, 100, 40, c = 1))
         val a = listOf(root(), ax("b", 9, "button", "登录"))
         val r = ElementFusion.fuse(input(p, listOf(null), a, boxes = mapOf(9 to Box(10.0, 10.0, 110.0, 50.0)), onTop = mapOf(9 to true)))
@@ -274,7 +275,9 @@ class ElementFusionTest {
     }
 
     @Test fun emptyPageStillGetsCrossOriginNothing() {
-        // 页面脚本一个元素都没列:没有占位就没有跨源框架可补,读得到的文档里没命中检测也不补
+        // Not a single element of the page script is listed: there is no placeholder, there is no
+        // cross-source framework to fill in, and there is no hit detection or filling in the readable
+        // document.
         val a = listOf(root(), ax("b", 1, "button", "x"))
         val r = ElementFusion.fuse(input(emptyList(), emptyList(), a, boxes = mapOf(1 to Box(0.0, 0.0, 10.0, 10.0))))
         assertTrue(r.elements.isEmpty())

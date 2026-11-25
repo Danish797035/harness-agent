@@ -38,7 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 电脑连接页中的主屏准备设置。新凭据不进可恢复状态,不显示旧凭据;编辑时禁止截屏。 */
+/** Home screen preparation settings in the computer connection page. New credentials will not be entered into the recoverable state and old credentials will not be displayed; screenshots are prohibited during editing. */
 @Composable
 fun DeviceAccessSection(settings: DeviceAccessSettings) {
     val config by settings.config.collectAsState()

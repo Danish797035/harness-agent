@@ -68,7 +68,8 @@ class McpTaskToolsTest {
         rejects(McpTaskTools.RUN, args("goal" to "   "), "goal")
         rejects(McpTaskTools.RUN, args("goal" to 5), "goal must be a string")
         rejects(McpTaskTools.RUN, args("goal" to "x".repeat(McpTaskTools.MAX_GOAL + 1)), "too long")
-        // 只能接着电脑自己开的对话,手机上的对话编号不收
+        // You can only continue the conversation started by the computer itself, and the conversation
+        // number on the mobile phone will not be accepted.
         rejects(McpTaskTools.RUN, args("goal" to "hi", "conversation" to "3f2c1d7e-0000-4000-8000-000000000000"), "conversation")
         rejects(McpTaskTools.RUN, args("goal" to "hi", "conversation" to "mcp-../../x"), "earlier MCP task")
         assertTrue(fake.tasks.isEmpty())
@@ -100,7 +101,8 @@ class McpTaskToolsTest {
             assertEquals("running", it.str("status")); assertEquals("Opening About phone", it.str("progress")); assertEquals("3", it.str("step"))
         }
         assertEquals("paused", status(TaskState.Held(GateReason("waiting_unlock"))).str("status"))
-        // 排在开始队列里的不是暂停:报 queued,点继续也不会开始
+        // What is queued in the start queue is not paused: it reports queued, and it will not start even
+        // if you click continue.
         status(TaskState.Held(GateReason.queued("Queued: 1 task ahead"))).let {
             assertEquals("queued", it.str("status")); assertEquals("queued", it.str("waiting_for")); assertEquals("Queued: 1 task ahead", it.str("progress"))
         }
@@ -209,7 +211,7 @@ class McpTaskToolsTest {
         assertEquals("false", r.str("changed"))
         assertEquals("running", r.str("status"))
         assertTrue(testScheduler.currentTime - start in 3_000..3_500)
-        // 已经结束的立刻返回
+        // Return immediately if it is over
         fake.set("t1", TaskState.Succeeded("done"))
         val t0 = testScheduler.currentTime
         assertEquals("done", call(McpTaskTools.WAIT, args("task_id" to "t1")).str("status"))

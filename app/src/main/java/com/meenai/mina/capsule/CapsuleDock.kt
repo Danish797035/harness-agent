@@ -5,29 +5,33 @@ import kotlin.math.roundToInt
 
 enum class DockSide { Left, Right }
 
-/** 胶囊停在哪:[side] 贴哪一边,[fraction] 是高度在可摆范围里的比例(0 最上,1 最下),按比例记,转屏后照样摆回原处。 */
+/** Where does the capsule stop: [side], which side is attached to it, [fraction] is the ratio of the height within the swingable range (0 is the top, 1 is the bottom), record it in proportion, and it will still return to the original place after the screen is turned. */
 data class CapsuleDock(val side: DockSide = DockSide.Right, val fraction: Float = 0f)
 
 /**
- * 胶囊窗口能摆的范围,都是窗口坐标(像素,窗口含四周留给阴影的边):停靠时窗口左边在 [left],或右边在 [right];
- * 上下在 [top]..[bottom] 之间(避开状态栏、刘海和底部手势条)。拖动时左右可以一直拖到 [edgeLeft]..[edgeRight]
- * (看得见的胶囊贴到屏幕边)。
+ * The range that the capsule window can be placed is the window coordinates (pixels, the window includes
+ * the edges left for shadow): when docked, the left side of the window is at [left], or the right side
+ * is at [right]; the top and bottom are between [top]..[bottom] (avoiding the status bar, bangs and
+ * bottom gesture bar). When dragging, you can drag left and right to [edgeLeft]..[edgeRight] (the
+ * visible capsule is attached to the edge of the screen).
  */
 data class DockArea(
     val width: Int, val left: Int, val top: Int, val right: Int, val bottom: Int,
     val edgeLeft: Int, val edgeRight: Int,
 ) {
     /**
-     * 输入法弹出时(上边在 [imeTop],屏幕坐标)可摆的范围收到它上面,看得见的部分离它 [gap];[room] 是阴影边。
-     * 没弹出([imeTop] 为 null)时不变。
+     * When the input method pops up (the top is at [imeTop], screen coordinates), the swingable range is
+     * above it, and the visible part is separated from it by [gap]; [room] is the shadow edge. It
+     * remains unchanged when there is no pop-up ([imeTop] is null).
      */
     fun above(imeTop: Int?, gap: Int, room: Int): DockArea =
         if (imeTop == null) this else copy(bottom = minOf(bottom, imeTop - gap + room).coerceAtLeast(top))
 
     companion object {
         /**
-         * 从屏幕和系统栏算出来:停靠时看得见的胶囊离屏幕左右边 [margin]、离状态栏和底部手势条 [gap];
-         * [room] 是窗口里留给阴影的那圈边。
+         * Calculated from the screen and system bar: the visible capsule when docked is [margin] away
+         * from the left and right edges of the screen, and [gap] away from the status bar and bottom
+         * gesture bar; [room] is the circle left for shadow in the window.
          */
         fun of(area: OverlayArea, margin: Int, gap: Int, room: Int) = DockArea(
             width = area.width,
@@ -41,31 +45,33 @@ data class DockArea(
     }
 }
 
-/** 拖动、贴边、按比例摆高度的算法(纯函数,像素)。 */
+/** Algorithms for dragging, welting, and proportional height placement (pure functions, pixels). */
 object CapsuleDocking {
-    /** 高为 [h] 的窗口按 [fraction] 摆时的上边。 */
+    /** The top of the window with a height of [h] is swung by [fraction]. */
     fun y(fraction: Float, area: DockArea, h: Int): Int = area.top + (fraction.coerceIn(0f, 1f) * range(area, h)).roundToInt()
 
-    /** 上边在 [y] 时的高度比例。 */
+    /** The height ratio of the top when it is at [y]. */
     fun fraction(y: Int, area: DockArea, h: Int): Float {
         val r = range(area, h)
         return if (r == 0) 0f else ((y - area.top).toFloat() / r).coerceIn(0f, 1f)
     }
 
-    /** 高为 [h] 的窗口(卡片比胶囊高)从 [y] 往下放不下时往上挪,不越过状态栏和底部。 */
+    /** The window with a height of [h] (the card is higher than the capsule) moves up from [y] when it cannot be placed down, without crossing the status bar and bottom. */
     fun fitY(y: Int, area: DockArea, h: Int): Int = y.coerceIn(area.top, maxOf(area.top, area.bottom - h))
 
-    /** 拖动中窗口的左边:最多让看得见的胶囊贴到屏幕边。 */
+    /** Drag the left side of the window: At most, visible capsules can be attached to the edge of the screen. */
     fun dragX(x: Int, area: DockArea, w: Int): Int = x.coerceIn(area.edgeLeft, maxOf(area.edgeLeft, area.edgeRight - w))
 
-    /** 停靠在 [side] 时窗口的左边。 */
+    /** The left side of the window when docked at [side]. */
     fun dockedX(side: DockSide, area: DockArea, w: Int): Int = if (side == DockSide.Left) area.left else area.right - w
 
-    /** 停靠在 [side] 时离那条边的距离(窗口按左边或右边对齐时的 x)。 */
+    /** The distance from that edge when docked at [side] (x when the window is aligned to the left or right). */
     fun edgeOffset(side: DockSide, area: DockArea): Int = if (side == DockSide.Left) area.left else area.width - area.right
 
     /**
-     * 松手:[x] 是窗口左边,[y] 是窗口上边。中线在屏幕左半边贴左边,否则贴右边;高度按比例记下。
+     * Let go: [x] is the left side of the window, [y] is the top side of the window. The center line is
+     * attached to the left side of the left half of the screen, otherwise it is attached to the right
+     * side; the height is recorded in proportion.
      */
     fun release(x: Int, y: Int, w: Int, h: Int, area: DockArea): CapsuleDock {
         val side = if (x + w / 2 < area.width / 2) DockSide.Left else DockSide.Right
@@ -76,41 +82,50 @@ object CapsuleDocking {
 }
 
 /**
- * 展开的卡片摆在哪、多高(纯函数,像素):卡片很宽,左右居中、只上下拖。对话卡片固定 [maxHeight] 高;任务卡片按内容高,
- * 最多也是 [maxHeight],超过的在里面滚。位置按卡片的上边记:上边在可摆范围里的比例([release]),和胶囊分开记;
- * 上边能摆的范围按最高的卡片(窗口高 [full],即 [maxHeight] 加上下阴影边)算,所以高矮不同的卡片按同一个比例上边对齐,
- * 换卡片时上边不动、往下长或缩;往下放不下(底部手势条、输入法)时往上挪到刚好放下。转屏后按比例摆回。
+ * Where and how high the expanded card is placed (pure function, pixels): The card is very wide,
+ * centered on the left and right, and only dragged up and down. The height of dialogue cards is fixed at
+ * [maxHeight]; the height of task cards is based on the content, and the maximum is [maxHeight]. If it
+ * exceeds, the height will be rolled inside. The position is recorded according to the top of the card:
+ * the proportion of the top in the range that can be placed ([release]) is recorded separately from the
+ * capsule; the range that can be placed in the top is calculated based on the tallest card (window
+ * height [full], that is, [maxHeight] plus the lower shadow edge), so cards with different heights are
+ * aligned at the top in the same proportion. When changing cards, the top does not move, grows or
+ * shrinks down; when it cannot be placed down (gesture bar at the bottom, input method), move up until
+ * it is just right. After rotating the screen, it will swing back proportionally.
  */
 object CardDocking {
-    /** 卡片最高占屏幕高度的比例。 */
+    /** The maximum ratio of the card to the screen height. */
     const val SHARE = 0.58f
-    /** 没记过时卡片上边的比例:最高的卡片摆在可摆范围的正中。 */
+    /** If I don’t remember the ratio of the top of the cards: the tallest card is placed in the middle of the range that can be placed. */
     const val DEFAULT_FRACTION = 0.5f
 
     /**
-     * 看得见的卡片最高多高(对话卡片就是这么高):屏幕高 [screenHeight] 的 [SHARE],但不超过 [area] 里放得下的
-     * (上下各让出阴影边 [room]);输入法弹出时 [area] 已收到它上面,卡片跟着变矮,中间那段缩,输入框仍看得见。
+     * The maximum height of the visible card (the dialogue card is this high): the screen height is
+     * [screenHeight] to [SHARE], but not more than what can fit in [area] (the upper and lower sides
+     * give way to the shadow edge [room]); when the input method pops up, [area] has been received above
+     * it, the card becomes shorter, and the middle part shrinks, but the input box is still visible.
      */
     fun maxHeight(screenHeight: Int, area: DockArea, room: Int): Int =
         minOf((screenHeight * SHARE).roundToInt(), area.bottom - area.top - 2 * room).coerceAtLeast(0)
 
     /**
-     * 按比例 [fraction] 摆、高为 [h] 的卡片窗口的上边:先在没让输入法的范围 [base] 里按最高的卡片(窗口高 [full])定上边,
-     * 再挪进此刻的范围 [area](往下放不下就往上挪)。
+     * Place the top of the card window with the proportion [fraction] and the height [h]: First, click
+     * the highest card (window height [full]) in the range [base] without input method to set the top,
+     * and then move it to the current range [area].
      */
     fun y(fraction: Float, base: DockArea, area: DockArea, full: Int, h: Int): Int =
         CapsuleDocking.fitY(base.top + (fraction.coerceIn(0f, 1f) * topRange(base, full)).roundToInt(), area, h)
 
-    /** 拖着标题栏时窗口的上边:手指移了 [dy],上边不出 [base] 里能摆的范围,整张不出 [area]。 */
+    /** When dragging the title bar, the upper part of the window: if the finger moves [dy], the upper part cannot be moved out of the range that can be placed in [base], and the entire frame cannot be moved out of [area]. */
     fun dragY(startY: Int, dy: Float, base: DockArea, area: DockArea, full: Int, h: Int): Int =
         CapsuleDocking.fitY(minOf(startY + dy.roundToInt(), base.top + topRange(base, full)), area, h)
 
-    /** 松手时记下的上边比例(按没让输入法的范围 [base] 算,输入法收起后还在原处)。 */
+    /** Note the upper proportion when you let go (calculated according to the range of the input method [base], the input method will still be in the same place after being folded). */
     fun release(y: Int, base: DockArea, full: Int): Float {
         val r = topRange(base, full)
         return if (r == 0) 0f else ((y - base.top).toFloat() / r).coerceIn(0f, 1f)
     }
 
-    /** 上边能挪多远:最高的卡片从顶到底。 */
+    /** How far can the top move: The tallest card from top to bottom. */
     private fun topRange(base: DockArea, full: Int) = maxOf(0, base.bottom - base.top - full)
 }

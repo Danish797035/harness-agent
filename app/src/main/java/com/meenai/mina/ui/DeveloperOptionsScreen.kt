@@ -14,12 +14,12 @@ import com.meenai.mina.ui.components.MinaSwitch
 import com.meenai.mina.ui.components.PageScaffold
 import com.meenai.mina.ui.components.RowChevron
 
-/** 一个工程开关:[id] 用作测试标签,[change] 算出改过这一项之后的整组开关。 */
+/** An engineering switch: [id] is used as a test label, and [change] is used to calculate the entire set of switches after changing this item. */
 data class DevSwitch(
     val id: String, val title: String, val subtitle: String, val checked: Boolean, val change: (Boolean) -> SpeedFlags,
 )
 
-/** 开发者选项的两组:速度(已验证、默认多半开着)和实验(默认关)。开关的值与存储([SpeedFlags])不变。 */
+/** Two groups of developer options: Speed (verified, mostly on by default) and Experimentation (off by default). The value of the switch and the storage ([SpeedFlags]) remain unchanged. */
 object DeveloperSwitches {
     fun speed(flags: SpeedFlags): List<DevSwitch> = listOf(
         DevSwitch("adaptive-vision", tr(R.string.dev_adaptive), tr(R.string.dev_adaptive_sub), flags.adaptiveVision) { flags.copy(adaptiveVision = it) },
@@ -36,7 +36,7 @@ object DeveloperSwitches {
     )
 }
 
-/** 「做事方式」一组:询问 / 自主的全局开关。 */
+/** "Way of doing things" group: inquiry/autonomous global switch. */
 object AutonomyCopy {
     val GROUP: String get() = tr(R.string.dev_group)
     val TITLE: String get() = tr(R.string.dev_autonomy)
@@ -45,7 +45,7 @@ object AutonomyCopy {
 
 val DEVELOPER_NOTE: String get() = tr(R.string.dev_note)
 
-/** 当前看图模型的「看图定位已验证」:[model] 是它的模型名。 */
+/** The current image viewing model's "image viewing position has been verified": [model] is its model name. */
 data class GroundingSetting(val model: String, val verified: Boolean)
 
 object GroundingCopy {
@@ -56,8 +56,11 @@ object GroundingCopy {
 }
 
 /**
- * 设置 › 开发者选项:最前面是「自主模式」([autonomous],默认关即询问);原来「速度」下的八个开关,分成速度和实验两组;有看图模型时另有它的「看图定位已验证」
- * ([grounding] 为 null 时不显示);最后是「运行统计」的入口([onOpenRunStats] 为 null 时不显示)。
+ * Settings › Developer Options: The front is "Autonomous Mode" ([autonomous], the default is off to
+ * ask); the original eight switches under "Speed" are divided into two groups: speed and experiment;
+ * when there is a picture viewing model, there is also its "Viewing Positioning Verified" (not displayed
+ * when [grounding] is null); the last is the entrance to "Run Statistics" (not displayed when
+ * [onOpenRunStats] is null).
  */
 @Composable
 fun DeveloperOptionsScreen(
@@ -104,7 +107,7 @@ fun DeveloperOptionsScreen(
 private fun SwitchGroup(switches: List<DevSwitch>, onSpeed: (SpeedFlags) -> Unit) {
     GroupCard {
         switches.forEachIndexed { i, s ->
-            // 整行都能点:开关小,行大
+            // The entire row can be clicked: the switch is small, the row is large
             ListRow(null, s.title, s.subtitle, first = i == 0, onClick = { onSpeed(s.change(!s.checked)) }) {
                 MinaSwitch(s.checked, { onSpeed(s.change(it)) }, Modifier.testTag("dev-${s.id}"))
             }

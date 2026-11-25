@@ -35,7 +35,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 侧栏的「浏览器」入口;起始页的几段(搜索、常用网站、整理、最近打开),网页的顶栏和工具栏、「更多」面板、「给 Mina 登录」横幅。 */
+/** The "Browser" entrance in the sidebar; several sections of the start page (search, frequently used websites, organization, recently opened), the top bar and toolbar of the web page, the "More" panel, and the "Login for Mina" banner. */
 @RunWith(AndroidJUnit4::class)
 class BrowserScreenTest {
 

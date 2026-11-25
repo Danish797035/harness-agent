@@ -16,8 +16,8 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * 端到端:服务商把工具调用标记写在 content 里(而不是 tool_calls)时,
- * 适配器要把它还原成真正的工具调用,界面上不能出现标记本身。
+ * End-to-end: When the service provider writes the tool call tag in content (instead of tool_calls), the
+ * adapter must restore it to a real tool call, and the tag itself cannot appear on the interface.
  */
 class LeakedMarkupModelTest {
     private lateinit var server: MockWebServer

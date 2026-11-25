@@ -7,7 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 
-/** 对话页那一轮下面留页的那一行:还开着、关了(带原因或不带),和剩余时间的说法。 */
+/** The line left under the dialogue page: still on, off (with reason or not), and the remaining time. */
 class KeptPageCopyTest {
     @get:Rule val texts = ChineseTexts()
 
@@ -17,10 +17,11 @@ class KeptPageCopyTest {
 
     @Test fun rowFollowsTheLivePageAndTheTurnRecord() {
         assertEquals(KeptRow.Live(page), KeptRow.of(ex("r1", kept = "course.example.com"), page))
-        // 刚收尾、那一轮还没读回留页的记录时,照样按此刻留着的那一页显示
+        // When the round has just ended and the record of the remaining page has not been read back in
+        // that round, it will still be displayed according to the page left at the moment.
         assertEquals(KeptRow.Live(page), KeptRow.of(ex("r1"), page))
         assertEquals(KeptRow.Closed("expired"), KeptRow.of(ex("r1", kept = "course.example.com", closed = "expired"), null))
-        // 别的一轮留的页不挂到这一轮下面
+        // Pages left in other rounds will not be attached to this round.
         assertEquals(KeptRow.Closed(null), KeptRow.of(ex("r0", kept = "a.example.com"), page))
         assertNull(KeptRow.of(ex("r2"), page))
         assertNull(KeptRow.of(ex(null), null))

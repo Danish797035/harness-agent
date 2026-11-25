@@ -39,21 +39,22 @@ import com.meenai.mina.core.uistate.withPortRef
 
 private const val KEYCODE_ENTER = 66
 
-/** 输入、清空另收的参数:一个点的坐标(ref 也可以是看图找到的 @vN),树读不到输入框时直接往那一点打字。 */
+/** Enter and clear the additional parameters: the coordinates of a point (ref can also be @vN found by looking at the picture). When the tree cannot read the input box, type directly at that point. */
 private val POINT_ARGS = mapOf(
     "x" to int("Instead of a ref: the input box's point (e.g. a visibleText center), tapped before typing. $COORD", 0, 999),
     "y" to int(COORD, 0, 999),
 )
 
-/** 往哪儿打字:树里的元素(编号),或一个点(像素;[located] 是看图找到的 @vN,不是为 null)。 */
+/** Where to type: an element (number) in the tree, or a point (pixel; [located] is found by looking at the picture @vN, not null). */
 private sealed interface FieldAim {
     data class Ref(val ref: Pair<String, String>?) : FieldAim
     data class Point(val x: Int, val y: Int, val located: String?) : FieldAim
 }
 
 /**
- * 按参数定往哪儿打字:没给点时是编号(或焦点所在的框);给了坐标或 @vN 时是那一点,@vN 要和找到时的画面对得上。
- * 不能用的 @vN 返回给模型的失败结果。
+ * Determine where to type according to the parameters: when no point is given, it is the number (or the
+ * frame where the focus is); when coordinates or @vN are given, it is the point, and @vN must match the
+ * picture when found. Unusable @vN Failure results returned to the model.
  */
 private suspend fun aim(a: Args, ctx: ToolContext): Pair<FieldAim?, ToolExecution?> {
     val ref = a.ref(located = true)
@@ -72,7 +73,7 @@ private suspend fun aim(a: Args, ctx: ToolContext): Pair<FieldAim?, ToolExecutio
     return FieldAim.Ref(ref) to null
 }
 
-/** 往看图找到的点上打字、清空时结果里写上找的是什么;没佐证的点标出来。 */
+/** Type on the points you find when looking at the picture. When clearing, write down what you are looking for in the results; mark the points that are not supported. */
 private fun located(ctx: ToolContext, aim: FieldAim?, r: ToolExecution): ToolExecution {
     val ref = (aim as? FieldAim.Point)?.located ?: return r
     val info = ctx.locatedInfo[ref] ?: return r
@@ -80,7 +81,7 @@ private fun located(ctx: ToolContext, aim: FieldAim?, r: ToolExecution): ToolExe
     return if (extra.isEmpty()) r else r.with(content = JsonObject(r.content + extra))
 }
 
-/** 输入(带回车时可能是发送,要按目标判不可逆)。 */
+/** Input (it may be sent when you bring it back to the carriage, it must be determined by the target to determine whether it is irreversible). */
 internal class TypeText(f: ScreenFamily) : ScreenTool(f, "type_text") {
     override val verb = Verb.TypeText
     override val batchable = true
@@ -124,7 +125,8 @@ internal class TypeText(f: ScreenFamily) : ScreenTool(f, "type_text") {
             put("recoverable", true)
         })
         val switched = typed.appSwitched
-        // 读不回来就不按回车:可能把没打进去的内容提交出去;前台被切走时回车会打到别的 App 上
+        // If you can't read it back, don't press Enter: the content that hasn't been typed may be
+        // submitted; when the front desk is switched away, pressing Enter will be typed in other apps.
         val pressEnter = enter && v != Verification.UNKNOWN && switched == null
         if (pressEnter) {
             val k = screen.pressKey(KEYCODE_ENTER)
@@ -150,7 +152,7 @@ internal class TypeText(f: ScreenFamily) : ScreenTool(f, "type_text") {
 
     override fun logTarget(o: JsonObject, r: ToolExecution, ctx: ToolContext) = refTarget(o, r, ctx.lastSnapshot) ?: pointTarget(o)
 
-    // 只有端口明确说不是密码框才写出输入的字
+    // Only when the port clearly states that it is not a password box will the entered words be written.
     override fun logTyped(o: JsonObject, r: ToolExecution) =
         o.argStr("text")?.takeIf { r.content["secret"] == JsonPrimitive(false) }?.let { "「${it.take(40)}」" }
 }
@@ -179,5 +181,5 @@ internal class ClearText(f: ScreenFamily) : ScreenTool(f, "clear_text") {
     override fun logTarget(o: JsonObject, r: ToolExecution, ctx: ToolContext) = refTarget(o, r, ctx.lastSnapshot) ?: pointTarget(o)
 }
 
-/** 往坐标点上打字、清空时动作清单里写的对象。 */
+/** The object written in the action list when typing on the coordinate point and clearing it. */
 private fun pointTarget(o: JsonObject): String? = o["x"]?.let { x -> "${x},${o["y"]}" }

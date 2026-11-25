@@ -2,7 +2,7 @@ package com.meenai.mina.a11y
 
 import com.meenai.mina.cap.phone.a11y.ScreenAccessibility
 
-/** 系统按这个全名找 Harness Agent 的无障碍服务(清单、系统设置里存的就是它);实现在手机能力里。 */
+/** The system uses this full name to find the Harness Agent's accessibility service (it is stored in the list and system settings); it is implemented in the mobile phone capabilities. */
 class HarnessAccessibilityService : ScreenAccessibility()
 
 typealias MinaAccessibilityService = HarnessAccessibilityService

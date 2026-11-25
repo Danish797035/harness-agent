@@ -74,7 +74,7 @@ class CapsuleCardContentTest {
         }
     }
 
-    /** 假的屏幕存储:s1 是设置页的一屏,s2 是不让截图的页面。 */
+    /** Fake screen storage: s1 is a screen of the settings page, s2 is a page that does not allow screenshots. */
     private val at = java.time.LocalDateTime.of(2026, 10, 28, 19, 42).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
     private val shots = com.meenai.mina.ui.ScreenShots { _, id ->
         when (id) {
@@ -93,14 +93,16 @@ class CapsuleCardContentTest {
     @Test fun threadShowsScreenMessageWithTagAndWords() {
         show(CardView.Chat("c1", title = "t"), thread = idleThread("[[screen:s1]]", "[[screen:s1]]\n第三条有没有坑?", "[[screen:s2]]"))
         val tag = "你此刻的屏幕 · 设置 · 19:42"
-        // 卡片停在最新的那几句:第二屏(带附言)和不让截图的那屏在眼前,第一屏在上面、还没排出来
+        // The card stops at the latest few sentences: the second screen (with postscript) and the screen
+        // that does not allow screenshots are in front of you, and the first screen is above and has not
+        // yet been discharged.
         compose.waitUntil(5_000) { compose.onAllNodesWithText(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1 }
         compose.onAllNodesWithTag("screen-thumb", useUnmergedTree = true).assertCountEquals(1)
         compose.onNodeWithText("第三条有没有坑?", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText(com.meenai.mina.ui.ScreenCopy.BLOCKED, useUnmergedTree = true).assertIsDisplayed()
-        // 带屏幕的那句不把编号那一行当成字显示
+        // The sentence with the screen does not display the numbered line as a word.
         compose.onAllNodesWithText("[[screen:", substring = true, useUnmergedTree = true).assertCountEquals(0)
-        // 往上翻到第一句:只发了屏幕,没有附言气泡
+        // Scroll up to the first sentence: Only the screen was sent, no postscript bubble
         compose.onNodeWithTag("capsule-thread").performScrollToIndex(0)
         compose.waitUntil(5_000) { compose.onAllNodesWithText(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText(tag, useUnmergedTree = true)[0].assertIsDisplayed()
@@ -124,7 +126,7 @@ class CapsuleCardContentTest {
         compose.onNodeWithTag("capsule-attachment").assertIsDisplayed()
         compose.onNodeWithText(com.meenai.mina.ui.ScreenCopy.TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("设置 · 19:42", useUnmergedTree = true).assertIsDisplayed()
-        // 只挂着截图、没写字也能直接发
+        // You can send it directly with only screenshots and no writing.
         compose.onNodeWithTag("capsule-send").performClick()
         compose.onNodeWithTag("capsule-attachment-remove").performClick()
         compose.runOnIdle { assertEquals(listOf("send", "drop"), calls) }
@@ -139,7 +141,7 @@ class CapsuleCardContentTest {
 
     private fun chat(r: CardRun) = CardView.Chat(r.run.conversationId, r, CapsuleCards.content(r))
 
-    /** [n] 轮问答,每轮的回答 [lines] 行。 */
+    /** [n] round of question and answer, the answer in each round is [lines] lines. */
     private fun history(n: Int, lines: Int = 1) = CapsuleThreads.build(
         (1..n).map { i -> PastTurn(com.meenai.mina.core.agent.Turn("问题 $i", (1..lines).joinToString("\n") { "回答 $i 第 $it 行" }, "succeeded", runId = "r$i")) },
         CapsuleThreads.PAGE, emptyList(),
@@ -150,7 +152,7 @@ class CapsuleCardContentTest {
         compose.onNodeWithText("买两支牙膏").assertIsDisplayed()
         compose.onNodeWithText("在干活 · 0:23").assertIsDisplayed()
         compose.onNodeWithText("在搜牙膏").assertIsDisplayed()
-        // 停止在输入框右边(黑色停止键),不再单独一个文字按钮
+        // Stop on the right side of the input box (black stop key), no longer a separate text button
         compose.onAllNodesWithText(CardCopy.STOP).assertCountEquals(0)
         compose.onNodeWithContentDescription(CardCopy.STOP).performClick()
         compose.onNodeWithText(CardCopy.SEE_PROCESS).performClick()
@@ -192,7 +194,8 @@ class CapsuleCardContentTest {
         compose.onNodeWithText(CardCopy.TAKE_OVER).assertDoesNotExist()
     }
 
-    // 只有花钱的操作要同意:卡片上只有「只同意这一次」和「不同意」
+    // Only money-making operations require consent: there are only "Agree this time" and "Disagree" on
+    // the card.
     @Test fun confirmOffersOnceOrDecline() {
         val r = run("a", TaskState.Idle, CapsuleKind.NeedConfirm)
         show(CardView.Detail(r, CardContent.Confirm("要你同意:下单", "金额:¥19.9", 9)))
@@ -255,8 +258,10 @@ class CapsuleCardContentTest {
         val past = listOf(PastTurn(com.meenai.mina.core.agent.Turn("早", "早上好", "succeeded", runId = "r0")))
         val thread = CapsuleThreads.build(past, CapsuleThreads.PAGE, listOf(r)) { listOf("购物") }
         show(chat(r), thread = thread)
-        // 之前的来回、操作过 App 的那一行和回答全文都在;没有步骤和小画面
-        // 对话的标题就是第一句「早」,下面的气泡也是「早」:两处都在
+        // The previous back and forth, the line where the app was operated, and the full text of the
+        // answer are all there; there are no steps or small screens. The title of the conversation is
+        // the first sentence "Good morning", and the bubble below is also "Good morning": both places
+        // are there
         compose.onAllNodesWithText("早").assertCountEquals(2)
         compose.onNodeWithText("✓ 购物 · 办好了").assertIsDisplayed()
         compose.onNodeWithText("牙膏下单了").assertIsDisplayed()
@@ -284,19 +289,20 @@ class CapsuleCardContentTest {
 
     @Test fun chatOpensAtTheLatestQuestionAndScrollsUpForEarlier() {
         show(CardView.Chat("c1", title = "问题 1"), thread = history(25, lines = 3))
-        // 打开时从最新一问读起
+        // Start reading from the latest question when opening
         compose.onNodeWithText("问题 25").assertIsDisplayed()
         compose.onNodeWithText("问题 20").assertIsNotDisplayed()
         repeat(30) { compose.onNodeWithTag("capsule-thread").performTouchInput { swipeDown() } }
         compose.onNodeWithText("问题 16").assertIsDisplayed()
-        // 滚到顶:往前多加载
+        // Scroll to the top: load more forward
         compose.runOnIdle { assertTrue("earlier" in calls) }
     }
 
     @Test fun longTakeoverScrollsWhileButtonsStay() {
         val body = (1..60).joinToString("\n") { "第 $it 行" }
         show(detail(run("a", TaskState.WaitingTakeover("login", body), CapsuleKind.NeedTakeover, "需要你：登录")))
-        // 整段说明是一个文字节点:按高度和位置判断——滚动区比全文矮,往上滑文字跟着往上走,按钮不动
+        // The entire description is a text node: judge by height and position - the scroll area is
+        // shorter than the full text, slide the text up and follow it, and the button does not move
         val area = compose.onNodeWithTag("capsule-scroll").fetchSemanticsNode()
         val text = compose.onNodeWithText("第 1 行", substring = true).fetchSemanticsNode()
         org.junit.Assert.assertTrue("capped: ${area.size.height} < ${text.size.height}", area.size.height < text.size.height)
@@ -315,11 +321,11 @@ class CapsuleCardContentTest {
             MinaTheme(dark = false, reduceMotion = true) { CapsuleCard(card, null, false, actions, { null }, thread = thread, height = 420.dp) }
         }
         compose.onNodeWithTag("capsule-card").assertHeightIsEqualTo(420.dp)
-        // 来回再长也是这么高,在里面滚
+        // No matter how long I go back and forth, it's still this high. I'm rolling inside.
         thread = history(10, lines = 8)
         compose.waitForIdle()
         compose.onNodeWithTag("capsule-card").assertHeightIsEqualTo(420.dp)
-        // 空闲卡片也一样
+        // The same goes for idle cards
         card = CardView.Chat(null)
         thread = ChatThread(emptyList())
         compose.waitForIdle()
@@ -336,12 +342,13 @@ class CapsuleCardContentTest {
         val task = compose.onNodeWithTag("capsule-card").fetchSemanticsNode().size.height
         val screen = compose.onNodeWithTag("capsule-screen").fetchSemanticsNode().size.height
         val full = with(compose.density) { 420.dp.roundToPx() }
-        // 小画面加三步:比对话卡片矮,下面不留空,中间那段至少是整张小画面
+        // Add three steps to the small picture: shorter than the dialogue card, no space below, and the
+        // middle section should at least cover the entire small picture
         assertTrue("wraps: $task < $full", task < full)
         assertTrue("fits the preview: $task > $screen", task > screen)
         compose.onNodeWithTag("capsule-screen").assertIsDisplayed()
         compose.onNodeWithText("选第一个").assertIsDisplayed()
-        // 换成对话卡片:固定高
+        // Change to dialogue card: fixed height
         card = chat(run("a", TaskState.Succeeded("好了"), CapsuleKind.Done))
         compose.waitForIdle()
         compose.onNodeWithTag("capsule-card").assertHeightIsEqualTo(420.dp)
@@ -351,7 +358,8 @@ class CapsuleCardContentTest {
         val frame = Bitmap.createBitmap(36, 80, Bitmap.Config.ARGB_8888)
         val body = (1..60).joinToString("\n") { "第 $it 行" }
         show(detail(run("a", TaskState.WaitingTakeover("login", body), CapsuleKind.NeedTakeover, "需要你：登录")), preview = frame)
-        // 说明再长,任务卡片最多和对话卡片一样高,文字在里面滚,按钮和链接还看得见
+        // No matter how long the description is, the task card should be as high as the dialogue card at
+        // most, with the text scrolling inside, and the buttons and links still visible.
         compose.onNodeWithTag("capsule-card").assertHeightIsEqualTo(420.dp)
         val area = compose.onNodeWithTag("capsule-scroll").fetchSemanticsNode()
         val text = compose.onNodeWithText("第 1 行", substring = true).fetchSemanticsNode()
@@ -361,7 +369,7 @@ class CapsuleCardContentTest {
         compose.onNodeWithText(CardCopy.SEE_PROCESS).assertIsDisplayed()
     }
 
-    /** 不在列表里画出来(已经滚出去、没排进来)也算看不见。 */
+    /** If it is not drawn in the list (it has been removed and not queued in), it is not visible. */
     private fun offScreen(text: String) {
         val nodes = compose.onAllNodesWithText(text)
         if (nodes.fetchSemanticsNodes().isNotEmpty()) nodes[0].assertIsNotDisplayed()
@@ -380,20 +388,21 @@ class CapsuleCardContentTest {
         val steps = compose.onNodeWithTag("capsule-steps").fetchSemanticsNode().size.height
         val screen = compose.onNodeWithTag("capsule-screen").fetchSemanticsNode().size.height
         val cardHeight = compose.onNodeWithTag("capsule-card").fetchSemanticsNode().size.height
-        // 步骤再多也和小画面一样高,卡片不被撑高
+        // No matter how many steps there are, the height will still be the same as the small screen, and
+        // the card will not be stretched high.
         assertTrue("steps fit the preview: $steps <= $screen", steps <= screen + 1)
         assertTrue("card not stretched: $cardHeight < ${with(compose.density) { 420.dp.roundToPx() }}", cardHeight < with(compose.density) { 420.dp.roundToPx() })
         compose.onNodeWithText("第 30 步").assertIsDisplayed()
         offScreen("第 1 步")
-        // 在底部时来了新的一步:跟到它
+        // At the bottom comes a new step: follow it
         card = working(31)
         compose.waitForIdle()
         compose.onNodeWithText("第 31 步").assertIsDisplayed()
         compose.onNodeWithTag("capsule-card").assertHeightIsEqualTo(with(compose.density) { cardHeight.toDp() })
-        // 往上翻到最早的一步
+        // Scroll up to the earliest step
         repeat(10) { compose.onNodeWithTag("capsule-steps").performTouchInput { swipeDown() } }
         compose.onNodeWithText("第 1 步").assertIsDisplayed()
-        // 翻着看时来了新的一步:不拽回底部
+        // When I was flipping through the pages, I took a new step: not dragging it back to the bottom.
         card = working(32)
         compose.waitForIdle()
         compose.onNodeWithText("第 1 步").assertIsDisplayed()
@@ -411,7 +420,9 @@ class CapsuleCardContentTest {
         compose.waitForIdle()
         val many = compose.onNodeWithTag("capsule-card").fetchSemanticsNode().size.height
         val full = with(compose.density) { 420.dp.roundToPx() }
-        // 步骤少时按内容高;多了也只到按主屏宽高比算的小画面高,不撑到最高
+        // If there are few steps, the content will be as high as possible; if there are too many, it
+        // will only reach the height of the small screen based on the aspect ratio of the main screen,
+        // and will not reach the highest level.
         assertTrue("few is compact: $few < $many", few < many)
         assertTrue("many is capped: $many < $full", many < full)
         compose.onNodeWithText("第 40 步").assertIsDisplayed()
@@ -422,14 +433,14 @@ class CapsuleCardContentTest {
         val answer = "## 结果\n\n**牙膏**已下单\n\n| 商品 | 数量 | 单价 | 小计 | 备注 |\n|---|---|---|---|---|\n| 薄荷味牙膏特大号家庭装 | 2 | ¥9.95 | ¥19.9 | 明天送到家门口 |\n\n[订单详情](https://example.com/order)"
         val past = listOf(PastTurn(com.meenai.mina.core.agent.Turn("买牙膏", answer, "succeeded", runId = "r1")))
         show(CardView.Chat("c1", title = "买牙膏"), thread = CapsuleThreads.build(past, CapsuleThreads.PAGE, emptyList()))
-        // 标记不再原样露出来
+        // The mark is no longer exposed as it is
         compose.onNodeWithText("结果").assertExists()
         compose.onNodeWithText("牙膏已下单").assertExists()
         compose.onNodeWithText("薄荷味牙膏特大号家庭装").assertExists()
         compose.onAllNodesWithText("|", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("**", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("订单详情", substring = true).assertCountEquals(1)
-        // 宽表格在自己那块里左右滑,卡片不变宽
+        // If you slide the wide table left or right in your section, the card will not become wider.
         val card = compose.onNodeWithTag("capsule-card").fetchSemanticsNode().boundsInRoot
         val thread = compose.onNodeWithTag("capsule-thread").fetchSemanticsNode().boundsInRoot
         assertTrue("thread inside card: $thread in $card", thread.right <= card.right && thread.left >= card.left)
@@ -444,7 +455,8 @@ class CapsuleCardContentTest {
             }
         }
         compose.runOnIdle { assertTrue("header bounds reported", handle?.isEmpty == false) }
-        // 在标题栏上拖(包括从收起按钮上开始拖):不收起、不点到任何按钮
+        // Drag on the title bar (including dragging from the collapse button): no collapse, no click on
+        // any button
         compose.onNodeWithTag("capsule-header").performTouchInput { swipeDown() }
         compose.onNodeWithContentDescription(CardCopy.COLLAPSE).performTouchInput { swipe(center, center + Offset(0f, 300f)) }
         compose.runOnIdle { assertEquals(emptyList<String>(), calls) }

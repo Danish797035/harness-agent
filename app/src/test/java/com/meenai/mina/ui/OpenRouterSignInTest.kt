@@ -33,8 +33,10 @@ import java.io.File
 import javax.crypto.KeyGenerator
 
 /**
- * 用 OpenRouter 账号登录走一遍:浏览器(假的)打开授权页,带着 code 回到本机回调,换到 Key,
- * 按 OpenRouter 预设存成服务商、选上主模型、打开详情;退出只删本机的 Key。换 Key 的接口是本地假服务。
+ * Log in with an OpenRouter account and go through: open the authorization page in the browser (fake),
+ * return to the local machine callback with the code, change to Key, press OpenRouter default to save as
+ * a service provider, select the main model, open the details; exit and only delete the local Key. The
+ * interface for changing Key is a local fake service.
  */
 class OpenRouterSignInTest {
     @get:Rule val texts = EnglishTexts()
@@ -61,7 +63,7 @@ class OpenRouterSignInTest {
         },
     )
 
-    /** 假浏览器:打开授权页时照用户同意了那样,带着 code 和 state 请求本机回调;[pages] 记下回调后浏览器里显示的结果。 */
+    /** Fake browser: When opening the authorization page, request the local callback with code and state as the user agreed; [pages] notes the result displayed in the browser after the callback. */
     private inner class Browser(private val approve: Boolean = true) : SignInBrowser {
         val opened = mutableListOf<String>()
         val pages = mutableListOf<String?>()
@@ -102,9 +104,9 @@ class OpenRouterSignInTest {
         assertTrue(browser.opened.single().startsWith("https://openrouter.ai/auth?"))
         val sent = server.takeRequest().body.readUtf8()
         assertTrue(sent, sent.contains("\"code\":\"the-code\""))
-        // Key 只加密存,不进配置文件
+        // Key is only encrypted and stored, not entered into the configuration file.
         tmp.root.walk().filter(File::isFile).forEach { f -> assertFalse(f.name, f.readText().contains("SECRET")) }
-        // 重新读入时还认得是授权来的
+        // When I read it again, I still recognized that it was authorized.
         assertEquals(p.id, store().openRouterAccount()?.id)
 
         vm.signedInShown()
@@ -131,8 +133,10 @@ class OpenRouterSignInTest {
     }
 
     /**
-     * 用户已经自己填了 OpenRouter 的 Key:授权登录另存一家,不顶掉那把 Key;退出登录只删授权来的那把。
-     * 之后再自己填 Key「测试并保存」,也只更新自己填的那一家,不碰授权来的。
+     * The user has already filled in the OpenRouter Key by himself: authorize the login and save it in
+     * another key, without deleting the key; log out and only delete the authorized key. Afterwards, I
+     * fill in the Key by myself and "test and save", and only update the one I filled in, not the
+     * authorized one.
      */
     @Test fun signInKeepsAKeyTheUserTypedForOpenRouter() {
         val s = store()
@@ -143,19 +147,19 @@ class OpenRouterSignInTest {
         assertEquals("sk-or-v1-signed", s.providerKey(signed.id))
         assertNull(typed.signIn)
         assertEquals(signed.id, s.openRouterAccount()?.id)
-        // 再登录一次更新授权来的那一家,不多出第三家
+        // Log in again and update the authorized one. There will be no more third one.
         assertEquals(signed.id, s.connectOpenRouter("sk-or-v1-again", emptyList()).id)
         assertEquals(2, s.providers.value.size)
-        // 自己再填一次 Key:更新自己那一家
+        // Fill it out again Key: Update your own family
         assertEquals(typed.id, s.connect("OpenRouter", ProviderConfig.Kind.OpenAiCompat, OpenRouterAuth.API_BASE, "sk-typed-2", emptyList()).id)
         assertEquals("sk-or-v1-again", s.providerKey(signed.id))
         s.signOutOpenRouter(signed.id)
         assertNull(s.providerKey(signed.id))
         assertEquals("sk-typed-2", s.providerKey(typed.id))
-        // 填 Key 的那一家不能被当成登录退出
+        // The company that fills in the Key cannot be regarded as logging in or out.
         s.signOutOpenRouter(typed.id)
         assertEquals("sk-typed-2", s.providerKey(typed.id))
-        // 重新读入后两家照样分开
+        // After re-reading, the two families still separated.
         val reloaded = store()
         assertEquals(signed.id, reloaded.openRouterAccount()?.id)
         assertEquals("sk-typed-2", reloaded.providerKey(typed.id))

@@ -16,9 +16,11 @@ import kotlin.coroutines.resume
 import kotlin.math.max
 
 /**
- * 网页标签的真实输入:触摸经 dispatchTouchEvent、文字经输入连接 commitText、按键经 dispatchKeyEvent,
- * 页面收到的都是可信事件(isTrusted),和人手操作一样。不用脚本点击或脚本赋值代替。
- * 输入连接直接拿 WebView 的,不经系统输入法:主屏上不会弹键盘。坐标是 WebView 视图像素。
+ * Real input of web page tags: touch via dispatchTouchEvent, text via input connection commitText, and
+ * key press via dispatchKeyEvent. The page receives all trusted events (isTrusted), just like human
+ * operations. Do not use script clicks or script assignments instead. The input connection is directly
+ * from WebView without going through the system input method: the keyboard will not play on the home
+ * screen. Coordinates are WebView view pixels.
  */
 class WebInput(private val tab: WebTab) {
     private val view get() = tab.view
@@ -42,24 +44,24 @@ class WebInput(private val tab: WebTab) {
         touch(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x2.toFloat(), y2.toFloat())
     }
 
-    /** 把整段文字交给当前获得焦点的网页输入框;拿不到输入连接(没有可编辑的焦点)返回 false。 */
+    /** Pass the entire text to the currently focused web page input box; return false if no input link is available (no editable focus). */
     suspend fun commitText(text: String): Boolean = withConnection { it.commitText(text, 1) }
 
     suspend fun key(keyCode: Int) = key(keyCode, 0)
 
-    /** 全选(Ctrl+A)后删除;有的编辑器不认组合键,再用输入连接全选并清掉。 */
+    /** Select all (Ctrl+A) and delete; some editors do not recognize the key combination, then use the input connection to select all and clear. */
     suspend fun selectAllAndDelete() {
         key(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
         key(KeyEvent.KEYCODE_DEL, 0)
     }
 
-    /** 输入连接里全选再写空串:组合键没清干净时的退路。 */
+    /** Select all in the input connection and then write an empty string: the fallback route when the key combination is not cleared. */
     suspend fun selectAllAndCommitEmpty(): Boolean = withConnection {
         it.performContextMenuAction(android.R.id.selectAll)
         it.commitText("", 1)
     }
 
-    /** [meta] 是 KeyEvent 的修饰状态(META_CTRL_ON 一类),组合键用。 */
+    /** [meta] is the modified state of KeyEvent (META_CTRL_ON type), used for key combinations. */
     suspend fun key(keyCode: Int, meta: Int) {
         val down = SystemClock.uptimeMillis()
         withContext(Dispatchers.Main) {
@@ -71,7 +73,8 @@ class WebInput(private val tab: WebTab) {
     private fun keyEvent(down: Long, at: Long, action: Int, code: Int, meta: Int) =
         KeyEvent(down, at, action, code, 0, meta, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD)
 
-    // 标明是手指:不设工具类型时页面看到的 pointerType 是空串,真手指是 touch
+    // Indicate it is a finger: when the tool type is not set, the pointerType seen on the page is an
+    // empty string, and the real finger is touch.
     private suspend fun touch(down: Long, at: Long, action: Int, x: Float, y: Float) = withContext(Dispatchers.Main) {
         val props = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_FINGER }
         val coords = MotionEvent.PointerCoords().apply { this.x = x; this.y = y; pressure = 1f; size = 1f }
@@ -83,7 +86,8 @@ class WebInput(private val tab: WebTab) {
         }
     }
 
-    // 浏览器内核的输入连接有自己的线程:有 handler 就到那个线程上调,否则在主线程调
+    // The input connection of the browser kernel has its own thread: if there is a handler, it will be
+    // adjusted in that thread, otherwise it will be adjusted in the main thread.
     private suspend fun withConnection(block: (InputConnection) -> Boolean): Boolean {
         val ic = withContext(Dispatchers.Main) {
             if (!view.hasFocus()) view.requestFocus()

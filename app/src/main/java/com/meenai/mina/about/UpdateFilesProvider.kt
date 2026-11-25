@@ -6,8 +6,10 @@ import android.os.ParcelFileDescriptor
 import androidx.core.content.FileProvider
 
 /**
- * 走网络代理时由 Mina 自己下的安装包,交给系统安装器用的 content:// 地址(系统下载服务下的那份由它自己给地址)。
- * 只覆盖更新包目录(见 res/xml/update_files.xml),只读,不对外导出,安装时临时授权。
+ * When using the network proxy, the installation package downloaded by Mina itself is given to the
+ * content:// address used by the system installer (the address under the system download service is
+ * given by itself). Only the update package directory (see res/xml/update_files.xml) is covered,
+ * read-only, not exported, and temporarily authorized during installation.
  */
 class UpdateFilesProvider : FileProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {

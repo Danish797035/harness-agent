@@ -20,8 +20,9 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaSpace
 
 /**
- * 子页面的骨架:页面底 + 带返回的顶栏 + 一列可滚动的内容(左右留 [MinaSpace.Page],避开导航栏)。
- * 内容里直接放 [GroupLabel] / [GroupCard] / [FooterNote]。
+ * The skeleton of the subpage: bottom of the page + top bar with return + a column of scrollable content
+ * (leave [MinaSpace.Page] on the left and right, avoid the navigation bar). Put [GroupLabel] /
+ * [GroupCard] / [FooterNote] directly in the content.
  */
 @Composable
 fun PageScaffold(

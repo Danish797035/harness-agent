@@ -6,7 +6,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** 主动分享浮层的三个选择只按约定动权限:取消不动、只分享不解除禁用、允许此应用清掉分享许可。 */
+/** The three options for actively sharing the floating layer only change the permissions as agreed: cancel without moving, only share without disabling, and allow this application to clear the sharing permission. */
 class ShareChoiceTest {
     @get:Rule val temp = TemporaryFolder()
     private fun store() = AppAccessStore(java.io.File(temp.root, "access.json"))
@@ -25,7 +25,8 @@ class ShareChoiceTest {
         store.setShareAllowed("app", true)
         assertTrue(applyShareChoice(2, "app", store))
         assertNull(store.current().denial("app"))
-        // 独立分享许可被清掉:以后它是普通应用,不再需要单独授权
+        // The independent sharing license has been cleared: from now on it will be a normal application
+        // and no longer requires separate authorization.
         assertTrue(store.current().shareAllowed.isEmpty())
         assertTrue(store.current().canShare("app"))
     }

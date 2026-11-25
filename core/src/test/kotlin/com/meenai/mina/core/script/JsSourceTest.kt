@@ -36,10 +36,12 @@ class JsSourceTest {
     }
 
     @Test fun ambiguousSlashCannotHideImport() {
-        // `)` 之后的 / 若被当成除号,后面的引号会把 import 吞进「字符串」;两种读法都走,所以照样找到
+        // If the / after `)` is regarded as a division sign, the following quotation marks will swallow
+        // the import into the "string"; both reading methods are used, so it is still found
         bad("if (a) /'/; import('x'); '/")
         bad("if (a) {} /'/; import('x'); '/")
-        // 反过来:真的是除号,若被当成正则会把 import 吞进「正则」
+        // On the other hand: it is really a division sign. If it is regarded as a regular expression,
+        // the import will be swallowed into the "regular expression".
         bad("x = (a) / 2; import('x'); y = 1 / 3")
         bad("i++ /'/; import('x'); '/")
         bad("of /'/; import('x'); '/")

@@ -12,7 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** 起进程、收输出、兜底时限:用宿主的 /bin/sh 跑(不经启动器与 PRoot)。 */
+/** Start the process, collect the output, and check the time limit: run with the host's /bin/sh (without going through the launcher and PRoot). */
 class ProcLaunchTest {
     private val env = mapOf("PATH" to "/usr/bin:/bin")
 
@@ -67,7 +67,8 @@ class ProcLaunchTest {
     }
 
     @Test fun cancelDuringStartLeavesNoOrphan() = runBlocking {
-        // 取消恰好落在 start() 返回之前:进程已经起来了,也必须被杀掉
+        // The cancellation happens just before start() returns: the process has already started and must
+        // be killed.
         val pidFile = File.createTempFile("pid", ".txt").apply { delete() }
         lateinit var job: Job
         job = launch(Dispatchers.Default) {

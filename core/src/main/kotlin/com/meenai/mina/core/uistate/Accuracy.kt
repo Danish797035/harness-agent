@@ -3,9 +3,11 @@ package com.meenai.mina.core.uistate
 import kotlin.math.hypot
 
 /**
- * 用来在新界面里认出「同一个元素」的特征。[context] 是遍历顺序里它前面最近一个有名字的元素,
- * 防止滚动后别处的同名按钮顶上来被误认。[hint]:名字是输入框的提示语/预置词(会轮换);
- * [inList]:元素在列表容器里(列表项会复用,同一位置可能换成别的条目)。
+ * Characteristics used to recognize the "same element" in the new interface. [context] is the most
+ * recent element with a name before it in the traversal order to prevent buttons with the same name
+ * elsewhere from being mistakenly recognized after scrolling. [hint]: The name is the prompt/preset word
+ * of the input box (it will rotate); [inList]: The element is in the list container (the list items will
+ * be reused, and the same position may be replaced by other items).
  */
 data class ElementLocator(
     val role: String,
@@ -19,31 +21,38 @@ data class ElementLocator(
 )
 
 sealed interface Relocation {
-    /** [index] 是新列表里的下标。 */
+    /** [index] is the index in the new list. */
     data class Found(val index: Int) : Relocation
-    /** 还在,但上下文变了或挪得太远。 */
+    /** Still there, but the context has changed or moved too far. */
     data object Moved : Relocation
-    /** 没名字也没资源 ID,或有好几个一样的。 */
+    /** There is no name or resource ID, or there are several of the same one. */
     data object Ambiguous : Relocation
-    /** 新界面里没有了。 */
+    /** It is no longer available in the new interface. */
     data object Gone : Relocation
 }
 
-/** 找回时允许的最大中心偏移:屏幕短边的这个比例。 */
+/** Maximum allowed center offset when retrieving: This ratio of the short side of the screen. */
 const val RELOCATE_MAX_SHIFT = 0.15
 
-/** 「还在原地」的偏移上限:屏幕短边的这个比例。 */
+/** The upper limit of "still in place" offset: the ratio of the short side of the screen. */
 const val SAME_SPOT_SHIFT = 0.02
 
 /**
- * 编号过期后在 [after] 里找 [previous] 的唯一对应者。同时满足才算找到:类型、名字、资源 ID 相同,
- * 且在旧列表 [before] 和新列表里都只有这一个;上下文相同;中心挪动不超过短边的 [RELOCATE_MAX_SHIFT]。
+ * After the number expires, look for the unique counterpart of [previous] in [after]. It is found only
+ * when the following conditions are met: the type, name, and resource ID are the same, and there is only
+ * this one in the old list [before] and the new list; the context is the same; the center movement does
+ * not exceed the short side [RELOCATE_MAX_SHIFT].
  *
- * 页面整体没动(见 [stationary])时再放宽两点,应对轮播、倒计时这类只有局部在变的页面:
- * - 上下文变了但元素还在原地,且不在列表容器里(列表项会复用),照样算找到;
- * - 名字变了,但新旧都有同一个资源 ID、类型相同、还在原地且原地只有它,并且名字只差数字和空白
- *   (「跳过 3」→「跳过 2」),或旧名字是输入框轮换的预置词(hint),也算找到。
- *   「关注」→「已关注」、「下一步」→「确认支付」这类换了含义的不算。
+ * When the entire page is not moving (see [stationary]), relax two points to deal with pages such as
+ * carousels and countdowns that only partially change:
+ * - - If the context changes but the element is still in place and is not in the list container (the
+ * list items will be reused), it will still be found;
+ * - - The name has changed, but the old and new resources have the same resource ID, the same type, are
+ * still in place and are the only ones in place, and the only difference between the names is numbers
+ * and spaces.
+ * ("Skip 3" → "Skip 2"), or the old name is the preset word (hint) of the input box rotation, it is also
+ * found. "Follow" → "Already followed", "Next step" → "Confirm payment" and other things that have
+ * changed meanings are not counted.
  */
 fun relocate(previous: ElementLocator, before: List<ElementLocator>, after: List<ElementLocator>, shortSide: Int): Relocation {
     if (previous.name.isBlank() && previous.resourceId.isNullOrBlank()) return Relocation.Ambiguous
@@ -74,8 +83,10 @@ private fun shift(a: ElementLocator, b: ElementLocator) =
     hypot((a.centerX - b.centerX).toDouble(), (a.centerY - b.centerY).toDouble())
 
 /**
- * 页面整体没动:前后都唯一出现的有名元素至少 2 个(开屏页这类页面元素很少),其中八成以上还在原地。
- * 列表滚动、换页时大部分元素都挪了或没了,不满足。
+ * The page as a whole has not moved: there are at least two famous elements that appear before and after
+ * (there are very few page elements such as open-screen pages), and more than 80% of them are still in
+ * place. When scrolling the list or changing pages, most of the elements are moved or disappeared, which
+ * is not satisfactory.
  */
 internal fun stationary(before: List<ElementLocator>, after: List<ElementLocator>, spot: Double): Boolean {
     fun key(e: ElementLocator) = Triple(e.role, e.name, e.resourceId)
@@ -91,23 +102,28 @@ internal fun stationary(before: List<ElementLocator>, after: List<ElementLocator
     return shared >= 2 && inPlace >= shared * 0.8
 }
 
-/** 输入框读写。[read] 返回用户可见的实际文字(显示提示语时为空串),读不出(密码框、节点已不在)为 null。 */
+/** Input box reading and writing. [read] returns the actual text visible to the user (an empty string when the prompt is displayed), and null if it cannot be read (the password box and node are no longer there). */
 interface TextField {
     fun read(): String?
     fun write(text: String): Boolean
 }
 
-/** 比较前去掉所有空白:输入框可能自动给号码分组加空格。 */
+/** Remove all spaces before comparison: The input box may automatically add spaces to the number groups. */
 private fun normText(s: String) = s.filterNot { it.isWhitespace() }
 
 /**
- * 写入 [text] 并读回核对,不一致重试,最多 [attempts] 次;[settle] 在每次写入后等输入框更新。
- * 只认「写入后读到的文字恰好是目标」;写入前就已经是目标时先清空,清不掉就无法区分写没写进去,返回 UNKNOWN。
- * 空串表示清空,读回为空即 MATCH。
- * 有的输入框对无障碍一直报同一段文字(如提示语),读回永远对不上:每次读回都和写入前一样、
- * 至少有一次写入成功、而 [reacted] 说界面在输入后出现了含所输文字的新文字(联想词等)时,
- * App 其实收到了输入,返回 UNKNOWN 而不是 MISMATCH。
- * [secret](密码框)只写一次、不重试、不读回:密码框读不回原文,重试只会把同一段字又往框里写一遍。
+ * Write [text] and read it back for verification. If there is any inconsistency, try again, up to
+ * [attempts] times; [settle] waits for the input box to be updated after each write. It only recognizes
+ * "the text read after writing happens to be the target"; if it is already the target before writing,
+ * clear it first. If it cannot be cleared, it will not be able to distinguish whether it is written or
+ * not, and UNKNOWN will be returned. An empty string means clearing, and reading it back as empty means
+ * MATCH. Some input boxes always report the same text (such as prompts) for accessibility, and the
+ * readback never matches: each readback is the same as before writing, and at least one write is
+ * successful. However, [reacted] says that when new text (associative words, etc.) containing the
+ * entered text appears on the interface after input, the App actually receives the input and returns
+ * UNKNOWN instead of MISMATCH. [secret] (password box) only writes once, does not retry, and does not
+ * read back: the password box cannot be read back to the original text, and retrying will only write the
+ * same paragraph into the box again.
  */
 suspend fun typeAndVerify(
     field: TextField,
@@ -123,7 +139,7 @@ suspend fun typeAndVerify(
     }
     val want = normText(text)
     var baseline = field.read() ?: run {
-        // 读不出也照常写一次,但无法核对
+        // If you can’t read it, write it as usual, but you can’t check it.
         field.write(text)
         return Verification.UNKNOWN
     }

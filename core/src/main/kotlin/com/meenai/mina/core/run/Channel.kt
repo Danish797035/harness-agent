@@ -34,17 +34,17 @@ fun interface ChannelInputSink { suspend fun receive(input: ChannelInput) }
 
 enum class SendOutcome { Delivered, Failed, Uncertain }
 
-/** 渠道负责收发，不决定谁是主人、谁能批准。 */
+/** The channel is responsible for sending and receiving, and does not decide who is the owner or who can approve. */
 interface Channel {
     val id: String
-    /** 能在这个渠道里回答付款确认(只有付款要问,只在手机上同意)。 */
+    /** Can answer payment confirmation in this channel (only payment is asked, only agreed on mobile phone). */
     val confirms: Boolean
     fun isAlive(peer: ChannelPeer): Boolean = true
     fun start(sink: ChannelInputSink): AutoCloseable
     suspend fun send(peer: ChannelPeer, delivery: Delivery): SendOutcome
 }
 
-/** 配对不等于主人；只有已绑定的 peer 才能给 Run 发消息。 */
+/** Pairing is not equal to master; only bound peers can send messages to Run. */
 interface OwnerIdentity {
     fun isOwner(peer: ChannelPeer): Boolean
 }

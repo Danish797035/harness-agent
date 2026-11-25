@@ -7,18 +7,19 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class TaskChannelsTest {
-    // 修复 1 M4:「需要你」频道(接管、提问、确认共用)建成高优先级
+    // Fix 1 M4: "Need You" channel (takeover, question, confirm sharing) is set to high priority
     @Test fun attentionChannelCreatedHigh() {
         assertEquals(NotificationManager.IMPORTANCE_HIGH, TaskService.CHANNEL_IMPORTANCE[TaskService.CHANNEL_ATTENTION])
     }
 
-    // 结果要弹出一次,进度保持安静
+    // The result will pop up once and the progress remains quiet
     @Test fun resultHighProgressQuiet() {
         assertEquals(NotificationManager.IMPORTANCE_HIGH, TaskService.CHANNEL_IMPORTANCE[TaskService.CHANNEL_RESULT])
         assertEquals(NotificationManager.IMPORTANCE_LOW, TaskService.CHANNEL_IMPORTANCE["task_progress"])
     }
 
-    // 旧结果频道建成了较低级别、调不高:换新 id,旧 id 要删掉
+    // The old result channel has been built at a lower level and cannot be adjusted higher: change the
+    // id to a new one and delete the old id.
     @Test fun resultChannelUsesNewIdAndOldIsDeleted() {
         assertEquals("task_result_v2", TaskService.CHANNEL_RESULT)
         assertEquals("task_result", TaskService.OLD_CHANNEL_RESULT)

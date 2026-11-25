@@ -50,7 +50,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** 用户发来的屏幕在界面上的说法(对话页、卡片、截屏按钮共用)。 */
+/** How the screen sent by the user appears on the interface (shared by conversation pages, cards, and screenshot buttons). */
 object ScreenCopy {
     val TAG: String get() = tr(R.string.screen_tag)
     val BLOCKED: String get() = tr(R.string.screen_blocked)
@@ -62,15 +62,16 @@ object ScreenCopy {
 
     fun clock(at: Long, zone: ZoneId = ZoneId.systemDefault()): String = CLOCK.format(Instant.ofEpochMilli(at).atZone(zone))
 
-    /** 截图下面那一行:「你此刻的屏幕 · 设置 · 19:42」。 */
+    /** Take the line below the screenshot: "Your current screen · Settings · 19:42". */
     fun tag(screen: UserScreen): String = "$TAG · ${screen.app} · ${clock(screen.takenAt)}"
 
-    /** 附件条上的第二行:「设置 · 19:42」。 */
+    /** Second line on the attachment bar: "Settings · 19:42". */
     fun detail(screen: UserScreen): String = "${screen.app} · ${clock(screen.takenAt)}"
 
     /**
-     * 用这句话称呼对话、写在列表里:附言;只发了屏幕时是「你此刻的屏幕」。引用的那几行([QuoteMessage])和网页说明([AttachedPage])不算。
-     * 不带屏幕的原样返回。
+     * Use this sentence to call the conversation and write it in the list: PS; when only the screen is
+     * sent, it is "your screen at the moment." The quoted lines ([QuoteMessage]) and the web page
+     * description ([AttachedPage]) do not count. Returns as-is without screen.
      */
     fun plain(raw: String): String {
         val text = QuoteMessage.words(AttachedPage.words(raw))
@@ -79,18 +80,18 @@ object ScreenCopy {
     }
 }
 
-/** 界面上要画的一屏:说明和缩略图(读不到图时为 null)。 */
+/** A screen to be drawn on the interface: description and thumbnail (null if the picture cannot be read). */
 class ShownScreen(val screen: UserScreen, val thumb: ImageBitmap?)
 
-/** 按对话和编号读一屏;读不到为 null。界面测试换成假的。 */
+/** Read one screen by dialogue and number; if not read, it is null. The interface test is replaced with a fake one. */
 fun interface ScreenShots {
     suspend fun load(conversationId: String, id: String): ShownScreen?
 }
 
-/** 给了就用它读屏幕(测试);没给时读 App 里存下的那份。 */
+/** If given, use it to read the screen (test); if not given, read the copy saved in the app. */
 val LocalScreenShots = staticCompositionLocalOf<ScreenShots?> { null }
 
-/** App 里存下的屏幕:说明从对话的工作区读,缩略图按要的宽度缩小后解码,解过的记着。 */
+/** The screen saved in the App: the description is read from the conversation workspace, the thumbnail is reduced to the required width and decoded, and the decoded notes are recorded. */
 private class StoredScreenShots(private val context: Context) : ScreenShots {
     override suspend fun load(conversationId: String, id: String): ShownScreen? = withContext(Dispatchers.IO) {
         val key = "$conversationId/$id"
@@ -106,10 +107,10 @@ private class StoredScreenShots(private val context: Context) : ScreenShots {
     }
 }
 
-/** 缩略图解到这么宽(像素)就够:对话页里最宽 110dp。 */
+/** Thumbnails should be as wide as this (in pixels): the maximum width in the conversation page is 110dp. */
 private const val THUMB_PX = 360
 
-/** 截图解成缩略图(按 [THUMB_PX] 缩小着解,不解整张);解不开为 null。在后台线程调。 */
+/** The screenshots are decomposed into thumbnails (press [THUMB_PX] to zoom out, not the whole picture); if not decoded, it is null. Adjusted in background thread. */
 fun screenThumbnail(bytes: ByteArray): ImageBitmap? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -118,7 +119,7 @@ fun screenThumbnail(bytes: ByteArray): ImageBitmap? = runCatching {
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
 }.getOrNull()
 
-/** 读一屏(在后台);还没读到、读不到时为 null。 */
+/** Read one screen (in the background); it is null when it has not been read or cannot be read. */
 @Composable
 fun rememberShownScreen(conversationId: String?, id: String): ShownScreen? {
     val context = LocalContext.current
@@ -130,12 +131,16 @@ fun rememberShownScreen(conversationId: String?, id: String): ShownScreen? {
 }
 
 /**
- * 用户的一句话:带着屏幕时是截图缩略图([thumbWidth] 宽)和下面一行「你此刻的屏幕 · App · 时刻」,附言在下面另起一个气泡([bubble]);
- * 不让截图的页面是一行「没截到」;截图已经不在时只有那一行字。不带屏幕时就是 [bubble]。
+ * A word from the user: When the screen is taken, it is a screenshot thumbnail ([thumbWidth] wide) and
+ * the line below "Your screen · App · Moment", with a postscript below in another bubble ([bubble]);
+ * when the screenshot is not allowed, the line is "not captured"; when the screenshot is no longer
+ * there, there is only that line of text. Without screen it is [bubble].
  */
 @Composable
 fun UserMessage(conversationId: String?, raw: String, thumbWidth: Dp, modifier: Modifier = Modifier, bubble: @Composable (String) -> Unit) {
-    // 在浏览器页上对着一页问的:页面说明那几行不显示(对话页在上面另画「网页 · 网站」);只带着选中的字时显示那段字
+    // When asked about a page on the browser page: the lines of the page description are not displayed
+    // (on the dialogue page, draw "Web Page·Website" on top); when only the selected words are included,
+    // those lines are displayed.
     val text = AttachedPage.parse(raw).let { pg -> pg.words.ifEmpty { pg.page?.selection?.let { "“$it”" }.orEmpty() } }
     val p = UserScreenMessage.parse(text)
     if (!p.hasScreen) {
@@ -151,7 +156,7 @@ fun UserMessage(conversationId: String?, raw: String, thumbWidth: Dp, modifier: 
 private val ThumbShape = RoundedCornerShape(10.dp)
 private val TagText = TextStyle(fontSize = 11.5.sp, lineHeight = 15.sp)
 
-/** 一屏:缩略图和下面那一行;还没读到时先占着位置。 */
+/** One screen: thumbnail and the line below; occupy the space before reading. */
 @Composable
 private fun ScreenItem(shown: ShownScreen?, width: Dp) {
     val c = MinaTheme.colors
@@ -177,7 +182,7 @@ private fun ScreenItem(shown: ShownScreen?, width: Dp) {
     }
 }
 
-/** 截图缩略图:按图的宽高比,圆角细边;没有图时是同样大小的一块淡灰。 */
+/** Screenshot thumbnail: According to the aspect ratio of the picture, the corners are rounded and the edges are thin; when there is no picture, it is a piece of light gray of the same size. */
 @Composable
 fun ScreenThumb(thumb: ImageBitmap?, width: Dp, modifier: Modifier = Modifier) {
     val c = MinaTheme.colors
@@ -187,5 +192,5 @@ fun ScreenThumb(thumb: ImageBitmap?, width: Dp, modifier: Modifier = Modifier) {
     }
 }
 
-/** 还没读到图时按常见手机屏的宽高比占位。 */
+/** Before I read the picture, I occupied it according to the aspect ratio of common mobile phone screens. */
 private const val DEFAULT_RATIO = 0.46f

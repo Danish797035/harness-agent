@@ -2,19 +2,23 @@ package com.meenai.mina.ui
 
 import android.content.Context
 
-/** 首次上手的三步。 */
+/** Three steps to get started for the first time. */
 enum class OnboardingStep { Welcome, Model, Phone }
 
 /**
- * 首次打开时走哪几步(纯函数,便于测试)。和手机引导一样按「看过没有」判断,不每次都弹:
- * - 欢迎和配置模型:还没有主模型、也没在上手流程里配过模型时才走。已经配过模型的(包括老用户)直接跳过。
- * - 手机操作:系统够新、手机操作还没就绪、引导没看过时走。
+ * What steps to take when opening for the first time (pure function, easy for testing). Just like the
+ * mobile phone guide, press "Have you seen it" to judge, instead of playing it every time:
+ * - -Welcome and configure the model: Do not leave until you have a master model and have not configured
+ * a model in the onboarding process. Those who have already configured models (including old users) can
+ * skip it directly.
+ * - - Mobile phone operation: The system is new enough, but the mobile phone operation is not ready yet,
+ * and the guide is out of date without viewing it.
  */
 object Onboarding {
     data class Inputs(
         val hasMainModel: Boolean,
         val modelSetupDone: Boolean,
-        /** 系统够新且手机操作还没就绪。 */
+        /** The system is new enough and mobile phone operation is not yet ready. */
         val phoneNeeded: Boolean,
         val phoneGuideSeen: Boolean,
     )
@@ -25,19 +29,19 @@ object Onboarding {
         else -> null
     }
 
-    /** [step] 做完后的下一步;没有了为 null(进对话)。 */
+    /** [step] The next step after completion; if there is no more, it is null (enter the dialogue). */
     fun next(step: OnboardingStep, i: Inputs): OnboardingStep? = when (step) {
         OnboardingStep.Welcome -> OnboardingStep.Model
         OnboardingStep.Model -> if (i.phoneNeeded && !i.phoneGuideSeen) OnboardingStep.Phone else null
         OnboardingStep.Phone -> null
     }
 
-    /** 底部分页点:三步里的第几步。 */
+    /** Bottom pagination point: Which step among the three steps. */
     fun dot(step: OnboardingStep): Int = step.ordinal
     const val DOTS = 3
 }
 
-/** 上手流程里「配置模型」做完没有;存在本机。 */
+/** Have you completed the "Configuration Model" in the getting started process? It exists on this machine. */
 class OnboardingState(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

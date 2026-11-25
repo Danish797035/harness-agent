@@ -8,13 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 自成一组的虚拟屏一直不睡:屏在就按时替它报用户操作,屏放掉就停;报不了就整个不再试;
- * 只认按屏报的接口,不认会报给默认组(用户主屏)的老接口。
+ * A group of virtual screens of its own never sleeps: when the screen is on, it will report user
+ * operations on time, and when the screen is released, it will stop; if it cannot report, it will not
+ * try again; only the interface reported by pressing the screen will be recognized, and the old
+ * interface reported to the default group (user's home screen) will not be recognized.
  */
 class DisplayAwakeTest {
     private val ownGroup = 1 shl 11
 
-    /** 记下登记的周期任务,由测试手动「到点」。 */
+    /** Write down the registered periodic tasks and let the tester manually "reach the point". */
     private class Timer {
         val tasks = mutableListOf<Runnable>()
         val cancelled = mutableSetOf<Runnable>()
@@ -58,7 +60,7 @@ class DisplayAwakeTest {
         awake.start(7)
         timer.tick()
         assertEquals(0, timer.live)
-        // 之后建的屏不再登记
+        // Screens built later will no longer be registered.
         awake.start(9)
         assertEquals(0, timer.live)
         assertEquals(1, calls)
@@ -66,9 +68,10 @@ class DisplayAwakeTest {
 
     @Test fun onlyDisplaysInTheirOwnGroupAreKeptAwake() {
         assertTrue(DisplayAwake.needed(ownGroup or 1, ownGroup, groupId = 3))
-        // 读不到所在的组:按建屏时的标志算
+        // Cannot read the group it is in: count according to the mark when setting up the screen
         assertTrue(DisplayAwake.needed(ownGroup, ownGroup, groupId = null))
-        // 没有自己的组(退回不可信屏)或实际落在默认组:报了会让用户的主屏不灭
+        // Does not have its own group (returns to the untrusted screen) or actually falls into the
+        // default group: Reporting will make the user's home screen immortal.
         assertFalse(DisplayAwake.needed(1, ownGroup, groupId = null))
         assertFalse(DisplayAwake.needed(ownGroup, ownGroup, groupId = 0))
     }

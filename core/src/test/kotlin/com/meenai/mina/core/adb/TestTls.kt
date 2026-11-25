@@ -6,19 +6,19 @@ import java.net.ServerSocket
 import java.security.Provider
 import kotlin.concurrent.thread
 
-/** JVM 测试里的 TLS:与 Android 平台同源的实现,提供 TLS 1.3 和导出密钥。 */
+/** TLS in JVM testing: Implementation homologous to the Android platform, providing TLS 1.3 and export keys. */
 object TestTls {
     val provider: Provider by lazy { Conscrypt.newProvider() }
     val exporter = KeyingMaterialExporter { s, label, len -> Conscrypt.exportKeyingMaterial(s, label, null, len) }
 
-    /** 测试共用的钥匙(生成 RSA-2048 较慢,一次就够)。 */
+    /** Test shared keys (generating RSA-2048 is slower, once is enough). */
     val client: AdbIdentity by lazy { AdbIdentity.generate("mina@test") }
     val device: AdbIdentity by lazy { AdbIdentity.generate("device") }
 
     fun tls(identity: AdbIdentity) = AdbTls(identity, exporter, provider)
 }
 
-/** 进程内的假配对服务端,按设备端的流程走一遍。[behavior] 用来造各种异常情况。 */
+/** For the fake pairing server in the process, follow the process of the device side. [behavior] is used to create various abnormal situations. */
 class FakePairingServer(
     private val code: String,
     private val behavior: Behavior = Behavior.NORMAL,
@@ -65,7 +65,7 @@ class FakePairingServer(
             val info = try {
                 auth.decrypt(sealed)
             } catch (e: javax.crypto.AEADBadTagException) {
-                return // 和设备一样:解不开就断开
+                return // Same as the device: if it cannot be untied, disconnect it.
             }
             check(info.size == AdbPairing.PEER_INFO_SIZE && info[0] == AdbPairing.PEER_RSA_PUB_KEY)
             receivedKey = String(info, 1, info.indexOfFirst(1) - 1, Charsets.UTF_8)
@@ -73,7 +73,7 @@ class FakePairingServer(
             mine[0] = AdbPairing.PEER_DEVICE_GUID
             guid.toByteArray().copyInto(mine, 1)
             AdbPairing.writePacket(out, AdbPairing.TYPE_PEER_INFO, auth.encrypt(mine))
-            s.inputStream.read() // 等客户端关掉
+            s.inputStream.read() // Wait for the client to close
         }
     }
 

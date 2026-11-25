@@ -16,7 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 动作让 App 开到了用户主屏上:结果的样子和给模型的那句。 */
+/** The action brings the app to the user's home screen: what the results look like and the sentence given to the model. */
 class OpenedElsewhereTest {
     private suspend fun tap(result: ActionResult): JsonObject {
         val screen = FakeScreen().also { it.result = result }
@@ -49,7 +49,8 @@ class OpenedElsewhereTest {
         assertTrue("options are still listed", "chooser" in c)
         val hint = c.hint()
         assertTrue(hint, Feedback.format("spill.user_picking", "app" to "Chat") in hint)
-        // 留给用户选:不教模型去点哪个,也不说没效果
+        // Leave it to the user to choose: Don’t teach the model which one to click, and don’t say it
+        // won’t work.
         assertFalse(hint, Feedback.format("launch.chooser", "pkg" to "android") in hint)
         assertFalse(hint, Feedback["effect.no_effect"] in hint)
         assertEquals("place_changed", c["effect"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
@@ -73,7 +74,8 @@ class OpenedElsewhereTest {
         assertEquals("true", o.toJson()["needsUser"]!!.jsonPrimitive.content)
         assertEquals("true", o.toJson()["onUserScreen"]!!.jsonPrimitive.content)
         assertEquals(Feedback.format("spill.user_popup", "app" to "Account"), openedHint(o))
-        // 用户处理完、关掉了之后按处理完说,不再说弹窗还在
+        // After the user has finished processing and closed it, it is said that it is processed, and it
+        // no longer says that the pop-up window is still there.
         assertEquals(Feedback["spill.picker_closed"], openedHint(o.copy(closed = true)))
     }
 

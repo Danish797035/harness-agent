@@ -11,31 +11,33 @@ import com.meenai.mina.core.tool.ToolExecution
 import com.meenai.mina.core.tool.Verb
 import kotlinx.serialization.json.JsonObject
 
-/** 能力此刻能不能用。 */
+/** Can the ability be used at this moment? */
 sealed interface CapabilityStatus {
     data object Available : CapabilityStatus
-    /** 能用,但还缺点什么(运行环境在准备、一部分功能没有)。 */
+    /** It works, but there are still some shortcomings (the operating environment is being prepared, and some functions are not available). */
     data class Degraded(val reason: String) : CapabilityStatus
     data class Unavailable(val reason: String) : CapabilityStatus
 }
 
 /**
- * 拼系统提示词时各组段落看得到的:本任务发给模型的工具名与开关;
- * [screens] 是本任务发给模型的工具里有几种屏幕(手机、网页……,收着的只给了入口也算)。
+ * What can be seen in each group of paragraphs when spelling the system prompt words: the name and
+ * switch of the tool sent to the model in this task; [screens] is the several screens in the tool sent
+ * to the model in this task (mobile phone, web page..., the ones kept are only given to the entrance).
  */
 class PromptEnv(
     val offered: Set<String>, val inlineScreen: Boolean, val screens: Int = 1,
-    /** 展开了的能力(不收的也在内);null 是当全都展开了。收着的能力不给自己的段落。 */
+    /** Expanded abilities (including those that are not closed); null means all are expanded. The ability to collect is not given to your own paragraphs. */
     val open: Set<String>? = null,
-    /** [screens] 里已展开的那几块屏。 */
+    /** The unfolded screens in [screens]. */
     val openScreens: Int = screens,
 ) {
-    /** 能力 [id] 已展开(或不收)。 */
+    /** Capability [id] has been expanded (or not closed). */
     fun isOpen(id: String): Boolean = open == null || id in open
 
     /**
-     * 段落里只在某些工具提供时才成立的一行,行首写 `<!-- needs: 工具名, … -->`:那些工具都在本任务的工具列表里才留下(去掉标记),
-     * 否则整行不要。没有标记的行原样留着。
+     * A line in the paragraph that is only valid when certain tools are provided. The first line of the
+     * line is `<!-- needs: tool name,... -->`: Those tools are left in the tool list of this task (remove the
+     * mark), otherwise the entire line is not needed. Unmarked rows are left as is.
      */
     fun gate(text: String): String = text.lines().mapNotNull { line ->
         val m = NEEDS.find(line) ?: return@mapNotNull line
@@ -48,76 +50,85 @@ class PromptEnv(
     }
 }
 
-/** 系统提示词里的一组段落;能力各给一组,核心自己也有。 */
+/** The system prompts a group of paragraphs in the words; one group is given for each ability, and the core is also included. */
 internal fun interface PromptSections {
     fun sections(env: PromptEnv): List<String>
 }
 
 /**
- * 一种能力(手机、网页、沙箱……):自己的工具、系统提示词里的段落、屏幕与守卫。
- * 核心只经这个接口认识能力;一个任务一份实例,端口在构造时给。
+ * An ability (mobile phone, web page, sandbox...): own tools, paragraphs in system prompt words, screens
+ * and guards. The core only knows capabilities through this interface; one instance per task, and the
+ * port is given at construction time.
  */
 internal interface Capability : PromptSections {
     val id: String
 
     fun status(): CapabilityStatus
 
-    /** 这一组工具用到才展开(见 [com.meenai.mina.core.tool.ToolGroups]):开局只有入口工具;不收的一直全在。 */
+    /** This set of tools is expanded only when used (see [com.meenai.mina.core.tool.ToolGroups]): there are only entrance tools at the beginning; all the tools that are not collected are always there. */
     val folds: Boolean get() = false
 
-    /** 按这次的话([task])开局就展开这一组(一定用得上时);默认不展开。 */
+    /** If you press this time ([task]), this group will be expanded at the beginning (must be used when needed); it will not be expanded by default. */
     fun preload(task: String): Boolean = false
 
-    /** 用户的一句话([text])去掉和本能力有关的说明(浏览器页的页面说明这类)后,用户自己打的字;没有这类说明的原样返回。 */
+    /** The user's sentence ([text]) is typed by the user himself after removing the description related to this ability (such as the page description on the browser page); if there is no such description, it is returned as it is. */
     fun userWords(text: String): String = text
 
-    /** 本能力可能提供的全部工具;本任务能不能用由各工具自己看上下文。 */
+    /** All tools that this capability may provide; whether this task can be used depends on the context of each tool. */
     fun tools(): List<AgentTool>
 
-    /** 有屏幕的能力给出它的一套屏幕工具的样子(没接端口时也给)。 */
+    /** The ability to have a screen gives the appearance of a set of screen tools (also when not connected to a port). */
     val family: ScreenFamily? get() = null
 
-    /** 接上了端口的屏幕;没有为 null。本能力那一套屏幕工具只作用在它上面。 */
+    /** Screen of the port connected; null if not. The set of screen tools for this ability only works on it. */
     val surface: Surface? get() = null
 
-    /** 能跑技能脚本时给出。 */
+    /** It is given when the skill script can be run. */
     val scripts: BundledScripts? get() = null
 
-    /** 本任务开始:把工具要用的端口与状态放进工具上下文。 */
+    /** Start this task: Put the port and status that the tool will use into the tool context. */
     fun onTaskStart(ctx: ToolContext) {}
 
-    /** 任务里用户答过话(回答了追问、交回了接管)。 */
+    /** The user answered the question in the task (answered the follow-up question and handed over the acceptance). */
     fun onUserAnswered(ctx: ToolContext) {}
 
     /**
-     * 在本能力的屏上要做一次对外动作(发送、提交,见 [com.meenai.mina.core.action.OutwardPacing])了;[site] 是它所在的网站或 App。
-     * 做完后一定接着 [onOutwardEnd]([done]:做成了)。
+     * An external action (send, submit, see [com.meenai.mina.core.action.OutwardPacing]) is required on
+     * the screen of this capability; [site] is the website or App where it is located. After finishing,
+     * be sure to follow [onOutwardEnd]([done]:It’s done).
      */
     fun onOutwardStart(ctx: ToolContext, site: String) {}
 
     fun onOutwardEnd(ctx: ToolContext, site: String, done: Boolean) {}
 
     /**
-     * 本能力的屏上要做一个改动屏幕的动作([verb])了:按本能力的节奏先停一会儿(见 [com.meenai.mina.core.action.ActionExecutor],
-     * 单步、一批里的每一步都经这里)。[outward]:这一步是对外动作(发送、提交)。默认不停。
+     * There is an action to change the screen ([verb]) on the screen of this ability: stop for a while
+     * according to the rhythm of this ability (see [com.meenai.mina.core.action.ActionExecutor], each
+     * step in single step and batch passes here). [outward]: This step is an external action (send,
+     * submit). The default is non-stop.
      */
     suspend fun beforeWrite(ctx: ToolContext, verb: Verb?, outward: Boolean): Paced = Paced.NONE
 
-    /** 那个动作做完了([result] 是它的结果);[beforeWrite] 停下没做的不调。 */
+    /** That action is completed ([result] is its result); [beforeWrite] stops and does not adjust. */
     fun afterWrite(ctx: ToolContext, verb: Verb?, result: JsonObject) {}
 
-    /** 不动屏幕的工具的守卫,每个任务一份;没有为 null。 */
+    /** Guard for tools that don't move the screen, one per task; null if not. */
     fun guard(): OffScreenGuard? = null
 
     /**
-     * 核查前再看一眼这个能力此刻的样子(不改模型手里的任何东西);[withImage] 时连同一帧画面。没有可看的为 null。
+     * Before checking, take a look at what this ability looks like at the moment (without changing
+     * anything in the model's hand); [withImage] is accompanied by a frame. null if there is nothing to
+     * see.
      */
     suspend fun freshLook(ctx: ToolContext, withImage: Boolean): Look? = null
 }
 
 /**
- * 改动屏幕的动作之前按能力的节奏停的结果:停了 [waitMs](算进这次调用的等待),停留里轻轻滚了 [idleScrolls] 下(只进运行记录);
- * [stop] 不为 null 时这个动作不做,它就是这次调用的结果(到了屏数上限、停留中用户插了话)。
+ * The result of stopping according to the rhythm of the ability before changing the screen action:
+ * [waitMs] (counting into the wait of this call) is stopped, and [idleScrolls] is lightly scrolled
+ * during the stay (only the running record is entered); this action is not performed when [stop] is not
+ * null, which is the result of this call (the upper limit of the number of screens has been reached, and
+ * the user interrupted during the stay).
  */
 internal class Paced(val waitMs: Long = 0, val idleScrolls: Int = 0, val stop: ToolExecution? = null) {
     companion object {
@@ -125,5 +136,5 @@ internal class Paced(val waitMs: Long = 0, val idleScrolls: Int = 0, val stop: T
     }
 }
 
-/** 能力放进工具上下文的东西的键;核心不认识里面是什么。 */
+/** The ability to put keys into things in the tool context; the core doesn't know what's inside. */
 class CapabilityKey<T : Any>(val name: String)

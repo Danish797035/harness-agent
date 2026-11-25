@@ -33,7 +33,7 @@ class OpenRouterAuthTest {
     private fun json(code: Int = 200, body: String) =
         MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body)
 
-    /** RFC 7636 附录 B 的例子。 */
+    /** Example from RFC 7636 Appendix B. */
     @Test fun pkceChallengeIsS256OfTheVerifier() {
         assertEquals("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", Pkce.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
         val v = Pkce.verifier()
@@ -54,7 +54,7 @@ class OpenRouterAuthTest {
         assertEquals("S256", url.queryParameter("code_challenge_method"))
         assertEquals("Mina", url.queryParameter("key_label"))
         assertEquals(attempt.state, url.queryParameter("state"))
-        // 校验串本身不出现在授权页地址里
+        // The verification string itself does not appear in the authorization page address
         assertFalse(url.toString().contains(attempt.verifier))
     }
 
@@ -63,9 +63,10 @@ class OpenRouterAuthTest {
         val attempt = a.newAttempt("http://localhost:1/auth/callback")
         assertTrue(a.accepts(mapOf("code" to "c", "state" to attempt.state), attempt))
         assertFalse(a.accepts(mapOf("code" to "c", "state" to "other"), attempt))
-        // 带 code 却没有 state:不是这次发起的
+        // With code but no state: It was not initiated this time
         assertFalse(a.accepts(mapOf("code" to "c"), attempt))
-        // 拒绝时不带 state,也不带 code,带 error:收下,当作没同意;什么都没带的不是这次的
+        // When rejecting, do not bring state or code, but bring error: accept it as if you don’t agree;
+        // the one with nothing is not this time.
         assertTrue(a.accepts(mapOf("error" to "access_denied"), attempt))
         assertFalse(a.accepts(emptyMap(), attempt))
         assertEquals("c", a.readCallback(mapOf("code" to "c", "state" to attempt.state), attempt))
@@ -105,7 +106,7 @@ class OpenRouterAuthTest {
         assertEquals(AccountSignInFailure.Network, (runCatching { a.exchange("c", attempt) }.exceptionOrNull() as AccountSignInException).reason)
     }
 
-    /** 整个流程:授权页地址里的回调地址是本机 localhost,浏览器带着 code 和 state 回来,换到 Key,浏览器收到结果页。 */
+    /** The entire process: the callback address in the authorization page address is the localhost of the local machine, the browser returns with code and state, changes to Key, and the browser receives the result page. */
     @Test fun signInRunsThroughTheLoopbackCallback() = runBlocking {
         server.enqueue(json(body = """{"key":"sk-or-v1-abc"}"""))
         val opened = CompletableFuture<String>()
@@ -117,7 +118,7 @@ class OpenRouterAuthTest {
         val callback = url.queryParameter("callback_url")!!.toHttpUrl()
         assertEquals("localhost", callback.host)
         assertEquals("/auth/callback", callback.encodedPath)
-        // 先来一个 state 对不上的:回 400,接着等
+        // First come up with a state that doesn’t match: return 400, and then wait.
         val bad = callback.newBuilder().addQueryParameter("code", "c").addQueryParameter("state", "forged").build()
         val badCode = withContext(Dispatchers.IO) { http.newCall(Request.Builder().url(bad.newBuilder().host("127.0.0.1").build()).build()).execute().use { it.code } }
         assertEquals(400, badCode)

@@ -31,8 +31,10 @@ import kotlin.random.Random
 enum class RelayState { Off, Connecting, Online, Offline, Unauthorized, Incompatible }
 
 /**
- * 只从已配对的 TLS 网关接收MCP 和任务 API 请求。连接可以重建,请求从不重放。
- * 一个连接最多八个请求;取消/断线中断等待,但不声称撤销已经执行的动作。
+ * Receive MCP and task API requests only from paired TLS gateways. The connection can be re-established
+ * and the request is never replayed. A maximum of eight requests per connection;
+ * cancellation/disconnection interrupt waits, but does not claim to undo actions that have been
+ * performed.
  */
 class RelayClient(private val scope: CoroutineScope, private val handle: (HttpRequest) -> HttpResponse,
     private val http: OkHttpClient = RelayGateway.http().newBuilder().callTimeout(0, TimeUnit.SECONDS)
@@ -47,7 +49,7 @@ class RelayClient(private val scope: CoroutineScope, private val handle: (HttpRe
     private var identity: String? = null
     private val networkChanges = Channel<Unit>(Channel.CONFLATED)
 
-    /** Android 网络切换时关闭旧通道,唤醒退避等待;仍不重放任何请求。 */
+    /** When Android network switches, the old channel is closed, wakes up and waits; still no request is replayed. */
     @Synchronized fun networkChanged() {
         if (identity == null) return
         current?.dispose()
@@ -89,7 +91,7 @@ class RelayClient(private val scope: CoroutineScope, private val handle: (HttpRe
         running?.cancel(); running = null
         current?.dispose(); current = null
         mutable.value = RelayState.Off
-        while (networkChanges.tryReceive().isSuccess) { /* 丢弃上次连接的网络事件。 */ }
+        while (networkChanges.tryReceive().isSuccess) { /* Discard the last connected network event. */ }
     }
 
     private inner class Session(parent: CoroutineScope) : WebSocketListener() {
@@ -125,8 +127,10 @@ class RelayClient(private val scope: CoroutineScope, private val handle: (HttpRe
                 if (jobs.size >= 8) { reply(webSocket, f.id, HttpResponse.json(429, "{\"error\":\"device_busy\"}")); return }
                 val job = workers.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     try {
-                        // A synthetic unspecified address is not loopback and never passes through USB authentication.
-                        // The gateway's view of the caller only keys the failed-token cooldown, apart from local addresses.
+                        // A synthetic unspecified address is not loopback and never passes through USB
+                        // authentication.
+                        // The gateway's view of the caller only keys the failed-token cooldown, apart
+                        // from local addresses.
                         val req = HttpRequest(f.method, f.path, f.headers, body, InetAddress.getByAddress(byteArrayOf(0, 0, 0, 0)),
                             query = f.query, source = "relay|${f.client}")
                         val result = runInterruptible { handle(req) }
@@ -171,7 +175,7 @@ class RelayClient(private val scope: CoroutineScope, private val handle: (HttpRe
         private val json = Json { encodeDefaults = false }
         private val REQUEST_HEADERS = setOf("authorization", "origin", "x-mina-client", "content-type", "accept", "mcp-protocol-version", "mcp-method", "mcp-name", "mcp-session-id", "last-event-id")
         private val RESPONSE_HEADERS = setOf("content-type", "allow", "retry-after", "www-authenticate", "mcp-protocol-version")
-        /** 网关看到的调用方:IPv4 地址或 IPv6 的 /64 前缀;网关没给时为空,这些调用方共用一份冷却。 */
+        /** The caller seen by the gateway: IPv4 address or /64 prefix of IPv6; it is empty when the gateway does not provide it, and these callers share a share of cooling. */
         private val CLIENT = Regex("[0-9A-Fa-f.:/]{0,64}")
         private fun relayPath(path: String) = path == "/mcp" || path == "/api/v1" || path.startsWith("/api/v1/")
         private fun validHeaders(headers: Map<String, String>): Boolean = headers.size <= 16 &&

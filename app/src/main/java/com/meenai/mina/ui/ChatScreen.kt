@@ -162,9 +162,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalTime
 
 /**
- * 对话页:顶栏(左边打开侧栏、中间对话标题和此刻在做什么、右边新对话),对话在顶栏和玻璃输入栏之间滚动。
- * 进行中是一行状态加一条竖线步骤,不套卡片;要你处理时停在当前步,下面一张白卡;完成后过程收成一行,回答直接排在背景上。
- * Agent 的虚拟屏以悬浮小窗([AgentPip])盖在对话上,不占布局。
+ * Conversation page: top bar (open sidebar on the left, conversation title and what you are doing at the
+ * moment in the middle, new conversation on the right), the conversation scrolls between the top bar and
+ * the glass input field. In progress is a line of status plus a vertical line of steps, without cards;
+ * you are asked to stop at the current step when processing, with a white card below; when completed,
+ * the process will be in one line, and the answers will be arranged directly on the background. The
+ * Agent's virtual screen covers the conversation with a small floating window ([AgentPip]), which does
+ * not occupy the layout.
  */
 @Composable
 fun ChatScreen(
@@ -173,20 +177,20 @@ fun ChatScreen(
     frames: StateFlow<Bitmap?>,
     webOpen: StateFlow<Boolean>,
     reduceMotion: Boolean,
-    /** 左上角菜单:打开侧栏。 */
+    /** Upper left corner menu: Open the sidebar. */
     onOpenDrawer: () -> Unit,
-    /** 被拦下的提示里的「去设置」。 */
+    /** "Go to Settings" in the stopped prompt. */
     openSettings: () -> Unit,
     openRun: (String) -> Unit = {},
-    /** 任务要用手机而手机操作没准备好:最后一轮下面放一行去设置。 */
+    /** The task requires the use of a mobile phone and the mobile phone operation is not ready: put a line under the last round to set it up. */
     phoneSetupNeeded: Boolean = false,
     openPhoneSetup: () -> Unit = {},
-    /** 按运行记录取依据的来处(「来源」胶囊和点开后的截图);读盘的活由调用方放到后台线程。 */
+    /** The source of the basis is obtained based on the running record (the "source" capsule and the screenshot after clicking); the disk reading activity is placed in the background thread by the caller. */
     loadSource: suspend (runId: String) -> EvidenceSource? = { null },
     openSource: (runId: String?, legacyText: String?) -> Unit = { _, _ -> },
-    /** 输入栏按住说话从这里开会话;null 时只能打字。 */
+    /** Press and hold the input field to speak and start a session from here; when null, you can only type. */
     voice: VoiceSource? = null,
-    /** 「还不能语音输入」里的「去选」。 */
+    /** "Go to select" in "Voice input is not yet available". */
     openSpeechModel: () -> Unit = {},
     routerStatus: RouterStatus = LocalRouterStatus.current,
 ) {
@@ -197,7 +201,8 @@ fun ChatScreen(
     val ui by vm.ui.collectAsState()
     val last = ui.exchanges.lastOrNull()
     val isTaskRunning = last?.status?.isActive() == true
-    // 任务在跑时模型用量在变:定时刷新,模型标签上的「今天几次 / 还剩多少」跟着走
+    // The model usage changes while the task is running: it is refreshed regularly, and the "how many
+    // times today/how many are left" on the model label follows.
     LaunchedEffect(isTaskRunning) {
         while (isTaskRunning) {
             routerStatus.refresh()
@@ -214,11 +219,13 @@ fun ChatScreen(
     }
     val others by vm.otherRunning.collectAsState()
     val keptAny by vm.keptPage.collectAsState()
-    // 只管这个对话留下的那一页
+    // Just leave the page left behind by this conversation
     val kept = keptAny?.takeIf { it.conversationId == ui.conversationId }
     val live by frames.collectAsState()
     val webLive by webOpen.collectAsState()
-    // 任务一结束虚拟屏就释放了;完成时小窗还要停留几秒打勾,继续显示最后一帧
+    // The virtual screen is released as soon as the task is completed; when the task is completed, the
+    // small window will stay for a few seconds and the check box will continue to display the last
+    // frame.
     var lastFrame by remember { mutableStateOf<Bitmap?>(null) }
     var lastFrameWasWeb by remember { mutableStateOf(false) }
     LaunchedEffect(live, webLive, ui.pip.mode) {
@@ -239,7 +246,8 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 只有原本跟着最新消息时才继续跟随。这个状态与列表位置一起跨页面保存。
+    // Only continue to follow the latest news. This state is saved across pages along with the list
+    // position.
     var followingTail by rememberSaveable { mutableStateOf(true) }
     var previousScrollMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var previousConversation by rememberSaveable { mutableStateOf<String?>(null) }
@@ -252,7 +260,8 @@ fun ChatScreen(
         }
     }
 
-    // 返回聊天时同一条内容不重新滚动；新进展仅在跟随末尾时滚动。
+    // The same piece of content is not re-scrolled when returning to the chat; new developments are only
+    // scrolled when following the end.
     val scrollMarker = "${ui.conversationId}:${ui.exchanges.size}:${last?.steps?.size}:${last?.steers?.size}:${last?.status?.hashCode()}:${ui.blocked?.hashCode()}"
     LaunchedEffect(scrollMarker) {
         if (previousScrollMarker == scrollMarker) return@LaunchedEffect
@@ -268,7 +277,8 @@ fun ChatScreen(
             else listState.animateScrollToItem(count - 1)
         }
     }
-    // 流式文字增长时跟住底部；用户主动向上翻看过程时不拉回去。
+    // When the flowing text grows, it follows the bottom; when the user actively scrolls up, it does not
+    // pull back.
     LaunchedEffect(last?.draft?.length) {
         if (last?.draft.isNullOrEmpty() || !followingTail || listState.isScrollInProgress) return@LaunchedEffect
         val layout = listState.layoutInfo
@@ -281,8 +291,10 @@ fun ChatScreen(
         listState.scrollToItem(end, offset)
     }
 
-    // 输入栏变高(多半是输入法弹起,也可能是附件、多行输入):原本跟着最新消息时,对话流一起往上顶同样的距离,
-    // 最后一条仍贴着输入栏;用户正往上翻看时不动。变矮时列表到底自己会收回来。
+    // The input field becomes taller (mostly due to the pop-up of the input method, or attachments, or
+    // multi-line input): when originally following the latest message, the conversation flow went
+    // upwards by the same distance, and the last one was still attached to the input field; the user did
+    // not move while scrolling upwards. The list will retract itself when it becomes shorter.
     var lastComposerHeight by remember { mutableIntStateOf(composerHeight) }
     LaunchedEffect(composerHeight) {
         val grown = composerHeight - lastComposerHeight
@@ -300,18 +312,18 @@ fun ChatScreen(
             latestSwitchEvent = event
         }
     }
-    /** 长按了的那条消息;菜单开着(收起的动画放完才清掉)。 */
+    /** The message that was long pressed; the menu is open (the folding animation is cleared only after playing). */
     var menu by remember { mutableStateOf<MessageTarget?>(null) }
-    /** 选了「选择文字」的那条:它换回系统的长按选中;换对话时清掉。 */
+    /** The one with "Select text" selected: it switches back to the system's long-press selection; it is cleared when changing conversations. */
     var selecting by remember(ui.conversationId) { mutableStateOf<String?>(null) }
-    /** 菜单出现的进度:0 是没有,1 是完全出来;关了动画时直接到位。 */
+    /** The progress of the menu appearing: 0 means no, 1 means it is completely out; when the animation is turned off, it is directly in place. */
     val lift = remember { Animatable(0f) }
     LaunchedEffect(menu) {
         if (menu != null) {
             if (reduceMotion) lift.snapTo(1f) else lift.animateTo(1f, tween(MENU_IN_MS, easing = MinaMotion.Decelerate))
         }
     }
-    /** 收起菜单:倒着放一遍出现的动画,放完再清掉;[then] 当场做。 */
+    /** Collapse the menu: Play the animation that appears backwards, and then clear it after playing; [then] Do it on the spot. */
     fun closeMenu(then: () -> Unit = {}) {
         then()
         scope.launch {
@@ -358,7 +370,8 @@ fun ChatScreen(
             }
         }
 
-        // 没有任务在跑、这个对话留着一页在后台运行时:顶栏写「后台保持着 1 个网页」
+        // When there is no task running and a page of this conversation is left running in the
+        // background: the top column says "One web page is maintained in the background"
         val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace)) ?: kept?.let { ChatCopy.KEPT_PAGE to ChatCopy.Tone.Ok }
         Column(
             Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height },
@@ -367,7 +380,8 @@ fun ChatScreen(
             TopBar(
                 ChatCopy.APP_TITLE,
                 left = MinaIcons.Menu, leftLabel = stringResource(R.string.chat_menu), onLeft = onOpenDrawer,
-                // 别的对话里还有任务在跑(并行时):菜单上一个小圆点,侧栏「进行中」里能切过去
+                // There are tasks running in other conversations (in parallel): a small dot on the menu,
+                // you can switch to it in the "In Progress" sidebar
                 leftBadge = others.isNotEmpty(),
                 right = { BarIconButton(MinaIcons.New, stringResource(R.string.chat_new), { vm.newConversation() }, enabled = vm.canSwitch()) },
                 subtitle = sub?.first,
@@ -412,7 +426,8 @@ fun ChatScreen(
             quote = ui.quote,
             onRemoveQuote = vm::clearQuote,
             voice = voice,
-            // 说的话接在已有的字后面;任务在跑时发出去就是插话
+            // The words you say are followed by the existing words; when the task is sent out while
+            // running, it means interrupting.
             onVoiceText = { input = HoldToTalk.join(input, it) },
             onPickSpeech = openSpeechModel,
             steerTarget = last?.goal?.let(ChatCopy::plainTitle),
@@ -429,13 +444,16 @@ fun ChatScreen(
             bottomInset = composerHeight.toFloat(),
             onExpand = vm::expandPip,
             onCollapse = vm::collapsePip,
-            // 关掉小画面:这个任务结束前只剩右下角的小按钮;提示一句还能去哪看
+            // Turn off the small screen: before the end of this task, only the small button in the lower
+            // right corner is left; a reminder of where else to look
             onClose = {
                 vm.closePip()
                 Toast.makeText(context, context.getString(R.string.pip_closed_hint), Toast.LENGTH_SHORT).show()
             },
             onReopen = vm::reopenPip,
-            // 要你处理时点小窗:收起,滚到要你处理的那张卡片(在最后一问一答里,它后面只可能还有文件卡片和去设置那一行)
+            // When you are asked to process, click on the small window: fold it, and scroll to the card
+            // you want to process (in the last question and answer, there may only be a file card and
+            // the line to set up after it)
             onAttention = {
                 vm.attendPip()
                 val count = listState.layoutInfo.totalItemsCount
@@ -445,7 +463,9 @@ fun ChatScreen(
             },
         )
 
-        // 长按消息的菜单盖在最上面:复制纯文字;引用放到输入框上方;选择文字让那条换回系统的长按选中
+        // The menu of long-pressing the message is covered at the top: copy the plain text; place the
+        // quote above the input box; select the text and let the long-press selection return to the
+        // system
         menu?.let { m ->
             val pending = withdrawableSteer(ui.exchanges, m.key)
             val canEdit = input.isBlank() && ui.quote == null && ui.attachments.isEmpty() && !ui.importing
@@ -503,7 +523,7 @@ fun ChatScreen(
     }
 }
 
-/** 最后一项可能是一段很长的答复，仅仅看到它的开头不代表用户正在看末尾。 */
+/** The last item may be a long reply, and just seeing the beginning of it doesn't mean the user is reading the end. */
 private fun LazyListState.nearTail(thresholdPx: Int): Boolean {
     val layout = layoutInfo
     val end = layout.totalItemsCount - 1
@@ -511,9 +531,9 @@ private fun LazyListState.nearTail(thresholdPx: Int): Boolean {
     return tail.offset + tail.size - layout.viewportEndOffset <= thresholdPx
 }
 
-// ---------- 空对话 ----------
+// ---------- Empty dialogue ----------
 
-/** 问候、一句「想让 Mina 做什么？」和一列示例;点示例把它填进输入框,改好了再发。 */
+/** A greeting, a sentence "What do you want Mina to do?" and a list of examples; click on the example to fill it in the input box, correct it and send it again. */
 @Composable
 private fun EmptyState(conversation: String?, onPick: (String) -> Unit) {
     val c = MinaTheme.colors
@@ -559,7 +579,7 @@ private fun ExampleRow(icon: ImageVector, text: String, first: Boolean, onClick:
     }
 }
 
-// ---------- 一问一答 ----------
+// ---------- Q&A ----------
 
 private fun LazyListScope.exchange(
     ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
@@ -574,9 +594,12 @@ private fun LazyListScope.exchange(
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
     }
-    // 任务进行中插的话:用户的原话,下面一行小字说它的去向。
-    // 插话之前已经说完的回复照常显示;插话打断的那段留在原处(淡色、标「被你的新消息打断」);接着才是插话。
-    // 还没交给模型的插话排在正在长出来的回答后面:那段回答是它到之前就在写的,不是对它的回复。
+    // Words inserted while the task is in progress: the user’s original words, with a line of small
+    // print below describing its whereabouts. Replies that have been finished before the interruption
+    // are displayed as usual; the section interrupted by the interruption remains in place (light color,
+    // marked "Interrupted by your new message"); the interruption comes next. Interjections that have
+    // not yet been given to the model are listed behind the growing answer: that answer was written
+    // before it arrived, not as a reply to it.
     fun steer(n: SteerNote) {
         n.finished?.takeIf(String::isNotBlank)?.let { done ->
             item(key = "a:${ex.id}-${n.id}", contentType = "assistant") { FinishedReply(done, "a:${ex.id}-${n.id}") }
@@ -598,7 +621,8 @@ private fun LazyListScope.exchange(
             item(key = "r:${ex.id}", contentType = "assistant") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r:${ex.id}") }
         }
     }
-    // 这一轮结束后留在后台运行的那一页:还开着是绿色一行(能关),关了是一句原因
+    // The page left running in the background after this round: If it is still open, there is a green
+    // line (it can be turned off), and if it is turned off, there is a reason.
     keptPageRow(ex, kept, vm::closeKeptPage)
     if (ex.files.isNotEmpty()) item(key = "f:${ex.id}", contentType = "files") { FileCards(ex.files) }
     if (ex.generatedImages.isNotEmpty()) {
@@ -650,8 +674,9 @@ private fun LazyListScope.exchange(
 ) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName)
 
 /**
- * 插话分成两段:第一句还没交给模型的([SteerState.unconsumed])之前的,和它连同之后的。
- * 正在长出来的回答排在两段中间。
+ * The interjection is divided into two paragraphs: the one before the first sentence
+ * ([SteerState.unconsumed]) that has not been handed over to the model, and the one after it. The answer
+ * to "Growing Out" is listed in the middle of the two paragraphs.
  */
 internal fun steersAroundDraft(steers: List<SteerNote>): Pair<List<SteerNote>, List<SteerNote>> {
     val visible = steers.filterNot { it.state == SteerState.Withdrawn }
@@ -660,8 +685,11 @@ internal fun steersAroundDraft(steers: List<SteerNote>): Pair<List<SteerNote>, L
 }
 
 /**
- * 长按的 [key] 是进行中那一问一答里、模型还没取走的手机插话时给出它,菜单据此提供撤回和编辑(编辑另看 [editableSteer])。
- * 电脑追加的([SteerNote.remote])不给:编辑会把只归当前任务的话变成手机插话、可能转成下一件事;撤不撤由电脑定。
+ * The long-pressed [key] is given when the mobile phone that has not taken away the model interrupts
+ * during the ongoing question and answer, and the menu provides withdrawal and editing accordingly (see
+ * [editableSteer] for editing). The ones added by the computer ([SteerNote.remote]) will not be given:
+ * the editor will turn the words that only belong to the current task into mobile phone interruptions,
+ * or may be transferred to the next thing; whether to withdraw or not is decided by the computer.
  */
 internal fun withdrawableSteer(exchanges: List<Exchange>, key: String): SteerNote? = exchanges.mapIndexedNotNull { i, ex ->
     if (ex.status.isActive()) ex.steers.firstOrNull {
@@ -730,11 +758,16 @@ internal fun chatListKeys(
 }
 
 /**
- * 用户的话:蓝色气泡,圆角 20、右下尾角 6,最宽八成。[note] 是插话的去向。
- * 带着用户此刻的屏幕时上面是截图缩略图和「你此刻的屏幕 · App · 时刻」,附言在下面的气泡里(见 [UserMessage])。
- * 带着附件时上面是照片格子和文件卡片(见 [SentAttachments]),点开在 App 里的查看页看;写的话在下面另起一个气泡,路径那几行不显示。
- * 引用了前面的消息时最上面是引的那条(见 [SentQuote])。长按气泡弹出复制 / 引用 / 选择文字([key] 认是哪一条,见 [MessageArea])。
- * 在浏览器页上对着一页问的,最上面是「网页 · 网站」和选中的字(见 [SentPage]),页面说明那几行不显示。
+ * User's words: blue bubble, rounded corner 20, bottom right corner 6, maximum width 80%. [note] is
+ * where the interjection goes. When taking the user's current screen, there is a screenshot thumbnail
+ * and "Your current screen · App · Moment", and the postscript is in the bubble below (see
+ * [UserMessage]). When you bring attachments, there are photo grids and file cards on top (see
+ * [SentAttachments]). Click on the view page in the App to view them; if you want to write, a new bubble
+ * will appear below, and the lines of the path will not be displayed. When quoting the previous message,
+ * the top one is the quoted one (see [SentQuote]). Long press the bubble to pop up copy/quote/select
+ * text ([key] to identify which one, see [MessageArea]). When asked about a page on the browser page,
+ * the top is "webpage·website" and the selected word (see [SentPage]), but the page description lines
+ * are not displayed.
  */
 @Composable
 internal fun UserBubble(text: String, conversationId: String?, note: String? = null, key: String = "") {
@@ -756,7 +789,8 @@ internal fun UserBubble(text: String, conversationId: String?, note: String? = n
             }
             if (attached.hasAttachments && attached.words.isNotEmpty()) Spacer(Modifier.size(6.dp))
             if ((!attached.hasAttachments || attached.words.isNotEmpty()) && (paged.page == null || quoted.words.isNotEmpty())) UserMessage(conversationId, attached.words.takeIf { attached.hasAttachments } ?: quoted.words, ChatThumbWidth) { words ->
-                // 选择文字时蓝底上选中的底色用白色半透明,把手照旧是蓝色(画在气泡外面)
+                // When selecting text, the background color selected on the blue background is white and
+                // translucent, and the handle is still blue (drawn outside the bubble)
                 val colors = MinaTheme.colors
                 CompositionLocalProvider(LocalTextSelectionColors provides TextSelectionColors(colors.accent, colors.onAccent.copy(alpha = 0.35f))) {
                     MessageArea(
@@ -776,7 +810,7 @@ private fun UserBubbleText(words: String) {
     Text(words, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), style = BubbleText, color = MinaTheme.colors.onAccent)
 }
 
-/** 长按抬起的那条消息:[color] 底、带阴影;太长时(最高半屏)只露开头,下面裁掉。 */
+/** The message raised by long pressing: [color] bottom with shadow; when it is too long (up to half screen) only the beginning is exposed and the bottom is cropped. */
 @Composable
 private fun LiftedMessage(shape: Shape, color: Color, content: @Composable () -> Unit) {
     Box(
@@ -785,10 +819,10 @@ private fun LiftedMessage(shape: Shape, color: Color, content: @Composable () ->
     ) { content() }
 }
 
-/** 对话页里截图缩略图的宽。 */
+/** The width of the screenshot thumbnail in the conversation page. */
 private val ChatThumbWidth = 110.dp
 
-/** 正在生成的回答:和完成后的回答一样放在淡灰底上。 */
+/** Generating answers: placed on the same light gray background as completed answers. */
 @Composable
 private fun DraftText(text: String, generating: Boolean) {
     MarkdownText(
@@ -797,7 +831,7 @@ private fun DraftText(text: String, generating: Boolean) {
     )
 }
 
-/** 插话交给模型之前已经说完的回复:和回答一样的底和字,长按一样能复制、引用、选择文字。 */
+/** Interject and hand over the reply that has been said before to the model: it has the same base and characters as the answer, and you can copy, quote, and select text by pressing and holding it. */
 @Composable
 private fun FinishedReply(text: String, key: String) {
     Box(Modifier.padding(bottom = 4.dp)) {
@@ -808,8 +842,11 @@ private fun FinishedReply(text: String, key: String) {
 }
 
 /**
- * Mina 的一段回答:长按弹出复制 / 引用 / 选择文字(见 [MessageArea]),复制、引用的是去掉 Markdown 符号的纯文字;
- * [modifier] 是回答的底,抬起的那张是同样的字放在白卡上。选择文字时选区的把手在单独的弹出窗口里,拖把手不会带出侧栏。
+ * An answer from Mina: Press and hold to pop up the copy/quote/select text (see [MessageArea]). What is
+ * copied and quoted is the plain text with the Markdown symbols removed; [modifier] is the bottom of the
+ * answer, and the one raised is the same word placed on the white card. When selecting text, the
+ * selection handle is in a separate pop-up window, and dragging the handle will not bring out the
+ * sidebar.
  */
 @Composable
 private fun AnswerArea(key: String, answer: String, modifier: Modifier, content: @Composable () -> Unit) {
@@ -824,7 +861,7 @@ private fun AnswerArea(key: String, answer: String, modifier: Modifier, content:
     ) { content() }
 }
 
-/** 被插话打断的那段回复:和回答同样的底,字用次要色,下面一行小字「被你的新消息打断」。 */
+/** The reply that was interrupted by the interruption: The same background as the answer, with the words in a secondary color, and a line of small words below "Interrupted by your new message." */
 @Composable
 private fun InterruptedReply(text: String) {
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
@@ -833,16 +870,17 @@ private fun InterruptedReply(text: String) {
     }
 }
 
-/** Mina 回答的底:很淡的灰,左下尾角。 */
+/** Mina's answer: Very light gray, lower left corner. */
 @Composable
 private fun Modifier.answerSurface(): Modifier =
     background(MinaTheme.colors.answer, MinaShapes.AnswerBubble).padding(horizontal = 14.dp, vertical = 12.dp)
 
-// ---------- 进度 ----------
+// ---------- Progress ----------
 
 /**
- * 进行中:一行状态(转圈 + 此刻的进展 + 用时),下面一条竖线步骤(做完的灰点、当前的蓝点;停下来等你时当前步是橙点)。
- * 在后台操作手机时最下面一行小字。
+ * In progress: a line of status (circle + current progress + time), a vertical line of steps below
+ * (finished gray dots, current blue dots; when stopping to wait for you, the current step is an orange
+ * dot). The bottom line of small words when operating the phone in the background.
  */
 @Composable
 private fun WorkBlock(
@@ -888,7 +926,8 @@ private fun WorkBlock(
         }
         ex.usage?.takeIf { it.calls > 0 }?.let { UsageLine(it) }
         if (ex.steps.isNotEmpty()) StepLine(ex.steps, ex.stepActions, live = true, paused = paused)
-        // 跑的时候就能进运行过程(页面按秒接着长);结束后收进「做了 N 步 · 查看过程」那一行
+        // When running, you can enter the running process (the page continues to grow by the second);
+        // after the end, it will be included in the line "N steps done·View process"
         ex.runId?.let { id ->
             Text(
                 stringResource(R.string.chat_view_process),
@@ -909,7 +948,7 @@ private fun WorkBlock(
     }
 }
 
-/** 实时用量:调用次数、这次进出的 token、上下文用了多少、还剩多少。 */
+/** Real-time usage: number of calls, tokens entered and exited this time, how much context is used, and how much is left. */
 @Composable
 private fun UsageLine(u: com.meenai.mina.core.usage.RunUsage) {
     val c = MinaTheme.colors
@@ -937,7 +976,7 @@ private fun UsageLine(u: com.meenai.mina.core.usage.RunUsage) {
     )
 }
 
-/** 从 [startedAt] 起的用时,每秒更新;不知道开始时刻(为 0)时为 null。 */
+/** The time since [startedAt], updated every second; it is null when the starting time is not known (it is 0). */
 @Composable
 private fun rememberElapsed(startedAt: Long): Long? {
     if (startedAt <= 0L) return null
@@ -953,14 +992,16 @@ private fun rememberElapsed(startedAt: Long): Long? {
 private enum class Dot { Done, Current, Paused, Dim }
 
 /**
- * 竖线步骤。[live] 时最后一步按任务此刻的状态标蓝点或橙点;在跑时只列最近 [ChatCopy.VISIBLE_STEPS] 步,
- * 前面的收成一行,点开看全部。
+ * Vertical steps. When [live], the last step is marked with a blue or orange dot according to the status
+ * of the task at the moment; when running, only the latest [ChatCopy.VISIBLE_STEPS] steps are listed,
+ * and the previous results are in one row. Click to see them all.
  */
 @Composable
 private fun StepLine(steps: List<StepRow>, actions: Map<Int, List<StepAction>>, live: Boolean, paused: Boolean) {
     val c = MinaTheme.colors
     var all by rememberSaveable { mutableStateOf(!live) }
-    // 哪几步点开了:按这一屏里的序号记,列表变长也不乱
+    // Which steps have been clicked: Press the serial number on this screen to mark it, and the list
+    // will not become cluttered as it becomes longer.
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
     val hidden = if (all) 0 else (steps.size - ChatCopy.VISIBLE_STEPS).coerceAtLeast(0)
     Column(
@@ -986,7 +1027,8 @@ private fun StepLine(steps: List<StepRow>, actions: Map<Int, List<StepAction>>, 
             StepItem(
                 row.text, row.subtitle, dot, current = dot == Dot.Current || dot == Dot.Paused,
                 actions = detail, open = open,
-                // 有具体动作才点得开:点开看这一步实际做了什么、对什么、结果如何
+                // You can click on it only if you have specific actions: Click on it to see what this
+                // step actually did, what it was correct for, and what the result was.
                 onClick = if (detail.isEmpty()) null else ({ expanded[key] = !open }),
             )
         }
@@ -1022,7 +1064,8 @@ private fun StepItem(
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             if (subtitle.isNotEmpty()) Text(subtitle, style = MinaType.Hint, color = c.ink3, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            // 点开:这一步实际做的几件事,一件一行「做了什么 · 对什么 · 结果」,说法和运行过程页一样
+            // Click on: Several things actually done in this step, one by one, "What was done · What was
+            // done · Result", the statement is the same as the running process page
             if (open) actions.forEach { a ->
                 Text(
                     ChatCopy.actionLine(a), Modifier.padding(top = 2.dp),
@@ -1030,7 +1073,8 @@ private fun StepItem(
                 )
             }
         }
-        // 能点开的只有有动作的那些:右边一个小箭头,点开时朝下
+        // The only ones that can be clicked are those with actions: a small arrow on the right, pointing
+        // down when clicked.
         if (actions.isNotEmpty()) Icon(
             MinaIcons.Chevron, null,
             Modifier.padding(start = 6.dp).size(12.dp).graphicsLayer { rotationZ = if (open) 90f else 0f },
@@ -1039,7 +1083,7 @@ private fun StepItem(
     }
 }
 
-/** 步骤点:8dp 实心;当前步外面一圈 3dp 的淡色光环。 */
+/** Step point: 8dp solid; a 3dp light halo outside the current step. */
 @Composable
 private fun StepDot(dot: Dot) {
     val c = MinaTheme.colors
@@ -1049,7 +1093,7 @@ private fun StepDot(dot: Dot) {
         Dot.Current -> c.accent to c.accentSoft
         Dot.Paused -> c.warnSolid to c.warnSoft
     }
-    // 底色先盖住竖线,点才是干净的
+    // The background color should cover the vertical lines first, then the dots will be clean
     val bg = c.bg
     Box(
         Modifier.size(14.dp).drawBehind {
@@ -1063,7 +1107,7 @@ private fun StepDot(dot: Dot) {
     )
 }
 
-/** 转圈:淡色圆环,顶上一段实色。[spinning] 为假(关了动画、停下来等你)时停在原处。 */
+/** Circle: light-colored ring with a solid color on top. When [spinning] is false (the animation is turned off, it stops and waits for you), it stops in place. */
 @Composable
 internal fun Spinner(modifier: Modifier, spinning: Boolean, track: Color, head: Color) {
     val turn = if (!spinning) 0f else rememberInfiniteTransition(label = "spin").animateFloat(
@@ -1081,7 +1125,8 @@ internal fun Spinner(modifier: Modifier, spinning: Boolean, track: Color, head: 
 }
 
 /**
- * 结束后过程收成一行:「做了 N 步 · 用时」(点了在下面展开步骤)和「查看过程」(进时间线)。
+ * After the process is completed, the process will yield one line: "N steps completed and time taken"
+ * (click to expand the steps below) and "View process" (enter the timeline).
  */
 @Composable
 private fun DoneLine(ex: Exchange, reduceMotion: Boolean, openRun: (String) -> Unit) {
@@ -1102,7 +1147,7 @@ private fun DoneLine(ex: Exchange, reduceMotion: Boolean, openRun: (String) -> U
             }
             ex.runId?.let { id ->
                 Text(
-                    // 灰色斜体加下划线:和回答融在一起,又看得出能点
+                    // Gray italic and underlined: It blends in with the answer and can be seen clearly.
                     stringResource(R.string.chat_view_process), Modifier.clip(MinaShapes.Pill).clickable(role = Role.Button) { openRun(id) }.padding(horizontal = 4.dp, vertical = 4.dp),
                     style = DoneText.copy(fontStyle = FontStyle.Italic, textDecoration = TextDecoration.Underline), color = c.ink3,
                 )
@@ -1112,7 +1157,7 @@ private fun DoneLine(ex: Exchange, reduceMotion: Boolean, openRun: (String) -> U
     }
 }
 
-/** 点开的内容:平时展开收起带动画,关了动画时直接出现、消失。 */
+/** The clicked content: usually expands and collapses with animation, and appears and disappears directly when the animation is turned off. */
 @Composable
 private fun Reveal(visible: Boolean, reduceMotion: Boolean, content: @Composable () -> Unit) {
     if (reduceMotion) {
@@ -1122,7 +1167,7 @@ private fun Reveal(visible: Boolean, reduceMotion: Boolean, content: @Composable
     }
 }
 
-// ---------- 状态与结果 ----------
+// ---------- Status and results ----------
 
 @StringRes
 fun takeoverReasonLabel(reason: String): Int? = when (reason) {
@@ -1134,12 +1179,12 @@ fun takeoverReasonLabel(reason: String): Int? = when (reason) {
     else -> null
 }
 
-/** 一问一答此刻的状态:要你做的事是一张白卡([NeedCard]),结果直接排在背景上。 */
+/** Question and answer: The current situation: What you are asked to do is a white card ([NeedCard]), and the result is directly arranged on the background. */
 @Composable
 private fun StatusCard(
     status: ExchangeStatus, stage: Takeover.Stage, vm: ChatViewModel, runId: String?,
     loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
-    /** 回答的长按菜单认这一条用的(见 [MessageArea])。 */
+    /** Long press the answer menu to identify this item (see [MessageArea]). */
     key: String,
 ) {
     when (status) {
@@ -1150,7 +1195,8 @@ private fun StatusCard(
             val title = if (label != null) stringResource(R.string.takeover_title_reason, stringResource(label)) else stringResource(R.string.takeover_title)
             val handedOver = stage == Takeover.Stage.HandedOver
             val text = if (handedOver) stringResource(R.string.takeover_handed_over_hint) else status.message
-            // 付款的商品、金额、地址单独成行:这张卡片就是付款前的确认
+            // The paid product, amount, and address are in separate lines: this card is the confirmation
+            // before payment.
             val body = listOfNotNull(text, StatusCopy.paymentLines(status.item, status.amount, status.address)).joinToString("\n")
             NeedCard(title, body, footer = { TextLink(stringResource(R.string.action_cancel_task), vm::cancel) }) {
                 if (handedOver) {
@@ -1174,7 +1220,7 @@ private fun StatusCard(
                 if (options.isEmpty()) CardButton(stringResource(R.string.action_cancel_task), onClick = vm::cancel)
             }
         }
-        // 只有花钱的操作要你同意,每次只同意这一次
+        // Only money-making operations require your consent, and you only agree to this once each time.
         is ExchangeStatus.NeedsConfirmation -> NeedCard(status.title, status.body + "\n" + ConfirmationCopy.NOTE) {
             CardButton(stringResource(R.string.chat_refuse), onClick = { vm.decline(status.key) })
             CardButton(stringResource(R.string.chat_allow_once), primary = true, onClick = { vm.approve(status.key) })
@@ -1183,11 +1229,13 @@ private fun StatusCard(
             CardButton(stringResource(R.string.action_cancel_task), onClick = vm::cancel)
             if (status.resumable) CardButton(stringResource(R.string.chat_continue), primary = true, onClick = vm::resume)
         }
-        // 排队等开始:轮到时自动开始,点继续不能插队,只给取消
+        // Queuing starts: Automatically starts when it is your turn. If you click Continue, you cannot
+        // jump in the queue. You can only cancel it.
         is ExchangeStatus.Queued -> NeedCard(stringResource(R.string.chat_queued), status.why) {
             CardButton(stringResource(R.string.action_cancel_task), onClick = vm::cancel)
         }
-        // 长按整块回答弹菜单;复制、引用的只是回答的字,不带上面的提示和下面的来源
+        // Long press the entire answer to pop up the menu; only the words of the answer are copied and
+        // quoted, without the above prompts and the following sources.
         is ExchangeStatus.Done -> Box(Modifier.padding(bottom = 12.dp)) {
             AnswerArea(key, status.answer, Modifier.fillMaxWidth().answerSurface()) {
                 Column {
@@ -1200,7 +1248,9 @@ private fun StatusCard(
                         }
                     }
                     MarkdownText(status.answer, AnswerText.copy(color = MinaTheme.colors.ink))
-                    // 来源:旧记录里模型写的依据文字,或运行记录里代码记下的来源;都没有就不显示
+                    // Source: The text based on the model written in the old record, or the source
+                    // recorded by the code in the running record; if neither is found, it will not be
+                    // displayed.
                     if (status.evidence != null || runId != null) SourceChip(status.evidence, runId, loadSource, openSource)
                 }
             }
@@ -1230,7 +1280,8 @@ private fun StatusCard(
                 }
             }
         }
-        // 停止后补上的交代当作这一轮的回答,排在「已停止」下面;还在写时一行小字
+        // The explanations added after the stop are regarded as the answers for this round, and are
+        // listed under "Stopped"; while still writing, a line of small words
         is ExchangeStatus.Cancelled -> Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
             Text(stringResource(R.string.chat_stopped), Modifier.padding(start = 2.dp), style = MinaType.Body, color = MinaTheme.colors.ink2)
             if (status.summarizing) Text(
@@ -1247,7 +1298,7 @@ private fun StatusCard(
     }
 }
 
-/** 回答下面的「来源」小胶囊,只是入口;依据和截图在独立页面看。 */
+/** Answer the "source" capsule below, which is just the entrance; see the basis and screenshots on a separate page. */
 @Composable
 private fun SourceChip(text: String?, runId: String?, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit) {
     val source by produceState<EvidenceSource?>(null, runId) { value = runId?.let { loadSource(it) } }
@@ -1267,8 +1318,10 @@ private fun SourceChip(text: String?, runId: String?, loadSource: suspend (Strin
 }
 
 /**
- * 「需要你」卡片(要你处理、提问、确认、暂停、锁屏、被拦下):白卡,标题前一个橙色圆点,下面说明;
- * [options] 是一列可点的答案;按钮并排,次要的在左(浅色)、主要的在右(蓝色);[footer] 在最下面。
+ * "Need you" card (requires you to process, ask questions, confirm, pause, lock screen, blocked): white
+ * card, an orange dot before the title, explained below; [options] is a column of clickable answers; the
+ * buttons are side by side, the secondary one is on the left (light color), the primary one is on the
+ * right (blue); [footer] is at the bottom.
  */
 @Composable
 private fun NeedCard(
@@ -1310,7 +1363,7 @@ private fun TextLink(text: String, onClick: () -> Unit) {
     Text(text, Modifier.clip(MinaShapes.Pill).clickable(onClick = onClick).padding(4.dp), style = MinaType.Caption, color = MinaTheme.colors.ink3)
 }
 
-/** 导出到「下载/Mina」的文件:小卡片,名字、大小和存放处;点了能看的在 App 里打开([FileViewer]),其余交给系统里能打开它的 App。 */
+/** Files exported to "Download/Mina": small card, name, size and storage location; click on the visible ones to open them in the App ([FileViewer]), and leave the rest to the App that can open it in the system. */
 @Composable
 private fun FileCards(files: List<SharedFile>) {
     val context = LocalContext.current
@@ -1342,15 +1395,19 @@ private fun FileCards(files: List<SharedFile>) {
 
 private fun openShared(context: Context, f: SharedFile) = FileViewer.open(context, Uri.parse(f.uri), f.name)
 
-// ---------- 输入栏 ----------
+// ---------- Input field ----------
 
-/** 「＋」面板:关着、开着、正让给键盘(点了输入框:键盘升起来时面板跟着矮下去,键盘到位再关)。 */
+/** "+" panel: closed, open, giving way to the keyboard (click on the input box: when the keyboard rises, the panel lowers, and then closes when the keyboard is in place). */
 private enum class Panel { Closed, Open, Yielding }
 
 /**
- * 玻璃胶囊输入栏:左边「＋」,右边发送(没内容时灰);任务在跑时多一个暂停和停止,输入框的灰字提示插话会交给当前任务。
- * 「＋」点开的附件面板([attachPanel])在输入栏下面、占键盘那块位置,和键盘互换:开面板收键盘,
- * 再点「＋」(这时是 ×)或点输入框就收起面板、换成键盘;返回先收面板。待发的附件在输入栏上方一排([PendingTray])。
+ * Glass capsule input field: "+" on the left, send on the right (grey when there is no content); the
+ * task has an additional pause and stop when running, and the gray text in the input box prompts that
+ * the interruption will be handed over to the current task. The accessory panel ([attachPanel]) opened
+ * by clicking "+" is below the input field and occupies the space of the keyboard. It is interchanged
+ * with the keyboard: open the panel to close the keyboard, then click "+" (this time it is ×) or click
+ * the input box to close the panel and replace it with the keyboard; return to closing the panel first.
+ * The attachments to be sent are in the row above the input field ([PendingTray]).
  */
 @Composable
 internal fun Composer(
@@ -1361,10 +1418,10 @@ internal fun Composer(
     hasHistory: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    /** 任务被用户暂停了:停止旁边显示「继续」。 */
+    /** The task was paused by the user: "Continue" is displayed next to Stop. */
     paused: Boolean = false,
     onPause: () -> Unit = {},
-    /** 沙箱就绪、没在等回答时才有「＋」(任务在跑时也能加,随插话发出去);点开是这块面板。 */
+    /** There is a "+" when the sandbox is ready and not waiting for a response (tasks can be added while running and sent out with interruption); click to open this panel. */
     attachPanel: (@Composable () -> Unit)? = null,
     attachments: List<PendingAttachment> = emptyList(),
     importing: Boolean = false,
@@ -1372,22 +1429,22 @@ internal fun Composer(
     overLimit: Int = 0,
     onRemove: (String) -> Unit = {},
     onDismissRejected: () -> Unit = {},
-    /** 要随下一句话发出去的引用;有时输入框上方一张小条,× 去掉。 */
+    /** A quote to be sent with the next sentence; sometimes a small bar, ×, is removed above the input box. */
     quote: QuoteMessage.Quote? = null,
     onRemoveQuote: () -> Unit = {},
     editRequest: Int = 0,
-    /** 输入栏后面那层内容的画面;为 null 时输入栏不做模糊、用不透明底。 */
+    /** The screen content of the layer behind the input field; when it is null, the input field will not be blurred and will have an opaque background. */
     backdrop: GlassBackdrop? = null,
     reduceMotion: Boolean = false,
-    /** 按住说话从这里开会话;null 时输入框只能打字。 */
+    /** Press and hold to speak to open a session from here; when null, the input box can only be typed. */
     voice: VoiceSource? = null,
-    /** 说完的字;调用方把它接在已有的字后面,不自动发送。 */
+    /** The finished word; the caller attaches it to the existing word and does not send it automatically. */
     onVoiceText: (String) -> Unit = {},
-    /** 「还不能语音输入」里的「去选」:到设置里选转文字。 */
+    /** "Deselect" in "Voice input is not yet available": Go to settings and select text. */
     onPickSpeech: () -> Unit = {},
-    /** 任务在跑时说的话交给谁:卡片顶上写「插话给『…』」。 */
+    /** To whom should you give your words while the task is running: Write "Interjection to "..."" on the top of the card. */
     steerTarget: String? = null,
-    /** 按着说话时为 true:对话内容跟着虚化。 */
+    /** True when pressing to speak: the conversation content will be blurred. */
     onVoiceHolding: (Boolean) -> Unit = {},
 ) {
     val c = MinaTheme.colors
@@ -1396,7 +1453,8 @@ internal fun Composer(
     val voiceHolding = vh?.holding == true
     LaunchedEffect(voiceHolding) { onVoiceHolding(voiceHolding) }
     var fieldFocused by remember { mutableStateOf(false) }
-    // 底部从页面底色淡出到透明,输入栏是浮在上面的玻璃
+    // The bottom color fades from the page background to transparent, and the input field is glass
+    // floating on it.
     val fade = remember(c) { Brush.verticalGradient(0f to c.bg.copy(alpha = 0f), 0.6f to c.bg, 1f to c.bg) }
     val busy = mode == ComposerMode.Busy
     val density = LocalDensity.current
@@ -1413,14 +1471,19 @@ internal fun Composer(
             keyboard?.show()
         }
     }
-    // 面板和键盘一样高:记下见过的键盘高度(在导航栏之上的那段),没见过时用默认高度
+    // The panel is as high as the keyboard: record the height of the keyboard you have seen (the section
+    // above the navigation bar), and use the default height if you have not seen it before.
     var keyboardPx by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(ime, nav, density) {
         snapshotFlow { ime.getBottom(density) - nav.getBottom(density) }.collect { if (it > keyboardPx) keyboardPx = it }
     }
-    // 输入框聚焦时长按留给系统的选字、粘贴(悬浮、分体、实体键盘也一样);没聚焦时输入框上盖一层按住说话的手势
+    // When the input box is focused, press and hold to leave the system to select words and paste (the
+    // same is true for floating, split, and physical keyboards); when the input box is not focused, a
+    // layer of press-and-hold gestures is used to cover the input box.
     val voiceGesture = vh != null && (!fieldFocused || voiceHolding)
-    // 键盘从弹着到收起(返回键、键盘自己的收起键):输入框跟着失焦,又能按住说话。只看键盘的变化,实体键盘(从不弹出)不受影响
+    // From playing to retracting the keyboard (return key, the keyboard's own retract key): the input
+    // box then loses focus, and you can press and hold to speak. Only see changes in the keyboard, the
+    // physical keyboard (which never pops up) is not affected
     LaunchedEffect(ime, density, vh != null) {
         if (vh == null) return@LaunchedEffect
         var wasUp = false
@@ -1429,7 +1492,8 @@ internal fun Composer(
             wasUp = up
         }
     }
-    // 输入框外面的字一变(说完填进来、点了示例),光标放到末尾,接着说或接着打都在后面
+    // Once the words outside the input box change (fill them in after you finish speaking, click on the
+    // example), the cursor is placed at the end, and the next words or typing will be behind.
     var fieldValue by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
     val shownValue = if (fieldValue.text == text) fieldValue else TextFieldValue(text, TextRange(text.length))
     val panelPx = with(density) {
@@ -1437,7 +1501,8 @@ internal fun Composer(
     }
     LaunchedEffect(attachPanel == null) { if (attachPanel == null) panel = Panel.Closed }
     BackHandler(enabled = panel == Panel.Open) { panel = Panel.Closed }
-    // 让给键盘:等键盘升到差不多面板高(没有键盘弹出来时最多等一会儿)再关
+    // Give way to the keyboard: Wait until the keyboard is almost as high as the panel (if no keyboard
+    // pops up, wait for a while at most) before closing it.
     LaunchedEffect(panel, panelPx) {
         if (panel != Panel.Yielding) return@LaunchedEffect
         withTimeoutOrNull(YIELD_MS) {
@@ -1509,7 +1574,8 @@ internal fun Composer(
                         { v -> fieldValue = v; if (v.text != text) onText(v.text) },
                         Modifier.fillMaxWidth().testTag("composer-field").focusRequester(field)
                             .alpha(if (converting) 0f else 1f)
-                            // 面板开着时点输入框:面板让给键盘
+                            // Click on the input box when the panel is open: the panel gives way to the
+                            // keyboard
                             .onFocusChanged {
                                 fieldFocused = it.isFocused
                                 if (it.isFocused && panel == Panel.Open) panel = Panel.Yielding
@@ -1518,14 +1584,17 @@ internal fun Composer(
                         cursorBrush = SolidColor(c.accent),
                         maxLines = 5,
                     )
-                    // 服务商松开后在转:输入框里转圈,转好的字填进来
+                    // After the service provider releases the button, rotate: circle in the input box
+                    // and fill in the transferred words.
                     if (converting) VoiceConverting(Modifier.align(Alignment.CenterStart))
                     if (voiceGesture && vh != null) {
                         Box(Modifier.matchParentSize().holdToTalk(vh) { field.requestFocus(); keyboard?.show() })
                     }
                 }
                 val canSend = AttachTray.canSend(text, attachments, importing)
-                // 键盘出来以后长按输入框留给系统选字;话筒按住才听,点一下只提示按住
+                // After the keyboard comes out, press and hold the input box to allow the system to
+                // select words; press and hold the microphone to listen, and click and hold only to
+                // prompt
                 if (fieldFocused && vh != null) {
                     val hint = stringResource(R.string.voice_hold_to_talk)
                     Box(
@@ -1535,7 +1604,8 @@ internal fun Composer(
                         Icon(MinaIcons.Mic, hint, Modifier.size(MinaSize.Icon), tint = c.ink)
                     }
                 }
-                // 任务在跑时停止一直在;写了字再多一个发送,发出去的话交给当前任务
+                // The task stops while it is running; after writing a word, send another one. If it is
+                // sent, it will be handed over to the current task.
                 if (busy) {
                     val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
                     Box(
@@ -1572,7 +1642,9 @@ internal fun Composer(
             }
             if (vh != null) VoiceSheetHost(vh, onPickSpeech)
             if (panel != Panel.Closed && attachPanel != null) {
-                // 键盘还在(刚开面板时正在收、让给键盘时正在升)的那一段从面板里扣掉:输入栏不跟着上下跳
+                // The section where the keyboard is still there (it is closing when the panel is first
+                // opened and rising when it is given to the keyboard) is deducted from the panel: the
+                // input field does not jump up and down.
                 Box(
                     Modifier.fillMaxWidth().clipToBounds().layout { m, cons ->
                         val keyboardNow = (ime.getBottom(this) - nav.getBottom(this)).coerceAtLeast(0)
@@ -1588,21 +1660,21 @@ internal fun Composer(
     }
 }
 
-/** 面板高度:没见过键盘时的默认值,以及跟着键盘时的上下限。 */
+/** Panel height: the default value when the keyboard is not seen, and the upper and lower limits when following the keyboard. */
 private val PanelDefault = 320.dp
 private val PanelMin = 280.dp
 private val PanelMax = 420.dp
-/** 让给键盘时最多等这么久(毫秒)。 */
+/** This is the maximum time (milliseconds) to wait when yielding to the keyboard. */
 private const val YIELD_MS = 700L
 
-/** 竖线的位置(从左边算起);步骤点、转圈的中心都在这条线上。 */
+/** The position of the vertical line (counted from the left); the step points and the center of the circle are all on this line. */
 private val StepRail = 8.dp
 
 private val FileTileShape = RoundedCornerShape(10.dp)
 private val EmptyLead = TextStyle(fontSize = 15.sp, lineHeight = 21.sp)
 private val ExampleText = TextStyle(fontSize = 15.sp, lineHeight = 21.sp)
 private val BubbleText = TextStyle(fontSize = 15.5.sp, lineHeight = 22.5.sp)
-/** 回答:正文字号,行距放宽到 1.7。 */
+/** Answer: The text size and line spacing are widened to 1.7. */
 private val AnswerText = TextStyle(fontSize = 15.5.sp, lineHeight = 26.sp)
 private val NowText = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
 private val ClockText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontFeatureSettings = "tnum")

@@ -19,7 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 设置 › 恢复与修复 › 兼容性自检:不带真实自检的页面,看各状态下显示什么、按钮交给谁。 */
+/** Settings › Recovery and Repair › Compatibility Self-Check: A page without real self-check, see what is displayed in each state and who gives the button. */
 @RunWith(AndroidJUnit4::class)
 class SelfCheckScreenTest {
 

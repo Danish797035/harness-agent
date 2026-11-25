@@ -1,8 +1,9 @@
 package com.meenai.mina.core.shell
 
 /**
- * WebView 调试接口的本地抽象套接字:每个开着调试的进程一个,名为 `webview_devtools_remote_<pid>`。
- * 内置助手代连时只认这个样子的名字,且 pid 必须属于 Mina 的 uid。
+ * The local abstract socket of the WebView debugging interface: one for each process with debugging
+ * enabled, named `webview_devtools_remote_<pid>`. The built-in assistant only recognizes names like this
+ * when connecting, and the pid must belong to Mina's uid.
  */
 object DevtoolsSocket {
     private const val PREFIX = "webview_devtools_remote_"
@@ -10,10 +11,10 @@ object DevtoolsSocket {
 
     fun name(pid: Int): String = "$PREFIX$pid"
 
-    /** 名字里的 pid;不是这个样子(多了前后缀、前导 0、超出范围)返回 null。 */
+    /** The pid in the name is not like this (additional suffixes, leading 0s, out of range) and returns null. */
     fun pidOf(name: String): Int? = NAME.matchEntire(name)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
 
-    /** `/proc/<pid>/status` 里的真实 uid(Uid 行第一列);没有这一行返回 null。 */
+    /** The real uid in `/proc/<pid>/status` (the first column of the Uid row); if there is no such row, null is returned. */
     fun procUid(status: String): Int? =
         status.lineSequence().firstOrNull { it.startsWith("Uid:") }
             ?.removePrefix("Uid:")?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.toIntOrNull()

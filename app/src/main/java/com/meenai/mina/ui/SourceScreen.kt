@@ -50,7 +50,7 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaType
 
-/** 一次答复的来源:每条是「第几步 · 在哪 · 标题」,下面是当时的画面;没有画面的(后台读的网页正文、文件、命令输出)是摘录原文。 */
+/** The source of a reply: each item is "step · where · title", and the following is the picture at that time; those without pictures (webpage text, files, command output read in the background) are excerpts of the original text. */
 @Composable
 fun SourceScreen(vm: SourceViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
@@ -76,7 +76,9 @@ fun SourceScreen(vm: SourceViewModel, onBack: () -> Unit) {
                                         listOfNotNull(stringResource(R.string.step_number, entry.step), entry.place, entry.title).joinToString(" · "),
                                         style = MinaType.BodyStrong, color = c.ink,
                                     )
-                                    // 有画面就只给画面:识别出的文字和画面重复;没有画面时摘录就是唯一的依据
+                                    // If there is a picture, only the picture will be given: the
+                                    // recognized text and picture will be repeated; if there is no
+                                    // picture, the excerpt will be the only basis.
                                     if (entry.screenshots.isEmpty()) {
                                         entry.text?.let { Text(it, Modifier.padding(top = 6.dp), style = MinaType.Caption, color = c.ink2) }
                                     }
@@ -108,7 +110,7 @@ private fun SourceShot(vm: SourceViewModel, id: Int) {
     }
 }
 
-/** 全屏看一张画面,点一下或按返回收起。 */
+/** To view a picture in full screen, click or press Return to close it. */
 @Composable
 private fun ZoomedShot(image: ImageBitmap, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {

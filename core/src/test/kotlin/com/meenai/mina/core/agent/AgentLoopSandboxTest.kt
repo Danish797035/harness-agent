@@ -36,7 +36,7 @@ class AgentLoopSandboxTest {
     @Test fun sandboxToolsSkipGate() = runTest {
         var gated = 0
         sb.next = { CommandResult(1, false, false, 10, "err", 0, false) }
-        // 六条不同的失败命令:屏幕的失败熔断(连续 5 次失败)不算它们
+        // Six different failed commands: failed screen fuses (5 consecutive failures) do not count them
         val m = FakeModel(*(1..6).map { cmd("false $it") }.toTypedArray(),
             tools(call("write_file", buildJsonObject { put("path", "a.txt"); put("content", "1") })), finish())
         val r = loop(m) { gated++ }.run("算一下")
@@ -77,9 +77,9 @@ class AgentLoopSandboxTest {
         val m = FakeModel(cmd("a"), tools(call("run_command", buildJsonObject { put("command", "b"); put("timeoutSec", 600) })), cmd("c"), finish())
         loop(m).run("长任务")
         assertEquals(60_000L, sb.runs[0].timeoutMs)
-        // 用了 25 分钟,只剩 5 分钟
+        // Took 25 minutes, only 5 minutes left
         assertEquals(300_000L, sb.runs[1].timeoutMs)
-        // 50 分钟后不再运行
+        // Stop running after 50 minutes
         assertEquals(2, sb.runs.size)
     }
 }

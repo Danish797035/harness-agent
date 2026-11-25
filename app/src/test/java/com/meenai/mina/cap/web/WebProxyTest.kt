@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** 内置浏览器怎么用网络代理:支持才设、带账号密码的 SOCKS 用不了;只替当前的 HTTP 代理答账号密码。 */
+/** How to use the network proxy in the built-in browser: it only supports SOCKS with account and password and cannot be used; it only provides the account and password for the current HTTP proxy. */
 class WebProxyTest {
     private val saved = NetProxy.sharedSource
 

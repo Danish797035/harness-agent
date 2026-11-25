@@ -10,22 +10,23 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * 「最近打开」的一行:搜索写成「搜索：<词>」(副标题「必应」),网页是标题(读不到时用网站名)和网站名。
- * [host] 是网页的主机名(画图标用),搜索为 null。
+ * "Recently opened" line: The search is written as "Search: <word>" (subtitle "Bing"), and the web page is
+ * the title (use the website name if it cannot be read) and the website name. [host] is the host name of
+ * the web page (used for drawing icons), and the search is null.
  */
 data class RecentItem(val url: String, val title: String, val subtitle: String, val host: String?, val search: Boolean, val openedAtMs: Long)
 
-/** 输入时下面的一条联想:[search] 为真是用必应搜输入的这句,否则打开 [url]。 */
+/** When typing, enter the following association: [search]. If this sentence is really entered using Bing search, otherwise open [url]. */
 data class Suggestion(val title: String, val subtitle: String, val url: String, val search: Boolean, val host: String?)
 
-/** 起始页上的排法:最近打开、输入联想、相对时间。都是纯函数,名字由调用方按主机名给(见 [SiteLooks.face])。 */
+/** Arrangement on the start page: recently opened, input association, relative time. They are all pure functions, and the names are given by the caller according to the host name (see [SiteLooks.face]). */
 object StartPageModel {
     val SEARCH_ENGINE: String get() = tr(R.string.browser_engine)
     val RECENT_SOURCE: String get() = tr(R.string.browser_recent_source)
-    /** 联想里最近打开的至多几条。 */
+    /** There are at most a few recently opened items in Lenovo. */
     const val MAX_RECENT_SUGGESTIONS = 5
 
-    /** 最近打开排成行:同一网址(不计 # 后面)只留最近的一条,最近的在前。 */
+    /** Recently opened in a row: only the most recent one of the same URL (not counting the #) is kept, with the most recent first. */
     fun recentRows(pages: List<RecentPage>, nameOf: (String) -> String): List<RecentItem> {
         val seen = HashSet<String>()
         return pages.sortedByDescending { it.openedAtMs }.filter { seen.add(it.url.trim().substringBefore('#')) }.map { p ->
@@ -41,8 +42,9 @@ object StartPageModel {
     }
 
     /**
-     * 输入时的联想:第一条是这句话本身——像网址的打开它,其余用必应搜;后面是最近打开里标题或网址包含这句话的(不分大小写)。
-     * 空输入没有联想。
+     * Association when typing: The first item is the sentence itself - open it like a URL, and use Bing
+     * to search for the rest; the second item is the recently opened title or URL containing this
+     * sentence (regardless of case). Empty input has no association.
      */
     fun suggestions(input: String, recent: List<RecentItem>): List<Suggestion> {
         val q = input.trim()
@@ -57,7 +59,7 @@ object StartPageModel {
         return listOf(first) + hits
     }
 
-    /** 相对时间:「刚刚」「10 分钟前」「今天 11:20」「昨天」「10 月 21 日」,不在今年的带年份。 */
+    /** Relative time: "Just now" "10 minutes ago" "Today 11:20" "Yesterday" "October 21st", which does not include the year of this year. */
     fun relativeTime(atMs: Long, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
         val diff = nowMs - atMs
         if (diff in 0 until 60_000) return tr(R.string.browser_just_now)

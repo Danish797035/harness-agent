@@ -3,20 +3,27 @@ package com.meenai.mina.core.uistate
 import com.meenai.mina.core.prompt.Feedback
 
 /**
- * 往树里看不到的输入框里打字(App 自己画界面,树里没有输入框,但它可能拿着焦点):
- * 字经剪贴板粘贴进去,读不回框里的字,只能比打字前后屏上读到的文字(OCR)。
- * 不要求弹着输入法:全选、粘贴键发到这块屏拿着焦点的窗口,拿着焦点的框不经输入法也会粘贴。
+ * Typing into an input box that cannot be seen in the tree (the App draws its own interface, there is no
+ * input box in the tree, but it may hold the focus): the words are pasted into the clipboard, and the
+ * words in the box cannot be read back. They can only compare the words read on the screen before and
+ * after typing (OCR). It does not require the input method to be played: the select all and paste keys
+ * are sent to the window with the focus on this screen, and the frame with the focus will be pasted
+ * without going through the input method.
  */
 object UnseenField {
     private const val NO_FOCUS = "no_focus"
-    /** 往一点上打字,粘贴后前后一点没变:那一点上不是能打字的框。 */
+    /** When typing at a point, the front and back points remain unchanged after pasting: that point is not a typing box. */
     const val POINT_NOT_TYPED = "point_not_typed"
 
     /**
-     * 粘贴之后报什么。[keyboardUp]:粘贴前这块屏上弹着输入法(焦点确实在某个框上)。
-     * 没弹输入法、前后屏上的字一点没变(MISMATCH):多半焦点不在框上,报 no_focus,请模型先点框,不再盲目重粘;
-     * 弹着输入法时照旧交出核对结果(没打进去由输入工具报)。
-     * [atPoint]:先点了模型给的一点再粘贴的;前后一点没变就是那一点没接住字(不论弹没弹输入法),报 [POINT_NOT_TYPED],请模型重新找框,不自动重试。
+     * What to report after pasting. [keyboardUp]: The input method is playing on the screen before
+     * pasting (the focus is indeed on a certain box). When the input method is not played, the words on
+     * the front and rear screens remain unchanged (MISMATCH): Most of the focus is not on the frame, and
+     * no_focus is reported. Please click on the frame first, and no longer blindly re-paste; when the
+     * input method is played, the verification results are still handed over (if it is not typed, the
+     * input tool reports). [atPoint]: pasted after tapping a point given by the model; if before/after text
+     * did not change at all, that point failed to accept characters (whether or not the keyboard was up),
+     * so report [POINT_NOT_TYPED] and ask the model to relocate the field without auto-retrying.
      */
     fun typed(
         text: String, before: List<VisibleTextLine>?, after: List<VisibleTextLine>?, changed: Boolean, keyboardUp: Boolean, atPoint: Boolean = false,
@@ -27,7 +34,7 @@ object UnseenField {
         return ActionResult.Ok(changed = changed, verification = v, hint = Feedback["type.unseen_pasted"])
     }
 
-    /** 全选加删除键之后报什么:没弹输入法、界面一点没变时同 [typed],请模型先点框;其余照原样交出,附上清空的做法。[atPoint] 同 [typed]。 */
+    /** What will be reported after selecting all and adding the delete key: The input method is not played and the interface has not changed at all. It is the same as [typed]. Please click the box on the model first; hand over the rest as they are, and attach the clearing method. [atPoint] is the same as [typed]. */
     fun cleared(r: ActionResult, keyboardUp: Boolean, atPoint: Boolean = false): ActionResult = when {
         r !is ActionResult.Ok -> r
         r.changed == false && atPoint -> ActionResult.Failed(POINT_NOT_TYPED, Feedback["clear.point_not_cleared"])
@@ -35,16 +42,19 @@ object UnseenField {
         else -> r.copy(hint = Feedback["clear.unseen_cleared"])
     }
 
-    /** 点那一点就换到了 [pkg](点到了链接、按钮):没打字,请模型回去重新找框。 */
+    /** Click that point and it will change to [pkg] (click on the link, button): No typing, please go back to the model and find the frame again. */
     fun tapSwitched(pkg: String): ActionResult = ActionResult.Failed(POINT_NOT_TYPED, Feedback.format("type.point_switched", "pkg" to pkg))
 
-    /** 要核对的字(去掉空白和标点后)超过这么长时,只看开头和结尾各 [PROBE] 个字:长句子 OCR 常认错中间几个字。 */
+    /** When the words to be checked (after removing blanks and punctuation) exceed this length, only look at [PROBE] characters at the beginning and end: long sentences OCR often misunderstands a few words in the middle. */
     private const val LONG = 16
     private const val PROBE = 6
 
     /**
-     * 核对结果:打字后屏上这段字比打字前多出现了一次为 [Verification.MATCH];前后都读到了字、字一样、界面和画面也没动为 MISMATCH(没打进去);
-     * 其余(哪一次没读到字、变了但找不到这段字)为 UNKNOWN,不猜。[changed]:打字前后界面或画面有变化。
+     * Check results: [Verification.MATCH] appears one more time on the screen after typing than before
+     * typing; MISMATCH is found when the word is read before and after, but the word is the same, and
+     * the interface and screen do not change; and UNKNOWN is used for the rest (which time the word is
+     * not read, the word is changed, but the word cannot be found). [changed]: There are changes in the
+     * interface or screen before and after typing.
      */
     fun verify(typed: String, before: List<VisibleTextLine>?, after: List<VisibleTextLine>?, changed: Boolean): Verification {
         val want = key(typed)
@@ -57,7 +67,7 @@ object UnseenField {
         return Verification.UNKNOWN
     }
 
-    /** 去掉中心落在 [box](0–999 的 [l,t,r,b],如输入法窗口)里的行:键盘上的字和候选词不算框里的字。 */
+    /** Remove the rows whose center falls in [box] (0–999 of [l,t,r,b], such as the input method window): the words on the keyboard and candidate words are not counted in the box. */
     fun outside(lines: List<VisibleTextLine>, box: List<Int>?): List<VisibleTextLine> {
         if (box == null || box.size != 4) return lines
         return lines.filterNot { l ->
@@ -65,7 +75,7 @@ object UnseenField {
         }
     }
 
-    /** 从上到下、从左到右接起来;OCR 会把一句话拆成几行,也会认错标点和空格,只比字母、数字和汉字。 */
+    /** Connect them from top to bottom and from left to right; OCR will split a sentence into several lines, and will also misunderstand punctuation and spaces, only letters, numbers and Chinese characters. */
     private fun joined(lines: List<VisibleTextLine>): String =
         lines.sortedWith(compareBy({ it.bounds.getOrElse(1) { 0 } }, { it.bounds.getOrElse(0) { 0 } })).joinToString("") { key(it.text) }
 

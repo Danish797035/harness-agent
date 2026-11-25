@@ -8,11 +8,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 一条到常驻助手的「连接」:助手进程不跟着解绑结束,Binder 由 [source] 提供(没有时为 null)。
- * 对外和按服务绑定的连接一样:[shell] 只在绑定期间有值,[dropped] 表示连上过、仍需要、但现在断了。
- * 解绑时用 [release] 让助手撤掉这次绑定留下的改动(虚拟屏、静音、剪贴板),效果等同于服务结束。
+ * A "connection" to the resident assistant: the assistant process does not end with unbinding, and the
+ * Binder is provided by [source] (null if not available). External connections are the same as those
+ * bound by services: [shell] only has a value during the binding period, [dropped] means it was
+ * connected, is still needed, but is now disconnected. When unbinding, use [release] to ask the
+ * assistant to remove the changes left by this binding (virtual screen, mute, clipboard), the effect is
+ * equivalent to the end of the service.
  *
- * [scope] 必须是单线程顺序执行的:解绑的撤销排在之后再绑定的发布前面,新任务建的屏不会被上一次的撤销误删。
+ * [scope] must be executed sequentially in a single thread: the unbinding undo is ranked before the
+ * rebinding release, and the screen created by the new task will not be accidentally deleted by the last
+ * undo.
  */
 class HelperLink<T : Any>(
     private val source: StateFlow<T?>,
@@ -63,7 +68,7 @@ class HelperLink<T : Any>(
         if (last != null) scope.launch { runCatching { release(last) } }
     }
 
-    /** 「重新连接」:绑定着却没有助手时请看门狗马上再起一次。 */
+    /** "Reconnect": When bound but without an assistant, ask the watchdog to start again immediately. */
     fun reconnect() {
         val ask = synchronized(this) { wanted && _shell.value == null }
         if (ask) need()

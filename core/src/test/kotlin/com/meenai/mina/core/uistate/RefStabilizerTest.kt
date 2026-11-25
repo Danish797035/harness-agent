@@ -9,14 +9,15 @@ import org.junit.Test
 class RefStabilizerTest {
     private var port = 0
 
-    /** 端口每次读屏都从 @e1 重新编号、snapshotId 随机,和真端口一样。 */
+    /** The port is renumbered from @e1 every time the screen is read, and the snapshotId is random, just like the real port. */
     private fun shot(vararg els: Triple<String, Int, Int>, pkg: String = "com.x", width: Int = 1000, height: Int = 2000, list: Boolean = false,
                      rid: (String) -> String? = { null }): ScreenSnapshot {
         port++
         val items = els.mapIndexed { i, (name, x, y) ->
             UiElement("@e${i + 1}", "button", name, x, y, listOf(0, 0, 10, 10), rid(name), true, false, false)
         }
-        // list:顶部以下是一个可滚动列表,顶部(y < 100 像素)的元素不在列表里
+        // list: Below the top is a scrollable list, and the elements at the top (y < 100 pixels) are not
+        // in the list
         val pane = UiElement("@e${items.size + 1}", "list", "", width / 2, height / 2, listOf(0, 100, 999, 999), null, false, false, true)
         return ScreenSnapshot("port$port", pkg, if (list) items + pane else items, width, height)
     }
@@ -30,7 +31,7 @@ class RefStabilizerTest {
         val a = st.next(shot(el("搜索", 500, 100)))
         assertEquals("w1", a.snapshotId)
         assertTrue(st.resolve(a.ref("搜索"), "w1") is Resolved.Current)
-        // 别的前缀的同号编号不是这块屏的
+        // The same number as other prefixes does not belong to this screen.
         assertEquals(Resolved.Stale, st.resolve(a.ref("搜索"), "p1"))
     }
 
@@ -41,7 +42,7 @@ class RefStabilizerTest {
         assertEquals("s1", a.snapshotId); assertEquals("s2", b.snapshotId)
         assertEquals(a.ref("搜索"), b.ref("搜索"))
         assertEquals(a.ref("返回"), b.ref("返回"))
-        // 模型编号映射到这一屏的端口编号
+        // The model number maps to the port number on this screen
         assertEquals("@e3", b.toPort[b.ref("搜索")])
         assertEquals("@e1", b.toPort[b.ref("返回")])
         assertEquals("@e3", b.ref("新的"))
@@ -50,7 +51,7 @@ class RefStabilizerTest {
     @Test fun movedWithin15PercentKeepsRef() {
         val st = RefStabilizer()
         val a = st.next(shot(el("确定", 500, 500)))
-        val b = st.next(shot(el("确定", 500, 640))) // 140 ≤ 屏宽 1000 的 15%
+        val b = st.next(shot(el("确定", 500, 640))) // 140 ≤ 15% of screen width 1000
         assertEquals(a.ref("确定"), b.ref("确定"))
     }
 
@@ -71,13 +72,13 @@ class RefStabilizerTest {
     @Test fun duplicateKeysNeverKeepRefs() {
         val st = RefStabilizer()
         val a = st.next(shot(el("关注", 800, 300), el("关注", 800, 600), el("标题", 500, 50)))
-        // 滚动一行之后同一位置已经是另一行的「关注」
+        // After scrolling one line, the same position is already the "follow" of another line
         val b = st.next(shot(el("关注", 800, 300), el("关注", 800, 600), el("标题", 500, 50)))
         val old = a.refs("关注").toSet()
         assertTrue(b.refs("关注").none { it in old })
         assertEquals(2, b.refs("关注").toSet().size)
         assertEquals(a.ref("标题"), b.ref("标题"))
-        // 一边唯一、另一边重复,也不沿用
+        // One side is unique, the other side is repeated, and it will not be used again.
         val c = st.next(shot(el("关注", 800, 300)))
         assertTrue(c.ref("关注") !in b.refs("关注"))
         val d = st.next(shot(el("关注", 800, 300), el("关注", 800, 600)))
@@ -99,7 +100,7 @@ class RefStabilizerTest {
         val c = st.next(shot(el("一", 100, 100), el("二", 200, 200), el("四", 300, 300), el("三", 300, 300)))
         assertTrue(b.elements.none { it.ref == "@e3" })
         assertNotEquals("@e3", c.ref("四"))
-        assertNotEquals("@e3", c.ref("三")) // 退役后重新出现也是新编号
+        assertNotEquals("@e3", c.ref("三")) // Reappearing after retirement also has a new number
         val all = c.elements.map { it.ref }
         assertEquals(all.size, all.toSet().size)
     }
@@ -133,7 +134,8 @@ class RefStabilizerTest {
         val st = RefStabilizer()
         st.next(shot(el("一", 100, 100)))
         val b = st.next(shot(el("一", 100, 100), el("二", 200, 200)))
-        // @e2 是第二屏才有的:配第一屏的 snapshotId 不成立
+        // @e2 is only available on the second screen: the snapshotId assigned to the first screen is not
+        // valid
         assertEquals(Resolved.Stale, st.resolve(b.ref("二"), "s1"))
         assertEquals(Resolved.Stale, st.resolve(b.ref("一"), "s9"))
         assertEquals(Resolved.Stale, st.resolve(b.ref("一"), "port2"))
@@ -141,7 +143,8 @@ class RefStabilizerTest {
     }
 
     @Test fun singleSameNameNewRowGetsNewRef() {
-        // 列表里只有一个「关注」;滚动后另一行的「关注」挪到附近:前面的用户名换了,不是同一个
+        // There is only one "Follow" in the list; after scrolling, the "Follow" in another row moves
+        // nearby: the previous username has been changed and is not the same one.
         val st = RefStabilizer()
         val a = st.next(shot(el("张三", 300, 500), el("关注", 800, 500)))
         val b = st.next(shot(el("李四", 300, 520), el("关注", 800, 520)))
@@ -153,7 +156,8 @@ class RefStabilizerTest {
         val a = st.next(shot(el("标题", 500, 50), el("搜索", 900, 50), el("关注", 800, 500), list = true))
         val b = st.next(shot(el("标题", 500, 50), el("搜索", 900, 50), el("关注", 800, 500), list = true))
         assertEquals(a.ref("关注"), b.ref("关注"))
-        // 上下文相同、挪了不到 15%,但在列表里:可能已经滚到另一行,不沿用
+        // The context is the same, moved less than 15%, but in the list: it may have been scrolled to
+        // another line and will not be used.
         val c = st.next(shot(el("标题", 500, 50), el("搜索", 900, 50), el("关注", 800, 600), list = true))
         assertNotEquals(b.ref("关注"), c.ref("关注"))
         assertEquals(b.ref("标题"), c.ref("标题"))
@@ -181,7 +185,7 @@ class RefStabilizerTest {
     }
 
     @Test fun shiftLimitUsesShortSide() {
-        // 横屏:宽 2000、高 1000,上限是 150 而不是 300
+        // Horizontal screen: width 2000, height 1000, upper limit is 150 instead of 300
         val st = RefStabilizer()
         val a = st.next(shot(el("确定", 500, 300), width = 2000, height = 1000))
         val b = st.next(shot(el("确定", 500, 500), width = 2000, height = 1000))
@@ -189,7 +193,8 @@ class RefStabilizerTest {
     }
 
     @Test fun cumulativeShiftFromOldSnapshotIsStale() {
-        // 每屏挪 100(都在 150 以内,编号沿用),但从第一屏算起已挪了 300
+        // Each screen is moved by 100 (all within 150, and the numbers are still used), but it has been
+        // moved by 300 from the first screen
         val st = RefStabilizer()
         val a = st.next(shot(el("确定", 500, 500)))
         st.next(shot(el("确定", 500, 600)))

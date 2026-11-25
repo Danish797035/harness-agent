@@ -76,7 +76,7 @@ class RunMetricsStoreTest {
         assertEquals(2, out.size)
         val first = out[0] as JsonObject
         assertEquals(JsonPrimitive("r1"), first["runId"])
-        // 默认值也写出来,分析时字段齐全
+        // The default value is also written, and the fields are complete during analysis.
         assertTrue(first.containsKey("firstFeedbackMs"))
         assertTrue(first.containsKey("observeMs"))
         assertTrue(first.containsKey("judged"))

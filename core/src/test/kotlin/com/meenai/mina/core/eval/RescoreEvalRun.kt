@@ -18,22 +18,38 @@ import java.io.File
 import java.time.ZoneId
 
 /**
- * 离线重新打分一次拉回来的评测运行:用现在的题目、核对规则和核查兜底重算,不调模型、不连手机。没设目录时跳过。
+ * Re-score offline and pull back the evaluation run: use the current questions, verification rules and
+ * verification to recalculate without adjusting the model or connecting to the mobile phone. Skip if no
+ * directory is set.
  *
- *   MINA_EVAL_RUN=/path/to/<运行名> ./gradlew :core:test --tests '*RescoreEvalRun*' --rerun
+ * MINA_EVAL_RUN=/path/to/<runname>./gradlew:core:test --tests '*RescoreEvalRun*' --rerun
  *
- * 目录里要有 scores.jsonl 和 <题 id>/run/events.jsonl(评测器写出的样子)。每题:
- * - 结局(主数,按现在的结束方式,见 [natural]):第一条最终回答(不带调用、有字的回复;旧记录里是 finish)就结束任务;
- *   按风险核对:回答里的值在那时的账本里对不上,或做过对外的事而当时核查没判 pass,就像运行时一样退回一次,取下一条最终回答;
- *   还对不上算 unverified(标成未确认交出),对上了算 succeeded。第一条最终回答之前就放弃、交给用户、被叫停的照旧。
- *   旧记录里的提醒(没调工具被提醒)、退回到底的核查失败,现在都换成上面这样结束。
- * - 对比:旧规则(只看最后一次核查,用现在的兜底 [Verifier.backstop] 重核)的结局与是否通过。
- * - 核对项:回答、读屏、障碍、追问、记忆按运行记录重算;要在手机上现查的(screen_has、web_has、探针、确认卡片)和期望值来自跑前探针的沿用当时的结果。
- * 证据按证据账本重建([RecordedVerifications.ledgerSources],和运行时核查器同一个挑法),这是报告的主数;
- * 回答的 answer_grounded 核对也用同一份账本([RunFacts.evidence])。
- * 交出回答后判的结局(outcome 事件,见 [com.meenai.mina.core.agent.OutcomeJudge])按记录里的算([Scoring.recorded]):
- * 回答如实说没办成、只办了一部分的算如实放弃;只认判的是同一条回答(按现在的结束方式取的回答换了一条就不用它)。旧记录没有这条事件。
- * 相对日期按那次核查的时刻换算(时区取 MINA_RESCORE_ZONE,没设用本机的)。交给用户接管的单列,不算通过。结果写到 <目录>/rescore.md。
+ * There must be scores.jsonl and <question id>/run/events.jsonl in the directory (as written by the evaluator).
+ * Each question:
+ * - - Ending (main number, according to the current ending method, see [natural]): The first final
+ * answer (reply without call, with words; in the old record is finish) will end the task; Check by risk:
+ * if the value in the answer does not match the account book at that time, or if it has done external
+ * things and the verification did not pass at that time, it will be returned like once running time, and
+ * the next final answer will be taken; if it is not correct, it will be counted as unverified (marked as
+ * unconfirmed and handed over), if it is correct, it will be counted as succeeded. The first one was
+ * given up before the final answer, handed over to the user, and was stopped as usual. The reminders in
+ * the old records (reminders for not adjusting the tool) and the verification failure of returning to
+ * the end are now replaced by the above ending.
+ * - - Comparison: The outcome of the old rules (only look at the last check, use the current
+ * [Verifier.backstop] recheck) and whether it is passed or not.
+ * - - Check items: answers, screen reading, obstacles, questioning, and memory are recalculated
+ * according to the running records; the current results to be checked on the mobile phone (screen_has,
+ * web_has, probes, confirmation cards) and the expected values come from the pre-run probe. The
+ * evidence is reconstructed from the evidence ledger ([RecordedVerifications.ledgerSources], the same as
+ * the runtime verifier), which is the main number reported; the answer_grounded check of the answer also
+ * uses the same ledger ([RunFacts.evidence]). After handing over the answer, the outcome (outcome event,
+ * see [com.meenai.mina.core.agent.OutcomeJudge]) is calculated according to the record
+ * ([Scoring.recorded]): the answer truthfully saying that it was not completed or only partially
+ * completed is considered to have been given up truthfully; the answer that is only recognized is the
+ * same answer (if the answer taken according to the current ending method is changed, it will not be
+ * used). The old record does not have this event. The relative date is converted according to the time
+ * of that verification (the time zone is MINA_RESCORE_ZONE, not the local one). A single column handed
+ * over to the user for takeover is not counted as passed. The result is written as <directory>/rescore.md.
  */
 class RescoreEvalRun {
     private val tasksDir = listOf("eval/tasks", "../eval/tasks").map(::File).first { it.isDirectory }
@@ -65,7 +81,8 @@ class RescoreEvalRun {
             fun score(outcome: String, answer: String? = null, upto: Int = events.size, judged: String? = null): TaskScore {
                 val observed = observed(task, events.subList(0, upto), old, outcome, oldFailed, zone, answer).copy(judged = judged)
                 val s = Scoring.score(task, observed)
-                // 期望值来自跑前探针({probe:…})的核对项离线算不了,沿用当时的结果
+                // The expected value comes from the check items of the pre-run probe ({probe:...}) which
+                // cannot be calculated offline, and the results at that time will be used.
                 val failed = s.failedChecks.filterNot { k ->
                     val i = k.substringBefore(':').toIntOrNull() ?: return@filterNot false
                     "{probe:" in task.checks[i].toString() && k !in oldFailed
@@ -73,7 +90,8 @@ class RescoreEvalRun {
                 return s.copy(passed = failed.isEmpty(), failedChecks = failed)
             }
             val n = natural(task, events, oldOutcome, zone)
-            // 判的是交出的那条回答;按现在的结束方式换了一条回答就不用它
+            // The judgment is based on the answer handed in; if you change the answer according to the
+            // current ending method, it will not be used.
             val delivered = events.filterIsInstance<RunEvent.TaskEnded>().lastOrNull()?.answerOrReason
             val judged = RunOutcome.recorded(events)?.wire?.takeIf { n == null || n.answer.trim() == delivered?.trim() }
             val score = n?.let { score(it.outcome, answer = it.answer, upto = it.upto, judged = judged) } ?: score(oldOutcome, judged = judged)
@@ -110,18 +128,23 @@ class RescoreEvalRun {
 
     private fun yes(b: Boolean) = if (b) "是" else "否"
 
-    /** 按现在的结束方式重算的结局:[answer] 是交出的回答,[upto] 是它之后的事件下标(之后的不会发生),[unconfirmed] 是标成未确认的几处。 */
+    /** The ending recalculated according to the current ending method: [answer] is the answer that was handed over, [upto] is the subscript of the event after it (the subsequent ones will not happen), [unconfirmed] is the several places marked as unconfirmed. */
     private class Natural(val outcome: String, val answer: String, val upto: Int, val unconfirmed: List<String>, val nudged: Boolean)
 
     /**
-     * 第一条最终回答就结束任务(见类说明)。那之前已经以别的方式结束(放弃、接管、被叫停、超时)、或根本没有最终回答的,返回 null,结局照旧。
-     * 每条回答按那时为止的账本做字面核对([Grounding.check]);做过对外的事([RunFacts.actedOutward])时看同一步录下的核查结论。
+     * The first final answer ends the task (see class description). If it has ended in other ways before
+     * (giving up, taking over, being stopped, timeout), or there is no final answer at all, null will be
+     * returned and the ending will be the same. Each answer should be verified literally according to
+     * the account book up to that time ([Grounding.check]); when doing external affairs
+     * ([RunFacts.actedOutward]), the verification conclusion recorded in the same step should be
+     * reviewed.
      */
     private fun natural(task: EvalTask, events: List<RunEvent>, oldOutcome: String, zone: ZoneId): Natural? {
         if (oldOutcome == "timeout" || oldOutcome == "cancelled" || oldOutcome == "skipped") return null
         val finals = events.indices.filter { RunFacts.isFinalAnswer(events[it]) }
         if (finals.isEmpty()) return null
-        // 第一条回答之前任务就以别的方式结束了(接管、确认关卡停下的仍算之后的事):照旧
+        // The mission ended in another way before the first answer (taking over and confirming that the
+        // level was stopped still counts as a later matter): As usual
         val goal = events.filterIsInstance<RunEvent.TaskStarted>().firstOrNull()?.goal ?: task.goal
         val pairs = RecordedVerifications.pairs(events).associate { (v, f) -> f to (events[v] as RunEvent.Verifier) }
         fun check(f: Int): List<String> {
@@ -142,20 +165,22 @@ class RescoreEvalRun {
         val first = finals.first()
         val missing = check(first)
         if (missing.isEmpty()) return Natural("succeeded", RecordedVerifications.answer(events, first).orEmpty(), first + 1, emptyList(), nudged = false)
-        // 退回一次:取下一条最终回答;没有了就按第一条标成未确认交出
+        // Return once: take down the final answer; if there is no more, mark the first one as
+        // unconfirmed and hand it over.
         val second = finals.getOrNull(1) ?: return Natural("unverified", RecordedVerifications.answer(events, first).orEmpty(), first + 1, missing, nudged = false)
         val again = check(second)
         return Natural(if (again.isEmpty()) "succeeded" else "unverified", RecordedVerifications.answer(events, second).orEmpty(), second + 1, again, nudged = true)
     }
 
-    /** 旧规则(只留作对比):最后一次核查的是最终回答,当时兜底改判过(或放过)的按现在的兜底重核。 */
+    /** Old rules (retained only for comparison): The last check is the final answer. Those who were revised (or let go) will be re-checked according to the current review. */
     private fun recheck(task: EvalTask, events: List<RunEvent>, oldOutcome: String, zone: ZoneId): String {
         if (oldOutcome != "succeeded" && oldOutcome != "unverified") return oldOutcome
         val (v, f) = RecordedVerifications.pairs(events).lastOrNull() ?: return oldOutcome
         val e = events[v] as RunEvent.Verifier
         val detail = runCatching { Json.parseToJsonElement(e.detailJson) as JsonObject }.getOrNull() ?: return oldOutcome
         val reason = detail.str("reason").orEmpty()
-        // 只有核查器判了 pass 的才走兜底:当时是 pass,或者是被兜底改成 cannot_verify 的(含已去掉的「不是同一处」那条规则)
+        // Only those that are passed by the verifier will be ignored: it was pass at the time, or it was
+        // changed to cannot_verify (including the removed "not the same place" rule)
         val modelPassed = e.verdict == Verdict.Pass.wire || reason == Verifier.NOT_IN_READS || reason == OLD_NOT_ON_SCREEN || reason == Verifier.TRUNCATED || reason == OLD_NOT_ONE_SOURCE
         if (!modelPassed) return oldOutcome
         val asPass = Verifier.parse(JsonObject(detail + ("verdict" to JsonPrimitive("pass"))).toString()) ?: return oldOutcome
@@ -214,8 +239,8 @@ class RescoreEvalRun {
 
     private fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.contentOrNull
 
-    /** 旧记录里被已去掉的「值和它说的东西不是同一处」规则否掉的核查理由。 */
-    /** 改说法之前记下的「依据找不到」。 */
+    /** The reason for the verification in the old record was denied by the "value is not the same as what it says" rule which has been removed. */
+    /** The "foundation cannot be found" that I wrote down before changing the statement. */
     private val OLD_NOT_ON_SCREEN = "回答的依据在屏幕、网页或命令输出里都找不到"
     private val OLD_NOT_ONE_SOURCE = "回答里的值和它说的东西不是从同一个页面或 App 读来的"
 }

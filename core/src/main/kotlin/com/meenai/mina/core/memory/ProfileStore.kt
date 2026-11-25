@@ -19,7 +19,7 @@ sealed interface ProfileChange {
     data class Rejected(val code: String, val existing: List<ProfileEntry>) : ProfileChange
 }
 
-/** 小型独立画像；所有改动都按唯一片段定位，写入只影响下一次 Run 的快照。 */
+/** Small independent portrait; all changes are positioned by unique fragments, and writing only affects the snapshot of the next run. */
 class ProfileStore(private val backend: ProfileBackend, private val clock: () -> Long = System::currentTimeMillis,
     private val ids: () -> String, private val capacity: Int = 20) {
     @Synchronized fun snapshot(): List<ProfileEntry> = backend.read().filter { it.status == ProfileStatus.active }.map { it.copy() }

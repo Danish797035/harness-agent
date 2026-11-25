@@ -25,11 +25,12 @@ import com.meenai.mina.core.uistate.described
 import com.meenai.mina.core.uistate.locatedInfo
 import com.meenai.mina.core.uistate.locator
 
-/** 看图类工具:要设置里有看图模型(视觉角色)才提供,和主模型能不能看图无关。 */
+/** Picture viewing tools: only provided if there is a picture viewing model (visual role) in the settings, and it has nothing to do with whether the main model can view pictures. */
 internal class Describe(f: ScreenFamily) : ScreenTool(f, "describe") {
     override val verb = Verb.Describe
     override val risk = Risk.Read
-    // 只问看图模型、不动界面:用户插话时撤掉,先读那句话
+    // Just ask to see the picture model, don’t move the interface: remove it when the user interrupts,
+    // read the sentence first
     override val yieldsToSteer = true
     override val def by lazy { ToolDef(name,
         describe(),

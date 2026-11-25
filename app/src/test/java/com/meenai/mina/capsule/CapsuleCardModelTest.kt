@@ -26,7 +26,7 @@ class CapsuleCardModelTest {
         exchange: Exchange? = null, onScreen: Boolean = true,
     ) = CardRun(CapsuleRun(key, "c-$key", state, goal = "目标$key", exchange = exchange, onScreen = onScreen), kind, line, ahead = ahead, behind = behind)
 
-    /** 卡片说的是哪一件(任务卡片或对话卡片)。 */
+    /** Which thing the card is about (task card or conversation card). */
     private fun keyOf(v: CardView?): String? = when (v) {
         is CardView.Detail -> v.run.run.key
         is CardView.Chat -> v.run?.run?.key
@@ -35,17 +35,18 @@ class CapsuleCardModelTest {
 
     private val running = TaskState.Running(2, "note", "tap")
 
-    // ---------- 只说一件 ----------
+    // ---------- Just say one thing ----------
 
     @Test fun keptPageCardWhenNothingElse() {
         val kept = KeptPage(3, "c-k", "r-k", "播放课程", "course.example.com", null, null, 0, 7_200_000)
         val v = CapsuleCards.of(emptyList(), null, idle = CardView.Chat("c-x"), kept = kept)
         assertEquals(CardView.Kept(kept), v)
-        // 卡片上没有输入框、没有停止;「打开对话」去它来自的对话
+        // There are no input boxes and no stops on the card; "Open Conversation" goes to the
+        // conversation it came from
         assertNull(CapsuleCards.input(v!!))
         assertNull(CapsuleCards.stopKey(v))
         assertEquals("c-k", CapsuleCards.conversationOf(v))
-        // 有任务(进行中或刚结束)时还是说任务
+        // When there is a task (in progress or just finished), it is still said to be a task
         assertEquals("a", keyOf(CapsuleCards.of(listOf(card("a", running)), null, kept = kept)))
     }
 
@@ -55,17 +56,18 @@ class CapsuleCardModelTest {
     }
 
     @Test fun severalRunsShowOnlyTheFirstInImportanceOrder() {
-        // 按 cardRuns 的先后(要你处理、进行中、刚结束)只取第一件,没有列表
+        // According to the order of cardRuns (you need to process, in progress, just finished), only the
+        // first item is taken, there is no list
         val need = card("n", TaskState.WaitingInput("几点？"), CapsuleKind.NeedAnswer)
         val done = card("d", TaskState.Succeeded("好了"), CapsuleKind.Done)
         assertEquals("n", keyOf(CapsuleCards.of(listOf(need, card("a", running), done))))
         assertEquals("a", keyOf(CapsuleCards.of(listOf(card("a", running), done))))
-        // 只剩刚结束的:也是一件,不是列表
+        // Only the ones that just ended are left: also one piece, not a list
         assertEquals("d", keyOf(CapsuleCards.of(listOf(done, card("e", TaskState.Cancelled, CapsuleKind.Cancelled)))))
         assertNull(CapsuleCards.of(emptyList(), "c-a"))
     }
 
-    // ---------- 任务卡片还是对话卡片 ----------
+    // ---------- Task cards or dialogue cards ----------
 
     @Test fun taskCardOnlyWhileOperatingAScreenNow() {
         val waits = listOf(
@@ -77,7 +79,7 @@ class CapsuleCardModelTest {
         )
         for ((s, k) in waits) {
             assertTrue("$s on screen", CapsuleCards.of(listOf(card("a", s, k)), null) is CardView.Detail)
-            // 纯聊天(没有虚拟屏、没开网页)同样的状态是对话卡片
+            // Pure chat (no virtual screen, no webpage open), the same status is a conversation card
             val chat = CapsuleCards.of(listOf(card("a", s, k, onScreen = false)), null) as CardView.Chat
             assertEquals("c-a", chat.target)
             assertEquals(CapsuleCards.content(card("a", s, k)), chat.content)
@@ -85,7 +87,8 @@ class CapsuleCardModelTest {
     }
 
     @Test fun finishedAppTaskIsAChatCard() {
-        // 操作过 App、办完回了话:按此刻的状态,是对话卡片(画面还没放掉也一样)
+        // After operating the App and replying after completing the task: According to the current
+        // status, it is a conversation card (the same applies even if the screen is not released)
         for ((s, k) in listOf(
             TaskState.Succeeded("好了") to CapsuleKind.Done,
             TaskState.Failed("没找到", FailKind.GaveUp) to CapsuleKind.Failed,
@@ -94,7 +97,8 @@ class CapsuleCardModelTest {
             assertTrue("$s", CapsuleCards.of(listOf(card("a", s, k, onScreen = true)), null) is CardView.Chat)
             assertTrue(!CapsuleCards.taskCard(card("a", s, k, onScreen = true)))
         }
-        // 正在操作的那件变成纯聊天(画面放掉了):马上换成对话卡片
+        // The thing you are operating becomes a pure chat (the screen is released): it will be changed
+        // to a conversation card immediately
         assertTrue(CapsuleCards.taskCard(card("a", running)))
         assertTrue(!CapsuleCards.taskCard(card("a", running, onScreen = false)))
     }
@@ -108,12 +112,12 @@ class CapsuleCardModelTest {
         assertNull(CapsuleCards.stopKey(CardView.Chat("c1")))
     }
 
-    // ---------- 每种状态放什么 ----------
+    // ---------- What to put in each state ----------
 
     @Test fun workingListsAllStepsEndingWithTheCurrentLine() {
         val ex = Exchange("g", listOf("打开购物", "点搜索框", "输入牙膏", "看结果").map { StepRow(1, it, "", StepState.Ok) }, ExchangeStatus.Working, live = true)
         assertEquals(listOf("打开购物", "点搜索框", "输入牙膏", "看结果", "挑销量高的"), CapsuleCards.steps(ex, "挑销量高的"))
-        // 此刻那句就是最后一步:不重复
+        // The sentence at this moment is the last step: don’t repeat it
         assertEquals(listOf("打开购物", "点搜索框", "输入牙膏", "看结果"), CapsuleCards.steps(ex, "看结果"))
         assertEquals(listOf("在想下一步"), CapsuleCards.steps(null, "在想下一步"))
         assertEquals(CardContent.Working(listOf("在想")), CapsuleCards.content(card("a", running, line = "在想")))
@@ -136,7 +140,8 @@ class CapsuleCardModelTest {
         val s = TaskState.WaitingConfirmation(ConfirmationRequest(IrrevAction.order, "店", "两支牙膏", "¥19.9", "com.shop"))
         val ex = Exchange("g", emptyList(), ExchangeStatus.NeedsConfirmation("要你同意:下单", "在 购物\n金额:¥19.9", 42), live = true)
         assertEquals(CardContent.Confirm("要你同意:下单", "在 购物\n金额:¥19.9", 42), CapsuleCards.content(card("a", s, CapsuleKind.NeedConfirm, exchange = ex)))
-        // 还没有这一问一答时也能同意:编号和对话页、通知用的同一个
+        // Even if you haven’t answered this question yet, I can agree: the number is the same as the one
+        // used for conversation pages and notifications.
         val raw = CapsuleCards.content(card("a", s, CapsuleKind.NeedConfirm)) as CardContent.Confirm
         assertEquals(ConfirmationNotifier.requestKey(s), raw.key)
         assertTrue(raw.body.contains("Amount: ¥19.9"))
@@ -168,7 +173,7 @@ class CapsuleCardModelTest {
         assertTrue(!CapsuleCards.showsScreen(CardContent.Result(CapsuleKind.Done)))
     }
 
-    // ---------- 输入框 ----------
+    // ---------- Input box ----------
 
     @Test fun inputGoesToTheRightPlace() {
         fun inputOf(state: TaskState, kind: CapsuleKind) = CapsuleCards.input(CapsuleCards.of(listOf(card("a", state, kind)), null)!!)?.kind
@@ -177,13 +182,15 @@ class CapsuleCardModelTest {
         assertEquals(CardInputKind.Answer, inputOf(TaskState.WaitingInput("几点？", listOf("8 点")), CapsuleKind.NeedAnswer))
         assertEquals(CardInputKind.Continue, inputOf(TaskState.Succeeded("好了"), CapsuleKind.Done))
         assertEquals(CardInputKind.Continue, inputOf(TaskState.Failed("x", FailKind.Model), CapsuleKind.Failed))
-        // 要你接管、要你同意时先处理那件事,不给输入框
+        // When I want you to take over or agree to it, handle that matter first without giving an input
+        // box.
         assertNull(inputOf(TaskState.WaitingTakeover("login", "登录"), CapsuleKind.NeedTakeover))
         val confirm = TaskState.WaitingConfirmation(ConfirmationRequest(IrrevAction.send, "张三", "明天见", null, "com.chat"))
         assertNull(inputOf(confirm, CapsuleKind.NeedConfirm))
         assertEquals(CardInput(CapsuleCards.HINT_START, CardInputKind.Start), CapsuleCards.input(CardView.Chat(null)))
         assertEquals(CardInput(CapsuleCards.HINT_CONTINUE, CardInputKind.Continue), CapsuleCards.input(CapsuleCards.of(listOf(card("a", TaskState.Succeeded("好了"), CapsuleKind.Done)), null)!!))
-        // 纯聊天在回答时也能插话;要你同意时先处理那件事
+        // In pure chat, you can also interrupt when answering; if you want to agree, deal with that
+        // matter first
         assertEquals(CardInputKind.Steer, CapsuleCards.input(CapsuleCards.of(listOf(card("a", running, onScreen = false)), null)!!)?.kind)
         assertNull(CapsuleCards.input(CapsuleCards.of(listOf(card("a", confirm, CapsuleKind.NeedConfirm, onScreen = false)), null)!!))
     }
@@ -191,12 +198,13 @@ class CapsuleCardModelTest {
     @Test fun afterSendingTheCardFollowsThatConversation() {
         val done = card("a", TaskState.Succeeded("好了"), CapsuleKind.Done)
         val other = card("b", running)
-        // 发完话、新任务还没起来:跟着的对话里只有结束的那件
+        // After sending the message, the new task has not started yet: the following conversation only
+        // contains the one that ended
         assertEquals("a", keyOf(CapsuleCards.of(listOf(other, done), follow = "c-a")))
-        // 新任务起来了:进行中的优先
+        // New tasks are up: ongoing priority
         val again = card("a2", running).let { it.copy(run = it.run.copy(conversationId = "c-a")) }
         assertEquals("a2", keyOf(CapsuleCards.of(listOf(other, done, again), follow = "c-a")))
-        // 跟着的对话里已经没有任务:按先后取第一件
+        // There are no tasks in the following dialogue: take the first one in order
         assertEquals("b", keyOf(CapsuleCards.of(listOf(other, done), follow = "c-gone")))
     }
 
@@ -205,25 +213,30 @@ class CapsuleCardModelTest {
         assertEquals(idle, CapsuleCards.of(emptyList(), null, idle = idle))
         assertEquals("c1", idle.target)
         assertNull(idle.copy(fresh = true).target)
-        // 有任务时不显示空闲卡片
+        // Do not display idle cards when there are tasks
         assertTrue(CapsuleCards.of(listOf(card("a", running)), null, idle = idle) is CardView.Detail)
     }
 
     /**
-     * 用户此刻在的对话比别的对话里已结束、还挂着的那件优先:否则在对话页新开一个对话以后,点开胶囊还是那个旧对话的结果卡片。
-     * 同一对话里刚结束的照旧算它的,进行中的任务照旧优先。
+     * The conversation that the user is currently in takes priority over other conversations that have
+     * ended and are still pending: otherwise, after opening a new conversation on the conversation page,
+     * clicking on the capsule will still be the result card of the old conversation. The tasks that have
+     * just ended in the same conversation still count, and the tasks in progress still take priority.
      */
     @Test fun idleCardOfTheConversationOnScreenBeatsAnEndedRunFromAnother() {
         val ended = card("a", TaskState.Succeeded("好了"), CapsuleKind.Done)
         val fresh = CardView.Chat(null, fresh = true, current = true)
         assertEquals(fresh, CapsuleCards.of(listOf(ended), null, idle = fresh))
-        // 新对话发出去了、正在跑:任务卡片照旧
+        // The new dialogue has been sent and is running: the task card is still the same
         assertTrue(CapsuleCards.of(listOf(card("r", running)), null, idle = fresh) is CardView.Detail)
-        // 同一对话里刚结束的那件:显示它(带结果),不换成空卡片
+        // The item that just ended in the same conversation: display it (with results), do not replace
+        // it with an empty card
         assertEquals("a", keyOf(CapsuleCards.of(listOf(ended), null, idle = CardView.Chat("c-a", current = true))))
-        // 兜底那张「最近对话」不抢:它不是用户此刻在的
+        // Don’t grab the “Recent Conversations” at the bottom of the pocket: it’s not what the user is
+        // currently in
         assertEquals("a", keyOf(CapsuleCards.of(listOf(ended), null, idle = CardView.Chat("c-z", title = "别的"))))
-        // 没有任务、后台还留着一页:照旧是那一页的卡片,不被空闲卡片顶掉
+        // There are no tasks and there is still one page in the background: the cards on that page are
+        // still there and will not be pushed out by idle cards.
         val kept = KeptPage(3, "c-k", "r-k", "播放课程", "course.example.com", null, null, 0, 7_200_000)
         assertEquals(CardView.Kept(kept), CapsuleCards.of(emptyList(), null, idle = fresh, kept = kept))
     }

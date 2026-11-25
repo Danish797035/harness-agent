@@ -108,9 +108,9 @@ class AppAccessScreenPortTest {
         denied("app_blocked") { screen.awaitAppFree("bank", null, 1_000) }
     }
 
-    // ---------- 每个端口成员都过这道边界 ----------
+    // ---------- Every port member crosses this boundary ----------
 
-    /** 端口的每个成员都在边界里显式转交给里面的端口:漏写的会落到接口的默认实现上,到不了里面。 */
+    /** Each member of the port is explicitly transferred to the port inside the boundary: omissions will fall on the default implementation of the interface and cannot reach inside. */
     @Test fun everyPortMemberIsForwardedExplicitly() {
         val reached = mutableSetOf<String>()
         val screen = AppAccessScreenPort(recordingPort(reached), AppAccessPolicy.ALLOW, packages = { listOf("bank") })
@@ -121,7 +121,7 @@ class AppAccessScreenPortTest {
         }
     }
 
-    /** 禁用的 App 在前台时,除了明说不碰 App 界面的那几个,端口的每个成员都被拒绝;新加的成员默认算在要检查的里面。 */
+    /** When a disabled app is in the foreground, every member of the port is rejected except for those that explicitly say not to touch the app interface; newly added members are included in the list to be checked by default. */
     @Test fun everyPortMemberExceptPassThroughIsChecked() {
         val screen = AppAccessScreenPort(recordingPort(mutableSetOf()), blocked(), packages = { listOf("bank") })
         for (m in portMembers()) {
@@ -133,14 +133,14 @@ class AppAccessScreenPortTest {
 
     private fun portMembers(): List<Method> = ScreenPort::class.java.methods.filter { it.name !in OWN }
 
-    /** 什么都只记下名字的端口;读屏给一屏前台是 bank 的。 */
+    /** Just write down the name of the port; read the screen to the front desk of the bank. */
     private fun recordingPort(reached: MutableSet<String>): ScreenPort =
         Proxy.newProxyInstance(ScreenPort::class.java.classLoader, arrayOf(ScreenPort::class.java)) { _, m, _ ->
             reached += m.name
             if (m.name == "snapshot" || m.name == "peek") ScreenSnapshot("s", "bank", emptyList(), 1, 1) else null
         } as ScreenPort
 
-    /** 按参数类型给样例值调一次(挂起函数最后一个参数是续体,这里的调用都不会真挂起);抛出的异常原样抛出。 */
+    /** Adjust the sample value once according to the parameter type (the last parameter of the hanging function is the continuation, and the call here will not really hang); the thrown exception will be thrown as it is. */
     private fun invoke(screen: ScreenPort, m: Method) {
         val args = m.parameterTypes.map { t ->
             when (t) {
@@ -163,7 +163,7 @@ class AppAccessScreenPortTest {
         }
     }
 
-    // ---------- 少问窗口 ----------
+    // ---------- Ask less window ----------
 
     @Test fun snapshotIsCheckedAgainstItsOwnWindowsWithoutProbing() = runTest {
         val inner = object : ScreenPort by FakeScreen() {
@@ -201,12 +201,12 @@ class AppAccessScreenPortTest {
         screen.frameGrid()
         repeat(10) { screen.checkAppAccess() }
         assertEquals(0, probes)
-        // 窗口变了:再问一次,之后又沿用
+        // The window has changed: ask again and use it later
         token++
         screen.screenshotPng()
         screen.screenshotPng()
         assertEquals(1, probes)
-        // 过了沿用的时限:再问
+        // The time limit for inheritance has passed: Ask again
         now += AppAccessScreenPort.CHECK_TTL_MS + 1
         screen.checkAppAccess()
         assertEquals(2, probes)
@@ -246,10 +246,10 @@ class AppAccessScreenPortTest {
     }
 
     private companion object {
-        /** 边界自己的成员。 */
+        /** Boundary own members. */
         val OWN = setOf("getAppAccess", "checkAppAccess")
 
-        /** 不碰任何 App 界面、原样转交的成员;按目标挑 App 的系统动作由端口自己看名单。加进来要说得出为什么。 */
+        /** Do not touch any App interface and transfer the members as they are; select the system actions of the App according to the target and let the port view the list by itself. Add it in to figure out why. */
         val PASS_THROUGH = setOf("systemAction", "systemCommand", "listApps", "otherProfiles", "appCopies", "getAfterTask")
     }
 }

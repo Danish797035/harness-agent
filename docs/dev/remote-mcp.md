@@ -1,15 +1,19 @@
-# 自托管远程 CLI / MCP
+# Self-hosted remote CLI/MCP
 
-首版范围：单用户、单设备、单网关进程。网关提供 HTTPS CLI / MCP 转发，手机主动连接 WSS；不需要手机公网入站端口或额外 VPN。部署代码与英文说明见 [tools/relay/README.md](../../tools/relay/README.md)。
+Scope of the first version: single user, single device, single gateway process. The gateway provides
+HTTPS CLI/MCP forwarding, and the mobile phone actively connects to WSS; no mobile phone public
+network inbound port or additional VPN is required. For deployment code and English instructions,
+see [tools/relay/README.md](../../tools/relay/README.md).
 
-## 部署与配对
+## Deployment and pairing
 
-准备指向服务器的域名、Docker Compose、TCP 80/443 入站。不要把网关 HTTP 8787 端口直接发布到公网。
+Prepare domain name, Docker Compose, TCP 80/443 inbound pointing to the server. Do not publish the
+gateway HTTP port 8787 directly to the public network.
 
 ```sh
 cd tools/relay
 cp .env.example .env
-# 编辑 .env，设置 MINA_DOMAIN，仅填写自己的域名，不带协议或路径
+# edit .env and set MINA_DOMAIN to your own domain only, without scheme or path
 docker compose build
 docker build --target caddy-check .
 docker compose run --rm relay -init-owner-key -owner-key-file /data/owner-key
@@ -18,13 +22,22 @@ docker compose cp relay:/data/owner-key ./owner-key
 chmod 600 owner-key
 ```
 
-在本机私下查看 owner-key 文件。它是管理密钥，不是 MCP 令牌，不填进客户端配置。初始化不会覆盖旧密钥。Caddy 自动申请证书并代理 WebSocket；仅 Caddy 发布主机端口。域名和端口必须可达，保留数据与证书卷。
+View the owner-key file privately on this machine. It is an administrative key, not an MCP token,
+and is not populated in the client configuration. Initialization will not overwrite old keys. Caddy
+automatically requests a certificate and proxies WebSockets; only Caddy publishes the host port. The
+domain name and port must be reachable, and the data and certificate volumes must be retained.
 
-浏览器打开网关 HTTPS 地址，输入管理密钥，点 Create pairing code。配对码五分钟有效、仅用一次。手机「设置 → 连接电脑 → 远程」填写地址和配对码；配对后仍需显式打开「允许远程访问」。换手机前须撤销旧配对。
+Open the gateway HTTPS address in the browser, enter the management key, and click Create pairing
+code. The pairing code is valid for five minutes and can only be used once. Fill in the address and
+pairing code in the mobile phone "Settings → Connect to Computer → Remote"; after pairing, you still
+need to explicitly turn on "Allow remote access". You must cancel the old pairing before changing
+your phone.
 
-### 服务器已有 Nginx
+### The server already has Nginx
 
-80/443 已被现有 Nginx 使用时，改用独立的 [compose.nginx.yaml](../../tools/relay/compose.nginx.yaml)，不要与默认 Compose 文件合并。配置同一份 .env，以固定项目名执行：
+When 80/443 is already used by existing Nginx, use the independent
+[compose.nginx.yaml](../../tools/relay/compose.nginx.yaml) instead and do not merge it with the
+default Compose file. Configure the same.env and execute it with a fixed project name:
 
 ```sh
 docker compose -p mina-relay -f compose.nginx.yaml build
@@ -34,16 +47,33 @@ docker compose -p mina-relay -f compose.nginx.yaml cp relay:/data/owner-key ./ow
 chmod 600 owner-key
 ```
 
-网关仅发布到服务器 127.0.0.1:18787；Nginx 须在同一台主机。将 [nginx.conf.example](../../tools/relay/nginx.conf.example) 中的域名和证书路径改为实际值，作为独立虚拟主机配置加入现有 http 配置。证书须覆盖该域名，并已有续期及续期后平滑加载安排。先检查域名、map 名称和 18787 端口没有冲突，再 nginx -t，通过后平滑 reload；失败时只撤回新配置。示例保留 WebSocket 升级，关闭缓冲、代理重试和转发请求的访问日志。
+The gateway only publishes to server 127.0.0.1:18787; Nginx must be on the same host. Change the
+domain name and certificate path in [nginx.conf.example](../../tools/relay/nginx.conf.example) to
+actual values and add it to the existing http configuration as an independent virtual host
+configuration. The certificate must cover the domain name, and have renewal and smooth loading
+arrangements after renewal. First check that there is no conflict between the domain name, map name
+and port 18787, then nginx -t, and then reload smoothly; if it fails, only the new configuration
+will be withdrawn. The example preserves access logs for WebSocket upgrades, turning off buffering,
+proxy retries, and forwarded requests.
 
-后续所有 Compose 命令沿用相同项目名和 -f 参数。回滚时禁用新虚拟主机，校验并平滑加载 Nginx，再 docker compose -p mina-relay -f compose.nginx.yaml down；保留数据卷。不要改为公网绑定后端端口，也不要在此部署中启动默认 Compose 文件的 Caddy。
+All subsequent Compose commands use the same project name and -f parameter. When rolling back,
+disable the new virtual host, verify and load Nginx smoothly, and then docker compose -p mina-relay
+-f compose.nginx.yaml down; retain the data volume. Do not bind the backend port to the public
+network instead, and do not start Caddy with the default Compose file in this deployment.
 
-## 客户端与统一令牌
+## Client and unified token
 
-手机现有 `McpSettings` 访问令牌同时用于局域网、远程 CLI 和 MCP。网关不生成、校验、摘要保存或同步该令牌，只透明转发 `Authorization`，每个请求由手机 `RemoteAccess` 校验。局域网开关关闭时，已显式开启的远程连接仍可使用此令牌。USB 临时令牌继续仅用于回环入口，不能通过远程访问。
+The phone's existing `McpSettings` access token is used for both LAN, remote CLI and MCP. The
+gateway does not generate, verify, digest or synchronize the token, it only transparently forwards
+`Authorization`, and each request is verified by the mobile phone `RemoteAccess`. When the LAN
+switch is turned off, remote connections that have been explicitly opened can still use this token.
+USB temporary tokens continue to be used only for loopback entry and not for remote access.
 
-- MCP：手机选「MCP → 远程」，复制配置到支持自定义 Authorization 请求头的客户端，地址为 `https://你的域名/mcp`。
-- CLI：手机选「CLI / Skill → 远程」，复制访问令牌到电脑私密文件，运行页面上的连接命令。命令不携带令牌原文。
+- MCP: Select "MCP → Remote" on your mobile phone, copy the configuration to the client that
+supports custom Authorization request header, the address is `https://your-domain/mcp`.
+- CLI: Select "CLI / Skill → Remote" on your mobile phone, copy the access token to the computer
+  private file, and run the connection command on the page. The command does not carry the token
+  text.
 
 ```sh
 chmod 600 /path/to/token
@@ -52,41 +82,100 @@ mina --url https://mina.example.com --token-file /path/to/token doctor
 mina --url https://mina.example.com --token-file /path/to/token task list --limit 5
 ```
 
-每次远程调用都须传入 `--url` 和 `--token-file`；`mina connect` 只验证连接，不保存远程配置。两种协议都访问手机同一份任务服务，任务创建、查询、等待、回答、插话和取消行为与局域网一致。
+Each remote call must pass in `--url` and `--token-file`; `mina connect` only verifies the
+connection and does not save the remote configuration. Both protocols access the same task service
+on the mobile phone, and task creation, query, waiting, answering, interrupting and cancellation
+behaviors are consistent with the local area network.
 
-### 经网关唤醒和解锁：默认关
+### Wake up and unlock via gateway: Off by default
 
-远程唤醒和解锁让持有令牌的人在手机上输入锁屏 PIN/密码。局域网里能连上手机的只有同一网络的设备；经网关则是整个互联网，且网关本身能看到令牌。所以经网关来的请求默认**看不到**屏幕能力（`mina_device_state`、`mina_wake_device`、`mina_unlock_device` 与 `/api/v1/device`，`/api/v1` 的 capabilities 也不列 `device_state`），工具和端点根本不出现，而不是出现了再拒绝。要经网关唤醒、解锁，三项都得在手机上打开：「允许远程访问」、远程页的「允许经网关唤醒和解锁」（默认关，存在加密的网关配置里，配对或重新配对都回到关）、以及原有的「允许远程亮屏与解锁」。局域网和 USB 的行为不变。
+Remote wake and unlock lets the person holding the token enter the lock screen PIN/password on the
+phone. In the LAN, only devices on the same network can connect to the mobile phone; through the
+gateway, the entire Internet can be connected, and the gateway itself can see the token. Therefore,
+by default, requests coming through the gateway cannot see screen capabilities (`mina_device_state`,
+`mina_wake_device`, `mina_unlock_device` and `/api/v1/device`, `/api/v1`’s capabilities are not
+listed as `device_state`), and tools and endpoints do not appear at all, instead of being rejected
+after they appear. To wake up and unlock via the gateway, all three items must be turned on on the
+phone: "Allow remote access", "Allow wake up and unlock via gateway" on the remote page (off by
+default, stored in the encrypted gateway configuration, return to off when pairing or re-pairing),
+and the original "Allow remote screen lighting and unlocking". The behavior of LAN and USB is
+unchanged.
 
-在手机更换访问令牌后，局域网和远程的旧令牌立即失效，无须同步网关；客户端须更新配置。解除配对仅撤销设备通道，不更换访问令牌；重新配对后持有该令牌的客户端仍能访问。若需使这些客户端失效，应在手机更换令牌。
+After the access token is replaced on the mobile phone, the old tokens on the local area network and
+the remote will become invalid immediately, and there is no need to synchronize the gateway; the
+client must update the configuration. Unpairing only revokes the device channel and does not replace
+the access token; clients holding the token can still access after re-pairing. To disable these
+clients, the token should be replaced on the phone.
 
-网关不提供 OAuth 授权发现、注册、授权或刷新。仅接受 OAuth 流程且不能配置 Bearer 请求头的客户端不在当前支持范围。浏览器 Origin 请求仍由手机拒绝；现有 MCP 使用无状态 JSON，不增加 SSE。
+The gateway does not provide OAuth grant discovery, registration, authorization, or refresh. Clients
+that only accept the OAuth flow and cannot configure the Bearer request header are not currently
+supported. Browser Origin requests are still rejected by the phone; existing MCP uses stateless JSON
+and does not add SSE.
 
-## 架构和凭据职责
+## Schema and Credential Responsibilities
 
-| 凭据 | 用途 | 保留位置 |
+| Credentials | use | Reserve your spot |
 | --- | --- | --- |
-| 手机访问令牌 | 统一的 CLI / MCP 请求鉴权 | 手机加密存储、用户配置的客户端 |
-| 设备通道凭据 | 配对手机建立 WSS、解除配对 | 手机加密存储、网关摘要 |
-| 管理密钥 | 创建配对码、管理解除配对 | 网关私密文件、进程内摘要 |
+| Mobile access token | Unified CLI/MCP request authentication | Mobile phone encrypted storage, user-configured client |
+| Device channel credentials | Pair a mobile phone to establish WSS and unpair it | Mobile phone encrypted storage, gateway summary |
+| Manage keys | Create pairing codes and manage unpairing | Gateway private files, in-process summaries |
 
-`RemoteAccess.handle` 统一鉴权和协议错误，再进入 `RemoteEndpoints`；本地监听与远程通道共用任务服务。LAN 私有地址检查保留。远程请求使用非回环来源，不获得 USB 权限。失败冷却按调用方分开记：网关把它看到的调用方地址（IPv4 地址或 IPv6 的 /64 前缀）随请求带给手机，手机按「网关 + 调用方」计数，与本地监听的地址分开。一个调用方连续猜错只冷却它自己，冷却期间连正确令牌也不放行，不会把「猜对了」透露给它。网关在反向代理后面时所有连接都来自代理，须加 `-trust-proxy`，让网关从代理追加的最后一个 X-Forwarded-For 取调用方（只在直接对端是回环或私有地址时读取）；两份 Compose 文件已加上，Nginx 示例用 `$remote_addr` 覆盖该头。网关自己的管理密钥、配对和转发限流也按同一调用方计数。`McpRuntime` 为远程通道提供手机统一令牌，远程关闭时拒绝访问；配对本身不启用远程。
+`RemoteAccess.handle` Unified authentication and protocol errors, then enter `RemoteEndpoints`;
+local monitoring and remote channels share task services. LAN private address check reserved. Remote
+requests use non-loopback sources and do not obtain USB permissions. Failure cooling is recorded
+separately by caller: the gateway brings the caller address it sees (IPv4 address or /64 prefix of
+IPv6) to the mobile phone with the request, and the mobile phone counts according to "gateway +
+caller", separate from the locally monitored address. If a caller guesses incorrectly continuously,
+it will only cool down itself. During the cooldown period, it will not even release the correct
+token, and will not reveal the "correct guess" to it. When the gateway is behind a reverse proxy,
+all connections come from the proxy. `-trust-proxy` must be added to let the gateway get the caller
+from the last X-Forwarded-For appended by the proxy (only read when the direct peer is a loopback or
+private address); two Compose files have been added, and the Nginx example uses `$remote_addr` to
+overwrite this header. The gateway's own administrative keys, pairing, and forwarding throttling are
+also counted by the same caller. `McpRuntime` provides a mobile unified token for the remote channel
+and denies access when remote is turned off; pairing itself does not enable remote.
 
-`RelayGateway` 校验 HTTPS 地址和配对响应，不跟随重定向。`RelayClient` 白名单放行 `/mcp`、`/api/v1` 和 `/api/v1/…` 的 GET/POST/DELETE，独立保留 query 及 Authorization、Origin、X-Mina-Client 和协议头；各端点方法、参数和任务权限由手机继续检查。网关不代理任意 URL 或 TCP。
+`RelayGateway` Verifies HTTPS address and pairing response, does not follow redirects. The
+`RelayClient` whitelist allows the GET/POST/DELETE of `/mcp`, `/api/v1` and `/api/v1/…`, and
+independently retains the query, Authorization, Origin, X-Mina-Client and protocol headers; each
+endpoint method, parameter and task permissions are continued to be checked by the mobile phone. The
+gateway does not proxy arbitrary URLs or TCP.
 
-`RelaySettings` 使用独立 Keystore 密钥加密、原子保存设备配置，状态流仅含非秘密字段。`RelayNetwork` 感知网络切换，`McpService` 沿用前台服务和通知关闭动作。App 引导使用现有组件、中英繁体资源，切换引导不改变权限，复制时才读取令牌。
+`RelaySettings` uses independent Keystore key encryption, atomically saved device configuration, and
+the state stream contains only non-secret fields. `RelayNetwork` senses network switching, and
+`McpService` follows the foreground service and notification closing actions. App guidance uses
+existing components and Chinese, English and Traditional Chinese resources. Switching guidance does
+not change the permissions, and the token is read only when copied.
 
-网关 Web UI 使用 Go 模板和嵌入的本地 CSS/JS，无框架、Node 构建或 CDN。配色、字号、间距、分组卡片和按钮尺寸映射 App 语义值，适配浅色/深色和窄屏。英语、简体中文、繁体中文三份词典覆盖界面、错误、表单校验、确认框；默认跟随浏览器，可单独选择，cookie 只保存语言。管理密钥不回填，配对管理不使用浏览器凭据存储，无 JS 时也可提交和确认。
+Gateway web UI uses Go templates and embedded native CSS/JS, no frameworks, Node builds or CDNs.
+Color matching, font size, spacing, group card and button size map App semantic values to adapt to
+light/dark colors and narrow screens. Three dictionaries, English, Simplified Chinese, and
+Traditional Chinese, cover the interface, errors, form verification, and confirmation boxes; they
+follow the browser by default and can be selected individually. The cookie only saves the language.
+Management keys are not backfilled, pairing management does not use browser credential storage, and
+submission and confirmation are possible without JS.
 
-## 断线和撤销
+## Disconnect and Undo
 
-关闭远程立即关闭通道并保留配对；解除配对先关闭，再请求网关删除设备身份，断网时保留关闭状态以便重试。Web UI 的「解除手机配对」须确认后执行。
+Close the remote channel and immediately close the channel and keep the pairing; when unpairing,
+close it first, then request the gateway to delete the device identity, and keep the closed state
+for retry when the network is disconnected. The "Unpairing of mobile phone" in the Web UI must be
+confirmed before execution.
 
-连接退避重建，操作不重放；每条请求有独立编号，同连接重复编号不执行。同时最多八个请求，正文上限 1 MiB，query 和头部各上限 8 KiB，超时 65 秒，覆盖手机最多 50 秒的状态等待。手机结果过大时返回错误，不因此撤销通道。
+The connection is backed off and reestablished, and the operation is not replayed; each request has
+an independent number, and repeated numbers for the same connection are not executed. There are a
+maximum of eight requests at the same time, the upper limit of the body is 1 MiB, the upper limit of
+each query and header is 8 KiB, the timeout is 65 seconds, covering the status wait of up to 50
+seconds on the mobile phone. If the mobile phone result is too large, an error will be returned and
+the channel will not be cancelled.
 
-`device_offline` 表示无可用通道，`delivery_unknown` 表示可能已经执行但结果丢失；应查询任务状态，不自动重发任务、插话或解锁。CLI 对写请求的 HTTP 5xx 保守报告 `outcome_unknown`。取消等待不能撤销已执行动作。离线不积压命令。
+`device_offline` means there is no available channel, `delivery_unknown` means it may have been
+executed but the result is lost; the task status should be queried and the task will not be
+automatically resent, interrupted or unlocked. CLI conservatively reports `outcome_unknown` on HTTP
+5xx for write requests. Canceling wait cannot undo the executed action. There is no backlog of
+commands offline.
 
-## 验证与运维
+## Verification and operation and maintenance
 
 ```sh
 cd tools/relay
@@ -97,8 +186,25 @@ cd ../..
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PdevInstall
 ```
 
-跨语言测试启动真实 Go 网关，经生产 Kotlin 隧道和手机鉴权调用真实 Python CLI 与 MCP，验证共享任务、统一令牌轮换、USB 令牌拒绝和解除配对。普通 JVM 测试不要求 Go。界面测试为 `RelaySectionTest` 和 `ComputerAccessScreenTest`；开发包通过 `devInstall` 与正式版隔离。
+Cross-language testing launches a real Go gateway, calls the real Python CLI and MCP via a
+production Kotlin tunnel and phone authentication, and verifies shared tasks, unified token
+rotation, USB token rejection and unpairing. Go is not required for normal JVM testing. The
+interface tests are `RelaySectionTest` and `ComputerAccessScreenTest`; the development package is
+isolated from the official version through `devInstall`.
 
-`/healthz` 仅证明网关进程可用，不代表手机在线。代理须保留 Host、WebSocket 和协议头，用调用方地址覆盖 X-Forwarded-For，超时大于 65 秒，禁用请求自动重试。默认不记录正文或凭据，反向代理也须如此。备份包含设备身份，恢复旧备份可能恢复被撤销设备；管理密钥轮换需替换私密文件后重启，不改变手机令牌。
+`/healthz` only proves that the gateway process is available, but does not mean that the mobile
+phone is online. The proxy must preserve Host, WebSocket, and Protocol headers, override
+X-Forwarded-For with the caller address, have a timeout greater than 65 seconds, and disable
+automatic request retries. By default no body or credentials are logged, and reverse proxies must do
+the same. The backup contains the device identity, and restoring the old backup may restore the
+revoked device; managing key rotation requires replacing the private file and then restarting,
+without changing the mobile phone token.
 
-HTTPS 在网关/代理终止，网关技术上能读取请求头和任务内容，须使用可信网关；该方案为手机鉴权的透明转发，不是客户端到手机的端到端加密。PIN/密码仍只在手机处理。Android 后台限制、强行停止、断网和重启会影响可用性，须单独验证证书、待机、网络切换及首次解锁限制。
+HTTPS terminates at the gateway/proxy. The gateway can technically read the request header and task
+content and must use a trusted gateway; this solution is a transparent forwarding of mobile phone
+authentication, not end-to-end encryption from client to mobile phone. PINs/passwords are still only
+processed on the phone. Android background restrictions, forced stops, network disconnections, and
+restarts will affect availability, and certificates, standby, network switching, and first-time
+unlock restrictions must be verified separately.
+
+

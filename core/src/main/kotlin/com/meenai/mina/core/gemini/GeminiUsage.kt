@@ -12,13 +12,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.OffsetDateTime
 import kotlin.math.roundToInt
 
-/** 一个用量窗口:用掉了百分之几(0..100)和什么时候重置(纪元毫秒)。 */
+/** A usage window: what percentage is used (0..100) and when it resets (epoch milliseconds). */
 data class GeminiUsageWindow(val percentUsed: Int, val resetsAtEpochMs: Long)
 
 /**
- * Gemini 账号自己的用量,来自 Gemini 网页的 Usage limits 页:
- * [daily] 是当前窗口(GXU_FIVE_HOURLY),[weekly] 是每周窗口(GXU_WEEKLY)。
- * [tier] 是 Google 返回的套餐名(可能为空)。
+ * Gemini account's own usage, from the Usage limits page of the Gemini web page: [daily] is the current
+ * window (GXU_FIVE_HOURLY), [weekly] is the weekly window (GXU_WEEKLY). [tier] is the package name
+ * returned by Google (may be empty).
  */
 data class GeminiUsage(
     val daily: GeminiUsageWindow? = null,
@@ -27,11 +27,12 @@ data class GeminiUsage(
 )
 
 /**
- * 解析 `UsagePageQuery` 的 JSON 回复。
+ * Parse the JSON response for `UsagePageQuery`.
  *
- * 结构:`data.viewer.rpcs.getUsageInfo.pools[]`,每一项有 `poolType`、`percentageUsed`(0..1 的小数)
- * 和 `gxu.windowRefreshesAt`(ISO 时间)。缺字段、坏时间或没有已知窗口时返回 null,
- * 调用方据此退回本机计数,不会把 0 当成真实用量。
+ * Structure: `data.viewer.rpcs.getUsageInfo.pools[]`, each item has `poolType`, `percentageUsed` (0..1
+ * decimal) and `gxu.windowRefreshesAt` (ISO time). Returns null when there is a missing field, a bad
+ * time, or no known window, and the caller will return the native count accordingly and will not regard
+ * 0 as the real usage.
  */
 object GeminiUsageParser {
     private val json = Json { ignoreUnknownKeys = true }
@@ -40,7 +41,8 @@ object GeminiUsageParser {
     fun parse(body: String): GeminiUsage? {
         val text = stripXssiPrefix(body)
         val root = runCatching { json.parseToJsonElement(text) }.getOrNull() ?: return null
-        // 网页的 GraphQL 回复是 Relay 数组([{data, errors}]);也接受单个对象,方便测试和旧格式
+        // GraphQL responses for web pages are Relay arrays ([{data, errors}]); also accepts single
+        // objects for easy testing and legacy formats
         val payload = when (root) {
             is JsonArray -> root.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
                 .firstOrNull { runCatching { it["data"]?.jsonObject }.getOrNull() != null }
@@ -67,17 +69,18 @@ object GeminiUsageParser {
     }
 
     /**
-     * 这次回复是不是「登录态不对」:网页没登录/令牌过期时 HTTP 仍是 200,
-     * 但 `viewer` 是 null(或带 UNAUTHENTICATED)。调用方据此换新 token 重试一次。
+     * Is this reply "wrong login status"? When the webpage is not logged in/the token expires, the HTTP
+     * is still 200, but `viewer` is null (or UNAUTHENTICATED). The caller changes the token accordingly
+     * and tries again.
      */
     fun needsFreshSession(body: String): Boolean {
         val text = stripXssiPrefix(body).trimStart()
-        // 被重定向到登录页时拿到的是 HTML,不是 JSON
+        // What I got when I was redirected to the login page was HTML, not JSON.
         if (!text.startsWith("[") && !text.startsWith("{")) return true
         return VIEWER_NULL.containsMatchIn(text) || text.contains("UNAUTHENTICATED")
     }
 
-    /** Google 的回复前面有防 XSSI 前缀(例如 `)]}'` + 换行),先去干净。 */
+    /** There is an anti-XSSI prefix in front of Google's reply (for example, `)]}'` + newline), so clean it first. */
     private fun stripXssiPrefix(body: String): String =
         body.trimStart().let { if (it.startsWith(")]}'")) it.substring(4).trimStart() else it }
 
@@ -96,7 +99,7 @@ object GeminiUsageParser {
         )
     }
 
-    /** 从根对象按路径取一个对象,任何一层不对就返回 null。 */
+    /** Get an object from the root object according to the path. If any layer is incorrect, null will be returned. */
     private fun JsonObject.path(vararg keys: String): JsonObject? {
         var current: JsonObject = this
         for (key in keys) {

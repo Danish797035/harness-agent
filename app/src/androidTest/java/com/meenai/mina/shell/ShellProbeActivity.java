@@ -11,9 +11,10 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * 外壳对照测试用的探针页:把自己所在的屏、任务、进程以及收到的点击和按键用广播告诉 Mina 进程里的测试。
- * 可以按启动入口(MAIN + INFO)或链接 mina-parity:// 打开。
- * 测试 APK 单独运行在自己的进程里、不带 Kotlin 标准库,所以这个页面用 Java 写。
+ * Probe page for shell control testing: broadcast the screen, task, process, and received clicks and
+ * keys to the test in the Mina process. It can be opened by pressing the startup entry (MAIN + INFO) or
+ * link mina-parity://. The test APK runs in its own process without the Kotlin standard library, so this
+ * page is written in Java.
  */
 public class ShellProbeActivity extends Activity {
     public static final String BROADCAST = "com.wangzan101.mina.test.SHELL_PROBE";

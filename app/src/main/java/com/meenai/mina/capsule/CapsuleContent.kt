@@ -77,28 +77,28 @@ import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaTheme
 import kotlin.math.ceil
 
-/** 胶囊外面留给阴影的边:浮层窗口按内容大小,阴影画在窗口里面;留得越少,窗口挡住下面 App 的透明边越窄。 */
+/** The edge left for the shadow outside the capsule: the floating layer window is sized according to the content, and the shadow is drawn inside the window; the less it is left, the narrower the transparent edge the window blocks the app below. */
 internal val CapsuleShadowRoom = 8.dp
 private val CapsuleHeight = 40.dp
 private val BarHeight = 48.dp
 private val LogoSize = 30.dp
 private const val FADE_MS = 400
-/** 截到屏幕时一颗上那一闪:多亮、多久退掉。 */
+/** When you capture the screen, one flashes on the screen: how bright it is and how long it takes to fade away. */
 private const val FLASH_ALPHA = 0.8f
 private const val FLASH_MS = 320
-/** 一颗展开成胶囊、缩回一颗的时长。 */
+/** The time it takes for one to expand into a capsule and retract one. */
 private const val MORPH_MS = 260
-/** 长按说话时放大多少、外圈多粗、变过去多久。 */
+/** How much it will zoom in when you press and hold to speak, how thick the outer ring will be, and how long it will last. */
 private const val HOLD_SCALE = 0.06f
 private val HoldRing = 3.dp
 private const val HOLD_MS = 180
-/** 干活中的圈转一周的时长。 */
+/** The length of time a work circle lasts. */
 private const val SPIN_MS = 1_200
 private val CapsuleText = TextStyle(fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
 private val BarDetail = TextStyle(fontSize = 11.5.sp, lineHeight = 15.sp)
 private val CountText = TextStyle(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold)
 
-/** 胶囊上的固定说法。 */
+/** The fixed saying on the capsule. */
 object CapsuleCopy {
     val STOP: String get() = tr(R.string.capsule_stop)
     val EXPAND: String get() = tr(R.string.capsule_expand)
@@ -106,7 +106,7 @@ object CapsuleCopy {
     val SWAP_SIDE: String get() = tr(R.string.capsule_swap_side)
     const val IDLE = "Harness Agent"
 
-    /** 读屏时一颗图标的说法:在做什么、要不要你处理、结果;好几件时的件数已在 [CapsuleView.Shown.text] 里。 */
+    /** What an icon says when reading the screen: What is it doing, do you want it to be processed, and the result; the number of items for several times is already in [CapsuleView.Shown.text]. */
     fun describe(view: CapsuleView.Shown): String = when {
         view.kind == CapsuleKind.Idle -> IDLE
         view.kind.needsYou -> tr(R.string.capsule_desc_needs, view.text)
@@ -117,17 +117,26 @@ object CapsuleCopy {
 }
 
 /**
- * 悬浮胶囊,不带状态:平时是一颗 Mina 图标,状态画在外圈和角标上(干活中蓝弧绕着转、等条件灰圈、要你处理整颗变橙、
- * 外圈一呼一吸;好几件时角上写件数;办好了绿勾,没办成、已停止灰色角标;空闲时什么都没有);
- * [CapsuleView.Shown.pill] 时展开成一行字的胶囊(要你处理、刚办完),宽度慢慢变,图标贴着停靠的那一边([side])不动;
- * App 交到你手上时是顶部那一条「你来处理 · 不做了 · 处理好了」。
- * 胶囊只一行字,最宽到屏幕的 60%,超出截断;同一个 [CapsuleView.Shown.widthEpoch] 里只变宽不变窄。
- * 点一颗或胶囊交给 [onTap](展开卡片),读屏时这一下的说法是 [tapLabel];那一条上的两个按钮交给 [onStop]、[onHandBack]。
- * [onSwapSide] 给了时读屏软件多一个「移到屏幕另一边」,代替拖动。[alpha] 只淡底和图标,外圈和角标保持实色。
- * 双击由调用方从两次 [onTap] 认出来;读屏软件的双击就是点按,所以 [onSendScreen] 给了时另有一个「把此刻的屏幕发给 Mina」。
- * [flash] 每加一,一颗上闪一下(截到了屏幕)。
- * [holding] 时是长按说话中:胶囊稍微放大、外面一圈蓝边。[onTalk] 给了时读屏软件多一个说话的操作([talkLabel]),代替长按:
- * 点一下开始、再点一下发出。
+ * Suspension capsule, without status: It is usually a Mina icon, and the status is drawn on the outer
+ * circle and corner mark (the blue arc rotates around during work, the gray circle is waiting for
+ * conditions, and the whole capsule turns orange when you need to process it, and the outer circle
+ * exhales and inhales; when there are several pieces, the number of pieces is written on the corner;
+ * green tick is done, and gray corner mark is stopped if it is not completed; nothing when idle);
+ * [CapsuleView.Shown.pill] It expands into a line of capsules (you have to deal with it and you have
+ * just finished it), the width slowly changes, and the icon sticks to the docked side ([side]); when the
+ * app is handed over to you, it is the one at the top that says "You handle it·Don't do it·It's done".
+ * The capsule only has one line of text, and the maximum width reaches 60% of the screen, and exceeds
+ * truncation; in the same [CapsuleView.Shown.widthEpoch], it only becomes wider but not narrower. Click
+ * one or the capsule and give it to [onTap] (expand card). When reading the screen, this point is said
+ * to be [tapLabel]; give the two buttons on that bar to [onStop] and [onHandBack]. [onSwapSide] gives
+ * screen reading software an additional "move to the other side of the screen" function instead of
+ * dragging. [alpha] only has a light background and icons, while the outer ring and corner markers
+ * remain solid colors. The double-click is recognized by the caller from the two [onTap]; the
+ * double-click of the screen reading software is a click, so when [onSendScreen] is given, there is
+ * another "send the current screen to Mina". [flash] Every time one is added, one will flash up (screen
+ * shot). When [holding] is long pressed and talking, the capsule is slightly enlarged and has a blue
+ * border around the outside. [onTalk] gives the screen reading software one more speaking operation
+ * ([talkLabel]), instead of long pressing: click to start, click again to send.
  */
 @Composable
 fun CapsuleContent(
@@ -146,7 +155,7 @@ fun CapsuleContent(
     onTalk: (() -> Unit)? = null,
     talkLabel: String = "",
 ) {
-    // 淡下去、恢复都慢慢来;关了动画时直接换
+    // Fade and restore slowly; when the animation is turned off, change directly
     val shown = if (MinaTheme.reduceMotion) alpha else animateFloatAsState(alpha, tween(FADE_MS), label = "fade").value
     val a11y = Modifier.semantics {
         customActions = listOfNotNull(
@@ -161,15 +170,17 @@ fun CapsuleContent(
     }
 }
 
-/** 一颗或展开的胶囊:同一块玻璃底,看得见的宽度在两者之间慢慢变(只在画的时候变,见 [Morph]);[end] 时贴右边(图标在右)。 */
+/** A capsule or unfolded capsule: the same glass bottom, the visible width slowly changes between the two (only changes when drawing, see [Morph]); [end] is attached to the right (icon on the right). */
 @Composable
 private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, tapLabel: String, a11y: Modifier, alpha: Float, flash: Int, holding: Boolean) {
     val c = MinaTheme.colors
-    // 长按说话中:放大一点、外面一圈蓝边(画在阴影边里,窗口大小不变)
+    // Long press while talking: Zoom in a little, and there is a blue border around the outside (drawn
+    // in the shadow border, the window size remains unchanged)
     val press = if (MinaTheme.reduceMotion) (if (holding) 1f else 0f)
         else animateFloatAsState(if (holding) 1f else 0f, tween(HOLD_MS), label = "hold").value
     val need = view.kind.needsYou || view.needCount > 0
-    // 截到屏幕:白光从亮到无,和截图时屏幕闪一下一个意思;关了动画时不闪
+    // Screen capture: The white light goes from bright to non-existent, which means the screen flashes
+    // when taking a screenshot; it does not flash when the animation is turned off.
     val glow = remember { Animatable(0f) }
     val still = MinaTheme.reduceMotion
     val morph = rememberMorph(animate = !still)
@@ -204,7 +215,8 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
             else Box(Modifier.size(CapsuleHeight), contentAlignment = Alignment.Center) { CapsuleLogo() }
             if (glow.value > 0f) Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.White.copy(alpha = glow.value)))
         }
-        // 外圈和角标不随底淡下去;缩回时贴着图标那一边,不跟着还没收完的宽度走
+        // The outer ring and corner mark do not fade with the bottom; when retracted, they stick to the
+        // side of the icon and do not follow the unfinished width.
         if (!view.pill) Box(Modifier.align(if (end) Alignment.CenterEnd else Alignment.CenterStart).size(CapsuleHeight)) {
             Ring(view.kind, need, Modifier.matchParentSize())
             Badge(view, need, Modifier.align(Alignment.TopEnd).offset(3.dp, (-3).dp))
@@ -212,12 +224,13 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
     }
 }
 
-/** 展开的胶囊里那一行:图标、状态标记、字;贴右边时图标在最右,和一颗时的位置一样。 */
+/** The row in the expanded capsule: icon, status mark, word; when pasted on the right, the icon is at the far right, the same position as when it is a capsule. */
 @Composable
 private fun PillRow(view: CapsuleView.Shown, end: Boolean, need: Boolean) {
     val c = MinaTheme.colors
     val maxWidth = (LocalConfiguration.current.screenWidthDp * 0.6f).dp
-    // 同一件事、同一个状态里换句只变宽:记下这一段里最宽的时候
+    // In the same thing and in the same situation, changing sentences only becomes wider: write down the
+    // widest moment in this paragraph
     var widest by remember(view.widthEpoch) { mutableIntStateOf(0) }
     val minWidth = with(LocalDensity.current) { widest.toDp() }
     Row(
@@ -238,7 +251,7 @@ private fun PillRow(view: CapsuleView.Shown, end: Boolean, need: Boolean) {
     }
 }
 
-/** 文字前面的状态标记:要你处理是呼吸点,办好了是勾,没办成是叹号,已停止是停止,后台网页运行中是绿点。 */
+/** The status marks in front of the text: if you want to process it, it is a breathing point, if it is done, it is a check mark, if it is not done, it is an exclamation mark, if it is stopped, it is a stop, and if the background web page is running, it is a green dot. */
 @Composable
 private fun Leading(kind: CapsuleKind) {
     val c = MinaTheme.colors
@@ -252,7 +265,7 @@ private fun Leading(kind: CapsuleKind) {
     }
 }
 
-/** 后台网页运行中:绿色圆点,外面一圈淡绿。 */
+/** The background web page is running: green dots with a light green circle outside. */
 @Composable
 private fun LiveDot(c: MinaColors) {
     Box(Modifier.size(14.dp).testTag("capsule-live-dot"), contentAlignment = Alignment.Center) {
@@ -261,7 +274,7 @@ private fun LiveDot(c: MinaColors) {
     }
 }
 
-/** 需要你:橙色圆点,外面一圈淡橙一呼一吸;关了动画时不动。 */
+/** Need you: Orange dots, a light orange circle outside, exhale and inhale; do not move when the animation is turned off. */
 @Composable
 private fun BreathingDot(c: MinaColors) {
     val halo = breathe(still = 0f)
@@ -271,13 +284,13 @@ private fun BreathingDot(c: MinaColors) {
     }
 }
 
-/** 一呼一吸(0..1 来回);关了动画时停在 [still]。 */
+/** One breath and one breath (0..1 round trip); when the animation is turned off, it stops at [still]. */
 @Composable
 private fun breathe(still: Float): Float = if (MinaTheme.reduceMotion) still else rememberInfiniteTransition(label = "breathe").animateFloat(
     0f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "breathe",
 ).value
 
-/** 一颗图标的外圈:干活中一段蓝弧绕着转(关了动画时是一整圈不动),等条件灰色一整圈,要你处理橙色一整圈一呼一吸;其余没有。 */
+/** The outer circle of an icon: a blue arc rotates around during work (it stays still in a full circle when the animation is turned off), a gray circle when waiting for conditions, and you are required to deal with an orange circle and exhale; the rest is empty. */
 @Composable
 private fun Ring(kind: CapsuleKind, need: Boolean, modifier: Modifier) {
     val c = MinaTheme.colors
@@ -305,7 +318,7 @@ private fun Ring(kind: CapsuleKind, need: Boolean, modifier: Modifier) {
     }
 }
 
-/** 一颗图标角上的标:好几件时写件数(要你处理橙、等条件灰、其余蓝);只一件时办好了绿勾,没办成、已停止灰色。 */
+/** The mark on the corner of the icon: write the number of pieces when there are several pieces (orange if you need to do it, gray for other conditions, blue for others); green check mark when only one piece is done, grey, if it is not done, it is stopped. */
 @Composable
 private fun Badge(view: CapsuleView.Shown, need: Boolean, modifier: Modifier) {
     val c = MinaTheme.colors
@@ -340,9 +353,15 @@ private fun Badge(view: CapsuleView.Shown, need: Boolean, modifier: Modifier) {
 }
 
 /**
- * 一颗和胶囊之间宽度慢慢变,只变画出来的那块玻璃,不逐帧改布局:浮层窗口跟着内容大小,布局一变窗口就要跟着重排、换画布,
- * 逐帧变就一卡一卡。[target] 是内容此刻的宽,[width] 是看得见的宽(动画),[hold] 是动画期间布局占的宽——起点和终点里宽的那个,
- * 所以变宽时窗口一下到最宽、变窄时等画完才缩,一次变形窗口至多变一次。第一次出现和关了动画时直接是内容的宽度。
+ * The width between the capsule and the capsule slowly changes, only the painted piece of glass changes,
+ * and the layout does not change frame by frame: the floating layer window follows the size of the
+ * content, and when the layout changes, the window must be rearranged and the canvas changed, frame by
+ * frame. [target] is the width of the content at the moment, [width] is the visible width (animation),
+ * [hold] is the width occupied by the layout during the animation - the wider one between the starting
+ * point and the end point, so when the window is widened, it reaches the widest at once, and when it is
+ * narrowed, it will not shrink until the drawing is completed. The window will change at most once at a
+ * time. When it first appears and when the animation is turned off, it is directly the width of the
+ * content.
  */
 private class Morph {
     val width = Animatable(0f)
@@ -366,7 +385,7 @@ private fun rememberMorph(animate: Boolean): Morph {
     return m
 }
 
-/** 布局占 [Morph.hold] 和内容里宽的那个,内容贴着停靠的那一边摆([end] 时贴右边):向里长、向边收,图标不动。 */
+/** The layout occupies the width of [Morph.hold] and the width of the content. The content is placed close to the docked side (on the right side when [end]): it grows inward and shrinks to the side, and the icon does not move. */
 private fun Modifier.morphLayout(m: Morph, end: Boolean): Modifier = layout { measurable, constraints ->
     val p = measurable.measure(constraints.copy(minWidth = 0))
     if (p.width != m.target) m.target = p.width
@@ -375,8 +394,9 @@ private fun Modifier.morphLayout(m: Morph, end: Boolean): Modifier = layout { me
 }
 
 /**
- * 玻璃底(同 [glass]),只画看得见的那一段宽、贴着停靠的那一边:阴影、裁切、底色和描边都按它,宽度变时只重画图层。
- * [alpha] 淡底和里面的图标。
+ * Glass bottom (same as [glass]), only draw the visible width and the side where it is docked: click it
+ * for shadow, crop, background color and stroke, and only redraw the layer when the width changes.
+ * [alpha] Light background and icon inside.
  */
 private fun Modifier.morphGlass(m: Morph, end: Boolean, c: MinaColors, need: Boolean, alpha: Float): Modifier =
     graphicsLayer {
@@ -397,7 +417,7 @@ private fun Modifier.morphGlass(m: Morph, end: Boolean, c: MinaColors, need: Boo
             if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge, style = Stroke(stroke))
     }
 
-/** 宽 [width](0 或超出时按整块)、贴着一边([end] 时右边)的胶囊形;[inset] 往里收(画描边用)。 */
+/** A capsule shape with a width of [width] (0 or beyond) and close to one side (right side in the case of [end]); [inset] is drawn inwards (for drawing strokes). */
 private class EdgePill(private val width: Float, private val end: Boolean, private val inset: Float = 0f) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val w = if (width > 0f) width.coerceAtMost(size.width) else size.width
@@ -407,7 +427,7 @@ private class EdgePill(private val width: Float, private val end: Boolean, priva
     }
 }
 
-/** App 在你手上时顶部那一条:「你来处理」和下面一行小字,右边「不做了」「处理好了」。 */
+/** When the App is in your hand, there is a line at the top: "You handle it" and a line of small words below, and on the right side, "No more" and "It's done." */
 @Composable
 private fun TakeoverBar(view: CapsuleView.Shown, onStop: () -> Unit, onHandBack: () -> Unit) {
     val c = MinaTheme.colors
@@ -437,15 +457,16 @@ private fun TakeoverBar(view: CapsuleView.Shown, onStop: () -> Unit, onHandBack:
     }
 }
 
-/** 胶囊上的 Mina 图标(圆形)。 */
+/** Mina icon (circle) on capsule. */
 @Composable
 private fun CapsuleLogo() {
     MinaLogo(LogoSize, corner = LogoSize / 2)
 }
 
 /**
- * 浮在别的 App 上的玻璃底:浮层窗口里拿不到下面 App 的画面做模糊,用接近不透明的卡片底、细描边和悬浮阴影;
- * 需要你时叠一层淡橙、描边变橙。
+ * The glass bottom floating on other apps: The screen of the underlying app cannot be seen in the
+ * floating layer window to blur, use a nearly opaque card bottom, thin strokes and floating shadows;
+ * when you need it, add a layer of light orange and turn the stroke to orange.
  */
 internal fun Modifier.glass(c: MinaColors, shape: Shape, need: Boolean): Modifier =
     shadow(8.dp, shape, clip = false, ambientColor = c.floatShadow.copy(alpha = 0.25f), spotColor = c.floatShadow.copy(alpha = 0.3f))

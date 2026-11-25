@@ -49,9 +49,11 @@ class AgentLoopRecordTest {
         )
         val ev = run(m).events
         assertEquals(
-            // 坐标处没有元素:不可逆判定无从判断,放行并记一条 gate_unresolved
-            // 最后一条不带调用的回复是回答:先字面核对,再记下代码找到的来源
-            // 第一次读屏展开了手机一组:下一次问模型之前记一条 tools_opened
+            // There is no element at the coordinates: irreversible judgment cannot be judged, release
+            // and record gate_unresolved. The last reply without calling is the answer: first check
+            // literally, and then write down the source found by the code. The first time reading the
+            // screen unfolded a group of mobile phones: next time, write down tools_opened before asking
+            // the model
             listOf("TaskStarted", "PromptVersion", "ModelReply", "ToolResult", "Observed", "Activity", "State", "ModelReply", "ToolResult", "Activity", "State", "ModelReply", "AnswerCheck", "Sources", "TaskEnded"),
             ev.map { it::class.simpleName },
         )
@@ -66,7 +68,8 @@ class AgentLoopRecordTest {
         assertEquals("act", (ev[9] as RunEvent.Activity).kind)
         val end = ev.last() as RunEvent.TaskEnded
         assertEquals("succeeded", end.outcome); assertEquals("好了", end.answerOrReason)
-        // 观察保留采集时刻,但按因果关系记在所属工具结果之后。
+        // Observations retain the time of collection, but are recorded after the results of the
+        // corresponding tools according to the causal relationship.
         assertTrue(ev.zipWithNext().all { (a, b) -> a.atMs <= b.atMs || (a is RunEvent.ToolResult && b is RunEvent.Observed) })
     }
 
@@ -82,7 +85,8 @@ class AgentLoopRecordTest {
             return sink.events.first() as RunEvent.TaskStarted
         }
         assertEquals("mcp", started(com.meenai.mina.core.run.RunOrigin.Mcp).origin)
-        // 手机上发起的不写,记录和以前一样
+        // If it is initiated on the mobile phone, it will not be written, and the record will be the
+        // same as before.
         assertNull(started(com.meenai.mina.core.run.RunOrigin.Ui).origin)
         assertEquals("mcp", RunSummary(id = "x", goal = "g", startedAtMs = 0).with(RunEvent.TaskStarted(0, "g", "m", "mcp")).origin)
     }
@@ -104,7 +108,8 @@ class AgentLoopRecordTest {
         }
         val m = FakeModel(reply(call("phone_observe")), com.meenai.mina.core.testing.answerReply("x"))
         val r = run(m, screen).events.filterIsInstance<RunEvent.ToolResult>().first()
-        // 记录是回放和调试的依据:超过普通字段上限的工具结果也要整条留下
+        // Records are the basis for playback and debugging: tool results that exceed the upper limit of
+        // ordinary fields must also be left in their entirety.
         assertTrue("length ${r.resultJson.length}", r.resultJson.length > RunEvent.MAX_FIELD)
         assertTrue(r.resultJson.contains("第 150 行很长很长的文字内容"))
         assertTrue(r.resultJson.startsWith("{\"ok\":true"))
@@ -125,7 +130,7 @@ class AgentLoopRecordTest {
         val m = FakeModel(reply(call("phone_observe")), com.meenai.mina.core.testing.answerReply("x"))
         val sink = run(m, frames = true)
         assertEquals(listOf(1), sink.screens.map { it.first })
-        // 画面只进记录,不发给看不了图的模型
+        // The pictures will only be recorded and will not be sent to models who cannot see the pictures.
         assertTrue(m.requests[1].none { msg -> msg.parts.any { it is Part.Image } })
         val noFrames = run(FakeModel(reply(call("phone_observe")), com.meenai.mina.core.testing.answerReply("x")))
         assertTrue(noFrames.screens.isEmpty())
@@ -156,7 +161,8 @@ class AgentLoopRecordTest {
     }
 
     @Test fun guardStopBeforeExecutionMasked() {
-        // 同一个输入反复做，只有实际界面不变才会被守卫叫停；记录仍要脱敏
+        // If the same input is made repeatedly, the guard will stop it only if the actual interface
+        // remains unchanged; the recording must still be desensitized.
         val m = FakeModel(reply(call("phone_type_text", """{"text":"hunter2"}""")), repeatLast = true)
         val ev = run(m, FakeScreen().apply { result = ActionResult.Ok(changed = false, secret = true) }).events
         val end = ev.last() as RunEvent.TaskEnded
@@ -217,7 +223,8 @@ class AgentLoopRecordTest {
         }
         val m = FakeModel(reply(call("phone_observe")), reply(call("phone_tap", """{"x":1,"y":1}""")), com.meenai.mina.core.testing.answerReply("x"))
         val texts = run(m, screen).events.filterIsInstance<RunEvent.Observed>()
-        // 读界面记一份(和账本里那一条一样,带编号);tap 带回的那一屏也记(见 actionReturnedScreenIsRecorded)
+        // Record a copy of the reading interface (same as the one in the account book, with a number);
+        // also record the screen brought back by tap (see actionReturnedScreenIsRecorded)
         assertEquals(1, texts[0].step)
         assertEquals(1, texts[0].id)
         assertEquals(Place.app("com.x"), texts[0].place)
@@ -234,7 +241,8 @@ class AgentLoopRecordTest {
             val sink = run(m, screen, vision = vision, inline = inline)
             val texts = sink.events.filterIsInstance<RunEvent.Observed>()
             assertEquals("inline=$inline vision=$vision", listOf("当前 App:com.x", "明天晴 25 度"), texts.single().text.lines())
-            // 评测取证据的口径能找到只出现在动作带回的屏幕里的答案
+            // The caliber of evaluation and evidence collection can find answers that only appear on the
+            // screen brought back by the action.
             assertTrue(com.meenai.mina.core.eval.Checks.grounded("明天晴 25 度", com.meenai.mina.core.eval.RunFacts.evidence(sink.events, TOOLS, "", "明天晴 25 度"), 1))
         }
     }
@@ -252,7 +260,9 @@ class AgentLoopRecordTest {
         assertTrue(t.text.length <= EvidenceLedger.READ_CHARS)
     }
 
-    // 新记录里每条进账的观察都记下了:离线重建的账本和运行时的一模一样(读界面、动作带回的界面、命令输出、工具事实)
+    // Each incoming observation is recorded in the new record: the offline reconstructed ledger is
+    // exactly the same as the one at runtime (reading interface, interface brought back by actions,
+    // command output, tool facts)
     @Test fun recordedObservationsRebuildTheSameLedger() {
         val sb = com.meenai.mina.core.cap.sandbox.FakeSandbox().apply {
             next = { r -> com.meenai.mina.core.cap.sandbox.CommandResult(0, false, false, 10, "共 42 行 ${r.argv}", 0, false) }
@@ -270,7 +280,7 @@ class AgentLoopRecordTest {
         val live = kotlinx.coroutines.runBlocking { tools.evidence(fresh = false) }.ledger.all
         assertTrue(live.size >= 3)
         assertEquals(live, com.meenai.mina.core.eval.RunFacts.ledger(sink.events, TOOLS).all)
-        // 每条都跟在读到它的那次调用的结果后面
+        // Each is followed by the result of the call that read it.
         val ev = sink.events
         ev.forEachIndexed { i, e -> if (e is RunEvent.Observed) assertTrue(ev[i - 1] is RunEvent.ToolResult || ev[i - 1] is RunEvent.Observed) }
     }
@@ -282,7 +292,7 @@ class AgentLoopRecordTest {
             com.meenai.mina.core.testing.answerReply("x"),
         )
         val ev = run(m).events
-        // 只有合法的上报记一条障碍,且紧跟它的工具结果
+        // Only legal reports record an obstacle and follow its tool results
         val b = ev.filterIsInstance<RunEvent.Barrier>()
         assertEquals(listOf("access_blocked"), b.map { it.kind })
         val at = ev.indexOf(b.single())

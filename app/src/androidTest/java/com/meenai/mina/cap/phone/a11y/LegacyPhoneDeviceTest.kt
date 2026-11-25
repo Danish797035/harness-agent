@@ -22,7 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/** 走一遍真实的内置助手、虚拟屏和无障碍路径,不用模型,也不往外发消息。 */
+/** Walk through real built-in assistants, virtual screens, and accessible paths without models or outgoing messages. */
 @RunWith(AndroidJUnit4::class)
 @SdkSuppress(minSdkVersion = 31, maxSdkVersion = 32)
 class LegacyPhoneDeviceTest {

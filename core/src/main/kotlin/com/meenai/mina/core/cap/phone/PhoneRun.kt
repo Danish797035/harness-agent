@@ -23,7 +23,7 @@ import kotlinx.serialization.json.put
 import com.meenai.mina.core.uistate.screen
 import com.meenai.mina.core.uistate.session
 
-/** 根据每一步读到的当前无障碍树重新定位目标,然后把动作交回统一执行入口。 */
+/** Reposition the target based on the current accessibility tree read at each step, and then return the action to the unified execution entrance. */
 internal object PhoneRun : PhoneTool {
     override val verb = Verb.PhoneRun
     override val risk = Risk.Write
@@ -123,7 +123,8 @@ internal object PhoneRun : PhoneTool {
                     val present = command.boolean("present") ?: true
                     val timeout = if (op == "assert") 0 else command.integer("timeoutMs") ?: 5_000
                     if (timeout !in 0..10_000) throw ArgError("commands[$index].timeoutMs", "must be 0-10000")
-                    // 等的时候用户插了话:不再等,这一条和后面的都不做,先读那句话
+                    // While waiting, the user interrupted: No more waiting, don’t do this or the
+                    // following, just read that sentence first
                     val found = awaitText(ctx, text, present, timeout)
                     if (found == null) failCode(SKIPPED_FOR_NEW_MESSAGE)
                     else ToolExecution(buildJsonObject { put("ok", found); if (!found) put("error", "condition_unmet") })
@@ -186,7 +187,7 @@ internal object PhoneRun : PhoneTool {
     private suspend fun run(sub: SubActions, ctx: ToolContext, index: Int, name: String, args: JsonObject): ToolExecution =
         sub.run(Part.ToolCall("${ctx.callId}.${index + 1}.$name", name, args.toString()))
 
-    /** 等到文字出现(或消失);用户插话撤掉了这次等待时为 null。 */
+    /** Wait until the text appears (or disappears); null if the user interrupts this wait. */
     private suspend fun awaitText(ctx: ToolContext, text: String, present: Boolean, timeoutMs: Int): Boolean? {
         if (hasText(ctx, text) == present) return true
         if (timeoutMs == 0) return false

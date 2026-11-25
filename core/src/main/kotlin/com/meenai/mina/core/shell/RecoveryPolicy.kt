@@ -2,29 +2,29 @@ package com.meenai.mina.core.shell
 
 import kotlinx.coroutines.delay
 
-/** 判断要不要重起助手时看的几样东西。 */
+/** Here are a few things to look at when deciding whether to restart Assistant. */
 data class RecoveryInputs(
-    /** 本机存着配对钥匙。 */
+    /** This unit stores the pairing key. */
     val paired: Boolean,
-    /** 系统的无线调试开关;有的手机读不到,为 null。 */
+    /** The wireless debugging switch of the system; some mobile phones cannot read it, so it is null. */
     val wirelessDebugging: Boolean?,
     val status: BuiltinShellStatus,
 )
 
 enum class StopReason {
     NotPaired,
-    /** 无线调试关着:等它打开时再来(由监听开关的一方重新触发)。 */
+    /** Wireless debugging is off: wait until it is turned on (retriggered by the party listening to the switch). */
     WirelessDebuggingOff,
-    /** 失败的类别要用户出手(重新配对、连 Wi-Fi),重试没用。 */
+    /** The failed category requires the user to take action (re-pairing, connecting to Wi-Fi), and retrying is useless. */
     NeedsUser,
     OutOfAttempts,
 }
 
 sealed interface RecoveryDecision {
     data object Healthy : RecoveryDecision
-    /** 等 [delayMs] 后用已配对的钥匙重连一次。 */
+    /** Wait for [delayMs] and then reconnect with the paired key. */
     data class Try(val delayMs: Long) : RecoveryDecision
-    /** 别人正在连:等 [delayMs] 再看,不叠一次重连。 */
+    /** Someone else is connecting: Wait for [delayMs] to check again, without overlapping and reconnecting. */
     data class Wait(val delayMs: Long) : RecoveryDecision
     data class Stop(val reason: StopReason) : RecoveryDecision
 }
@@ -32,16 +32,19 @@ sealed interface RecoveryDecision {
 data class RecoveryOutcome(val recovered: Boolean, val attempts: Int, val stoppedBecause: StopReason?)
 
 /**
- * 助手不在时什么时候重起、隔多久、试几次。拔 USB、adbd 重启会带走所有 shell 身份的进程,
- * 所以不区分「怎么没的」:只要配对还在、无线调试没被确认关掉、失败不需要用户出手,就按退避重连。
- * 信任网络与否读不到,一律先试,失败由连接结果说话。
+ * When to restart when the assistant is not around, how often, and how many times to try. Unplugging the
+ * USB and restarting adbd will take away all processes with shell identity, so there is no distinction
+ * between "why it is missing": as long as the pairing is still there, the wireless debugging has not
+ * been confirmed to be turned off, and the failure does not require user action, press escape to
+ * reconnect. Whether you trust the network or not and cannot read it, always try first. Failure will be
+ * determined by the connection result.
  */
 object RecoveryPolicy {
     const val MAX_ATTEMPTS = 5
     const val BASE_DELAY_MS = 2_000L
     const val MAX_DELAY_MS = 30_000L
 
-    /** 第一次马上试,之后 2、4、8、16 秒……封顶 30 秒。 */
+    /** Try it immediately for the first time, then 2, 4, 8, 16 seconds... capped at 30 seconds. */
     fun backoffMs(attempt: Int): Long =
         if (attempt <= 0) 0L else (BASE_DELAY_MS shl (attempt - 1).coerceAtMost(20)).coerceAtMost(MAX_DELAY_MS)
 
@@ -61,8 +64,9 @@ object RecoveryPolicy {
     private fun needsUser(f: BuiltinShellFailure) = f.defaultFix != BuiltinShellFix.Retry
 
     /**
-     * 按 [decide] 一直试到恢复或该停。[attempt] 是一次重连(真实现里是 `BuiltinShellControl.retry()`,
-     * 它不抛异常,结果写进状态);[inputs] 每轮重新读。
+     * Press [decide] and try until it resumes or it is time to stop. [attempt] is a reconnection (the
+     * actual implementation is `BuiltinShellControl.retry()`, which does not throw an exception and the
+     * result is written into the status); [inputs] is re-read in each round.
      */
     suspend fun recover(
         inputs: suspend () -> RecoveryInputs,
@@ -81,7 +85,7 @@ object RecoveryPolicy {
     }
 }
 
-/** 开机时「重启后自动恢复」要不要动手:看它是否已经生效(默认打开、补上过的也算),不看用户有没有拨过开关。 */
+/** Whether to use "Automatic recovery after restart" when booting up: It depends on whether it has taken effect (it is turned on by default, and it counts if it has been added). It does not depend on whether the user has flipped the switch. */
 object BootRestore {
     const val MIN_SDK = 31
 
@@ -94,13 +98,13 @@ object BootRestore {
     }
 }
 
-/** 上一次开机自动恢复的结果,给设置页如实显示。 */
+/** The results of the automatic recovery from the last boot are displayed truthfully on the settings page. */
 enum class RestoreOutcome {
     Restored,
-    /** 这一项打开过,但修改系统设置的授权已经不在。 */
+    /** This item has been turned on, but the authorization to modify system settings is no longer available. */
     PermissionMissing,
-    /** 写无线调试开关被系统拒绝或写了不生效:这台手机不支持开机自动打开。 */
+    /** Writing the wireless debugging switch is rejected by the system or does not take effect: This phone does not support automatic opening at boot. */
     SettingUnavailable,
-    /** 开关打开了,但没能连上(比如不在信任的 Wi-Fi 上)。 */
+    /** The switch is on, but the connection is not available (for example, it is not on a trusted Wi-Fi). */
     NotRecovered,
 }

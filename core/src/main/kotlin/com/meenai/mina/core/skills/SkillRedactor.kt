@@ -3,9 +3,12 @@ package com.meenai.mina.core.skills
 import com.meenai.mina.core.memory.NumberText
 
 /**
- * 沉淀技能时去掉这一次的具体值:目标与回答里引号内的内容、2 位以上的数字串、金额;
- * 起草时另把核查引用的屏幕原文、这次输入的文字也当作具体值。中文人名不做识别——靠引号与用户过目。
- * 所有文字先统一写法(NFKC;中文数字、分隔开的数字并成一串阿拉伯数字),比较与替换按同一口径。
+ * When precipitating skills, remove the specific values this time: the content within quotation marks
+ * in the target and answer, the numerical string with more than 2 digits, and the amount; when drafting,
+ * the original screen text quoted by the verification and the text entered this time are also regarded
+ * as specific values. Chinese names are not recognized—relying on quotation marks to identify users. All
+ * characters should be written in a unified way (NFKC; Chinese numerals, separated numerals combined
+ * into a string of Arabic numerals), and comparisons and substitutions should be made in the same way.
  */
 object SkillRedactor {
     const val PLACEHOLDER = "<参数>"
@@ -26,7 +29,7 @@ object SkillRedactor {
     private val DIGITS = Regex("\\d{2,}")
     private val ONLY_DIGITS = Regex("\\d+")
     private val PIECE_SPLIT = Regex("[\\s,.:;!?、。·]+")
-    /** 草稿头部的这些行是标识,不扫数字(运行编号、包名);只在头部内豁免。 */
+    /** These lines in the draft header are identifiers, numbers (run numbers, package names) are not scanned; they are only exempt within the header. */
     private val KEEP_LINES = Regex("^(?:name|apps|packages|domains|learned_from|source):")
 
     fun norm(s: String): String = NumberText.collapse(s)
@@ -42,13 +45,14 @@ object SkillRedactor {
     }
 
     /**
-     * 整段文字(核查引用的屏幕原文、输入的文字)连同其中的数字、金额,以及按空白和标点切开的各段都算具体值
-     * (「王小明:明天见」里的人名单独出现也要换掉)。
+     * The entire paragraph of text (check the original screen text quoted and the entered text) together
+     * with the numbers, amounts, and paragraphs cut by blanks and punctuation are counted as specific
+     * values (the names of people in "Wang Xiaoming: See You Tomorrow" alone must also be replaced).
      */
     fun textLiterals(texts: List<String>): Set<String> =
         keep(texts.map(::norm).flatMap { t -> listOf(t.trim()) + numbers(t) + t.split(PIECE_SPLIT) })
 
-    /** 长的先换,免得短值把长值拆开;纯数字只换整段数字(「12」不动「12306」)。 */
+    /** The longer ones are replaced first to prevent the short values from splitting the long values; for pure numbers, only the entire number is replaced ("12" does not move "12306"). */
     fun redact(md: String, literals: Set<String>): String {
         var out = norm(md)
         for (lit in keep(literals.map(::norm)).sortedByDescending { it.length }) {
@@ -59,8 +63,10 @@ object SkillRedactor {
     }
 
     /**
-     * 草稿全文再扫一遍:剩下的金额、2 位以上数字串一律换掉(单号、电话、价格多半是这一次的值);
-     * [keepDigits] 是 App 名字里自带的数字(内置技能的名字、别名里出现的),保留。
+     * Scan the full text of the draft again: Replace the remaining amount and numeric strings with more
+     * than 2 digits (the order number, phone number, and price are mostly the values this time);
+     * [keepDigits] is the number that comes with the App name (appears in the name and alias of the
+     * built-in skill), keep it.
      */
     fun scrubNumbers(md: String, keepDigits: Set<String>): String {
         val lines = norm(md).lines()
@@ -82,7 +88,8 @@ object SkillRedactor {
             AMOUNT.findAll(t).map { it.value.trim() } +
             DIGITS.findAll(t).map { it.value }
 
-    // 一个字的值换掉会把正文搅乱(「妈」「号」);纯数字不受此限
+    // Replacing the value of a word will mess up the text ("mother" and "number"); pure numbers are not
+    // subject to this restriction
     private fun keep(values: Iterable<String>) =
         values.map { it.trim() }.filter { it.isNotEmpty() && (it.length >= 2 || ONLY_DIGITS.matches(it)) }.toSet()
 }

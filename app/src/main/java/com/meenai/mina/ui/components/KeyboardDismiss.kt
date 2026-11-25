@@ -19,7 +19,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
 
-/** 一块收键盘区域里登记的输入区:在哪儿、当前有没有焦点。 */
+/** Collect the input area registered in the keyboard area: where it is and whether it currently has focus. */
 private class KeyboardKeeper {
     val bounds = HashMap<Any, Rect>()
     val focused = HashSet<Any>()
@@ -30,9 +30,11 @@ private class KeyboardKeeper {
 private val LocalKeyboardKeeper = staticCompositionLocalOf<KeyboardKeeper?> { null }
 
 /**
- * 在输入区外面点一下或拖动,就清掉焦点、收起键盘。手势本身不拦,外面的按钮照常点得到、列表照常能滑。
- * 只在登记过的输入区([keepsKeyboard])有焦点时才动手,平时不影响选中文字之类的操作。
- * 对话框是单独的窗口,里面有输入框的话要再包一层。
+ * Click or drag outside the input area to clear the focus and hide the keyboard. The gesture itself is
+ * not blocked, the buttons outside can be clicked as usual, and the list can still be slid. It only
+ * works when the registered input area ([keepsKeyboard]) has focus. It does not affect operations such
+ * as selecting text. The dialog box is a separate window. If there is an input box in it, it must be
+ * wrapped with another layer.
  */
 @Composable
 fun KeyboardDismissArea(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -59,7 +61,7 @@ fun KeyboardDismissArea(modifier: Modifier = Modifier, content: @Composable () -
     }
 }
 
-/** 标出一块输入区(输入框,或连同旁边按钮的整条输入栏):在里面点不收键盘。 */
+/** Mark an input area (input box, or the entire input field with the buttons next to it): click inside to close the keyboard. */
 @Composable
 fun Modifier.keepsKeyboard(): Modifier {
     val keeper = LocalKeyboardKeeper.current ?: return this

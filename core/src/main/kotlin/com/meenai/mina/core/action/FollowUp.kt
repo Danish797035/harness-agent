@@ -4,15 +4,15 @@ import com.meenai.mina.core.guard.GuardVerdict
 import com.meenai.mina.core.tool.ToolExecution
 import kotlinx.serialization.json.JsonObject
 
-/** 调用方在执行入口里插的几处(只有模型单步用):等用户的结局、交给模型前的最后加工。 */
+/** There are several places that the caller inserts into the execution entry (only for single-stepping of the model): waiting for the user's outcome and final processing before handing it over to the model. */
 interface FollowUp {
-    /** 执行之后、守卫核对之前:要等用户的结局(确认、追问、接管)换成最终结果;返回 null 表示任务就此取消。 */
+    /** After execution and before guard verification: wait for the user's outcome (confirmation, questioning, takeover) to be replaced by the final result; returning null means the task is cancelled. */
     suspend fun resolve(exec: ToolExecution): ToolExecution? = exec
 
-    /** 守卫核对之后、记录之前:返回最终结果和交给模型(也记进运行记录)的内容。 */
+    /** After guard checking and before recording: return the final result and the content handed to the model (also recorded in the running record). */
     suspend fun present(exec: ToolExecution, verdicts: List<GuardVerdict>): Presented = Presented(exec, exec.content)
 
-    /** 被确认关卡拦下:说明交给模型之后、记进运行记录之前。 */
+    /** Stopped by the confirmation level: after the instructions are handed over to the model, but before being recorded in the running record. */
     fun refused(content: JsonObject) {}
 
     companion object {

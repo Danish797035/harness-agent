@@ -15,16 +15,17 @@ class HelperRestoreTest {
     fun wishFollowsCapsuleModeAndTasks() {
         assertTrue(RestoreWish.of(capsuleAlways = true, taskRunning = false, accessibilityWanted = true, accessibilityOn = true).revive)
         assertTrue(RestoreWish.of(capsuleAlways = false, taskRunning = true, accessibilityWanted = true, accessibilityOn = true).revive)
-        // 胶囊只在任务时显示、也没有任务:用户强行停止就让它停着
+        // The capsule is only displayed during tasks and has no tasks: it will stop if the user forces
+        // it to stop.
         assertEquals(RestoreWish.NONE, RestoreWish.of(capsuleAlways = false, taskRunning = false, accessibilityWanted = true, accessibilityOn = true))
     }
 
     @Test
     fun accessibilityOnlyWhenWantedAndOn() {
         assertTrue(RestoreWish.of(true, false, accessibilityWanted = true, accessibilityOn = true).accessibility)
-        // 用户在 Mina 里关掉了替我打开无障碍
+        // The user turned off accessibility in Mina and turned it on for me.
         assertFalse(RestoreWish.of(true, false, accessibilityWanted = false, accessibilityOn = true).accessibility)
-        // 用户趁 Mina 活着在系统设置里关掉了
+        // The user turned it off in the system settings while Mina was alive.
         assertFalse(RestoreWish.of(true, false, accessibilityWanted = true, accessibilityOn = false).accessibility)
     }
 
@@ -49,11 +50,12 @@ class HelperRestoreTest {
         assertEquals(listOf(a to yes), sent)
         sender.update(a, RestoreWish.NONE)
         assertEquals(a to RestoreWish.NONE, sent.last())
-        // 助手换了一个(新的 Binder):再交一次,哪怕心愿没变
+        // The assistant has been replaced (new Binder): Submit it again, even if your wish has not
+        // changed
         val b = String(charArrayOf('h'))
         sender.update(b, RestoreWish.NONE)
         assertEquals(3, sent.size)
-        // 助手没了又回来:再交
+        // The assistant disappeared and came back: Submit it again
         sender.update(null, RestoreWish.NONE)
         sender.update(b, RestoreWish.NONE)
         assertEquals(4, sent.size)
@@ -85,10 +87,10 @@ class HelperRestoreTest {
     fun policyBacksOffWithinWindowThenAllowsAgain() {
         val p = HelperRestorePolicy(maxAttempts = 3, windowMs = 600_000)
         repeat(3) { assertEquals(HelperRestorePolicy.Decision.Restore, p.decide(yes, false, now = 10_000L + it * 30_000)) }
-        // 拉起来又马上死:窗口内第四次不拉
+        // If you pull it up, it will die immediately: the window does not pull for the fourth time
         assertEquals(HelperRestorePolicy.Decision.BackedOff, p.decide(yes, false, now = 100_000))
         assertEquals(HelperRestoreReport(70_000, 3, 100_000), p.report(100_000))
-        // 第一次滑出窗口后又能拉一次
+        // After sliding out the window for the first time, you can pull it out again.
         assertEquals(HelperRestorePolicy.Decision.Restore, p.decide(yes, false, now = 610_000))
         assertEquals(3, p.report(610_000).recent)
         assertEquals(0, p.report(10 * 600_000L).recent)
@@ -111,7 +113,8 @@ class HelperRestoreTest {
             listOf("settings put secure enabled_accessibility_services '$mina'", "settings put secure accessibility_enabled 1"),
             RestoreCommands.accessibility("null", mina),
         )
-        // 已经在列表里(哪种写法都算):不重写列表,只开总开关
+        // Already in the list (any way of writing counts): does not rewrite the list, only turns on the
+        // main switch
         assertEquals(listOf(RestoreCommands.ENABLE_ACCESSIBILITY), RestoreCommands.accessibility("$mina:$other", mina))
         assertEquals(
             listOf(RestoreCommands.ENABLE_ACCESSIBILITY),
@@ -125,7 +128,7 @@ class HelperRestoreTest {
         val unbound = A11yObservation(enabled = true, connected = false)
         val fine = A11yObservation(enabled = true, connected = true)
         assertEquals(A11yLoss.Removed, A11yStartCheck.loss(removed, connectedSoon = false, expected = true))
-        // 起来时被拿掉,随后修好了:照样记一次被拿掉
+        // Removed when getting up, then repaired: still recorded as being removed once
         assertEquals(A11yLoss.Removed, A11yStartCheck.loss(removed, connectedSoon = true, expected = true))
         assertEquals(A11yLoss.Unbound, A11yStartCheck.loss(unbound, connectedSoon = false, expected = true))
         assertNull("几秒内系统自己绑上了", A11yStartCheck.loss(unbound, connectedSoon = true, expected = true))

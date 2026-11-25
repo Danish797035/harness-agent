@@ -48,39 +48,44 @@ import kotlin.system.exitProcess
 import com.meenai.mina.shell.IHarnessShell
 
 /**
- * 以 shell 身份(uid 2000)常驻,持有 Agent 的虚拟屏,跑在内置助手进程([HelperMain])里。
- * 进程结束时虚拟屏及其上的 App 一并销毁,所以必须常驻而不是一次性命令。
+ * It resides as a shell (uid 2000), holds the Agent's virtual screen, and runs in the built-in assistant
+ * process ([HelperMain]). When the process ends, the virtual screen and the App on it are destroyed
+ * together, so it must be permanent rather than a one-time command.
  *
- * 隐藏接口一律反射调用,反射失败时退回到同等效果的 shell 命令。
+ * Hidden interfaces will always be called by reflection. When reflection fails, they will fall back to
+ * the shell command with the same effect.
  */
 class ShellService(
-    /** 只接受这个 uid(Mina)的调用。 */
+    /** Only accept calls from this uid (Mina). */
     private val allowedUid: Int,
-    /** 静音记录放的目录;shell 身份能写的位置。 */
+    /** The directory where the mute records are placed; the location where the shell identity can write. */
     stateDir: File = File("/data/local/tmp"),
 ) : IHarnessShell.Stub() {
     private val context: Context = ShellContext.create()
     private val displays = HashMap<Int, VirtualDisplay>()
-    /** 被静音的包 → 静音前的 PLAY_AUDIO 模式("default" 表示原先未设置),落在 [stateDir] 里,进程被杀后下次启动接着恢复。 */
+    /** The muted package → the PLAY_AUDIO mode before muting ("default" means it was not set originally), falls in [stateDir], and the process will be restarted after being killed and then restored. */
     private val muted = AudioMuteLedger(File(stateDir, "mina_audio_mute_$allowedUid"))
-    /** Mina 所在的用户:本来那份 App 装在这里;别的用户里的是另一份(分身、工作资料)。 */
+    /** The user where Mina is located: the original App is installed here; other users have another copy (avatar, work information). */
     private val myUser = allowedUid / PER_USER_RANGE
 
-    // 不能用 getSystemService:那样拿到的 DisplayManager 绑的是系统上下文,包名与 shell uid 对不上
+    // You cannot use getSystemService: the DisplayManager you get in this way is tied to the system
+    // context, and the package name does not match the shell uid.
     @SuppressLint("PrivateApi")
     private val displayManager: DisplayManager =
         DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
             .apply { isAccessible = true }.newInstance(context)
 
-    // 剪贴板要以 shell 包名访问(系统只对来自 shell 的剪贴板认「不弹已复制浮层」的标记);读取绕开 ClipboardManager 里 shell 进程走不通的 Settings 查询
+    // The clipboard must be accessed with the shell package name (the system only recognizes the "do not
+    // pop the copied floating layer" mark for the clipboard from the shell); read to bypass the Settings
+    // query in the ClipboardManager that is blocked by the shell process.
     private val clipboard = ShellClipboard(context)
     private val clipLock = Any()
-    /** 查占用和启动之间不能插进另一个任务的启动:两个任务同时开同一个 App 时只有一个能成。 */
+    /** The startup of another task cannot be inserted between the occupancy check and startup: when two tasks open the same App at the same time, only one can succeed. */
     private val launchLock = Any()
-    /** setClipText 之前用户的剪贴板(null 表示原先确实是空的,读不到的不会换出);[clipSaved] 为 false 表示没有待还原的。 */
+    /** setClipText The previous user's clipboard (null means that it was originally empty, and the ones that cannot be read will not be swapped out); [clipSaved] is false, which means there is nothing to be restored. */
     private var savedClip: ClipData? = null
     private var clipSaved = false
-    /** Mina 最后放进去的文字;还原前据此判断剪贴板还是不是 Mina 的(用户中途复制了别的就不动)。 */
+    /** The last text Mina put in; use this to determine whether the clipboard belongs to Mina before restoring (the user will not move if he copies something else in the middle). */
     private var ourText: String? = null
 
     private val taskManager: Any by lazy {
@@ -94,8 +99,11 @@ class ShellService(
             Log.e(TAG, "createDisplay failed", t)
             -1
         } else {
-            // shell 没有 ADD_TRUSTED_DISPLAY 时(有的系统不给):去掉只对可信屏可用的几项再建一次。
-            // 退回后这块屏没有自己的焦点,自检页读它的标志会报「own focus no」并给出主屏焦点可能受影响的提示(Advice.FocusShared)。
+            // When the shell does not have ADD_TRUSTED_DISPLAY (some systems do not provide it): remove
+            // several items that are only available for trusted screens and build it again. After
+            // returning, this screen does not have its own focus. When reading its logo on the self-test
+            // page, it will report "own focus no" and give a prompt that the focus of the main screen
+            // may be affected (Advice.FocusShared).
             Log.w(TAG, "createDisplay without trusted display flags, retrying", t)
             try {
                 createVirtualDisplay(surface, width, height, dpi, trusted = false)
@@ -116,7 +124,7 @@ class ShellService(
         return id
     }
 
-    /** 自成一组的虚拟屏一直不睡,见 [DisplayAwake]。 */
+    /** A group of self-contained virtual screens never sleep, see [DisplayAwake]. */
     private val awake by lazy {
         val timer = Executors.newSingleThreadScheduledExecutor { Thread(it, "mina-display-awake").apply { isDaemon = true } }
         DisplayAwake(::pokeDisplay) { r ->
@@ -125,7 +133,7 @@ class ShellService(
         }
     }
 
-    /** IPowerManager 和它按屏报用户操作的方法;拿不到为 null(只记一次,屏照常用,只是没人替它续亮)。 */
+    /** IPowerManager and its method of reporting user operations on the screen; if not available, it is null (only remembered once, the screen is commonly used, but no one renews it). */
     @get:SuppressLint("PrivateApi")
     private val userActivity: Pair<Any, Method>? by lazy {
         runCatching {
@@ -146,7 +154,7 @@ class ShellService(
         }
     }
 
-    /** 这块屏所在的显示组(DisplayInfo.displayGroupId,隐藏字段);读不到为 null。 */
+    /** The display group (DisplayInfo.displayGroupId, hidden field) where this screen is located; if it cannot be read, it is null. */
     @SuppressLint("PrivateApi")
     private fun displayGroup(displayId: Int): Int? = runCatching {
         val global = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null)!!
@@ -154,7 +162,7 @@ class ShellService(
         info.javaClass.getField("displayGroupId").getInt(info)
     }.getOrNull()
 
-    /** 只往这个服务自己建的虚拟屏上启动,调用方传错屏号(比如主屏)也不会打扰用户。 */
+    /** It will only be started on the virtual screen created by the service itself, and the caller will not disturb the user if it passes the wrong screen number (such as the home screen). */
     private fun ownDisplay(displayId: Int): Boolean = synchronized(displays) { displayId in displays }
 
     override fun releaseDisplay(displayId: Int) {
@@ -163,18 +171,24 @@ class ShellService(
     }
 
     /**
-     * 先确认用户没在主屏用这个 App:若它在主屏有可见的任务就不启动(返回 [START_IN_USE_ON_MAIN]),
-     * 否则系统会把用户正在看的界面挪走或打断。后台任务可以被拉到虚拟屏上。
-     * 再解析启动入口(包里有些 Activity 是跳板,直接启动会立刻跳走、只在虚拟屏留下空任务),
-     * 以 shell 包名调用 IActivityTaskManager.startActivityAsUser,带 ActivityOptions.setLaunchDisplayId。
-     * 占用只看本来那份(Mina 所在用户里的):用户在主屏用着装在别的用户里的那份时,不挡这一份。
+     * First make sure that the user is not using this App on the home screen: if it has visible tasks on
+     * the home screen, it will not be launched (return to [START_IN_USE_ON_MAIN]), otherwise the system
+     * will remove or interrupt the interface the user is looking at. Background tasks can be pulled onto
+     * the virtual screen. Then parse the startup entry (some activities in the package are springboards,
+     * and direct startup will jump away immediately, leaving only empty tasks on the virtual screen),
+     * and call IActivityTaskManager.startActivityAsUser with the shell package name, with
+     * ActivityOptions.setLaunchDisplayId. Only view the original share (the one in the user where Mina
+     * is located): When the user uses the share installed in another user on the home screen, this share
+     * will not be blocked.
      */
     override fun startApp(displayId: Int, packageName: String): Int = start(displayId, packageName, myUser)
 
     /**
-     * 在 [userId] 那份用户里启动 [packageName](见 [startApp]);占用只看这一份(包名 + 用户)。
-     * [userId] 是 Mina 自己的用户时按原来的方式启动(USER_CURRENT、包管理器给的入口);别的用户先在那份用户里查启动入口,
-     * 再以那份用户启动,接口不可用时退回 `am start --user`。
+     * Start [packageName](see [startApp]) in the user share of [userId]; only look at this share (package
+     * name + user) for occupancy. When [userId] is Mina's own user, it is started in the original way
+     * (USER_CURRENT, the entry given by the package manager); other users first check the startup entry
+     * in that user, and then start it as that user. When the interface is unavailable, it returns to `am
+     * start --user`.
      */
     private fun start(displayId: Int, packageName: String, userId: Int): Int = synchronized(launchLock) {
         if (!ownDisplay(displayId)) return START_ERROR
@@ -182,16 +196,20 @@ class ShellService(
             if (inUseOnMainScreen(packageName, userId)) return START_IN_USE_ON_MAIN
             if (onOtherOwnDisplay(listOf(packageName), displayId, userId)) return START_IN_USE_BY_OTHER
         } catch (t: Throwable) {
-            // 看不清主屏状态时宁可不启动,也不冒险打扰用户
+            // If you can’t clearly see the home screen status, you would rather not start it than risk
+            // disturbing the user.
             Log.e(TAG, "cannot inspect main-screen tasks", t)
             return START_ERROR
         }
-        // 上次任务留下的那个任务还在主屏后面:整个挪回来,接着那一页做,不另开一个从头来
+        // The task left behind from the last task is still behind the main screen: move the whole thing
+        // back and continue on that page without opening a new one and starting from the beginning.
         if (resumeKept(displayId, packageName, userId)) return START_OK
         val intent = launchIntent(packageName, userId) ?: return START_NOT_FOUND
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle()
-        // 另一份用户里的先走桌面打开图标的那条路:有的系统对程序启动的另一份先弹「用哪一个打开」,桌面这条路不弹
+        // In another user's copy, the desktop path is used to open the icon first: some systems prompt
+        // "Which one to open with" when the program is started in another copy, but the desktop path is
+        // not displayed?
         val component = intent.component
         if (userId != myUser && component != null && startAsLauncher(component, userId, options)) return START_OK
         val ok = try {
@@ -213,7 +231,7 @@ class ShellService(
         if (ok) START_OK else START_ERROR
     }
 
-    /** ILauncherApps(LauncherApps 背后的系统服务);拿不到为 null。 */
+    /** ILauncherApps (the system service behind LauncherApps); null if not available. */
     private val launcherApps: Any? by lazy {
         runCatching {
             val binder = Class.forName("android.os.ServiceManager").getMethod("getService", String::class.java).invoke(null, "launcherapps")
@@ -222,14 +240,18 @@ class ShellService(
     }
 
     /**
-     * 像桌面那样打开另一份用户 [userId] 里的启动页 [component]:ILauncherApps.startActivityAsUser(LauncherApps.startMainActivity
-     * 背后的接口),带同样的 [options](启动到 Mina 的屏)。系统那边按调用方查能不能碰那份用户:shell 有跨用户的权限,
-     * 包名也对得上自己的 uid。接口不在、或被拒(抛错)返回 false,调用方改走 startActivityAsUser。
+     * Open the startup page [component]:ILauncherApps.startActivityAsUser (the interface behind
+     * LauncherApps.startMainActivity) in another user [userId] like a desktop, with the same [options]
+     * (boot to Mina's screen). On the system side, press the calling party to check whether the user can
+     * be accessed: the shell has cross-user permissions, and the package name also matches its own uid.
+     * If the interface does not exist or is rejected (throws an error), false is returned, and the
+     * caller changes to startActivityAsUser.
      */
     private fun startAsLauncher(component: ComponentName, userId: Int, options: Bundle): Boolean = try {
         val la = launcherApps ?: throw IllegalStateException("no launcherapps service")
         val user = UserHandle.getUserHandleForUid(userId * PER_USER_RANGE)
-        // 安卓 11 起:(caller, callingPackage, callingFeatureId, component, sourceBounds, opts, user);更早没有 callingFeatureId
+        // Android 11 onwards: (caller, callingPackage, callingFeatureId, component, sourceBounds, opts,
+        // user); earlier there is no callingFeatureId
         val m = la.javaClass.methods.first { it.name == "startActivityAsUser" && it.parameterTypes.size in 6..7 && ComponentName::class.java in it.parameterTypes }
         val args: Array<Any?> = if (m.parameterTypes.size == 7) arrayOf(null, ShellContext.SHELL_PACKAGE, null, component, null, options, user)
         else arrayOf(null, ShellContext.SHELL_PACKAGE, component, null, options, user)
@@ -241,8 +263,9 @@ class ShellService(
     }
 
     /**
-     * 打开 [packageName] 用的 intent:Mina 自己的用户里就是包管理器给的入口;别的用户里查那份用户的启动页
-     * (隐藏接口 queryIntentActivitiesAsUser,不行改问 `cmd package query-activities --user`)。查不到为 null。
+     * The intent used to open [packageName]: Mina's own user is the entrance given by the package
+     * manager; other users check the user's startup page (hidden interface queryIntentActivitiesAsUser,
+     * cannot change `cmd package query-activities --user`). If not found, it is null.
      */
     @SuppressLint("PrivateApi")
     private fun launchIntent(packageName: String, userId: Int): Intent? {
@@ -261,7 +284,7 @@ class ShellService(
         return Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(ComponentName(pkg, cls))
     }
 
-    /** 这些包里有在 Mina 另一块屏(不是 [displayId])上的任务:那是别的任务正在用的 App。[userId] 不为空时只看那份用户里的。 */
+    /** These packages contain tasks on another screen of Mina (not [displayId]): that is the app being used by other tasks. When [userId] is not empty, only look at that user. */
     private fun onOtherOwnDisplay(packages: Collection<String>, displayId: Int, userId: Int? = null): Boolean {
         val others = synchronized(displays) { displays.keys.toSet() } - displayId
         if (others.isEmpty()) return false
@@ -269,25 +292,28 @@ class ShellService(
         return allTasks().any { t -> displayField.getInt(t) in others && packages.any { isCopy(t, it, userId) } }
     }
 
-    /** 任务是 [packageName] 在 [userId] 那份用户里的那份(规则见 [sameCopy])。 */
+    /** The task is the share of [packageName] among the users of [userId] (see [sameCopy] for rules). */
     private fun isCopy(task: Any, packageName: String, userId: Int?): Boolean =
         sameCopy(packagesOf(task), runCatching { TASK_INFO.getField("userId").getInt(task) }.getOrNull(), packageName, userId)
 
     /**
-     * 只有这个 App 的任务全在 Mina 的屏上时才结束进程再启动(回到初始页面)。
-     * 它在别的屏上还有任务(用户的状态)就绝不结束,改为普通启动并返回 [START_OK_COLD_IGNORED];
-     * 用户正在主屏用它时不启动。
+     * Only when all the tasks of this App are on Mina's screen, the process will be ended and restarted
+     * (return to the initial page). It will never end if there are tasks (user status) on other screens.
+     * It will start normally and return to [START_OK_COLD_IGNORED]; it will not start when the user is
+     * using it on the home screen.
      */
     override fun restartApp(displayId: Int, packageName: String): Int = restart(displayId, packageName, myUser)
 
-    /** [restartApp] 作用在 [userId] 那份用户里的那份:只看这一份的任务、只结束这份用户里的进程,装在别的用户里的另一份不动。 */
+    /** [restartApp] works on the user's share of [userId]: only the tasks of this one are viewed, only the processes in this user are ended, and the other copy installed in other users remains unchanged. */
     private fun restart(displayId: Int, packageName: String, userId: Int): Int = synchronized(launchLock) {
-        // 不是自己建的屏(含主屏)一律不动,更不能先结束进程
+        // Screens (including the main screen) that are not created by yourself will not move, and you
+        // cannot end the process first.
         if (!ownDisplay(displayId)) return START_ERROR
         val decision = try {
-            // 别的任务正在 Mina 另一块屏上用它:绝不结束它的进程
+            // Another task is using Mina on another screen: never end its process
             if (onOtherOwnDisplay(listOf(packageName), displayId, userId)) return START_IN_USE_BY_OTHER
-            // 要从头开:上次任务留在主屏后面的那份是 Mina 自己留下的,先关掉,不算用户的状态
+            // To start from the beginning: The copy left behind the home screen from the last task was
+            // left by Mina herself. Close it first and it will not be counted as the user's status.
             dropKept(packageName, userId)
             val displayField = TASK_INFO.getField("displayId")
             val taskDisplays = allTasks().filter { isCopy(it, packageName, userId) }.map { displayField.getInt(it) }
@@ -308,7 +334,7 @@ class ShellService(
         }
     }
 
-    /** 在另一份用户里打开:只认 [appCopyUsers] 判为能用的那几份(私密空间、别人的用户一律不碰),规则见 [AppCopies]。 */
+    /** Open in another user: Only those copies judged to be usable by [appCopyUsers] (private spaces and other users will not be touched), see [AppCopies] for the rules. */
     override fun startAppInUser(displayId: Int, packageName: String, userId: Int, cold: Boolean): Int {
         if (userId == myUser) return if (cold) restartApp(displayId, packageName) else startApp(displayId, packageName)
         if (!ownDisplay(displayId)) return START_ERROR
@@ -338,8 +364,11 @@ class ShellService(
     }
 
     /**
-     * 这台手机的用户,按安卓原版的 UserInfo / UserProperties 读(隐藏接口反射):标记、类型、资料组、是否在运行、安静模式、
-     * 是否和当前用户共用媒体、是否对别的 App 隐藏。读不到用户列表为 null;单项读不到的留空(按不满足算,见 [AppCopies])。
+     * The user of this phone reads according to the original Android UserInfo / UserProperties (hidden
+     * interface reflection): tag, type, data group, whether it is running, quiet mode, whether it shares
+     * media with the current user, and whether it is hidden from other apps. The user list that cannot
+     * be read is null; the single item that cannot be read is left blank (calculated as unsatisfied, see
+     * [AppCopies]).
      */
     @SuppressLint("PrivateApi")
     private fun users(): List<AppCopies.User>? {
@@ -348,7 +377,8 @@ class ShellService(
         val list = (runCatching { um.javaClass.getMethod("getAliveUsers").invoke(um) }.getOrNull()
             ?: runCatching { um.javaClass.getMethod("getUsers").invoke(um) }.getOrNull()) as? List<*> ?: return null
         val info = Class.forName("android.content.pm.UserInfo")
-        // 系统自己给标记起的名字(dumpsys user 用的同一个 UserInfo.flagsToString,含系统自定义的标记);反射不行时读 dumpsys user
+        // The name given to the mark by the system itself (the same UserInfo.flagsToString used by
+        // dumpsys user, including system-defined marks); when reflection fails, read dumpsys user
         val flagsToString = runCatching { info.getMethod("flagsToString", Int::class.javaPrimitiveType) }.getOrNull()
         val dumped by lazy { sh("dumpsys", "user").takeIf { it.first == 0 }?.second?.let(AppCopies::parseDumpsys).orEmpty() }
         return list.filterNotNull().map { u ->
@@ -372,19 +402,22 @@ class ShellService(
                 mediaShared = prop("isMediaSharedWithParent") as? Boolean,
                 hidden = (prop("getProfileApiVisibility") as? Int)?.let { it == PROFILE_API_VISIBILITY_HIDDEN },
                 flagNames = names,
-                // dumpsys 里的 parentId 就是资料组(不是自己、也不是「不在组里」时才写);读到了一并带上
+                // The parentId in dumpsys is the data group (written only when it is not yourself or
+                // "not in the group"); read it and bring it with you
                 parentId = group.takeIf { it != id && it != AppCopies.NO_PROFILE_GROUP } ?: if (flagsToString == null) dumped[id]?.parentId else null,
             )
         }
     }
 
-    /** flagsToString 的结果(如 "CLONED_PROFILE|FULL|INITIALIZED",有的版本带花括号)拆成名字。 */
+    /** The result of flagsToString (such as "CLONED_PROFILE|FULL|INITIALIZED", some versions have curly brackets) is split into names. */
     private fun flagNames(s: String): List<String> = s.trim('{', '}', ' ').split('|', ' ', ',').map(String::trim).filter(String::isNotEmpty)
 
     /**
-     * 打开链接或设置页。外壳这边再按 [ShellLinks] 查一次链接;解析不到返回 [START_UNRESOLVED]。
-     * 能打开它的 App 在主屏有任务就不启动:带 NEW_TASK 的链接可能落进那个任务,出现在用户眼前。
-     * 只有一个 App 能打开时直接指定到那个页面,免得系统另选。
+     * Open a link or settings page. Press [ShellLinks] again on the shell side to check the link; if it
+     * cannot be parsed, [START_UNRESOLVED] will be returned. The app that can open it will not start if
+     * there is a task on the home screen: a link with NEW_TASK may fall into that task and appear in
+     * front of the user. Only one app can be directly assigned to that page when it is opened,
+     * preventing the system from making another selection.
      */
     override fun startView(displayId: Int, action: String?, uri: String?, packageName: String?): Int = synchronized(launchLock) {
         if (!ownDisplay(displayId)) return START_ERROR
@@ -392,7 +425,8 @@ class ShellService(
         val intent = Intent(action ?: Intent.ACTION_VIEW).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         uri?.let { intent.data = Uri.parse(it) }
         packageName?.let { intent.setPackage(it) }
-        // 网页式链接只交给声明了可从链接打开的页面,不碰 App 的内部页面
+        // Web-style links are only given to pages that are declared to be open from the link, and do not
+        // touch the internal pages of the App.
         if (action == null) intent.addCategory(Intent.CATEGORY_BROWSABLE)
         val candidates = activitiesFor(intent, null) ?: return START_ERROR
         if (candidates.isEmpty()) return START_UNRESOLVED
@@ -425,8 +459,10 @@ class ShellService(
     }
 
     /**
-     * 把文字分享给 [packageName]:ACTION_SEND text/plain 带 EXTRA_TEXT,只交给这个包。它没有收文字分享的页面返回 [START_UNRESOLVED];
-     * 和 [startApp] 一样,用户在主屏用着它时不启动。只有一个收分享的页面时直接指定,有几个时由系统问用哪一个。
+     * Share text to [packageName]:ACTION_SEND text/plain with EXTRA_TEXT, only to this package. It does
+     * not return the text sharing page to [START_UNRESOLVED]; like [startApp], it does not start when
+     * the user uses it on the home screen. When there is only one shared page, you can specify it
+     * directly. When there are several pages, the system will ask which one to use.
      */
     override fun startShare(displayId: Int, packageName: String, text: String): Int = synchronized(launchLock) {
         if (!ownDisplay(displayId)) return START_ERROR
@@ -458,13 +494,17 @@ class ShellService(
     }
 
     /**
-     * 系统动作(见 [SystemIntents]):只放行那几种 intent。没有页面接返回 [START_UNRESOLVED];和 [startView] 一样,
-     * 接手的 App 在主屏有任务就不启动。先以 shell 身份启动;不成(接手的页面要求 shell 没有的权限,如设闹钟)时发出 Mina 做好的
-     * [asMina]:以 Mina 的身份启动(权限按 Mina 查),屏和后台启动按发出的这一方(shell)查,仍落在这块屏上。
+     * System action (see [SystemIntents]): Only release those types of intents. If there is no page,
+     * [START_UNRESOLVED] will be returned; just like [startView], the app taken over will not start if
+     * there are tasks on the home screen. Start as shell first; if it fails (the page taken over
+     * requires permissions that shell does not have, such as setting an alarm clock), the [asMina]
+     * prepared by Mina is issued: Start as Mina (check Mina for permissions), check the screen and
+     * background startup according to the side (shell) from which it was issued, and it still falls on
+     * this screen.
      */
     override fun startSystemAction(displayId: Int, intent: Intent, asMina: android.app.PendingIntent?): Int = synchronized(launchLock) {
         if (!ownDisplay(displayId)) return START_ERROR
-        // Mina 自己的兼容性自检页:以 shell 身份直接开到这块屏
+        // Mina's own compatibility self-check page: Open directly to this screen as a shell
         if (intent.component?.className == SystemIntents.OWN_PAGE_CLASS) return startOwnPage(displayId, intent)
         if (!SystemIntents.allowed(intent.action, intent.dataString)) return START_INVALID_LINK
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -493,7 +533,8 @@ class ShellService(
         }
         if (asShell) return START_OK
         if (asMina == null) return START_ERROR
-        // 安卓 14 起 PendingIntent 的发出方要明说允许它从后台启动页面
+        // Starting from Android 14, the issuer of PendingIntent must explicitly state that it is allowed
+        // to launch the page from the background.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
         }
@@ -507,16 +548,21 @@ class ShellService(
     }
 
     /**
-     * 以 shell 身份把 Mina 的兼容性自检页([SystemIntents.OWN_PAGE_CLASS])开到这块屏,和 [startApp] 同一条路
-     * (startActivityAsUser 带 setLaunchDisplayId,不行退回 `am start --display`)。那一页只对持有 INTERACT_ACROSS_USERS_FULL 的
-     * 调用方开放(shell 有,普通 App 没有);shell 启动不受后台启动页面的限制。包名必须是 Mina 自己的,别的组件一律不开。
+     * As a shell, open Mina's compatibility self-test page ([SystemIntents.OWN_PAGE_CLASS]) to this
+     * screen, which is the same as [startApp] (startActivityAsUser with setLaunchDisplayId, if not,
+     * return to `am start --display`). That page is only open to callers holding
+     * INTERACT_ACROSS_USERS_FULL (shell has it, ordinary apps don’t); shell startup is not restricted by
+     * the background startup page. The package name must be Mina's own, and other components will not be
+     * opened.
      */
     private fun startOwnPage(displayId: Int, intent: Intent): Int {
         val component = intent.component ?: return START_INVALID_LINK
         val mine = runCatching { context.packageManager.getPackagesForUid(allowedUid)?.toList() }.getOrNull().orEmpty()
-        // 只有 Mina 调得到这个服务;包名再核一次(查不到 Mina 的包名时只认类名)
+        // Only Mina can get this service; check the package name again (only the class name will be
+        // recognized if Mina's package name cannot be found)
         if (component.className != SystemIntents.OWN_PAGE_CLASS || (mine.isNotEmpty() && component.packageName !in mine)) return START_INVALID_LINK
-        // 每次都从头开一页:旧的那一页连同它的任务清掉,新的一定在 Mina 屏的最上面
+        // Open a page from the beginning every time: the old page and its tasks are cleared, and the new
+        // one must be at the top of the Mina screen
         val page = Intent().setComponent(component).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle()
         val ok = try {
@@ -535,8 +581,10 @@ class ShellService(
     }
 
     /**
-     * 能接 [intent] 的页面,(包名, 完整类名)。系统接口在这一侧查不了时改问系统服务(见 [ActivityQuery]);都不行时为 null。
-     * [type] 是 intent 的数据类型(命令里要单独给)。
+     * Can access the page of [intent], (package name, complete class name). If the system interface
+     * cannot be found on this side, ask the system service instead (see [ActivityQuery]); if neither is
+     * possible, it will be null. [type] is the data type of the intent (to be given separately in the
+     * command).
      */
     private fun activitiesFor(intent: Intent, type: String?): List<Pair<String, String>>? = try {
         context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).map { it.activityInfo.packageName to it.activityInfo.name }
@@ -551,7 +599,7 @@ class ShellService(
         (TASK_INFO.getField(it).get(task) as? ComponentName)?.packageName
     }
 
-    /** 该包在主屏有可见任务,或者就是主屏最上面的任务。[userId] 不为空时只看那份用户里的(见 [sameCopy])。 */
+    /** This package has visible tasks on the home screen, or is the top task on the home screen. When [userId] is not empty, only look at that user (see [sameCopy]). */
     private fun inUseOnMainScreen(packageName: String, userId: Int? = null): Boolean {
         val visibleField = runCatching { TASK_INFO.getField("isVisible") }.getOrNull()
         return tasksOn(Display.DEFAULT_DISPLAY).withIndex().any { (index, task) ->
@@ -560,8 +608,9 @@ class ShellService(
     }
 
     /**
-     * IActivityTaskManager.getTasks:按最近使用排序,shell 持有 REAL_GET_TASKS,能看到所有 App 的任务。
-     * API 33+ 有带 displayId 的重载,优先用它;更早的版本取全部再按 TaskInfo.displayId 过滤。
+     * IActivityTaskManager.getTasks: Sorted by recent use, the shell holds REAL_GET_TASKS and can see
+     * all App tasks. API 33+ has an overload with displayId, use it first; earlier versions take all and
+     * filter by TaskInfo.displayId.
      */
     private fun tasksOn(displayId: Int): List<Any> {
         val methods = taskManager.javaClass.methods.filter { it.name == "getTasks" }
@@ -575,7 +624,7 @@ class ShellService(
         return tasks.filterNotNull().filter { displayField.getInt(it) == displayId }
     }
 
-    /** 所有屏上的任务:带屏号的重载传 INVALID_DISPLAY 即不按屏过滤。 */
+    /** Tasks on all screens: Reload with screen number and pass INVALID_DISPLAY, that is, no screen filtering. */
     private fun allTasks(): List<Any> {
         val methods = taskManager.javaClass.methods.filter { it.name == "getTasks" }
         val withDisplay = methods.firstOrNull { it.parameterTypes.size == 4 }
@@ -643,8 +692,10 @@ class ShellService(
     }
 
     /**
-     * IActivityTaskManager.moveRootTaskToDisplay(taskId, displayId),即 `am display move-stack` 背后的调用。
-     * 真机(安卓 14)手动验证:任务在虚拟屏与主屏之间双向都能挪。Mina 启动的任务都是根任务。
+     * IActivityTaskManager.moveRootTaskToDisplay(taskId, displayId), which is the call behind `am
+     * display move-stack`. Manual verification on a real machine (Android 14): Tasks can be moved in
+     * both directions between the virtual screen and the main screen. The tasks started by Mina are all
+     * root tasks.
      */
     override fun moveTask(taskId: Int, displayId: Int): Boolean = try {
         taskManager.javaClass.getMethod("moveRootTaskToDisplay", Int::class.java, Int::class.java)
@@ -656,25 +707,34 @@ class ShellService(
     }
 
     /**
-     * 任务结束时留在主屏后面的任务:任务编号 → 键([AppsAfterTask.keyOf])。下次 Mina 打开同一份 App 时把它挪回来([resumeKept])。
-     * 只在内存里:助手重启后不认得,打开时照常走启动入口(系统多半也会把这个后台任务拉过来)。
+     * Tasks left behind the main screen when the task ends: Task number → key ([AppsAfterTask.keyOf]).
+     * Move it back the next time Mina opens the same app ([resumeKept]). Only in the memory: The
+     * assistant does not recognize it after restarting, and it will still go to the startup entrance
+     * when opening it (the system will probably pull this background task over).
      */
     private val kept = HashMap<Int, String>()
 
     /**
-     * 任务结束:按 [AppsAfterTask] 定下这块屏上每个任务的去留,留下的挪到主屏最后面,再释放这块屏(屏带着
-     * FLAG_DESTROY_CONTENT_ON_REMOVAL,没挪走的随屏关掉)。顺序:定去留 → 挪留下的 → 再看一眼出声的 → 核对主屏最上面 → 释放。
-     * 静音由 Mina 在这之后还原,留下的 App 不会在还原时突然出声。
+     * End of the task: Press [AppsAfterTask] to decide whether to leave each task on this screen. Move
+     * the remaining tasks to the back of the main screen, and then release this screen (the screen
+     * carries FLAG_DESTROY_CONTENT_ON_REMOVAL, and the remaining ones are turned off with the screen).
+     * Sequence: decide whether to stay → move what is left → take another look at what is being said →
+     * check the top of the home screen → release. The mute will be restored by Mina after this, and the
+     * remaining apps will not suddenly make sounds during restoration.
      *
-     * 挪到最后面的做法(都是安卓原版的接口):先用 WindowContainerTransaction.setHidden 把任务藏起来,
-     * 再 moveRootTaskToDisplay 挪到主屏(系统总是把它放在最上面,藏着就不显示、不拿焦点、不让用户正在用的页面暂停),
-     * 接着 reorder 到最后面,最后取消隐藏。哪一步在这台系统上用不了就不再挪,照旧随屏关掉,结果里写明。
+     * The method of moving it to the back (these are the original Android interfaces): first use
+     * WindowContainerTransaction.setHidden to hide the task, then moveRootTaskToDisplay to move it to
+     * the home screen (the system always puts it at the top, and will not display it, take focus, or
+     * pause the page the user is using), then reorder it to the back, and finally unhide it. If a step
+     * cannot be used on this system, it will not be moved again, and it will be turned off with the
+     * screen as usual. The result will be stated in the results.
      */
     override fun finishDisplay(displayId: Int, keep: Array<String>?, close: Array<String>?): Bundle? = synchronized(launchLock) {
         if (!ownDisplay(displayId)) return null
         val closed = ArrayList<String>()
         val notes = LinkedHashSet<String>()
-        // 已挪到主屏后面的;中途出错也照记,下次打开接得上
+        // It has been moved to the back of the home screen; if you make any mistakes in the process,
+        // remember it and you will be able to pick it up next time you open it.
         val moved = ArrayList<AppsAfterTask.Fate>()
         try {
             val playing = playingUids()
@@ -699,7 +759,8 @@ class ShellService(
                     Behind.FAILED -> closed += AppsAfterTask.closedEntry(f.copy(keep = false, why = AppsAfterTask.Why.MoveFailed))
                 }
             }
-            // 挪过去之后又出声的(没标过 keep):挪回这块屏,随屏关掉;挪不回就直接关
+            // If the sound comes out again after moving it (not marked keep): Move this screen back and
+            // turn it off with the screen; if you can’t move it back, turn it off directly
             val playingNow = if (moved.isEmpty()) null else playingUids()
             val nowLoud = moved.map { f -> AppsAfterTask.recheck(f, task(f.task.id)?.let { playingIn(it, playingNow) }) }.filter { !it.keep }
             for (f in nowLoud) {
@@ -725,7 +786,7 @@ class ShellService(
 
     private enum class Behind { OK, UNSUPPORTED, FAILED }
 
-    /** 任务的一行给 [AppsAfterTask.decide]:键、是不是普通 App 的页面、是不是 Mina 自己的、此刻出不出声。 */
+    /** The line of the task is for the [AppsAfterTask.decide]: key, is it a normal App page, is it Mina's own, and is silent at the moment. */
     private fun afterTaskRow(t: Any, playing: Map<Int, Set<String>>?): AppsAfterTask.Task {
         val user = runCatching { TASK_INFO.getField("userId").getInt(t) }.getOrDefault(myUser)
         val pkgs = packagesOf(t).distinct()
@@ -744,7 +805,7 @@ class ShellService(
         runCatching { context.packageManager.getPackagesForUid(allowedUid)?.toSet() }.getOrNull().orEmpty()
     }
 
-    /** 这个任务的 App(同一份用户里的)此刻在出声;读不到为 null。 */
+    /** The App of this task (in the same user) is making a sound at the moment; if it cannot be read, it is null. */
     private fun playingIn(task: Any, playing: Map<Int, Set<String>>?): Boolean? {
         playing ?: return null
         val user = runCatching { TASK_INFO.getField("userId").getInt(task) }.getOrNull()
@@ -753,9 +814,11 @@ class ShellService(
     }
 
     /**
-     * 此刻正在播放的 uid → 这个 uid 的包。先问音频服务(AudioManager.getActivePlaybackConfigurations,
-     * 带 MODIFY_AUDIO_ROUTING 时才给出 uid);拿到的 uid 被隐去时改读 `dumpsys audio`。只认播放器状态为 started 的
-     * (被 Mina 静音的照样算在播:静音只是没声,还原就响)。都读不到为 null。
+     * The uid being played at the moment → the package of this uid. Ask the audio service first
+     * (AudioManager.getActivePlaybackConfigurations, only give the uid when MODIFY_AUDIO_ROUTING is
+     * specified); when the uid obtained is hidden, read `dumpsys audio` instead. Only players whose
+     * status is started are recognized (those that are muted by Mina are still playing: muted ones only
+     * have no sound, and restored ones will sound). None can be read as null.
      */
     private fun playingUids(): Map<Int, Set<String>>? {
         val uids = runCatching {
@@ -773,7 +836,7 @@ class ShellService(
         }
     }
 
-    /** 把 Mina 屏上的任务 [row] 挪到主屏最后面(做法见 [finishDisplay])。 */
+    /** Move the task [row] on the Mina screen to the back of the main screen (see [finishDisplay] for the method). */
     private fun keepBehind(row: Any): Behind {
         val id = TASK_INFO.getField("taskId").getInt(row)
         val token = runCatching { TASK_INFO.getField("token").get(row) }.getOrNull() ?: return Behind.UNSUPPORTED
@@ -782,19 +845,23 @@ class ShellService(
             transact { wct -> wctCall(wct, "setHidden", token, false) }
             return Behind.UNSUPPORTED
         }
-        // 放到最后面之前不取消隐藏:取消隐藏时系统不挪它,先取消就会出现在用户眼前
+        // Do not unhide it before placing it at the end: The system will not move it when unhiding it.
+        // If you unhide it first, it will appear in front of the user.
         val behind = transact { wct -> wctCall(wct, "reorder", token, false) }
         if (behind && transact { wct -> wctCall(wct, "setHidden", token, false) }) return Behind.OK
-        // 停在半路(藏着或在最上面)都不能留:关掉
+        // Can't stay even if it's parked halfway (hidden or at the top): turn it off
         Log.w(TAG, "task $id could not be put behind on the main screen, removing it")
         removeTask(id)
         return Behind.FAILED
     }
 
     /**
-     * 核对:挪过去的任务都没到用户眼前(主屏上看得见)。看得见了(本不该发生)就马上再排到最后面,还看得见就关掉。
-     * 看得见按 TaskInfo.isVisible;读不到这一项的系统按「是不是主屏最上面的任务」看(那里的任务按最近使用排,只作退路)。
-     * [before] 是挪之前主屏最上面的任务,只记进日志。
+     * Check: None of the moved tasks are in front of the user (visible on the home screen). If you can
+     * see it (it shouldn't happen), go to the back of the queue immediately, and turn it off if you can
+     * still see it. If you can see it, press TaskInfo.isVisible; if you can't read this item, press "Is
+     * it the top task on the home screen?" (the tasks there are arranged according to recent use, and
+     * are only used as a retreat). [before] was the top task on the main screen before it was moved, and
+     * was only recorded in the log.
      */
     private fun ensureBehind(moved: Set<Int>, before: Int): Set<Int> {
         if (moved.isEmpty()) return emptySet()
@@ -819,10 +886,10 @@ class ShellService(
         return removed
     }
 
-    /** IActivityTaskManager.moveRootTaskToDisplay;接口不在时退回 `am display move-stack`(同一个调用)。 */
+    /** IActivityTaskManager.moveRootTaskToDisplay; returns `am display move-stack` (same call) when the interface is no longer available. */
     private fun moveRoot(taskId: Int, displayId: Int): Boolean = moveTask(taskId, displayId)
 
-    /** IActivityTaskManager.removeTask(关掉任务,和最近任务里划掉一样);不行退回 `am stack remove`。 */
+    /** IActivityTaskManager.removeTask (turn off the task, which is the same as crossing out the recent task); if it cannot be returned, `am stack remove`. */
     private fun removeTask(taskId: Int): Boolean = try {
         taskManager.javaClass.getMethod("removeTask", Int::class.java).invoke(taskManager, taskId) as Boolean
     } catch (t: Throwable) {
@@ -830,7 +897,7 @@ class ShellService(
         exec("am", "stack", "remove", "$taskId") == 0
     }
 
-    /** 建一个 WindowContainerTransaction,经 IWindowOrganizerController.applyTransaction 交给系统;哪一步不行返回 false。 */
+    /** Create a WindowContainerTransaction and hand it over to the system via IWindowOrganizerController.applyTransaction; if any step fails, false will be returned. */
     @SuppressLint("PrivateApi")
     private fun transact(build: (Any) -> Unit): Boolean = try {
         val wct = WCT.getConstructor().newInstance()
@@ -848,7 +915,7 @@ class ShellService(
         WCT.getMethod(method, Class.forName("android.window.WindowContainerToken"), Boolean::class.javaPrimitiveType).invoke(wct, token, flag)
     }
 
-    /** 主屏上(没在用户眼前)的、上次任务留下的这份 App 的任务。 */
+    /** The tasks of this App that are left from the last task on the home screen (not in front of the user). */
     private fun keptOnMain(packageName: String, userId: Int): List<Any> {
         val ids = synchronized(kept) { kept.keys.toSet() }
         if (ids.isEmpty()) return emptyList()
@@ -856,7 +923,7 @@ class ShellService(
         val displayField = TASK_INFO.getField("displayId")
         val visibleField = runCatching { TASK_INFO.getField("isVisible") }.getOrNull()
         val all = allTasks()
-        // 已经不在的任务不再记着
+        // Tasks that are gone are no longer remembered
         synchronized(kept) { kept.keys.retainAll(all.map { idField.getInt(it) }.toSet()) }
         return all.filter { t ->
             idField.getInt(t) in ids && displayField.getInt(t) == Display.DEFAULT_DISPLAY && isCopy(t, packageName, userId) &&
@@ -864,7 +931,7 @@ class ShellService(
         }
     }
 
-    /** 把留在主屏后面的那个任务挪回 Mina 的屏;没有、或挪不了返回 false(调用方照常启动)。 */
+    /** Move the task left behind the main screen back to Mina's screen; if it is not available or cannot be moved, it returns false (the caller starts as usual). */
     private fun resumeKept(displayId: Int, packageName: String, userId: Int): Boolean {
         val row = runCatching { keptOnMain(packageName, userId).firstOrNull() }.getOrNull() ?: return false
         val id = TASK_INFO.getField("taskId").getInt(row)
@@ -873,7 +940,7 @@ class ShellService(
         return true
     }
 
-    /** 冷启动前关掉上次任务留在主屏后面的那份(Mina 自己留下的,不是用户的状态)。 */
+    /** Before cold start, close the copy left behind the home screen from the last task (left by Mina herself, not the user's status). */
     private fun dropKept(packageName: String, userId: Int) {
         keptOnMain(packageName, userId).forEach { t ->
             val id = TASK_INFO.getField("taskId").getInt(t)
@@ -881,7 +948,7 @@ class ShellService(
         }
     }
 
-    /** 主屏任务的记录:Agent 动作前开始盯,见 [MainScreenWatch]。第一次用到才建(线程、任务栈监听)。 */
+    /** Record of main screen task: Agent starts staring before action, see [MainScreenWatch]. Only built (thread, task stack monitoring) when used for the first time. */
     private val mainWatch by lazy { MainScreenWatch({ taskManager }, ::taskRows) }
 
     override fun watchMainScreen(windowMs: Int): Int = try {
@@ -905,7 +972,7 @@ class ShellService(
         -1
     }
 
-    /** 所有屏上的任务,换成 [MainScreenLog.Task];页面种类读不到时当作普通 App 的页面。 */
+    /** All on-screen tasks are replaced with [MainScreenLog.Task]; when the page type cannot be read, it is treated as a normal App page. */
     private fun taskRows(): List<MainScreenLog.Task> {
         val id = TASK_INFO.getField("taskId")
         val display = TASK_INFO.getField("displayId")
@@ -925,7 +992,8 @@ class ShellService(
     }
 
     override fun injectKey(displayId: Int, keyCode: Int): Boolean {
-        // 与 press_key 同一张白名单:即便调用方出错,也不从这里发出音量、电源、Home 之类的整机按键
+        // The same white list as press_key: even if the caller makes an error, the volume, power, home
+        // and other machine buttons will not be issued from here.
         if (!PressKeys.isAllowed(keyCode)) {
             Log.w(TAG, "refused key $keyCode")
             return false
@@ -936,7 +1004,7 @@ class ShellService(
         return injectPair(down, up, displayId) { exec("input", "-d", "$displayId", "keyevent", "$keyCode") == 0 }
     }
 
-    /** Ctrl+A / Ctrl+V:修饰键写在按键事件的 metaState 里(App 按它认组合键),只放行这两个,只发到 Mina 自己的屏(粘贴不能落到用户的屏上)。 */
+    /** Ctrl+A / Ctrl+V: The modifier keys are written in the metaState of the key event (the App recognizes the key combination by pressing it), only these two are allowed, and are only sent to Mina's own screen (paste cannot be placed on the user's screen). */
     override fun injectCtrlKey(displayId: Int, keyCode: Int): Boolean {
         if (!ownDisplay(displayId)) return false
         if (keyCode != KeyEvent.KEYCODE_A && keyCode != KeyEvent.KEYCODE_V) {
@@ -977,9 +1045,12 @@ class ShellService(
     }
 
     /**
-     * 一根手指的一笔:按下、按 [times] 逐点移动、在最后一点抬起;每个事件到了它的时刻才注入(事件时间就是那一刻),
-     * App 看到的速度就是 Mina 排好的快慢。只发到 Mina 自己的屏。按下没注入成功返回 false(调用方改走别的路);
-     * 按下之后中途哪个点没注入成功也照样往下走,最后一定补发抬起,不让手指一直按着。
+     * A stroke of one finger: press, press [times] to move point by point, and lift at the last point;
+     * each event is injected at its moment (the event time is that moment), and the speed seen by the
+     * App is the speed arranged by Mina. Only sent to Mina's own screen. If the injection is not
+     * successful after pressing, it returns false (the caller takes another path); if the injection is
+     * not successful at any point in the middle after pressing, it will continue to go down. In the end,
+     * it must be reissued and raised to prevent the finger from being pressed all the time.
      */
     override fun injectStroke(displayId: Int, xs: IntArray, ys: IntArray, times: LongArray): Boolean {
         if (!ownDisplay(displayId)) return false
@@ -1008,13 +1079,16 @@ class ShellService(
         sendPair({ inject(down, displayId) }, { inject(up, displayId) }, fallback)
 
     /**
-     * `appops set <pkg> PLAY_AUDIO ignore`;首次静音时记下原模式(同时落文件),取消静音时恢复。
-     * 原来没设置过的恢复成 allow,不写 default(见 [AudioMuteLedger.restoreMode])。
-     * 命令失败返回 false,且不记录原模式(读不到原值就不改)。作用在 Mina 所在的用户上(本来那份)。
+     * `appops set <pkg> PLAY_AUDIO ignore`; Record the original mode when muting for the first time
+     * (dropping files at the same time), and restore it when canceling muting. If it has not been set
+     * before, it will be restored to allow without writing default (see [AudioMuteLedger.restoreMode]).
+     * If the command fails, false will be returned, and the original mode will not be recorded (the
+     * original value will not be changed if it cannot be read). Acts on the user where Mina is located
+     * (original share).
      */
     override fun setAudioMuted(packageName: String, muted: Boolean): Boolean = audioMuted(packageName, null, muted)
 
-    /** 同 [setAudioMuted],作用在 [userId] 那份用户里的那份(分身、工作资料);记录按 [AppAudioKey] 分开记。 */
+    /** Same as [setAudioMuted], it applies to the user's share (available, work information) of [userId]; records are recorded separately as [AppAudioKey]. */
     override fun setAudioMutedInUser(packageName: String, userId: Int, muted: Boolean): Boolean {
         if (userId == myUser) return audioMuted(packageName, null, muted)
         return audioMuted(packageName, otherUser(userId) ?: return false, muted)
@@ -1036,25 +1110,25 @@ class ShellService(
         }
     }
 
-    /** 启动时把上次没来得及恢复的包还原(只动记录里的)。 */
+    /** When starting, restore the packages that were not restored last time (only the ones in the record are moved). */
     fun recoverMuted() {
         synchronized(muted) { muted.restoreAll(::writeRecorded) }
     }
 
-    /** 按记录的键写回一项;键不合格式的当作已处理,免得一直留着。 */
+    /** Press the recorded key to write back an item; if the key is not in the format, it will be treated as processed, so as not to keep it forever. */
     private fun writeRecorded(key: String, mode: String): Boolean {
         val (pkg, user) = AppAudioKey.parse(key) ?: return true
         return appops("set", pkg, user, mode).first == 0
     }
 
-    /** [user] 为空是 Mina 所在的用户。 */
+    /** [user] is empty and is the user where Mina is located. */
     private fun appops(verb: String, packageName: String, user: Int?, mode: String? = null): Pair<Int, String> {
         val u = (user ?: myUser).toString()
         return if (mode == null) sh("appops", verb, "--user", u, packageName, "PLAY_AUDIO")
         else sh("appops", verb, "--user", u, packageName, "PLAY_AUDIO", mode)
     }
 
-    /** 别的用户编号原样给出;就是 Mina 所在的用户时为 null(按本来那份处理);不合法时也为 null,调用方据此拒绝。 */
+    /** Other user numbers are given as they are; when it is the user where Mina is, it is null (processed as originally); when it is illegal, it is also null, and the caller refuses accordingly. */
     private fun otherUser(userId: Int): Int? = userId.takeIf { it >= 0 && it != myUser }
 
     override fun getAudioMode(packageName: String): String? = audioMode(packageName, null)
@@ -1069,7 +1143,7 @@ class ShellService(
         return if (code == 0) parsePlayAudioMode(out) else null
     }
 
-    /** "default"(没设置过)按 allow 写,理由同 [AudioMuteLedger.restoreMode]。 */
+    /** "default" (not set) is written as allow, the reason is the same as [AudioMuteLedger.restoreMode]. */
     override fun setAudioMode(packageName: String, mode: String): Boolean = audioMode(packageName, null, mode)
 
     override fun setAudioModeInUser(packageName: String, userId: Int, mode: String): Boolean {
@@ -1085,8 +1159,11 @@ class ShellService(
     }
 
     /**
-     * 该包([userId] 那份用户里的)在主屏上有看得见的任务:用户正在主屏用它。静音按包作用,这时静了它用户手上的也没声了,
-     * Mina 据此不去静它。看不清主屏时按「在用」答,宁可不静也不把用户正在用的静了。
+     * This package ([userId] in the user's share) has a visible task on the home screen: the user is
+     * using it on the home screen. The mute button works according to the package. At this time, there
+     * is no sound when muting the device on the user's hand. Mina accordingly does not mute it. When you
+     * can't see the home screen clearly, press "Active". It would be better not to mute the screen than
+     * to mute what the user is using.
      */
     override fun visibleOnMainScreen(packageName: String, userId: Int): Boolean =
         try {
@@ -1097,15 +1174,18 @@ class ShellService(
         }
 
     /**
-     * 只有读得到用户原来的剪贴板才动它:读不到就分不清「原来是空的」和「有内容但看不到」,
-     * 覆盖了就还原不回去,这时返回 [CLIP_UNREADABLE],剪贴板保持原样。
+     * Only when the user's original clipboard can be read can it be moved: if it cannot be read, it will
+     * be difficult to distinguish between "originally empty" and "containing content but cannot be
+     * seen". If it is overwritten, it cannot be restored. In this case, [CLIP_UNREADABLE] will be
+     * returned, and the clipboard will remain as it is.
      */
     override fun setClipText(text: String): Int = synchronized(clipLock) {
         try {
             if (!clipSaved) {
                 if (!canReadClipboard()) return CLIP_UNREADABLE
                 val prior = clipboard.primaryClip
-                // 读到空不一定是空:系统可能悄悄拦下了读取,这时有无、描述还会说有内容
+                // Reading empty does not necessarily mean empty: the system may quietly block the
+                // reading. At this time, the description will say that there is content.
                 when (ShellClip.read(prior != null, clipboard.hasPrimaryClip(), clipboard.primaryClipDescription != null)) {
                     ShellClip.Read.Unreadable -> {
                         Log.i(TAG, "setClipText: clip present but unreadable, not replacing")
@@ -1166,7 +1246,7 @@ class ShellService(
         Unit
     }
 
-    /** 剪贴板此刻是不是 Mina 放进去的 [ours];读不到(有内容但取不到)时不当成空的。 */
+    /** Is the clipboard [ours] put by Mina at the moment? It should not be empty when it cannot be read (it has content but cannot be retrieved). */
     private fun nowState(ours: String?): ShellClip.Now {
         val now = clipboard.primaryClip
         return when (ShellClip.read(now != null, clipboard.hasPrimaryClip(), clipboard.primaryClipDescription != null)) {
@@ -1180,7 +1260,7 @@ class ShellService(
         }
     }
 
-    /** shell 要有后台读剪贴板的权限、且读剪贴板的权限操作没被关掉,才算读得到。 */
+    /** The shell must have the permission to read the clipboard in the background and the permission operation to read the clipboard has not been turned off before it can be read. */
     private fun canReadClipboard(): Boolean = runCatching {
         val granted = context.checkPermission(READ_CLIPBOARD_IN_BACKGROUND, Process.myPid(), Process.myUid()) ==
             PackageManager.PERMISSION_GRANTED
@@ -1197,8 +1277,9 @@ class ShellService(
     }
 
     /**
-     * Mina 粘贴的内容(可能是地址、手机号等)标成敏感:系统和输入法的剪贴板预览、历史不显示原文。
-     * 只标 Mina 自己放进去的,还原用户的剪贴板时保持原样。
+     * The content pasted by Mina (may be address, mobile phone number, etc.) is marked as sensitive: the
+     * clipboard preview and history of the system and input method do not display the original text.
+     * Only mark what Mina put in, and keep it as is when restoring the user's clipboard.
      */
     private fun markSensitive(clip: ClipData): ClipData {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return clip
@@ -1209,7 +1290,8 @@ class ShellService(
     }
 
     override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
-        // 内置助手的进程不跟着 Mina 结束,Binder 也可能被别人拿到:只有 Mina 能调用接口方法
+        // The process of the built-in assistant does not end with Mina, and Binder may also be obtained
+        // by others: only Mina can call interface methods
         if (code in FIRST_CALL_TRANSACTION..LAST_CALL_TRANSACTION &&
             Binder.getCallingUid() != allowedUid
         ) {
@@ -1227,7 +1309,7 @@ class ShellService(
 
     override fun runCommand(command: String): Bundle = exec(command, null)
 
-    /** 助手进程看 Mina 交来的心愿(见 [setRestoreWish]);Mina 死后据此决定要不要把它拉起来。 */
+    /** The assistant process looks at the wish sent by Mina (see [setRestoreWish]); after Mina dies, it decides whether to pull it up based on this. */
     @Volatile var onRestoreWish: ((Int) -> Unit)? = null
 
     override fun setRestoreWish(flags: Int) {
@@ -1245,7 +1327,7 @@ class ShellService(
 
     private fun commandResult(code: Int, output: String) = Bundle().apply { putInt("exitCode", code); putString("output", output) }
 
-    /** 以 shell 身份跑 `sh -c`,合并输出,限时限长;[displayId] 不为空时放进 HARNESS_DISPLAY_ID。 */
+    /** Run `sh -c` as shell, merge the output, and have a time limit; put HARNESS_DISPLAY_ID when [displayId] is not empty. */
     private fun exec(command: String, displayId: Int?): Bundle {
         fun result(code: Int, output: String) = commandResult(code, output)
         if (command.isBlank() || command.length > 4_000) return result(-1, "Invalid command length.")
@@ -1283,7 +1365,8 @@ class ShellService(
 
     override fun openDevtoolsSocket(name: String): ParcelFileDescriptor? {
         val pid = DevtoolsSocket.pidOf(name) ?: return null
-        // 只连 Mina 自己进程的调试套接字:别的 App 的网页不经这里
+        // Only the debugging socket of Mina's own process is connected: other App's web pages do not go
+        // through here
         val uid = runCatching { DevtoolsSocket.procUid(File("/proc/$pid/status").readText()) }.getOrNull()
         if (uid != allowedUid) {
             Log.w(TAG, "devtools socket refused: pid $pid is not Mina's (uid $uid)")
@@ -1297,7 +1380,7 @@ class ShellService(
             Log.w(TAG, "devtools socket $name: ${e.message}")
             null
         } finally {
-            // 交出去的是复制的 fd,这一份关掉
+            // What is handed over is the copied fd, this one is closed
             runCatching { socket.close() }
         }
     }
@@ -1316,7 +1399,7 @@ class ShellService(
         exitProcess(0)
     }
 
-    /** IWindowManager.setDisplayImePolicy:输入法不弹到用户的主屏。选哪种策略见 IME_POLICY。 */
+    /** IWindowManager.setDisplayImePolicy: The input method does not pop up on the user's home screen. See IME_POLICY for which policy to choose. */
     @SuppressLint("PrivateApi")
     private fun setImePolicy(displayId: Int) {
         runCatching {
@@ -1337,9 +1420,12 @@ class ShellService(
     }
 
     /**
-     * 只投给 [targetUid] 拥有的焦点窗口,等处理完再返回;焦点不在它那里时系统拒绝,事件不会落到别的窗口。
-     * 用安卓 13 起的隐藏重载 `injectInputEvent(event, mode, targetUid)`,没有这个重载时不注入。
-     * 失败只记异常类型:被拒的原因里不含按键,但这条路径输入的是锁屏凭据,不留多余信息。
+     * Only cast to the focus window owned by [targetUid], and then return after processing is completed;
+     * the system rejects it when the focus is not there, and the event will not fall to other windows.
+     * Use the hidden overload `injectInputEvent(event, mode, targetUid)` since Android 13, and it will
+     * not be injected without this overload. Only the exception type is recorded for failure: the reason
+     * for rejection does not include keystrokes, but the lock screen credentials are entered in this
+     * path, leaving no redundant information.
      */
     @SuppressLint("PrivateApi")
     private fun injectTo(event: InputEvent, displayId: Int, targetUid: Int): Boolean = try {
@@ -1352,7 +1438,7 @@ class ShellService(
         false
     }
 
-    /** API 34 起注入入口在 InputManagerGlobal,更早在 InputManager。 */
+    /** The injection entry point is InputManagerGlobal starting from API 34, and InputManager earlier. */
     @SuppressLint("PrivateApi")
     private fun inputManager(): Any = runCatching {
         Class.forName("android.hardware.input.InputManagerGlobal").getMethod("getInstance").invoke(null)
@@ -1361,8 +1447,8 @@ class ShellService(
     private fun exec(vararg cmd: String): Int = sh(*cmd).first
 
     /**
-     * 跑一条 shell 命令,返回 (退出码, 输出);超时返回 -1。
-     * 输出在单独线程里读,卡住的命令不会把 binder 线程永远堵住。
+     * Run a shell command and return (exit code, output); timeout returns -1. The output is read in a
+     * separate thread, and the stuck command will not block the binder thread forever.
      */
     private fun sh(vararg cmd: String): Pair<Int, String> {
         val p = try {
@@ -1387,7 +1473,7 @@ class ShellService(
         private const val TAG = "MinaShell"
         private const val MAX_TASKS = 100
         private const val TAP_MS = 50L
-        // injectStroke 一笔的上限:点数、从按下到抬起的毫秒数
+        // injectStroke The upper limit of a stroke: points, milliseconds from pressing to lifting
         private const val STROKE_MAX_POINTS = 1_024
         private const val STROKE_MAX_MS = 10_000L
         private const val CMD_TIMEOUT_S = 10L
@@ -1400,29 +1486,29 @@ class ShellService(
         const val START_IN_USE_ON_MAIN = 1
         const val START_NOT_FOUND = 2
         const val START_ERROR = 3
-        /** 冷启动被改成了普通启动:App 在 Mina 的屏以外还有任务。 */
+        /** Cold startup was changed to normal startup: the app has tasks outside of Mina's screen. */
         const val START_OK_COLD_IGNORED = 4
-        /** startView:没有 App 能打开这个链接。 */
+        /** startView: No app can open this link. */
         const val START_UNRESOLVED = 5
-        /** startView:链接不允许打开(见 [ShellLinks])。 */
+        /** startView: The link is not allowed to be opened (see [ShellLinks]). */
         const val START_INVALID_LINK = 6
-        /** 这个 App 正在 Mina 的另一块屏上给别的任务用。 */
+        /** This app is being used for other tasks on another screen of Mina. */
         const val START_IN_USE_BY_OTHER = 7
-        /** startAppInUser:那份用户不在能用之列(见 [AppCopies])。 */
+        /** startAppInUser: That user is not available (see [AppCopies]). */
         const val START_USER_NOT_ALLOWED = 8
 
-        // appCopyUsers 的 Bundle
+        // appCopyUsers Bundle
         const val KEY_COPY_USERS = "users"
         const val KEY_COPY_SUMMARY = "summary"
         // UserProperties.PROFILE_API_VISIBILITY_HIDDEN
         private const val PROFILE_API_VISIBILITY_HIDDEN = 1
 
-        // setClipText 的结果
+        // results of setClipText
         const val CLIP_SET = 0
         const val CLIP_UNREADABLE = 1
         const val CLIP_FAILED = 2
         private const val CLIP_LABEL = "Harness Agent"
-        // AppOpsManager 里这个名字是隐藏的
+        // This name is hidden in AppOpsManager
         private const val OPSTR_READ_CLIPBOARD = "android:read_clipboard"
         private const val READ_CLIPBOARD_IN_BACKGROUND = "android.permission.READ_CLIPBOARD_IN_BACKGROUND"
 
@@ -1433,11 +1519,12 @@ class ShellService(
         private const val INJECT_MODE_WAIT_FOR_FINISH = 2 // InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH
         private const val VIRTUAL_KEYBOARD = -1 // KeyCharacterMap.VIRTUAL_KEYBOARD
         private const val USER_CURRENT = -2 // UserHandle.USER_CURRENT
-        // WindowConfiguration.ACTIVITY_TYPE_*:桌面、最近任务、助理等是别的种类
+        // WindowConfiguration.ACTIVITY_TYPE_*: Desktop, recent tasks, assistant, etc. are other
+        // categories
         private const val ACTIVITY_TYPE_UNDEFINED = 0
         private const val ACTIVITY_TYPE_STANDARD = 1
 
-        // DisplayManager.VIRTUAL_DISPLAY_FLAG_*(部分为隐藏常量)
+        // DisplayManager.VIRTUAL_DISPLAY_FLAG_* (some are hidden constants)
         private const val FLAG_PUBLIC = 1 shl 0
         private const val FLAG_OWN_CONTENT_ONLY = 1 shl 3
         private const val FLAG_SUPPORTS_TOUCH = 1 shl 6
@@ -1451,9 +1538,12 @@ class ShellService(
         private const val FLAG_STEAL_TOP_FOCUS_DISABLED = 1 shl 16
 
         /**
-         * 建虚拟屏用的标志。[trusted] 为 false 时去掉依赖可信屏的那几项:有的系统里 shell 没有
-         * ADD_TRUSTED_DISPLAY,带上 TRUSTED 会被系统以 SecurityException 拒绝;OWN_DISPLAY_GROUP、ALWAYS_UNLOCKED
-         * 和 OWN_FOCUS/STEAL_TOP_FOCUS_DISABLED 同样只对可信屏可用。其余几项与可信与否无关,照旧。
+         * Flag used to create a virtual screen. When [trusted] is false, remove the items that depend on
+         * the trusted screen: in some systems, the shell does not have ADD_TRUSTED_DISPLAY, and bringing
+         * TRUSTED will be rejected by the system with a SecurityException; OWN_DISPLAY_GROUP,
+         * ALWAYS_UNLOCKED and OWN_FOCUS/STEAL_TOP_FOCUS_DISABLED are also only available for trusted
+         * screens. The remaining items have nothing to do with whether they are trustworthy or not, just
+         * as usual.
          */
         internal fun displayFlags(sdk: Int, trusted: Boolean): Int {
             var flags = FLAG_PUBLIC or FLAG_OWN_CONTENT_ONLY or FLAG_SUPPORTS_TOUCH or
@@ -1462,8 +1552,10 @@ class ShellService(
                 flags = flags or FLAG_TOUCH_FEEDBACK_DISABLED
                 if (trusted) flags = flags or FLAG_TRUSTED or FLAG_OWN_DISPLAY_GROUP or FLAG_ALWAYS_UNLOCKED
             }
-            // 只有 OWN_FOCUS 时,虚拟屏上启动 App 或 App 自己开新页面都会让它成为「最上层焦点屏」,
-            // 主屏的焦点窗口随之清空;STEAL_TOP_FOCUS_DISABLED(需同时有 OWN_FOCUS、TRUSTED)让它不抢主屏的焦点
+            // When there is only OWN_FOCUS, starting the App on the virtual screen or opening a new page
+            // by the App itself will make it the "top focus screen", and the focus window of the main
+            // screen will be cleared; STEAL_TOP_FOCUS_DISABLED (need to have OWN_FOCUS and TRUSTED at
+            // the same time) will prevent it from grabbing the focus of the main screen.
             if (sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && trusted) {
                 flags = flags or FLAG_OWN_FOCUS or FLAG_STEAL_TOP_FOCUS_DISABLED
             }
@@ -1471,9 +1563,14 @@ class ShellService(
         }
 
         /**
-         * 注入方式。按键等到系统定下投给谁(WAIT_FOR_RESULT):屏上没有能接按键的窗口时注入报失败,调用方才会退回 shell 命令
-         * 或报动作失败,不再「发了就算成」;只等派发、不等 App 处理完,最多等到系统自己的注入超时。
-         * 触摸照旧不等(ASYNC):一笔划要按时间逐点送,等派发会打乱快慢。[waitForFinish] 的(主屏解锁输入)等 App 处理完。
+         * Injection method. Press the key and wait until the system determines who to vote to
+         * (WAIT_FOR_RESULT): When there is no window on the screen that can accept the key press, the
+         * injection will report failure, and the caller will return to the shell command or report the
+         * action failed. It will no longer "send it and forget it"; it will only wait for dispatch, not
+         * wait for the App to finish processing, and at most wait until the system's own injection times
+         * out. Touching still does not wait (ASYNC): A stroke must be delivered one by one according to
+         * time, and waiting for delivery will disrupt the speed. [waitForFinish]’s (home screen unlock
+         * input) waits for the App to be processed.
          */
         internal fun injectMode(key: Boolean, waitForFinish: Boolean): Int = when {
             waitForFinish -> INJECT_MODE_WAIT_FOR_FINISH
@@ -1482,33 +1579,39 @@ class ShellService(
         }
 
         /**
-         * 一对按下/抬起:只有按下就没注入成功时才走 [fallback](shell 命令);按下已送达后再退回会造成一次多余的完整点击/按键,
-         * 这时只补发抬起(失败重试一次)。
+         * A pair of press/lift: [fallback] (shell command) will be executed only if the injection is not
+         * successful after pressing; returning after pressing has been delivered will cause an extra
+         * complete click/key, and only raise will be reissued at this time (retry once if failed).
          */
         internal inline fun sendPair(down: () -> Boolean, up: () -> Boolean, fallback: () -> Boolean): Boolean {
             if (!down()) return fallback()
             return up() || up()
         }
 
-        /** 只有缺权限(SecurityException,如 shell 没有 ADD_TRUSTED_DISPLAY)才值得去掉可信标志再试;别的失败照旧报错。 */
+        /** Only lack of permissions (SecurityException, such as the shell does not have ADD_TRUSTED_DISPLAY) is worth removing the trusted flag and trying again; other failures will still report errors. */
         internal fun retryWithoutTrust(t: Throwable): Boolean = t is SecurityException
 
-        // WindowManager.DISPLAY_IME_POLICY_LOCAL = 0, _FALLBACK_DISPLAY = 1, _HIDE = 2。
-        // 真机(安卓 14)实测 LOCAL:在虚拟屏聚焦输入框后输入法窗口出现在虚拟屏上,主屏焦点不变,无需 HIDE。
+        // WindowManager.DISPLAY_IME_POLICY_LOCAL = 0, _FALLBACK_DISPLAY = 1, _HIDE = 2. Actual test on
+        // real machine (Android 14) LOCAL: After focusing on the input box on the virtual screen, the
+        // input method window appears on the virtual screen, and the main screen focus remains
+        // unchanged, without HIDE.
         private const val IME_POLICY = 0
 
-        // SystemUI 的约定:来自 shell 的剪贴板带上它就不显示「已复制」浮层(否则会弹在用户的主屏上)
+        // SystemUI's convention: when the clipboard from the shell is brought with it, the "Copied"
+        // floating layer will not be displayed (otherwise it will pop up on the user's home screen)
         private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE" // ClipDescription.EXTRA_IS_SENSITIVE(API 33)
         private const val EXTRA_SUPPRESS_CLIPBOARD_OVERLAY = "com.android.systemui.SUPPRESS_CLIPBOARD_OVERLAY"
 
         /**
-         * 一个任务(页面所在的包 [taskPackages]、所属用户 [taskUser],读不到为 null)是不是 [packageName] 在 [userId] 那份用户里的那份。
-         * [userId] 为空时不分哪一份;任务的用户读不到时算是(宁可当成占用,不冒险打扰用户)。
+         * A task (the page is in the package [taskPackages] and belongs to the user [taskUser], if it
+         * cannot be read, it is null). Is [packageName] the share of the user [userId]? When [userId] is
+         * empty, it does not matter which share it is; when the user of the task cannot read it, it
+         * counts (it would rather be regarded as occupied than risk disturbing the user).
          */
         internal fun sameCopy(taskPackages: Collection<String>, taskUser: Int?, packageName: String, userId: Int?): Boolean =
             packageName in taskPackages && (userId == null || taskUser == null || taskUser == userId)
 
-        /** 解析 `appops get <pkg> PLAY_AUDIO`:"PLAY_AUDIO: ignore; time=..." → "ignore";未设置 → "default"。 */
+        /** Parsing `appops get <pkg> PLAY_AUDIO`: "PLAY_AUDIO: ignore; time=..." → "ignore"; not set → "default". */
         internal fun parsePlayAudioMode(output: String): String = AudioMuteLedger.parseSetMode(output) ?: "default"
     }
 }

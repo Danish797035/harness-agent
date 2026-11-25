@@ -1,16 +1,15 @@
-/*
- * harnessrun — Harness 沙箱启动器。
- * SPDX-License-Identifier: Apache-2.0
- * Copyright (c) 2026 Mina authors
+/**
+ * harnessrun — Harness sandbox launcher. SPDX-License-Identifier: Apache-2.0 Copyright (c) 2026 Mina
+ * authors
  *
- * 用法:
- *   libharnessrun.so [--timeout <秒,1-3600>] [--net on|off] [--nice <0-19,默认10>]
- *                 [--max-procs <默认256>] [--max-file-mb <默认2048>] -- <程序> [参数…]
- *   libharnessrun.so --self-test    输出 "harnessrun ok" 与 "seccomp ok" 或 "seccomp unavailable: <原因>",退出 0
+ * Usage: libharnessrun.so [--timeout <seconds,1-3600>] [--net on|off] [--nice <0-19, default 10>] [--max-procs
+ * <Default 256>] [--max-file-mb <Default 2048>] -- <Program> [parameters...] libharnessrun.so --self-test output
+ * "harnessrun ok" and "seccomp ok" or "seccomp unavailable: <reason>",exit 0
  *
- * 不给 --net 时按 off 处理(断网是默认值)。不给 --timeout 时不限时。
- * 退出码:命令自身的退出码;超时 124;命令被信号 N 杀死 128+N;
- *         启动器自身出错 125,原因写在标准错误最后一行,以 "harnessrun:" 开头。
+ * If --net is not given, press off (disconnection is the default value). There is no time limit when
+ * --timeout is not given. Exit code: The exit code of the command itself; timeout 124; command killed by
+ * signal N 128+N; error in the launcher itself 125, the reason is written in the last line of standard
+ * error, starting with "harnessrun:".
  */
 
 #include <dirent.h>
@@ -44,28 +43,28 @@
 #define EXIT_TIMEOUT 124
 #define EXIT_LAUNCHER_ERROR 125
 
-/* aarch64 的系统调用号(过滤器只认这一种架构) */
+/** The system call number of aarch64 (the filter only recognizes this architecture) */
 #define NR_IOCTL_AARCH64 29
 #define NR_SOCKET_AARCH64 198
 #define NR_IO_URING_SETUP_AARCH64 425
 #define NR_PIDFD_SEND_SIGNAL_AARCH64 424
 #define NR_PIDFD_OPEN_AARCH64 434
 #define NR_CLOSE_RANGE_AARCH64 436
-#define BINDER_WRITE_READ_CMD 0xc0306201u /* _IOWR('b', 1, struct binder_write_read),64 位 */
+#define BINDER_WRITE_READ_CMD 0xc0306201u /* _IOWR('b', 1, struct binder_write_read), 64-bit */
 
-#define GRACE_MS 2000          /* SIGTERM 之后等多久再 SIGKILL */
+#define GRACE_MS 2000          /* How long to wait after SIGTERM and then SIGKILL? */
 #define POLL_MS 50
-#define KILL_ROUNDS_MAX 200    /* SIGKILL 循环的上限(约 10 秒),防止异常情况下永远不退出 */
+#define KILL_ROUNDS_MAX 200    /* SIGKILL The upper limit of the loop (about 10 seconds) to prevent never exiting under abnormal circumstances */
 #define SCAN_MAX 32768
 
 struct options {
 	int self_test;
-	long timeout_sec;  /* 0 = 不限时 */
+	long timeout_sec;  /* 0 = no time limit */
 	int net_off;
 	long nice;
 	long max_procs;
 	long max_file_mb;
-	char **command; /* 以 NULL 结尾,指向 argv 内部 */
+	char **command; /* Terminated by NULL, pointing to the inside of argv */
 };
 
 static int fail(const char *what, const char *detail)
@@ -94,7 +93,7 @@ static int parse_long(const char *name, const char *text, long min, long max, lo
 	return 0;
 }
 
-/* 返回 0 成功;非 0 时已写好错误信息。 */
+/** Returns 0 for success; if it is not 0, the error message has been written. */
 static int parse_options(int argc, char **argv, struct options *opts)
 {
 	int i = 1;
@@ -145,7 +144,7 @@ static int parse_options(int argc, char **argv, struct options *opts)
 		}
 		if (strncmp(arg, "--", 2) == 0)
 			return fail("unknown option", arg), -1;
-		break; /* 第一个非选项参数即命令 */
+		break; /* The first non-option parameter is the command */
 	}
 
 	if (opts->self_test)
@@ -156,13 +155,16 @@ static int parse_options(int argc, char **argv, struct options *opts)
 	return 0;
 }
 
-/* ---------- 断网:seccomp 过滤器 ---------- */
+/** ---------- Disconnection: seccomp filter ---------- */
 
-/*
- * 白名单:socket() 只放行 AF_UNIX(桥要用)与 AF_NETLINK(查本机网卡、路由等,不出本机),其余地址族 → EACCES;
- * io_uring_setup → ENOSYS(它能绕开 socket 过滤);binder 的 BINDER_WRITE_READ ioctl → EACCES
- * (经系统服务也能把数据带出去,PRoot 里本来也不绑 binder 设备,这里再拦一道);其余放行。
- * 非 aarch64 的系统调用(32 位兼容层)一律杀进程,防止换个调用号绕过。过滤器随 fork/exec 继承、不能撤销。
+/**
+ * Whitelist: socket() only allows AF_UNIX (used for bridges) and AF_NETLINK (checks the local network
+ * card, routing, etc., but does not leave the local machine), and other address families → EACCES;
+ * io_uring_setup → ENOSYS (it can bypass socket filtering); binder's BINDER_WRITE_READ ioctl → EACCES
+ * (data can also be taken out through system services, and binder is not originally bound to PRoot)
+ * Equipment, one more block will be blocked here); the rest will be allowed to pass. All non-aarch64
+ * system calls (32-bit compatibility layer) will kill the process to prevent bypassing by changing the
+ * call number. Filters are inherited with fork/exec and cannot be revoked.
  */
 static int install_net_filter(char *reason, size_t reason_len)
 {
@@ -176,7 +178,7 @@ static int install_net_filter(char *reason, size_t reason_len)
 		/* 6 */ BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, NR_SOCKET_AARCH64, 2, 0),          /* → 9 */
 		/* 7 */ BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, NR_IOCTL_AARCH64, 6, 0),           /* → 14 */
 		/* 8 */ BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-		/* 小端:参数的低 32 位在前;socket 的 domain、ioctl 的 cmd 都是 32 位,内核只看低 32 位 */
+		/** Little endian: the lower 32 bits of the parameter come first; the domain of the socket and the cmd of the ioctl are both 32 bits, and the kernel only looks at the lower 32 bits. */
 		/* 9 */ BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
 		/* 10 */ BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 2, 0),                  /* → 13 */
 		/* 11 */ BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_NETLINK, 1, 0),               /* → 13 */
@@ -203,7 +205,7 @@ static int install_net_filter(char *reason, size_t reason_len)
 	return 0;
 }
 
-/* 在子进程里装过滤器并实测:AF_INET 被拒、AF_UNIX 可用。返回 0 可用,否则 reason 写原因。 */
+/** Install the filter in the child process and test it: AF_INET is rejected, AF_UNIX is available. Returns 0 if available, otherwise reason writes the reason. */
 static int probe_net_filter(char *reason, size_t reason_len)
 {
 	int fds[2];
@@ -273,11 +275,13 @@ static int self_test(void)
 	return 0;
 }
 
-/* ---------- /proc 扫描 ---------- */
+/** ---------- /proc scan ---------- */
 
-/*
- * 安卓给 App 装的 seccomp 策略对它不认识的系统调用发 SIGSYS(直接杀进程),而不是返回 ENOSYS。
- * pidfd_open/pidfd_send_signal 从 API 31、close_range 从 API 34 起才在策略里,更早的系统上不能试。
+/**
+ * The seccomp policy installed by Android for the App sends SIGSYS (directly kills the process) to
+ * system calls it does not recognize, instead of returning ENOSYS. pidfd_open/pidfd_send_signal is only
+ * included in the policy from API 31 and close_range onwards from API 34, and cannot be tried on earlier
+ * systems.
  */
 static int api_level(void)
 {
@@ -286,13 +290,13 @@ static int api_level(void)
 #elif defined(HARNESSRUN_HOST_API_LEVEL)
 	return HARNESSRUN_HOST_API_LEVEL;
 #elif defined(MINARUN_HOST_API_LEVEL)
-	return MINARUN_HOST_API_LEVEL; /* 只用于在普通 Linux 上测退路 */
+	return MINARUN_HOST_API_LEVEL; /* Only used to test fallback on ordinary Linux */
 #else
 	return 10000;
 #endif
 }
 
-/* 读 /proc/<pid>/stat 里的父进程号与线程数。返回 0 成功。 */
+/** Read the parent process number and thread number in /proc/<pid>/stat. Returns 0 on success. */
 static int read_stat(int proc_fd, const char *pid_name, pid_t *ppid, long *threads)
 {
 	char path[64], buf[1024];
@@ -311,10 +315,10 @@ static int read_stat(int proc_fd, const char *pid_name, pid_t *ppid, long *threa
 	if (n <= 0)
 		return -1;
 	buf[n] = '\0';
-	p = strrchr(buf, ')'); /* 进程名里可能有空格和括号,从最后一个 ')' 往后读 */
+	p = strrchr(buf, ')'); /* There may be spaces and parentheses in the process name, read from the last ')' onwards */
 	if (p == NULL)
 		return -1;
-	/* 字段 3 state、4 ppid,……,20 num_threads */
+	/** Field 3 state, 4 ppid,...,20 num_threads */
 	if (sscanf(p + 2, "%c %d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %ld",
 		   &state, &pp, &nt) != 3)
 		return -1;
@@ -333,7 +337,7 @@ static int is_pid_name(const char *s)
 	return 1;
 }
 
-/* 本身份(uid)当前的任务数(线程也算,RLIMIT_NPROC 按任务计数)。 */
+/** The current number of tasks of this identity (uid) (threads are also counted, RLIMIT_NPROC is counted by tasks). */
 static long count_user_tasks(void)
 {
 	DIR *dir = opendir("/proc");
@@ -363,9 +367,9 @@ static pid_t scan_pid[SCAN_MAX];
 static pid_t scan_ppid[SCAN_MAX];
 static unsigned char scan_mark[SCAN_MAX];
 static int scan_count;
-static int pidfd_usable = -1; /* -1 未知,0 不可用,1 可用 */
+static int pidfd_usable = -1; /* -1 unknown, 0 not available, 1 available */
 
-/* 再读一次 /proc/<pid>/stat:父进程仍是本进程,或是本轮扫描认定的后代。 */
+/** Read /proc/<pid>/stat again: the parent process is still this process, or a descendant identified by this round of scanning. */
 static int still_descendant(pid_t pid)
 {
 	char name[32];
@@ -384,11 +388,13 @@ static int still_descendant(pid_t pid)
 	return 0;
 }
 
-/*
- * 扫描与发信号之间,进程号可能已被回收并复用给同一身份(Mina 自己)的别的进程。
- * 有 pidfd 时:先 pidfd_open 钉住进程身份,再确认它仍是后代,然后经 pidfd 发信号——不会误杀。
- * 没有 pidfd 时只能在 kill 前再确认一次(窗口很小);kill_tree 另外先 SIGSTOP 整棵树再重扫,
- * 停住的进程不会再回收子进程,重扫后的进程号就稳定了。
+/**
+ * Between scanning and signaling, the process number may have been recycled and reused by other
+ * processes with the same identity (Mina itself). When there is pidfd: first use pidfd_open to pin the
+ * process identity, then confirm that it is still a descendant, and then send a signal through pidfd -
+ * no accidental killing. When there is no pidfd, you can only confirm once before kill (the window is
+ * very small); kill_tree also SIGSTOPs the entire tree first and then rescans the stopped process. The
+ * stopped process will not recycle the child process, and the process number after the rescan is stable.
  */
 static void send_to_descendant(pid_t pid, int sig)
 {
@@ -404,15 +410,18 @@ static void send_to_descendant(pid_t pid, int sig)
 		}
 		if (errno == ESRCH)
 			return;
-		pidfd_usable = 0; /* 内核太旧(ENOSYS)等:改走下面的退路 */
+		pidfd_usable = 0; /* The kernel is too old (ENOSYS), etc.: Change to the following retreat */
 	}
 	if (still_descendant(pid))
 		kill(pid, sig);
 }
 
-/*
- * 找出父进程链最终指向本进程的所有进程(本进程是子进程收割者,脱离父进程的后代也会挂回来),
- * sig 非 0 时给它们发信号。返回找到的个数(含尚未被回收的僵尸);扫描表装满时多算一个,当作「还有」。
+/**
+ * Find all the processes that the parent process chain ultimately points to this process (this process
+ * is the reaper of the child process, and the descendants that leave the parent process will also hang
+ * back), and send signals to them when sig is non-0. Returns the number found (including zombies that
+ * have not been recovered); when the scan table is full, one more is counted and treated as "there is
+ * still".
  */
 static int signal_descendants(int sig)
 {
@@ -422,7 +431,7 @@ static int signal_descendants(int sig)
 	int n = 0, found = 0, full, changed, i;
 
 	if (dir == NULL)
-		return 1; /* 看不到就当还有,让调用方继续等 */
+		return 1; /* If you can’t see it, just pretend it’s there and let the caller continue to wait. */
 	while ((e = readdir(dir)) != NULL && n < SCAN_MAX) {
 		pid_t ppid;
 		long threads;
@@ -436,7 +445,7 @@ static int signal_descendants(int sig)
 		scan_mark[n] = ppid == self;
 		n++;
 	}
-	full = e != NULL; /* 还没读完就满了 */
+	full = e != NULL; /* It’s full before I finish reading it. */
 	closedir(dir);
 
 	do {
@@ -466,9 +475,9 @@ static int signal_descendants(int sig)
 	return found + full;
 }
 
-/* ---------- 运行与清场 ---------- */
+/** ---------- Operation and Clearance ---------- */
 
-/* 回收所有已结束的直接子进程(包括挂回来的孤儿);主子进程的状态记下来。 */
+/** Recycle all terminated direct child processes (including orphans that hang back); the status of the main child process is recorded. */
 static void reap(pid_t child, int *status, int *have_status)
 {
 	pid_t p;
@@ -489,7 +498,7 @@ static void sleep_ms(long ms)
 		;
 }
 
-/* 先给进程组和所有后代发 SIGTERM,等 GRACE_MS;还在的后代 SIGKILL,循环到一个不剩。 */
+/** First send SIGTERM to the process group and all descendants, wait for GRACE_MS; SIGKILL the descendants that are still there, and loop until there is no one left. */
 static void kill_tree(pid_t child, int *status, int *have_status)
 {
 	long waited;
@@ -498,7 +507,7 @@ static void kill_tree(pid_t child, int *status, int *have_status)
 	reap(child, status, have_status);
 	if (signal_descendants(0) == 0)
 		return;
-	kill(-getpid(), SIGTERM); /* 本进程也在组里;SIGTERM 已被屏蔽,不影响自己 */
+	kill(-getpid(), SIGTERM); /* This process is also in the group; SIGTERM has been blocked and does not affect itself. */
 	signal_descendants(SIGTERM);
 	for (waited = 0; waited < GRACE_MS; waited += POLL_MS) {
 		sleep_ms(POLL_MS);
@@ -508,7 +517,7 @@ static void kill_tree(pid_t child, int *status, int *have_status)
 	}
 	for (round = 0; round < KILL_ROUNDS_MAX; round++) {
 		if (!pidfd_usable)
-			signal_descendants(SIGSTOP); /* 先冻住整棵树,下面重扫得到的进程号不会再变 */
+			signal_descendants(SIGSTOP); /* Freeze the entire tree first, and the process number obtained by rescanning below will not change again. */
 		if (signal_descendants(SIGKILL) == 0)
 			return;
 		sleep_ms(POLL_MS);
@@ -524,10 +533,11 @@ static long now_ms(void)
 	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
 }
 
-/*
- * PRoot 在 PROOT_LOADER 未设置时会把内嵌的载入器写进临时目录再执行(安卓禁止执行数据目录里的文件),
- * 所以启动 libproot.so 前要求 PROOT_LOADER 指向与启动器同目录(nativeLibraryDir)里的文件。
- * 返回 0 通过;非 0 时已写好错误信息。
+/**
+ * When PROOT_LOADER is not set, PRoot will write the embedded loader into a temporary directory before
+ * executing it (Android prohibits the execution of files in the data directory), so before starting
+ * libproot.so, PROOT_LOADER is required to point to a file in the same directory as the launcher
+ * (nativeLibraryDir). Returns 0 if passed; if not 0, the error message has been written.
  */
 static int check_proot_loader(const char *program)
 {
@@ -544,7 +554,7 @@ static int check_proot_loader(const char *program)
 	if (n < 0)
 		return fail("cannot read /proc/self/exe", strerror(errno));
 	self[n] = '\0';
-	/* bionic 的 dirname 返回共用的缓冲区,先拷出一份 */
+	/** bionic's dirname returns the shared buffer, copy out a copy first */
 	snprintf(self_dir, sizeof(self_dir), "%s", dirname(self));
 	snprintf(path, sizeof(path), "%s", loader);
 	if (strcmp(basename(path), "libproot_loader.so") != 0)
@@ -554,7 +564,7 @@ static int check_proot_loader(const char *program)
 	return 0;
 }
 
-/* 文件大小与进程数上限;软硬限一起设,且不超过原有硬限。 */
+/** The upper limit of file size and number of processes; the soft and hard limits are set together and do not exceed the original hard limit. */
 static int set_limit(int resource, rlim_t value, const char *name)
 {
 	struct rlimit rl;
@@ -570,7 +580,7 @@ static int set_limit(int resource, rlim_t value, const char *name)
 	return 0;
 }
 
-/* oom_score_adj 只能调高(普通身份);写不进去就算了。 */
+/** oom_score_adj can only be adjusted higher (ordinary identity); forget it if you can't write it in. */
 static void set_oom_score_adj(const char *value)
 {
 	int fd = open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
@@ -581,7 +591,7 @@ static void set_oom_score_adj(const char *value)
 	}
 }
 
-/* 关掉 0/1/2 以外继承来的描述符,命令拿不到 Mina 的任何文件或套接字。 */
+/** Turn off the inherited descriptors other than 0/1/2, and the command cannot get any files or sockets of Mina. */
 static void close_inherited_fds(void)
 {
 	DIR *dir;
@@ -603,37 +613,40 @@ static void close_inherited_fds(void)
 	closedir(dir);
 }
 
-/* 自成会话、收割者、父死信号、优先级、OOM 分数、资源上限、断网。返回 0 成功。 */
+/** Self-contained session, reaper, parent death signal, priority, OOM score, resource limit, network disconnection. Returns 0 on success. */
 static int prepare(const struct options *opts)
 {
 	pid_t parent = getppid();
 	char reason[160];
 	long used;
 
-	/* 父进程在读到 PPID 之前就没了:已被过继给 init,父死信号再也不会来 */
+	/** The parent process died before reading the PPID: it has been adopted to init, and the parent death signal will never come again. */
 	if (parent == 1)
 		return fail("parent exited", NULL);
 	if (prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0)
 		return fail("PR_SET_PDEATHSIG", strerror(errno));
-	if (getppid() != parent) /* 设置之前父进程就已经没了 */
+	if (getppid() != parent) /* The parent process has disappeared before setting it. */
 		return fail("parent exited", NULL);
 	if (setsid() < 0 && getsid(0) != getpid())
 		return fail("setsid", strerror(errno));
 	if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0)
 		return fail("PR_SET_CHILD_SUBREAPER", strerror(errno));
 
-	/*
-	 * 优先级与 OOM 分数只是保护 Mina 自身,做不到不拦命令。启动器自己 900、命令 1000(子进程里再调):
-	 * 内存不够时先杀命令,启动器活着才能清场。
+	/**
+	 * Priority and OOM scores only protect Mina itself, but cannot prevent commands. Launcher itself 900,
+	 * command 1000 (adjusted in the child process): When the memory is insufficient, kill the command
+	 * first, and the launcher can be cleared only when it is alive.
 	 */
 	setpriority(PRIO_PROCESS, 0, (int)opts->nice);
 	set_oom_score_adj("900");
 
 	if (set_limit(RLIMIT_FSIZE, (rlim_t)opts->max_file_mb << 20, "RLIMIT_FSIZE") != 0)
 		return -1;
-	/*
-	 * RLIMIT_NPROC 由内核按身份(uid)整体计数:Mina 的线程、同时在跑的其它沙箱命令都占同一个额度,
-	 * 所以上限 = 设置时本身份已有的任务数 + max-procs,而不是单给这条命令 max-procs 个。
+	/**
+	 * RLIMIT_NPROC is counted by the kernel as a whole by identity (uid): Mina's threads and other sandbox
+	 * commands running at the same time all occupy the same quota, so the upper limit = the number of tasks
+	 * already in the identity at the time of setting + max-procs, instead of max-procs for this command
+	 * alone.
 	 */
 	used = count_user_tasks();
 	if (used < 0)
@@ -655,7 +668,7 @@ static int run(const struct options *opts)
 
 	if (check_proot_loader(opts->command[0]) != 0)
 		return EXIT_LAUNCHER_ERROR;
-	/* 先屏蔽要等的信号,再做别的,避免信号在 sigtimedwait 之前到来而丢失 */
+	/** Shield the signal you want to wait for first, and then do anything else to avoid the signal arriving before sigtimedwait and being lost. */
 	sigemptyset(&wait_set);
 	sigaddset(&wait_set, SIGCHLD);
 	sigaddset(&wait_set, SIGTERM);
@@ -671,10 +684,12 @@ static int run(const struct options *opts)
 		return fail("fork", strerror(errno));
 	if (child == 0) {
 		sigprocmask(SIG_SETMASK, &orig_set, NULL);
-		/*
-		 * 启动器被直接 SIGKILL 时没机会清场:PRoot 靠 PDEATHSIG 跟着死,PRoot 打了补丁带
-		 * PTRACE_O_EXITKILL,它一死所有被跟踪的进程都被内核杀掉。Mina 整个进程被系统杀掉时,
-		 * 安卓按 App 的 cgroup 把同一 cgroup 里的进程(包括这里所有沙箱进程)一起杀掉,这是最后一道。
+		/**
+		 * When the launcher is directly SIGKILLed, there is no chance to clear it: PRoot relies on PDEATHSIG
+		 * to follow and die. PRoot is patched with PTRACE_O_EXITKILL. Once it dies, all tracked processes will
+		 * be killed by the kernel. When the entire Mina process is killed by the system, Android presses the
+		 * App's cgroup to kill the processes in the same cgroup (including all sandbox processes here). This
+		 * is the last step.
 		 */
 		prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
 		set_oom_score_adj("1000");
@@ -708,10 +723,10 @@ static int run(const struct options *opts)
 			terminated = sig;
 			break;
 		}
-		/* SIGCHLD、超时(EAGAIN)、EINTR:回到循环开头重新检查 */
+		/** SIGCHLD, timeout (EAGAIN), EINTR: Go back to the beginning of the loop and recheck */
 	}
 
-	/* 命令正常结束时也清一遍:留在后台的进程不能活过这条命令 */
+	/** Also clear it when the command ends normally: processes left in the background cannot survive this command. */
 	kill_tree(child, &status, &have_status);
 	if (timed_out)
 		return EXIT_TIMEOUT;

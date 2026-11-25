@@ -49,7 +49,7 @@ class ProcRunnerArgsTest {
         assertEquals("mina-bridge-x", bridged["MINA_BRIDGE"]); assertEquals("tok", bridged["MINA_TOKEN"])
     }
 
-    /** 代理只在给了时出现:大小写两套变量都给(有的工具只认大写),本机地址照旧直连。 */
+    /** The agent only appears when given: both uppercase and lowercase variables are given (some tools only recognize uppercase), and the local address is still directly connected. */
     @Test fun proxyIsPassedOnlyWhenGiven() {
         val none = ProcRunner.env(dirs, null, null, "conv1", proxy = "")
         assertTrue(none.keys.none { it.lowercase().endsWith("_proxy") })
@@ -73,7 +73,8 @@ class ProcRunnerArgsTest {
     }
 
     @Test fun fixedOffsetTimezonesKeepTheirSign() {
-        // POSIX 的 TZ 里 GMT+8 表示比 UTC 慢 8 小时,不能把 GMT+08:00 原样给出。
+        // GMT+8 in POSIX's TZ indicates that it is 8 hours behind UTC, and GMT+08:00 cannot be given as
+        // it is.
         val cases = mapOf(
             "GMT+08:00" to "Etc/GMT-8", "GMT-05:00" to "Etc/GMT+5", "GMT+05:45" to "<+0545>-05:45",
             "GMT-03:30" to "<-0330>03:30", "GMT" to "UTC", "UTC" to "UTC",
@@ -90,7 +91,8 @@ class ProcRunnerArgsTest {
             assertFalse(id, f.name.contains(".."))
         }
         assertEquals(dirs.workspace("x/y"), dirs.workspace("x/y"))
-        // 简单名字和哈希名字分在两个前缀下:「h-…」样子的 ID 不会撞上别的对话的哈希目录
+        // Simple names and hash names are divided into two prefixes: "h-..." IDs will not collide with
+        // hash directories of other conversations.
         val hashed = dirs.workspace("a/b").name
         assertTrue(hashed, hashed.startsWith("h-"))
         assertEquals("c-$hashed", dirs.workspace(hashed).name)

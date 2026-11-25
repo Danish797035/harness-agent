@@ -4,30 +4,31 @@ import java.net.IDN
 import java.net.URI
 import java.net.URLDecoder
 
-/** 网址里的主机名与站点:「在哪个网站」的说法(读屏、运行状态、知识匹配、技能草稿)都按它算。 */
+/** The host name and site in the URL: "Which website is on" (screen reading, running status, knowledge matching, skill draft) are all counted according to it. */
 object UrlHost {
-    /** 常见的两段公共后缀。 */
+    /** Common two-section public suffixes. */
     private val TWO_PART_SUFFIXES = setOf(
         "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn",
         "com.hk", "com.tw", "com.mo", "com.sg", "com.au", "com.br",
         "co.uk", "org.uk", "ac.uk", "co.jp", "ne.jp", "or.jp", "co.kr", "co.in", "co.nz",
     )
 
-    /** 托管平台:每个用户的子域名是不同的站点,平台域名本身当公共后缀。 */
+    /** Hosting platform: Each user's subdomain name is a different site, and the platform domain name itself is used as a public suffix. */
     private val PRIVATE_SUFFIXES = setOf(
         "github.io", "vercel.app", "pages.dev", "netlify.app", "blogspot.com", "herokuapp.com",
         "amazonaws.com", "workers.dev", "web.app", "appspot.com", "firebaseapp.com",
     )
 
-    /** 国家顶级域名下常作第二段公共后缀的词。 */
+    /** Words often used as the second public suffix under national top-level domain names. */
     private val GENERIC_SECOND_LEVEL = setOf("co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go")
 
-    /** 小写 ASCII 域名(国际化域名转成 xn-- 形式),去掉端口和开头的 www.;解析不出为 null。 */
+    /** Lowercase ASCII domain name (internationalized domain name converted to xn-- form), remove the port and the www. at the beginning; if not parsed, it will be null. */
     fun of(url: String): String? = raw(url)?.removePrefix("www.")?.ifEmpty { null }
 
     /**
-     * 两个地址是否同一站点:主机名相同(不计 www),或同属一个能确定的可注册域名。
-     * 不看协议和端口。拿不准的后缀一律判为不同站点。
+     * Whether the two addresses are the same site: the host name is the same (excluding www), or they
+     * belong to the same registrable domain name that can be determined. Don't look at the protocol and
+     * port. Uncertain suffixes will be judged as different sites.
      */
     fun sameSite(a: String, b: String): Boolean {
         val ha = of(a) ?: return false
@@ -39,7 +40,8 @@ object UrlHost {
 
     internal fun raw(url: String): String? {
         val u = runCatching { URI(url.trim()) }.getOrNull() ?: return null
-        // 含非 ASCII 字符的主机名 URI 解析不出 host,从 authority 里取
+        // The host name URI containing non-ASCII characters cannot resolve the host, so it is taken from
+        // the authority.
         val h = u.host ?: u.rawAuthority?.let(::hostOfAuthority) ?: return null
         val ascii = runCatching { IDN.toASCII(h.trimEnd('.')) }.getOrNull()?.lowercase() ?: return null
         return ascii.ifEmpty { null }
@@ -51,7 +53,7 @@ object UrlHost {
         return a.substringBefore(':').ifEmpty { null }
     }
 
-    /** 可注册域名(公共后缀再加一段);后缀拿不准、或主机名就是后缀本身时为 null。 */
+    /** The domain name can be registered (the public suffix plus a paragraph); it is null when the suffix is uncertain or the host name is the suffix itself. */
     fun registrable(host: String): String? {
         if (host.startsWith("[") || host.all { it.isDigit() || it == '.' }) return null
         val labels = host.split('.')

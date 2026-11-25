@@ -44,7 +44,7 @@ class AgentLoopTakeoverTest {
 
     private fun takeover(args: String = """{"reason":"login","message":"请登录"}""") = call("hand_to_user", args)
 
-    /** 跑到等待接管,交回 [back],返回结束状态和交回后的那次模型请求里的最后一条消息。 */
+    /** Run to wait for takeover, hand back [back], return the end status and the last message in the model request after handing back. */
     private suspend fun TestScope.handBack(
         back: HandBack, main: FakeModel = FakeModel(tools(takeover()), finish()),
         verifier: Verifier? = null, sink: RunSink = RunSink.NONE,
@@ -97,7 +97,9 @@ class AgentLoopTakeoverTest {
     }
 
     @Test fun skippedIsNotSuccess() = runTest {
-        // 跳过后模型直接回答:付款是不可逆的事,另请核查;核查器拿到的动作清单写明接管被跳过,判不通过,回答标成未确认
+        // After skipping, the model directly answered: Payment is irreversible, please check again; the
+        // action list obtained by the verifier states that the takeover was skipped, the judgment was
+        // not passed, and the answer was marked as unconfirmed.
         val main = FakeModel(tools(takeover("""{"reason":"payment","message":"请付款","amount":"¥89.00"}""")), finish(), finish(), finish())
         val checker = FakeModel(text(FAIL), text(FAIL), text(FAIL))
         val (end, _) = handBack(HandBack(HandBackOutcome.skipped), main, verifier = Verifier(checker, null))
@@ -138,14 +140,15 @@ class AgentLoopTakeoverTest {
         val result = history[i + 1].parts.filterIsInstance<Part.ToolResult>().single()
         assertEquals(c.id, result.callId)
         assertTrue(result.content, "\"outcome\":\"complete\"" in result.content)
-        // 交回结果就是工具结果,后面不再另起一条用户消息
+        // The result returned is the result of the tool, and no new user message will be sent later.
         assertEquals(i + 2, history.size)
     }
 
     @Test fun abortedCancelsTask() = runTest {
         val sink = ListSink()
         val (end, l) = handBack(HandBack(HandBackOutcome.aborted), sink = sink)
-        // 取消了也留下这次模型回复,且记在等待接管之前
+        // If canceled, this model reply will also be left, and will be recorded before waiting for
+        // takeover.
         val reply = sink.events.indexOfFirst { it is RunEvent.ModelReply && it.tool == "hand_to_user" }
         assertTrue(sink.events.toString(), reply >= 0)
         assertTrue(reply < sink.events.indexOfFirst { it is RunEvent.State && it.name == "waiting_takeover" })

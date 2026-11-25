@@ -1,10 +1,10 @@
 package com.meenai.mina.core.cap.sandbox
 
-/** 交给模型的命令输出:开头 + 结尾,中间写明省略了多少字。 */
+/** The command output given to the model: beginning + end, with the number of omitted words indicated in the middle. */
 object OutputClip {
     fun clip(s: String, head: Int = 4000, tail: Int = 12000): Pair<String, Boolean> {
         if (s.length <= head + tail) return s to false
-        // 不把一个代理对劈成两半
+        // Not splitting an agent pair in half
         val h = if (head > 0 && s[head - 1].isHighSurrogate()) head - 1 else head
         var start = s.length - tail
         if (start < s.length && s[start].isLowSurrogate()) start++

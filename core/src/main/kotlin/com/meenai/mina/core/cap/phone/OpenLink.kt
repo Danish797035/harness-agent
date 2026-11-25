@@ -20,8 +20,9 @@ import com.meenai.mina.core.uistate.action
 import com.meenai.mina.core.uistate.session
 
 /**
- * 打开链接或设置页;只在提速开关 deepLinks 打开时提供。不可逆判定里它只是打开页面;
- * 落到付款页时让模型交给用户,页面上的操作照常过关卡。
+ * Open a link or settings page; only available when the speed-boosting switch deepLinks is on. In the
+ * irreversible judgment, it just opens the page; when it falls to the payment page, the model is handed
+ * over to the user, and the operations on the page pass the level as usual.
  */
 internal object OpenLink : PhoneTool {
     override val verb = Verb.OpenLink
@@ -48,7 +49,7 @@ internal object OpenLink : PhoneTool {
         if (action == null && (uri to pkg) !in ctx.allowedLinks) {
             return fail("invalid_link", Feedback["link_not_listed"])
         }
-        // 换了页面,之前被拒的付款申报就不是这次的了
+        // After changing the page, the payment declaration that was rejected before is not this time.
         ctx.refusedPay = null
         val r = ctx.action(ctx.phone.screen.openLink(action, uri, pkg))
         if (r.content["ok"] != JsonPrimitive(true)) return r

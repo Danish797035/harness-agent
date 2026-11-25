@@ -10,20 +10,23 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 
 /**
- * 给 [inner] 套一层流式输出,用来测插话打断:第一次请求依次送出 [chunks](每段是到此为止的可见全文,
- * 空串表示重来、清掉),然后停住,直到被撤掉;这次请求不记进 [inner]。之后的请求照 [inner] 的剧本回复,整段文字一次送出。
+ * Set up a layer of streaming output for [inner] to test interrupt interruptions: the first request
+ * sends [chunks] (each paragraph is the visible full text up to this point, an empty string means
+ * restarting or clearing) in sequence, and then stops until it is removed; this request is not recorded
+ * in [inner]. Subsequent requests will be responded to according to [inner]'s script, and the entire
+ * text will be sent at once.
  */
 class InterruptibleStream(private val inner: FakeChatModel, private val chunks: List<String>) : StreamingChatModel {
     override val name: String get() = inner.name
     override val capabilities: Capabilities get() = inner.capabilities
-    /** 第一次请求已经送完 [chunks]、停住了。 */
+    /** The first request has been sent. [chunks] has stopped. */
     val entered = CompletableDeferred<Unit>()
-    /** 第一次请求被撤掉了。 */
+    /** The first request was withdrawn. */
     var cancelled = false
         private set
     private var first = true
 
-    /** 不流式问(界面不显示实时文字)时第一次请求同样停住,只是什么字也没送出。 */
+    /** When asking without streaming (the interface does not display real-time text), the first request also stops, but no words are sent. */
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
         if (first) {
             first = false

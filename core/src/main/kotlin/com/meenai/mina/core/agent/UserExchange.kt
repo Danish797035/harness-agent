@@ -28,16 +28,18 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
- * 等用户:回答追问、交回接管、回答确认。等待期间对外显示等待的状态,等完换回 [running](由调用方给);
- * 用户的决定(或超时、跳过)做成这次调用的工具结果。界面经 [answerInput] 一类方法把用户的回答交进来。
+ * Waiting for users: answer questions, hand over for acceptance, answer confirmation. During the waiting
+ * period, the waiting status is displayed to the outside world, and after waiting, it is replaced with
+ * [running] (given by the caller); the user's decision (or timeout, skipping) makes the tool result of
+ * this call. The interface passes in the user's answers via a [answerInput] method.
  */
 internal class UserExchange(
     private val tools: ToolDispatcher,
     private val confirmations: ConfirmationGate?,
-    /** 等用户回答确认的时限,到时按不同意;为 null 时一直等。 */
+    /** The time limit for waiting for the user to confirm the response, then press disagree; if it is null, keep waiting. */
     private val confirmTimeoutMs: Long?,
     private val inputTimeoutMs: Long,
-    /** 用户本次说的话(memory_save 的引文校验用);不收集时为 null。 */
+    /** What the user said this time (used for citation verification of memory_save); null when not collected. */
     private val utterances: () -> UserUtterances?,
     private val setState: (TaskState) -> Unit,
     private val emit: (RunEvent) -> Unit,
@@ -51,7 +53,7 @@ internal class UserExchange(
     @Volatile private var takeoverReply: CompletableDeferred<HandBack>? = null
     @Volatile private var inputReply: CompletableDeferred<String>? = null
     @Volatile private var confirmationReply: CompletableDeferred<ConfirmChoice>? = null
-    /** 回答换成给模型的样子(带着用户屏幕时换成说明,见 [UserScreenTurns.asText]);默认原样。 */
+    /** Change the answer to the one given to the model (change to instructions when using the user screen, see [UserScreenTurns.asText]); the default is as is. */
     var answerText: suspend (String) -> String = { it }
 
     fun begin(thread: String, run: RunProvenance, channel: Interaction = LocalInteraction) {
@@ -79,14 +81,14 @@ internal class UserExchange(
     fun resumeAfterTakeover(result: HandBack, askId: String? = null): Boolean =
         if (matches(askId)) takeoverReply?.complete(result) ?: false else false
 
-    /** 没有在等的问题(已超时、已答过)时返回 false。 */
+    /** Returns false when there are no pending questions (timed out, answered). */
     fun answerInput(text: String, askId: String? = null): Boolean =
         if (matches(askId)) inputReply?.complete(text) ?: false else false
 
     fun answerConfirmation(choice: ConfirmChoice, askId: String? = null): Boolean =
         if (matches(askId)) confirmationReply?.complete(choice) ?: false else false
 
-    /** 任务结束:不再等任何回答。 */
+    /** Mission ended: No more waiting for any answers. */
     fun clear() {
         takeoverReply = null
         inputReply = null
@@ -94,7 +96,7 @@ internal class UserExchange(
         activeAsk = null
     }
 
-    /** 等用户回答追问,最多 [inputTimeoutMs];超时返回 null。用户的回答可能是验证码一类,不记。 */
+    /** Wait for the user to answer the follow-up question, up to [inputTimeoutMs]; return null after timeout. The user's answer may be a verification code or something, so don't remember it. */
     suspend fun awaitAnswer(prompt: String, options: List<String>?): String? {
         if (provenance.attendance == Attendance.Unattended) return null
         val pending = CompletableDeferred<String>().also { inputReply = it }
@@ -113,7 +115,7 @@ internal class UserExchange(
 
     suspend fun input(o: Outcome.Input, running: TaskState): ToolExecution {
         val answer = awaitAnswer(o.prompt, o.options)
-        // 用户在任务里给的事实也是核查的依据
+        // The facts given by the user in the task are also the basis for verification.
         answer?.let { tools.noteUserAnswer(o.prompt, it) }
         setState(running)
         return ToolExecution(buildJsonObject {
@@ -122,7 +124,7 @@ internal class UserExchange(
         })
     }
 
-    /** 等用户交回;取消任务(aborted)时返回 null。没交回就不说成交回了:跳过、超时不算失败,但如实告诉模型。 */
+    /** Wait for the user to return it; return null when the task is canceled (aborted). If it is not returned, it will not be said that the transaction has been completed: skipping and timeout are not considered failures, but the model is told truthfully. */
     suspend fun takeover(o: Outcome.Takeover, running: TaskState): ToolExecution? {
         if (provenance.attendance == Attendance.Unattended || provenance.origin == RunOrigin.Child) return null
         val pending = CompletableDeferred<HandBack>().also { takeoverReply = it }
@@ -161,7 +163,7 @@ internal class UserExchange(
         })
     }
 
-    /** 申报和前台对得上就等用户回答(到时限按不同意,可取消);工具结果就是用户的决定。 */
+    /** If the application is consistent with the front desk, just wait for the user's answer (press "Disagree" when the time limit is reached to cancel); the tool result is the user's decision. */
     suspend fun confirm(o: Outcome.Confirm, step: Int, running: TaskState): ToolExecution {
         val g = confirmations ?: return ToolExecution(buildJsonObject {
             put("ok", false); put("error", "unknown_tool"); put("tool", RequestConfirmation.name)
@@ -194,7 +196,8 @@ internal class UserExchange(
             emit(event("declined_unattended"))
             return error("confirmation_declined", CONFIRMATION_DECLINED, recoverable = false)
         }
-        // 付款只在手机上同意:渠道、定时、MCP 发起的任务不问
+        // Payment is only agreed on the mobile phone: channels, timings, and tasks initiated by MCP are
+        // not required.
         if (provenance.origin != RunOrigin.Ui) {
             g.decide(ConfirmChoice.Deny, step)
             emit(event("declined_remote"))
@@ -205,7 +208,8 @@ internal class UserExchange(
         activeAsk = ask
         setState(TaskState.WaitingConfirmation(r))
         emit(event(null))
-        // 没人回答(不在手机旁)就按不同意,绝不自动同意
+        // If no one answers (not next to the phone), just click Disagree. It will never automatically
+        // agree.
         val timeout = if (provenance.attendance == Attendance.Reachable) confirmTimeoutMs ?: 15 * 60_000L else confirmTimeoutMs
         val answer = try {
             if (announce(ask) == DeliveryState.Failed) null

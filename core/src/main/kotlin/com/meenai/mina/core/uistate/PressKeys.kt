@@ -1,8 +1,9 @@
 package com.meenai.mina.core.uistate
 
 /**
- * press_key 只放行导航和编辑键。音量、电源/休眠/唤醒、Home、最近任务、搜索/助手、相机、媒体键
- * 都作用于整台手机而不是 Mina 的屏幕,一律拒绝。外壳进程注入按键时再查一遍同一张表。
+ * press_key releases only navigation and editing keys. Volume, power/sleep/wake, Home, recent tasks,
+ * search/assistant, camera, and media keys all work on the entire phone instead of the Mina screen, and
+ * are all rejected. The same table is checked again when the shell process injects keystrokes.
  */
 object PressKeys {
     val BY_NAME: Map<String, Int> = linkedMapOf(
@@ -16,7 +17,7 @@ object PressKeys {
 
     fun isAllowed(keyCode: Int): Boolean = keyCode in CODES
 
-    /** 名字或数字;不在白名单里返回 null。 */
+    /** Name or number; returns null if not in the whitelist. */
     fun resolve(key: String): Int? {
         val k = key.trim()
         val code = k.toIntOrNull() ?: BY_NAME[k] ?: return null

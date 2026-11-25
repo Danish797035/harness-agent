@@ -14,7 +14,7 @@ import org.junit.Test
 class StatusCopyTest {
     @get:Rule val texts = EnglishTexts()
 
-    // 频道设置页打不开时依次退回,第一个能开的就停
+    // When the channel settings page cannot be opened, return to the first one that can be opened.
     @Test
     fun firstThatStartsFallsBack() {
         val tried = mutableListOf<String>()
@@ -33,7 +33,8 @@ class StatusCopyTest {
         assertNull(StatusCopy.paymentLines(null, null, null))
     }
 
-    // 照着记住的路线做、一次做几步时,卡片上写明在干什么
+    // Follow the memorized route and write down what you are doing on the card when doing a few steps at
+    // a time.
     @Test
     fun replayAndBatchCopy() {
         assertEquals("Replaying a known route (step 2/5)", StatusCopy.progress(RunProgress.Replay(2, 5)))
@@ -44,7 +45,7 @@ class StatusCopyTest {
         assertEquals("Replaying a known route (step 2/5)", liveLine(replaying))
         val batching = ChatViewModel.reduce(replaying, TaskState.Running(1, "一起做", "do_steps", RunProgress.Batch(3)))
         assertEquals("Running 3 steps at once", liveLine(batching))
-        // 步骤列表只列实际做过的事
+        // The step list only lists what was actually done
         assertEquals(emptyList<StepRow>(), batching.steps)
     }
 

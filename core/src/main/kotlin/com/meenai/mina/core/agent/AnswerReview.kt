@@ -15,24 +15,31 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 回答交出前核对要看的任务情况。 */
+/** Check the status of the task before answering and handing it over. */
 internal data class ReviewFacts(
-    /** 本任务调过工具(没调过的是聊天、常识,没有可核对的材料)。 */
+    /** The tools for this task have been adjusted (the ones that have not been adjusted are chat and common sense, and there is no material to check). */
     val acted: Boolean,
-    /** 做过对外或不可逆的事(放行过这样的动作,或把付款交给了用户)。 */
+    /** Have done something external or irreversible (permitted such an action, or handed over payment to the user). */
     val outward: Boolean,
-    /** 最近一次改了状态的动作之后没有重新读过:回答说的结果没人看过。 */
+    /** I haven’t read it again since the last action that changed the status: The answer is that no one has read it. */
     val unreadChange: Boolean,
 )
 
 /**
- * 最终回答交出前的核对。按风险来,不来回退回:
- * - 本任务一个工具也没调过(聊天、常识、对话里就能答的):不核,算没核对过。
- * - 字面核对([Grounding.check]):回答里的数、编号、日期、引文和写明的算式(a 运算符 b = c)要在本任务读到的材料里有原文。
- *   回答里有这类事实、全都对上了,算核实过;回答里没有这类事实,字面上没什么可核的,算没核对过。
- * - 做过对外或不可逆的事、最近一次改状态的动作之后没有重新读过、或字面核对有对不上的,另请核查模型([Verifier]);它判 pass 才算核实过。
- * 结论里有没对上的([Review.gaps]、[Review.objections])时,由循环退回给模型一次;再不行就把这几处标成未确认交出(见 AgentLoop)。
- * 来源([Review.sources])也在这里由代码找([AnswerSources])。
+ * Verification before final answer is handed over. Come according to risk, no return:
+ * - - This task has not been checked with a single tool (you can answer it in chat, common sense, and
+ * dialogue): not checked, not checked.
+ * - - Literal check ([Grounding.check]): The numbers, numbers, dates, citations and stated calculations
+ * (a operator b = c) in the answer must have the original text in the materials read for this task.
+ * If there are such facts in the answer, they are all correct, and it is considered verified; if there
+ * are no such facts in the answer, and there is literally nothing to verify, it is not considered
+ * verified.
+ * - - If you have done something external or irreversible, you have not re-read it after the last action
+ * to change the status, or if the literal verification does not match, please also check the model
+ * ([Verifier]); it will be considered verified only if it passes.
+ * If there are unmatched conclusions ([Review.gaps], [Review.objections]), the loop will be returned to
+ * the model; if not, these points will be marked as unconfirmed and handed over (see AgentLoop). The
+ * source ([Review.sources]) is also found here by the code ([AnswerSources]).
  */
 internal class AnswerReview(
     private val tools: ToolDispatcher,
@@ -40,14 +47,17 @@ internal class AnswerReview(
     private val emit: (RunEvent) -> Unit,
     private val now: () -> Long,
 ) {
-    /** 产品路径只整理出处，不再为收尾答复发起另一轮核查。 */
+    /** The product path will only sort out the sources and will not initiate another round of verification for the final reply. */
     suspend fun sourcesOnly(goal: String, answer: String, media: Map<Int, List<Int>>): List<AnswerSource> =
         AnswerSources.of(tools.evidence(fresh = false).ledger, goal, answer, media)
 
     /**
-     * [gaps] 是回答里在读到的材料里找不到的那几处,[objections] 是核查模型判没做成的理由;两者合起来是 [unconfirmed]。
-     * [reviewed] 为 false 表示什么也没核对(没有可核对的、也没请核查模型);[verified] 只在核对过而且都对上时为 true。
-     * [note] 是核查器没能核实的原因;[verdict] 是核查模型的结论(没请它为 null)。
+     * [gaps] is the answer that cannot be found in the materials I read, [objections] is the reason why
+     * the verification model was not completed; the two together are [unconfirmed]. [reviewed] is false,
+     * which means nothing has been checked (nothing can be checked, and no model is requested to be
+     * checked); [verified] is true only when it has been checked and everything is correct. [note] is
+     * the reason why the verifier failed to verify; [verdict] is the conclusion of the verification
+     * model (it is not null).
      */
     class Review(
         val gaps: List<String> = emptyList(), val objections: List<String> = emptyList(), val sources: List<AnswerSource> = emptyList(),
@@ -56,13 +66,14 @@ internal class AnswerReview(
         val unconfirmed: List<String> get() = (gaps + objections).distinct()
     }
 
-    /** 核第 [step] 步给出的回答 [answer]。[media]:每一步存下的画面编号;[verifying]:要请核查模型时先调它(界面上显示「正在核实」)。 */
+    /** Check the answer [answer] given in step [step]. [media]: The screen number saved in each step; [verifying]: Please adjust it first when you want to verify the model ("Verifying" is displayed on the interface). */
     suspend fun review(
         goal: String, answer: String, step: Int, facts: ReviewFacts, earlierGoals: List<String>, media: Map<Int, List<Int>>, verifying: () -> Unit,
     ): Review {
         if (!facts.acted) return Review(reviewed = false, verified = false)
         val v = verifier
-        // 字面核对只看账本(最近一次读取已在里面),不重新读;要请核查模型时才重新读此刻的界面
+        // Literal verification only looks at the ledger (the latest read is already in it), and does not
+        // re-read it; only re-read the current interface when you want to verify the model.
         val read = tools.evidence(fresh = false)
         val sources = AnswerSources.of(read.ledger, goal, answer, media)
         val g = Grounding.check(goal, answer, read.sources(read.ledger.forAnswer(goal, answer)), read.today)
@@ -78,7 +89,8 @@ internal class AnswerReview(
         emit(RunEvent.Verifier(now(), r.verdict.wire, RunEvent.clip(Redactor.text(detailOf(r).toString())), step))
         return when (r.verdict) {
             Verdict.Pass -> Review(sources = sources, verdict = r.verdict)
-            // 标准只是用户原话,没满足的「标准」就是原话本身:说清楚的是核查器给的理由
+            // The standard is just the user's original words, and the "standard" that is not met is the
+            // original words themselves: what is clear is the reason given by the checker
             Verdict.Fail -> Review(gaps = gaps, objections = listOf(r.reason).filter(String::isNotBlank), sources = sources, verified = false, verdict = r.verdict)
             Verdict.CannotVerify -> (gaps + r.notFound).distinct().let { missing ->
                 Review(gaps = missing, sources = sources, verified = false, note = r.reason, verdict = r.verdict)

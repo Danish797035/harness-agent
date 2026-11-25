@@ -19,7 +19,7 @@ class SelfCheckCopyTest {
 
     private val jargon = listOf("shell", "Binder", "uid", "adb", "SDK", "ABI")
 
-    /** 报告走「复制诊断信息」同一套脱敏:IP、端口、邮箱、像凭据的值都不出现。 */
+    /** The "Copy Diagnostic Information" report shows the same set of desensitization: IP, port, email, and values such as credentials do not appear. */
     @Test
     fun reportIsSanitizedLikeDiagnostics() {
         val facts = DeviceFacts("Acme", "Phone 7", "14", 34, listOf("arm64-v8a"), 8L shl 30, 1080, 2400, true, "0.1.21", "abc1234")

@@ -8,24 +8,27 @@ import java.net.InetAddress
 import java.net.UnknownHostException
 
 /**
- * 下载能取哪些地址:先过 [WebUrlPolicy.checkNavigable](与 web_navigate 同一条规则),再不许本机、局域网与保留地址。
- * 下载是 App 自己在后台发请求,页面借它就能摸到手机所在局域网里的设备,所以比打开网页更严。
- * 每一次跳转、每一次域名解析都按这条规则查([guardedDns] 挡住解析到内网的域名)。
+ * Which addresses can be obtained for downloading: first pass [WebUrlPolicy.checkNavigable] (same rule
+ * as web_navigate), and then disable local, LAN and reserved addresses. When downloading, the app itself
+ * sends a request in the background, and the page can use it to access the device on the local area
+ * network where the phone is located, so it is more stringent than opening a web page. Every jump and
+ * every domain name resolution is checked according to this rule ([guardedDns] blocks domain names
+ * resolved to the intranet).
  */
 object DownloadAddressPolicy {
-    /** 不能取的原因;能取为 null。 */
+    /** The reason why it cannot be taken; it can be taken as null. */
     fun refusal(url: String): String? {
         WebUrlPolicy.checkNavigable(url)?.let { return it }
         val host = url.toHttpUrlOrNull()?.host ?: return "not a web address"
         return if (blockedHost(host)) "local or private network address" else null
     }
 
-    /** 本机或局域网的名字,或字面上就是内网/保留的 IP。普通域名要等解析后由 [guardedDns] 判。 */
+    /** The name of this machine or LAN, or literally the intranet/reserved IP. Ordinary domain names will be determined by [guardedDns] after resolution. */
     fun blockedHost(host: String): Boolean {
         val h = host.trim().trimEnd('.').lowercase().removePrefix("[").removeSuffix("]")
         if (h.isEmpty() || h == "localhost" || LOCAL_SUFFIXES.any { h.endsWith(it) }) return true
         if (!IPV4.matches(h) && ':' !in h) return false
-        // 字面 IP:getByName 不查 DNS
+        // Literal IP:getByName does not check DNS
         val a = runCatching { InetAddress.getByName(h) }.getOrNull() ?: return true
         return blockedAddress(a)
     }
@@ -37,7 +40,7 @@ object DownloadAddressPolicy {
             is Inet4Address -> blockedV4(b)
             is Inet6Address -> {
                 val u0 = b[0].toInt() and 0xff
-                // fc00::/7 唯一本地;::ffff:a.b.c.d 与 64:ff9b::/96 内嵌的 IPv4 按 IPv4 判
+                // fc00::/7 unique local;::ffff:a.b.c.d and 64:ff9b::/96 embedded IPv4 are judged as IPv4
                 (u0 and 0xfe) == 0xfc ||
                     (b.copyOfRange(0, 10).all { it == 0.toByte() } && b[10] == 0xff.toByte() && b[11] == 0xff.toByte() && blockedV4(b.copyOfRange(12, 16))) ||
                     (b.copyOfRange(0, 12).contentEquals(NAT64) && blockedV4(b.copyOfRange(12, 16)))
@@ -54,7 +57,7 @@ object DownloadAddressPolicy {
             (o0 == 192 && o1 == 168) || (o0 == 192 && o1 == 0 && (b[2].toInt() and 0xff) == 0) || (o0 == 198 && o1 in 18..19)
     }
 
-    /** 解析到的地址里有一个是内网/保留地址就整个拒绝([BlockedAddress])。 */
+    /** If one of the resolved addresses is an intranet/reserved address, the entire address will be rejected ([BlockedAddress]). */
     fun guardedDns(delegate: Dns = Dns.SYSTEM): Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             if (blockedHost(hostname)) throw BlockedAddress(hostname)

@@ -18,20 +18,23 @@ import com.meenai.mina.ui.MainActivity
 import com.meenai.mina.ui.PhoneSetupCopy
 import com.meenai.mina.setup.PairingCodeReceiver
 
-/** 配对通知此刻该显示什么。 */
+/** What should be displayed in the pairing notification at this time. */
 sealed interface PairingNotice {
-    /** 带输入框的「输入配对码」;[error] 是上一次没成功的原因和怎么办,输入框照样留着。 */
+    /** "Enter pairing code" with input box; [error] is the reason why it failed last time and what to do. The input box remains as it is. */
     data class EnterCode(val port: Int?, val error: String? = null) : PairingNotice
     data object Working : PairingNotice
     data object Done : PairingNotice
-    /** 配对后没能连上:回 Mina 看怎么处理。 */
+    /** Failed to connect after pairing: Go back to Mina to see what to do. */
     data class Problem(val title: String) : PairingNotice
 
     companion object {
         /**
-         * 只在用户正在配对的这段时间里用([PairingCoordinator] 开着时)。找到配对窗口才弹输入框;
-         * 配对阶段的失败(码不对、过期、窗口关了)留在通知里重填;要重新配对的失败(配对失效)找到配对窗口后也给输入框,
-         * 和无障碍读码认的一样(PairingScreen.attempt);别的失败请用户回 Mina。
+         * Only used during the period when the user is pairing (when [PairingCoordinator] is on). The
+         * input box will pop up only when the pairing window is found; failures in the pairing phase
+         * (code incorrect, expired, window closed) will be left in the notification and refilled;
+         * failures to re-pair (pairing failure) will also be given an input box after the pairing window
+         * is found, which is the same as the barrier-free code reading recognition
+         * (PairingScreen.attempt); for other failures, please return to Mina.
          */
         fun of(status: BuiltinShellStatus, discovery: PairingDiscovery): PairingNotice? {
             val port = (discovery as? PairingDiscovery.Found)?.port
@@ -47,23 +50,27 @@ sealed interface PairingNotice {
             }
         }
 
-        /** 无障碍在读配对码时,填码通知晚这么久再弹,多半已经配上了,不打扰。 */
+        /** When reading the pairing code without any obstacles, the code-filling notification will appear after so long. It has probably already been matched, so don't bother me. */
         const val AUTO_READ_GRACE_MS = 5_000L
-        /** 填码通知弹出后没人填,依次隔这么久再弹一次;最多 [MAX_REALERTS] 次,不刷屏。 */
+        /** If no one fills in the code notification after it pops up, it will pop up again after such a long time; it can be up to [MAX_REALERTS] times without refreshing the screen. */
         val REALERT_MS = listOf(8_000L, 20_000L, 40_000L)
         val MAX_REALERTS = REALERT_MS.size
 
-        /** 发出 [notice] 前等多久。无障碍没开时找到配对窗口就弹,不等。 */
+        /** How long to wait before issuing [notice]. When accessibility is not turned on, it will pop up when you find the pairing window, no waiting. */
         fun delayBefore(notice: PairingNotice, autoRead: Boolean): Long =
             if (notice is EnterCode && autoRead) AUTO_READ_GRACE_MS else 0L
 
-        /** 已经再提醒过 [sent] 次,下一次隔多久;null 表示不再提醒。 */
+        /** It has been reminded [sent] times, how long will it be before the next time; null means no more reminders. */
         fun realertAfter(notice: PairingNotice, sent: Int): Long? = if (notice is EnterCode) REALERT_MS.getOrNull(sent) else null
 
         /**
-         * [PairingCoordinator] 跟着状态更新通知时的一次计算:这时该显示哪条,显示完是否不再跟。
-         * 填了码、配对还没开始([submitted])时一律是「正在配对」,也不在这时结束(助手原本就在运行也一样,配对开始后状态还会变);
-         * 「重新配对」时运行中的旧状态不算配好([PhoneSetupFlow.effectiveStatus]),助手在运行、又不在重新配对才结束。
+         * [PairingCoordinator] A calculation when following the status update notification: which item
+         * should be displayed at this time, and whether to stop following it after it is displayed. When
+         * the code is filled in and pairing has not started ([submitted]), it will always be "pairing",
+         * and it will not end at this time (the same is true if the assistant is already running, and
+         * the status will change after pairing starts); when "re-pairing" is performed, the old running
+         * status is not considered to be paired ([PhoneSetupFlow.effectiveStatus]), and the assistant
+         * will not end until re-pairing is running.
          */
         fun follow(status: BuiltinShellStatus, discovery: PairingDiscovery, repairing: Boolean, submitted: Boolean): Pair<PairingNotice?, Boolean> =
             if (submitted) Working to false
@@ -71,10 +78,10 @@ sealed interface PairingNotice {
     }
 }
 
-/** 系统里已有的一个配对频道;[userSet] 是用户自己改过它的重要程度。 */
+/** There is already a pairing channel in the system; [userSet] is the importance of the user changing it. */
 data class ChannelSnapshot(val id: String, val importance: Int, val userSet: Boolean)
 
-/** 配对频道怎么处理:[Create] 新建 [id](高优先级);[Use] 用已有的 [id],[health] 是它现在的样子。 */
+/** How to deal with paired channels: [Create] creates a new [id] (high priority); [Use] uses the existing [id], [health] is what it looks like now. */
 sealed interface ChannelPlan {
     val id: String
     val health: PairingChannelHealth
@@ -87,13 +94,15 @@ sealed interface ChannelPlan {
 }
 
 /**
- * 配对频道的选择(纯函数,便于测试)。频道的重要程度建好后 App 改不了:
- * 旧版本建得不够高、用户也没动过,就换一个新 id 重建;用户自己调低或关掉的不改回去,交给引导页提示。
+ * Selection of paired channels (pure function, easy for testing). After the channel importance is
+ * established, the app cannot change it: if the old version is not high enough and has not been touched
+ * by users, it will be rebuilt with a new ID; if the user has lowered or turned it off by himself, it
+ * will not be changed back and will be prompted on the boot page.
  */
 object PairingChannel {
-    /** 用过的频道 id,越往后越新;新装的直接用最后一个。 */
+    /** The channel IDs used are newer as they go forward; for newly installed channels, just use the last one. */
     val IDS = listOf("pairing_code", "pairing_alert")
-    /** 更早版本的频道,见到就删,免得设置里多一项。 */
+    /** For earlier versions of channels, delete them as soon as you see them to avoid adding another item in the settings. */
     const val LEGACY = "pairing"
 
     fun plan(existing: List<ChannelSnapshot>): ChannelPlan {
@@ -111,18 +120,19 @@ object PairingChannel {
 }
 
 /**
- * 配对通知:高优先级、带声音和振动(勿扰时听系统的),在系统设置的配对窗口上方弹出来;
- * 输入框用 RemoteInput,用户不用离开配对窗口。输入的码交给 [PairingCodeInput]。
+ * Pairing notification: high priority, with sound and vibration (listen to the system during Do Not
+ * Disturb), pops up above the pairing window of the system settings; the input box uses RemoteInput, and
+ * the user does not need to leave the pairing window. The entered code is given to [PairingCodeInput].
  */
 object PairingNotifier {
     const val KEY_CODE = "pairing_code"
     const val EXTRA_PORT = "pairing_port"
     private const val ID = 4401
     private const val DONE_TIMEOUT_MS = 8_000L
-    /** 填码通知最多留这么久(和找配对窗口的时长一样),App 被杀了也不会一直挂着。 */
+    /** The code-filling notification can be kept for this long at most (the same length as the matching window), and the app will not stay hanging even if it is killed. */
     private const val INPUT_TIMEOUT_MS = 10 * 60_000L
 
-    /** 确保有一个配对频道,返回要用的那个(引导页据此提示、打开它的设置页)。 */
+    /** Make sure there is a paired channel and go back to the one you want to use (the boot page prompts you to open its settings page). */
     fun ensureChannel(context: Context): ChannelPlan {
         val nm = context.getSystemService(NotificationManager::class.java)
         val existing = PairingChannel.IDS.mapNotNull { id ->
@@ -157,7 +167,7 @@ object PairingNotifier {
         when (notice) {
             is PairingNotice.EnterCode -> {
                 val input = RemoteInput.Builder(KEY_CODE).setLabel(PhoneSetupCopy.NOTIFY_INPUT_LABEL).setAllowFreeFormInput(true).build()
-                // RemoteInput 要往 Intent 里填结果,必须是可变的
+                // RemoteInput needs to be variable to fill in the results in the Intent.
                 val reply = PendingIntent.getBroadcast(
                     context, 1,
                     Intent(context, PairingCodeReceiver::class.java).apply { notice.port?.let { putExtra(EXTRA_PORT, it) } },
@@ -167,14 +177,15 @@ object PairingNotifier {
                     .addRemoteInput(input)
                     .setAllowGeneratedReplies(false)
                     .setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY)
-                // 锁着屏也能直接填,不先要求解锁
+                // The screen can be filled in directly without being asked to unlock it first.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) action.setAuthenticationRequired(false)
                 val text = notice.error ?: PhoneSetupCopy.NOTIFY_ENTER_TEXT
                 b.setContentTitle(PhoneSetupCopy.NOTIFY_ENTER_TITLE)
                     .setContentText(text)
                     .setStyle(Notification.BigTextStyle().bigText(text))
                     .setOngoing(true)
-                    // 每次发都要响铃、弹出,包括没人填时的再次提醒和填错后的提示
+                    // It will ring and pop up every time, including reminders when no one fills in and
+                    // prompts after incorrect entries.
                     .setOnlyAlertOnce(false)
                     .setTimeoutAfter(INPUT_TIMEOUT_MS)
                     .addAction(action.build())
@@ -186,7 +197,8 @@ object PairingNotifier {
                 .setAutoCancel(true).setOnlyAlertOnce(true).setTimeoutAfter(DONE_TIMEOUT_MS)
             is PairingNotice.Problem -> b.setContentTitle(notice.title).setContentText(PhoneSetupCopy.NOTIFY_PROBLEM_TEXT).setAutoCancel(true)
         }
-        // 没允许通知时系统会丢掉它;引导页在配对这一步先请用户允许
+        // The system will discard the notification if it is not allowed; the guide page asks the user
+        // for permission before the pairing step.
         runCatching { nm.notify(ID, b.build()) }
     }
 

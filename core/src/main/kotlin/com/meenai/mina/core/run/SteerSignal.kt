@@ -10,20 +10,23 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
 /**
- * 本次运行里「有用户插话还没交给模型」的信号([RunInbox] 给出),装在运行的协程上下文里。
- * 撤掉也什么都不丢的调用(纯等待、动作之前的停留与间隔、只问看图模型)经 [waitOrSteer] 包起来,插话一到就提前结束,
- * 让模型马上读到这句话;已经开始的动作不受它影响。
+ * In this run, the signal (given by [RunInbox]) that "a user has interrupted but has not yet been handed
+ * over to the model" is installed in the running coroutine context. Calls that won't lose anything if
+ * you remove them (pure waiting, pauses and intervals before actions, just asking to see the picture
+ * model) are wrapped by [waitOrSteer], and end early as soon as the interrupt arrives, allowing the
+ * model to read this sentence immediately; actions that have already started are not affected by it.
  */
 class SteerSignal internal constructor(internal val pending: StateFlow<Boolean>) : AbstractCoroutineContextElement(SteerSignal) {
     companion object Key : CoroutineContext.Key<SteerSignal>
 }
 
-/** 撤掉的调用给模型的错误码:这次什么也没做(等待被截断、动作之前的停留没走完),先读用户的新话。 */
+/** Error code for the canceled call to the model: Nothing was done this time (the wait was cut off, the pause before the action was not completed), and the user's news was read first. */
 const val SKIPPED_FOR_NEW_MESSAGE = "skipped_for_new_message"
 
 /**
- * 跑一段撤掉也什么都不丢的 [block]:用户插话已在等或在它进行中到达,就撤掉它、返回 null;否则返回它的结果。
- * 不在运行里(没有 [SteerSignal])时照常跑完。
+ * Nothing will be lost even if you cancel it after running for a while. [block]: The user's intervention
+ * is already waiting or arrives while it is in progress, so cancel it and return null; otherwise, return
+ * its result. It will run as usual when it is not running (no [SteerSignal]).
  */
 suspend fun <T : Any> waitOrSteer(block: suspend () -> T): T? {
     val pending = coroutineContext[SteerSignal]?.pending ?: return block()

@@ -32,7 +32,7 @@ class ApkIntegrityTest {
         val file = temp.newFile().apply { writeText("abc") }
         val digest = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         ApkIntegrity.verify(file, 3, digest)
-        ApkIntegrity.verify(file, null, null) // 兼容没有附件摘要的旧发布元数据。
+        ApkIntegrity.verify(file, null, null) // Compatible with old publication metadata without attachment summaries.
         rejects { ApkIntegrity.verify(file, 4, digest) }
         rejects { ApkIntegrity.verify(file, 3, "sha256:bad") }
         rejects { ApkIntegrity.verify(file, 3, "md5:" + "0".repeat(64)) }
@@ -44,7 +44,8 @@ class ApkIntegrityTest {
 
     @Test fun signerMustMatchInstalledOrCarryItInHistory() {
         ApkIntegrity.requireSameSigner(setOf("a"), setOf("a"), setOf("a"))
-        // 新包轮换到新证书,旧证书在签名历史里
+        // The new package is rotated to the new certificate, and the old certificate is in the signature
+        // history
         ApkIntegrity.requireSameSigner(setOf("a"), setOf("b"), setOf("a", "b"))
         for ((installed, archive, history) in listOf(
             Triple(setOf("a"), setOf("b"), setOf("b")),

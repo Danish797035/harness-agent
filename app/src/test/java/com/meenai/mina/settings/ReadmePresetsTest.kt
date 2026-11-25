@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
 
-/** README 的服务商预设段按源码逐条读出;这里拿真对象对照,源码写法变了、读法跟不上时失败。 */
+/** The service provider's preset sections in README are read one by one according to the source code; here we compare it with the real object. If the source code writing method has changed and the reading method cannot keep up, it will fail. */
 class ReadmePresetsTest {
     @Test fun sourceReadingMatchesProviderPresets() {
         val source = File("../${ReadmeSections.PRESETS_SOURCE}").readText()

@@ -4,9 +4,12 @@ import okhttp3.Request
 import java.util.UUID
 
 /**
- * 一段对话对外的会话号:同一段对话的每个请求(主模型、看图、轻量、起标题、核查、意图判断、停止后的交代)都用同一个,
- * 服务商据此把请求路由到一处、复用提示词缓存。由对话 id 推出(UUID v3,不可逆),不把对话 id 本身发出去。
- * 不属于任何对话的请求(连接测试、列模型)每次用 [fresh] 的新号。
+ * The external session number of a conversation: Each request of the same conversation (main model,
+ * picture viewing, lightweight, title creation, verification, intention judgment, explanation after
+ * stopping) uses the same one. The service provider routes the request to one place accordingly and
+ * reuses the prompt word cache. Deduced from the conversation id (UUID v3, irreversible), the
+ * conversation id itself is not sent out. Requests that do not belong to any conversation (connection
+ * tests, column models) use a new number of [fresh] each time.
  */
 @JvmInline
 value class ModelSession(val id: String) {
@@ -18,11 +21,12 @@ value class ModelSession(val id: String) {
     }
 }
 
-/** 发给模型服务的每个请求都带的头;Key 的头由各适配器自己加。 */
+/** Each request sent to the model service carries a header; the Key header is added by each adapter. */
 object ClientHeaders {
     /**
-     * [userAgent] 标明是 Mina 哪个版本(由 App 给,core 不写版本号);[sessionHeader] 是服务商声明要放会话号的头名,
-     * 没声明(null 或空)就不发会话号。
+     * [userAgent] indicates which version of Mina it is (given by App, core does not write the version
+     * number); [sessionHeader] is the first name declared by the service provider to put the session
+     * number. If there is no declaration (null or empty), the session number will not be issued.
      */
     fun of(userAgent: String, sessionHeader: String?, session: ModelSession): Map<String, String> = buildMap {
         put("User-Agent", userAgent)

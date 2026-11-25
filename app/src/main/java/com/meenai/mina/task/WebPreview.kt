@@ -1,23 +1,28 @@
 package com.meenai.mina.task
 
 /**
- * 网页界面时画中画小窗显示什么(纯逻辑,[TaskRun] 每半秒按它更新)。
+ * What does the picture-in-picture small window display in the web interface (pure logic, [TaskRun]
+ * updates every half second by pressing it).
  *
- * 小窗的画面来自网页显示上挂着的当前标签。只在后台临时标签里读网页时(`web_read_page` 带地址),
- * 网页显示上没有标签,画出来只是一块白底:这时不算在网页上,小窗不出来,悬浮胶囊也按对话卡片显示;
- * 一打开看得见的页面就照常显示。页面在用户手上(接管中)时仍算在网页上,只是不放画面。
+ * The image of the small window comes from the current tab hanging on the web page display. When the
+ * webpage is only read in the background temporary tag (`web_read_page` with address), there is no tag
+ * on the webpage display, and the drawing is just a white background: it is not counted on the webpage
+ * at this time, the small window does not appear, and the floating capsule is also displayed as a
+ * conversation card; once the visible page is opened, it will be displayed as usual. When the page is in
+ * the user's hands (being taken over), it is still counted as being on the web page, but the screen is
+ * not displayed.
  */
 enum class WebPreview(val open: Boolean) {
-    /** 不在网页上:不算在网页上,画面不动(换界面时已清掉)。 */
+    /** Not on the webpage: Not on the webpage, the screen does not move (it has been cleared when changing the interface). */
     Off(false),
 
-    /** 在网页上、却没有看得见的标签(只在后台临时标签里读):不算在网页上,清掉画面。 */
+    /** On the web page, but there is no visible label (only read in the temporary label in the background): It is not counted on the web page, clear the screen. */
     NoPage(false),
 
-    /** 在网页上、页面在用户手上:算在网页上,不放画面。 */
+    /** On the web page, the page is in the hands of the user: it is counted on the web page and does not include the screen. */
     Hidden(true),
 
-    /** 在网页上、有看得见的页面:放最新一帧。 */
+    /** On the web page, there is a visible page: put the latest frame. */
     Frames(true);
 
     companion object {

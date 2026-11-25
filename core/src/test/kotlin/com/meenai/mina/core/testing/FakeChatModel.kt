@@ -18,14 +18,16 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 假模型收到的一次请求(消息列表是当时的副本)。 */
+/** A request received by the fake model (the message list is a copy of that time). */
 data class FakeRequest(val system: String, val messages: List<Message>, val tools: List<ToolSpec>) {
     val toolNames: List<String> get() = tools.map { it.name }
 }
 
 /**
- * 按剧本回复的模型:每次请求取剧本里的下一项,返回回复或抛出 [ModelError];收到的每次请求都记在 [requests]。
- * 剧本用完还被调用就报断言错误(说明循环比剧本多问了一次)。用 [fakeModel] 写剧本。
+ * The model of replying by script: each time a request is made to get the next item in the script, a
+ * reply is returned or [ModelError] is thrown; every request received is recorded in [requests]. An
+ * assertion error is reported when the script is finished and is called (indicating that the loop asks
+ * one more times than the script). Write scripts using [fakeModel].
  */
 class FakeChatModel(
     override val name: String,
@@ -34,7 +36,7 @@ class FakeChatModel(
 ) : ChatModel {
     private val queue = ArrayDeque(script)
     val requests = mutableListOf<FakeRequest>()
-    /** 剧本里还没用到的项数;场景结束时应为 0。 */
+    /** The number of items that have not been used in the script; should be 0 at the end of the scene. */
     val remaining: Int get() = queue.size
 
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
@@ -56,32 +58,32 @@ fun fakeModel(
     FakeScript(name).apply(script).items.toList(),
 )
 
-/** 剧本:一项对应一次请求。 */
+/** Script: One item corresponds to one request. */
 class FakeScript internal constructor(private val prefix: String) {
     internal val items = mutableListOf<(FakeRequest) -> ModelReply>()
     private var seq = 0
     private fun nextId() = "${prefix}_${++seq}"
 
-    /** 一次回复;不写 [stop] 时有工具调用为 ToolUse,否则 EndTurn。 */
+    /** One-time reply; when [stop] is not written, a tool is called ToolUse, otherwise EndTurn. */
     fun reply(stop: StopReason? = null, build: ReplyBuilder.() -> Unit) {
         items += { ReplyBuilder(::nextId).apply(build).build(stop) }
     }
 
-    /** 按收到的请求现算回复(例如要用上一次结果里的 snapshotId)。 */
+    /** Respond immediately according to the request received (for example, use the snapshotId in the last result). */
     fun replyTo(stop: StopReason? = null, build: ReplyBuilder.(FakeRequest) -> Unit) {
         items += { req -> ReplyBuilder(::nextId).apply { build(req) }.build(stop) }
     }
 
     fun call(name: String, vararg args: Pair<String, Any?>) = reply { call(name, *args) }
     fun text(vararg chunks: String) = reply { text(*chunks) }
-    /** 不带调用的回复:交给用户的最终回答。 */
+    /** Reply without call: The final answer given to the user. */
     fun answer(text: String) = text(text)
     fun reportFailure(message: String) = call("end_not_done", "message" to message)
 
-    /** 输出到上限被截断:只有半截文字,停止原因 MaxTokens。 */
+    /** Output to the upper limit is truncated: only half text, stop reason MaxTokens. */
     fun truncated(partial: String) = reply(StopReason.MaxTokens) { text(partial) }
 
-    /** 参数不是合法 JSON 的工具调用。 */
+    /** The parameter is not valid JSON for the tool call. */
     fun malformedCall(name: String, rawArgs: String = "{\"ref\":") = reply { callJson(name, rawArgs) }
 
     fun error(e: ModelError) { items += { throw e } }
@@ -90,7 +92,7 @@ class FakeScript internal constructor(private val prefix: String) {
     fun networkError() = error(ModelError.Network())
     fun contextOverflow() = error(ModelError.ContextTooLong())
 
-    /** 辅助角色:核查结论;[met] 是逐条标准与屏上的引文。 */
+    /** Supporting Role: Verification of Conclusions; [met] is a point-by-point criterion with on-screen citations. */
     fun verdict(verdict: String, reason: String, vararg met: Pair<String, String?>) = text(buildJsonObject {
         put("checks", buildJsonArray {
             met.forEach { (c, q) -> add(buildJsonObject { put("criterion", c); put("status", if (verdict == "fail") "unmet" else "met"); put("quote", q) }) }
@@ -105,7 +107,7 @@ class ReplyBuilder internal constructor(private val nextId: () -> String) {
     private val parts = mutableListOf<Part>()
     private var usage: Usage? = null
 
-    /** 每块一个文字片段,模拟分块到达的文字(循环按顺序拼接)。 */
+    /** Each block has a text fragment, simulating text arriving in blocks (spliced in sequence in a loop). */
     fun text(vararg chunks: String) { chunks.forEach { parts += Part.Text(it) } }
     fun thinking(text: String) { parts += Part.Thinking(text) }
     fun call(name: String, vararg args: Pair<String, Any?>) { callJson(name, JsonObject(args.associate { (k, v) -> k to json(v) }).toString()) }

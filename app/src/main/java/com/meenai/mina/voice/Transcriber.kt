@@ -22,9 +22,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Base64
 
 /**
- * 用服务商的模型把一段录音转成文字,接口形态见 [TranscribeMethod]。
- * 报错和对话模型走同一套映射([ModelHttp]),界面可以直接复用现有的说法;只按协议发请求,不按模型名特判。
- * [headers] 是每个请求都带的头(客户端标识等,见 ClientHeaders),Key 的头由这里按接口类型加。
+ * Use the service provider's model to convert a recording into text. See [TranscribeMethod] for the
+ * interface form. Error reporting and dialogue models use the same set of mappings ([ModelHttp]), and
+ * the interface can directly reuse existing statements; requests are only sent according to the
+ * protocol, not based on the model name. [headers] is the header carried by each request (client
+ * identification, etc., see ClientHeaders). The Key header is added here according to the interface
+ * type.
  */
 class Transcriber(
     private val http: OkHttpClient,
@@ -32,7 +35,7 @@ class Transcriber(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 转一段 WAV;失败抛 [ModelError](和对话模型同一套)。返回的文字可能是空串(没听到话)。 */
+    /** Transfer a piece of WAV; if failed, throw [ModelError](same as the conversation model). The text returned may be an empty string (no words were heard). */
     suspend fun transcribe(
         p: Provider, key: String?, model: String, method: TranscribeMethod, wav: ByteArray, language: String?,
     ): String {
@@ -60,7 +63,8 @@ class Transcriber(
                                     put("type", "input_audio")
                                     putJsonObject("input_audio") { put("data", data); put("format", "wav") }
                                 })
-                                // 专做转写的模型不收文字块;通用模型没有这句指令会当成聊天回话
+                                // Models specialized in transliteration do not accept text blocks;
+                                // general models without this command will treat it as a chat reply.
                                 if (method != TranscribeMethod.ChatInputAudioOnly) {
                                     add(buildJsonObject { put("type", "text"); put("text", INSTRUCTION) })
                                 }
@@ -83,7 +87,8 @@ class Transcriber(
                         })
                     })
                 }
-                // 和对话适配器一样:库存的地址不带 /v1beta,这里补上
+                // The same as the conversation adapter: the inventory address does not include /v1beta,
+                // please add it here
                 builder("$base/v1beta/models/$model:generateContent", key, gemini).post(payload.toString().toRequestBody(JSON)).build()
             }
         }
@@ -96,12 +101,16 @@ class Transcriber(
     }
 
     /**
-     * 选模型时试转:按接口类型依次试,返回第一个通过的;都不行抛最后一个错误。
-     * 通过 = 回 2xx 且解析得出文字字段(空串也算)。Key 的问题(401/403/额度)再试别的方法也没用,直接抛。
+     * When selecting a model, try switching: try in order according to the interface type, and return
+     * the first one that passes; if it fails, the last error will be thrown. Pass = back to 2xx and
+     * parse to get the text field (empty string also counts). For the Key problem (401/403/limit), it is
+     * useless to try other methods, just throw it away.
      */
     suspend fun detect(p: Provider, key: String?, model: String): TranscribeMethod {
         val order = if (p.kind == ProviderConfig.Kind.Gemini) listOf(TranscribeMethod.GeminiInline)
-        // 只发音频不带指令的放最后:通用模型也会回 2xx(把录音当聊天回一段话),排在前面会被误选
+        // Those who only send audio without instructions will be placed last: the general model will
+        // also respond to 2xx (reply a paragraph by treating the recording as a chat), and will be
+        // mistakenly selected if it is ranked first.
         else listOf(
             TranscribeMethod.AudioTranscriptions, TranscribeMethod.ChatInputAudio,
             TranscribeMethod.ChatInputAudioUri, TranscribeMethod.ChatInputAudioOnly,
@@ -120,7 +129,7 @@ class Transcriber(
         throw last ?: ModelError.BadResponse("no method")
     }
 
-    /** 只有「这个接口不是这么用的」(找不到路径、方法不对、请求不合、回的不是这个格式)才换下一种。 */
+    /** Only if "this interface is not used in this way" (the path cannot be found, the method is wrong, the request is inconsistent, and the response is not in this format) will it be replaced with the next one. */
     private fun triesNext(e: ModelError): Boolean = e is ModelError.ModelNotFound || e is ModelError.BadResponse
 
     private fun builder(url: String, key: String?, gemini: Boolean): Request.Builder = Request.Builder().url(url).apply {
@@ -137,7 +146,7 @@ class Transcriber(
                 val msg = ((root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject)?.get("message") as? JsonObject
                 when (val c = msg?.get("content")) {
                     is JsonPrimitive -> c.contentOrNull
-                    // 内容是分块数组的:把文字块拼起来
+                    // The content is an array of blocks: put the text blocks together
                     is JsonArray -> c.mapNotNull { (it as? JsonObject)?.str("text") }.joinToString("")
                     else -> null
                 }
@@ -145,7 +154,8 @@ class Transcriber(
             TranscribeMethod.GeminiInline -> {
                 val cand = (root["candidates"] as? JsonArray)?.firstOrNull() as? JsonObject
                 val parts = (cand?.get("content") as? JsonObject)?.get("parts") as? JsonArray
-                // 没有任何文字块(比如静音时只回结束原因)按空串;连候选都没有才算格式不对
+                // If there is no text block (for example, only the end reason is returned when muting),
+                // press the empty string; if there are no candidates, the format is incorrect.
                 if (cand == null) null else parts.orEmpty().mapNotNull { (it as? JsonObject)?.str("text") }.joinToString("")
             }
         }
@@ -159,20 +169,22 @@ class Transcriber(
     companion object {
         private val JSON = "application/json".toMediaType()
 
-        /** 发给模型的指令:只要原话,不要解释(模型面向英文)。 */
+        /** Instructions given to the model: Just the exact words, no explanation required (the model is in English). */
         private const val INSTRUCTION = "Transcribe this recording word for word. Output only the transcript text."
 
         private val SPEECH_TOKENS = listOf("asr", "transcribe", "whisper", "paraformer", "sensevoice", "stt", "speech")
 
-        /** 这家能不能做语音转文字:有 Key 的 OpenAI 兼容、Responses、Gemini 可以;Anthropic 和账号登录的不行。 */
+        /** Can this company do speech-to-text conversion? OpenAI compatibility with Key, Responses, and Gemini are OK; Anthropic and account login are not. */
         fun supports(p: Provider): Boolean = when (p.kind) {
             ProviderConfig.Kind.OpenAiCompat, ProviderConfig.Kind.OpenAiResponses, ProviderConfig.Kind.Gemini -> p.signIn == null
             else -> false
         }
 
         /**
-         * 列表里像语音模型的:名字按非字母数字切成段,有一段以 asr、transcribe、whisper 等开头。
-         * 模型列表只标了「是不是对话模型」,没有单独的语音标记,所以只能看名字。
+         * The list looks like a speech model: the names are cut into segments according to
+         * non-alphanumeric numbers, and one segment starts with asr, transscribe, whisper, etc. The
+         * model list is only marked "Is it a dialogue model?" There is no separate voice mark, so you
+         * can only see the name.
          */
         fun looksLikeSpeech(m: ListedModel): Boolean =
             m.id.lowercase().split(Regex("[^a-z0-9]+")).any { seg -> SPEECH_TOKENS.any { seg.startsWith(it) } }

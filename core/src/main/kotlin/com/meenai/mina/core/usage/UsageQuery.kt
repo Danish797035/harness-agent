@@ -7,9 +7,10 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * 看哪段时间。[Last24Hours] 是滚动的最近 24 小时(含此刻所在的小时),按小时分;
- * [LastDays] 是含今天在内的最近几个本地日历日,[Custom] 是本地日期 [from]..[to](含两头),都按天分,
- * 超过 [UsageQuery.MAX_DAILY_BARS] 天时按周分。
+ * Depends on which period of time. [Last24Hours] is the rolling last 24 hours (including the hour at
+ * this moment), in hours and minutes; [LastDays] is the last few local calendar days including today,
+ * [Custom] is the local date [from]..[to] (inclusive), all in days, and hours exceeding
+ * [UsageQuery.MAX_DAILY_BARS] are in weeks.
  */
 sealed interface UsageRange {
     data object Last24Hours : UsageRange
@@ -17,10 +18,10 @@ sealed interface UsageRange {
     data class Custom(val from: LocalDate, val to: LocalDate) : UsageRange
 }
 
-/** 趋势图一根柱子多长。 */
+/** How long is a bar in a trend chart? */
 enum class UsageStep { Hour, Day, Week }
 
-/** 一段时间里的合计。[tokens] 是输入加输出(缓存命中算在输入里,不另加)。 */
+/** Total over time. [tokens] is input plus output (cache hits are counted in the input and are not added separately). */
 data class UsageTotals(
     val input: Long = 0,
     val output: Long = 0,
@@ -35,9 +36,10 @@ data class UsageTotals(
 }
 
 /**
- * 趋势图的一根:[start] 是这一格开始的本地时间(按小时时是整点,按天、按周时是第一天零点),
- * [lastDay] 是按周时这一格的最后一天(含;最后一格可能不满 7 天),其余为 null。
- * [byProvider] 是各服务商在这一格的 token(没有用量的不列)。
+ * One branch of the trend chart: [start] is the local time at the beginning of this grid (hourly is the
+ * hour, day and week is zero o'clock on the first day), [lastDay] is the last day of this grid
+ * (inclusive; the last grid may be less than 7 days), and the rest are null. [byProvider] is the token
+ * of each service provider in this grid (those without usage are not listed).
  */
 data class UsageBucket(
     val start: LocalDateTime,
@@ -46,16 +48,17 @@ data class UsageBucket(
     val lastDay: LocalDate? = null,
 )
 
-/** 一个模型里某个用途的用量;[share] 是占这个模型的比例(0..1)。用途只作统计的一个维度,界面上不分。 */
+/** The amount of a certain use in a model; [share] is the proportion of this model (0..1). It is only used for one dimension of statistics and is not distinguished on the interface. */
 data class PurposeUsage(val purpose: UsagePurpose, val totals: UsageTotals, val share: Double)
 
-/** 一个服务商下一个模型的用量;[share] 是占这个服务商的比例。 */
+/** The usage of the next model of a service provider; [share] is the proportion of this service provider. */
 data class ModelUsage(val model: String, val totals: UsageTotals, val share: Double, val purposes: List<PurposeUsage>)
 
 /**
- * 一个服务商的用量;[share] 是占全部的比例。[name] 是现在的名字,服务商已删除([deleted])时是记账时留下的名字。
- * [order] 是这个服务商固定的先后(连着的按连接的先后,删掉的排在后面、按最早记账的时间),配色按它定,
- * 换时间范围也不变。
+ * Usage of one provider; [share] is the fraction of the total. [name] is the current name; when the
+ * provider has been deleted ([deleted]) it is the name recorded when the usage was booked. [order] is
+ * this provider's fixed position (connected providers in connection order, deleted ones last by the
+ * time they were first booked); colours follow it and do not change with the time range.
  */
 data class ProviderUsage(
     val id: String,
@@ -67,7 +70,7 @@ data class ProviderUsage(
     val order: Int = 0,
 )
 
-/** 一段时间的统计:合计、趋势图([step] 一格多长)、按服务商 › 模型 › 用途的分项,各层按 token 从多到少。 */
+/** Statistics for a period of time: total, trend chart ([step] is as long as one grid), breakdown by service provider › model › purpose, each layer is ordered from most to least by token. */
 data class UsageReport(
     val range: UsageRange,
     val step: UsageStep,
@@ -81,24 +84,27 @@ data class UsageReport(
 }
 
 /**
- * 从账本内容算统计。账本按 UTC 整点存,换成本地时间在这里做:一个整点桶按它开始的时刻落到本地的哪一天
- * (日期边界用 [LocalDate.atStartOfDay] 的规则,夏令时那天 23 或 25 小时也照样对);
- * 时区和 UTC 差半小时的地方,跨本地零点的那一个小时整个算到它开始的那天。
+ * Calculate statistics from the contents of the ledger. The ledger is stored on the hour of UTC, and the
+ * change to local time is done here: an hour bucket falls on the local day according to the time it
+ * starts (the date boundary uses the rule of [LocalDate.atStartOfDay], and the 23 or 25 hours of
+ * daylight saving time is also the same); where the time zone is half an hour different from UTC, the
+ * hour that crosses local zero is counted to the day it starts.
  */
 object UsageQuery {
     private const val HOUR_MS = UsageLedger.HOUR_MS
 
-    /** 按天分时最多几根;再长按周分(从第一天起每 7 天一根)。 */
+    /** Divide up to a few sticks by day; then press the length by week (one stick every 7 days from the first day). */
     const val MAX_DAILY_BARS = 45
 
     /**
-     * [live] 是现在还连着的服务商(id → 名字),按连接的先后排(迭代顺序就是先后);
-     * 不在里面的算已删除,名字用账本留下的。
+     * [live] is the service provider that is still connected (id → name), arranged in order of
+     * connection (the iteration order is the order); those that are not included have been deleted, and
+     * the names are left in the ledger.
      */
     fun report(snapshot: UsageSnapshot, range: UsageRange, now: Instant, zone: ZoneId, live: Map<String, String>): UsageReport {
         val nowHour = Math.floorDiv(now.toEpochMilli(), HOUR_MS)
         val today = now.atZone(zone).toLocalDate()
-        // 每一行落到第几根柱子;不在范围里为 null
+        // Which column each row falls on; if not in the range, it is null
         val slot: (Long) -> Int?
         val starts: List<LocalDateTime>
         val lastDays: List<LocalDate?>
@@ -141,7 +147,8 @@ object UsageQuery {
             total += row.counts
         }
 
-        // 固定先后:连着的按连接先后,删掉的排在后面、按最早记账的时间
+        // Fixed order: connected ones are arranged in the order of connection, deleted items are
+        // arranged later, and the earliest accounting time is used.
         val liveOrder = live.keys.withIndex().associate { (i, id) -> id to i }
         val goneOrder = firstSeen.keys.filter { it !in live }.sortedWith(compareBy<String> { firstSeen.getValue(it) }.thenBy { it })
             .withIndex().associate { (i, id) -> id to live.size + i }
@@ -173,7 +180,7 @@ object UsageQuery {
         )
     }
 
-    /** 按天的范围落到哪几天(含两头);自定义的两头写反了就对调。 */
+    /** Which days fall within the range of days (including both ends); if the custom ends are written backwards, swap them. */
     fun days(range: UsageRange, today: LocalDate): Pair<LocalDate, LocalDate> = when (range) {
         is UsageRange.LastDays -> today.minusDays(range.days.coerceAtLeast(1) - 1L) to today
         is UsageRange.Custom -> if (range.from <= range.to) range.from to range.to else range.to to range.from

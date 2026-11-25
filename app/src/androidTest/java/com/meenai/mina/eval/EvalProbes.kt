@@ -27,29 +27,35 @@ import kotlinx.serialization.json.jsonObject
 import java.io.File
 
 /**
- * 评测器自己对设备的只读查看:白名单探针、前置条件、任务结束后在虚拟屏上开 App 找字。
- * [sh] 以 shell 身份执行命令;[loggedIn] 是人工标记「已登录」的包名列表文件(一行一个包名)。
+ * The evaluator's own read-only view of the device: whitelist probes, preconditions, and opening the app
+ * on the virtual screen to find words after the task is completed. [sh] executes the command as a shell;
+ * [loggedIn] is a package name list file (one package name per line) manually marked as "logged in".
  */
 class EvalProbes(private val sh: (String) -> String, private val loggedIn: File) {
 
-    /** 只执行 [PROBE_ALLOWLIST] 里的命令;任务文件写不进任意命令。 */
+    /** Only the commands in [PROBE_ALLOWLIST] are executed; no commands can be written into the task file. */
     fun run(name: String): String {
         val cmd = PROBE_ALLOWLIST[name] ?: error("probe not in allowlist: $name")
         return sh(cmd).trim()
     }
 
     /**
-     * 这台手机上能处理某类事的 App(见 [APP_CAPABILITIES]):按标准 Intent 查,默认处理的排在前面。
-     * 命令只由能力表拼出,任务文件写不进去。没有标准 Intent 的能力返回空。
+     * Apps on this phone that can handle certain types of things (see [APP_CAPABILITIES]): Check by
+     * standard Intent, the ones that handle it by default are ranked first. The command is only spelled
+     * out from the capability table, and the task file cannot be written into it. No standard Intent has
+     * the ability to return null.
      */
     fun appCandidates(capability: String): List<String> = APP_CAPABILITIES[capability].orEmpty()
         .flatMap { i -> AppCapabilities.commands(i).flatMap { cmd -> AppCapabilities.packagesIn(runCatching { sh(cmd) }.getOrDefault("")) } }
         .distinct()
 
     /**
-     * `installed:<包名>`、`app:<能力>`、`signedIn:<包名或网站>`(旧写法 `login:<包名>`、`site:<主机名>`)。
-     * 登录态:网站只认站点登记表里「用户在 Mina 里登录过」的(在设置「网站登录」里登录过);App 只认人工标记([loggedIn]),
-     * 评测器不替用户判断 App 的登录态(没有对所有 App 都可靠的探法)。没登录的题跳过,原因写「未登录」。
+     * `installed:<package name>`, `app:<capability>`, `signedIn:<package name or website>` (old writing `login:<package name>`, `site:<host name>`). Login
+     * status: The website only recognizes "the user has logged in in Mina" in the site registration form
+     * (logged in in the "Website Login" setting); the App only recognizes manual marking ([loggedIn]),
+     * and the evaluator does not determine the App's login status for the user (there is no reliable
+     * detection method for all Apps). Questions that are not logged in are skipped and the reason is
+     * written as "not logged in".
      */
     fun requirementMet(req: String): Pair<Boolean, String> {
         val kind = req.substringBefore(':')
@@ -70,10 +76,10 @@ class EvalProbes(private val sh: (String) -> String, private val loggedIn: File)
         }
     }
 
-    /** 人工标记为已登录的 App(一行一个包名)。 */
+    /** Apps manually marked as logged in (one package name per line). */
     private fun appMarked(pkg: String) = runCatching { loggedIn.readLines().map { it.trim() } }.getOrDefault(emptyList()).contains(pkg)
 
-    /** 网站在设置「网站登录」里登录过:同一个可注册域名才算(认不出可注册域名时要主机名完全相同);写法不是网站时为 null。 */
+    /** The website has been logged in in the "Website Login" setting: the same registrable domain name counts (if the registrable domain name cannot be recognized, the host name must be exactly the same); if the writing method is not a website, it is null. */
     private fun siteSignedIn(site: String): Boolean? {
         val host = WebUrlPolicy.host("https://$site") ?: return null
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -81,7 +87,7 @@ class EvalProbes(private val sh: (String) -> String, private val loggedIn: File)
         return WebSites.registry(ctx).list().any { it.loggedInByUser && (WebUrlPolicy.registrable(it.host) ?: it.host) == want }
     }
 
-    /** 在一块新虚拟屏上冷启动 [pkg](或用它打开深链接),读屏直到看到 [text] 或超时。 */
+    /** Cold-start [pkg] (or use it to open a deep link) on a new virtual screen, and read the screen until you see [text] or timeout. */
     suspend fun screenHas(pkg: String, text: String, deepLink: String?): Boolean {
         require(PACKAGE.matches(pkg)) { "bad package: $pkg" }
         val shell = DeviceSupport.shell()
@@ -95,7 +101,8 @@ class EvalProbes(private val sh: (String) -> String, private val loggedIn: File)
             if (deepLink == null) {
                 if (screen.openApp(pkg, cold = true) !is ActionResult.Ok) return false
             } else {
-                // 链接只当数据传给 am,不能带引号拼出别的命令
+                // The link only transmits data to am, and cannot use quotation marks to spell out other
+                // commands.
                 require('\'' !in deepLink && '\n' !in deepLink) { "bad deep link" }
                 sh("am start --display ${display.displayId} -a android.intent.action.VIEW -d '$deepLink' -p $pkg")
             }
@@ -113,8 +120,9 @@ class EvalProbes(private val sh: (String) -> String, private val loggedIn: File)
     }
 
     /**
-     * 在一个新的后台网页标签里打开 [url],读整页文字(至多 [WEB_PAGES] 段),找 [text](忽略空白)。
-     * 用 mina 网页配置,登录状态和 Agent 用的一样。
+     * Open [url] in a new background web page tab, read the entire page of text (at most [WEB_PAGES]
+     * paragraphs), and look for [text] (ignore whitespace). Use mina web page configuration, the login
+     * status is the same as that used by Agent.
      */
     suspend fun webHas(url: String, text: String): Boolean {
         require(WebUrlPolicy.checkNavigable(url) == null) { "bad url: $url" }

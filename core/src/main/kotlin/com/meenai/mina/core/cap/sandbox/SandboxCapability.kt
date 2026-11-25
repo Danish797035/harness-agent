@@ -14,12 +14,14 @@ import com.meenai.mina.core.tool.ToolContext
 import com.meenai.mina.core.workspace.SandboxPaths
 
 /**
- * Linux 沙箱:命令、技能脚本、工作区文件。设备支持时提供工具(运行环境没准备好时工具调用会等它);
- * 不是屏幕操作,不过锁屏关卡,也不进屏幕守卫,由 [SandboxGuard] 另管。
+ * Linux sandbox: commands, skill scripts, workspace files. The tool is provided when the device supports
+ * it (the tool call will wait for it when the running environment is not ready); it is not a screen
+ * operation, but a lock screen level, and does not enter the screen guard, and is handled separately by
+ * [SandboxGuard].
  */
 internal class SandboxCapability(
     private val port: SandboxPort?,
-    /** 本次任务的工作区(对话 ID)。 */
+    /** The workspace (conversation ID) of this task. */
     workspace: () -> String,
     visionEnabled: Boolean,
     onCommand: (String) -> Unit,
@@ -31,7 +33,7 @@ internal class SandboxCapability(
 
     val runner = port?.let { SandboxTools(it, workspace, visionEnabled, onCommand = onCommand, onProgress = onProgress, onPreparing = onPreparing, onScript = onScript) }
 
-    /** 设备支持沙箱(工具已提供,可能还在准备)。 */
+    /** The device supports sandboxing (tools are provided and may be in preparation). */
     fun available(): Boolean = runner?.available() == true
 
     override val folds = true
@@ -47,10 +49,10 @@ internal class SandboxCapability(
 
     override fun tools(): List<AgentTool> = SandboxGroup.tools
 
-    /** 这次的话带着工作区里的文件(附件一行写着 /workspace/ 下的路径):开局就展开沙箱一组。 */
+    /** This time, with the files in the workspace (the attachment line says the path under /workspace/): expand the sandbox group at the beginning. */
     override fun preload(task: String): Boolean = available() && "${SandboxPaths.WORKSPACE}/" in task
 
-    /** 沙箱那一组收着时不给。 */
+    /** The sandbox group will not be given while they are being kept. */
     override fun sections(env: PromptEnv): List<String> {
         if (!env.isOpen(id) || SandboxGroup.tools.none { it.name in env.offered }) return emptyList()
         val p = port?.takeIf { available() }
@@ -85,7 +87,7 @@ internal class SandboxCapability(
     companion object {
         val KEY = CapabilityKey<SandboxCapability>(SANDBOX)
 
-        /** 沙箱一段:写明此刻是否联网([network]:用户的联网设置);运行环境还没准备好时多一句,第一次用工具会等它。 */
+        /** Sandbox paragraph: Indicate whether you are connected to the Internet at the moment ([network]: user's networking settings); add one more sentence when the running environment is not ready yet, and you will wait for it when using the tool for the first time. */
         fun section(status: SandboxStatus, network: Boolean): String {
             val s = Prompts.capability(SANDBOX).replace("{{network}}", if (network) NETWORK_ON else NETWORK_OFF)
             return if (status is SandboxStatus.Ready) s else "$s\n- $PREPARING"
@@ -98,7 +100,7 @@ internal class SandboxCapability(
     }
 }
 
-/** 本任务的沙箱执行;没有沙箱为 null。 */
+/** The sandbox for execution of this task; null if there is no sandbox. */
 internal val ToolContext.sandboxRunner: SandboxTools? get() = this[SandboxCapability.KEY]?.runner
 
 internal fun ToolContext.sandboxAvailable(): Boolean = this[SandboxCapability.KEY]?.available() == true

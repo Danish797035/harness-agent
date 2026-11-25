@@ -23,13 +23,18 @@ import com.meenai.mina.cap.phone.shell.SystemIntents
 import java.lang.ref.WeakReference
 
 /**
- * 兼容性自检在 Mina 虚拟屏上操作的那一页:一个计数按钮、一个输入框、一列能滚动的行、一行一直在跳的数字和一条来回变色的横条
- * (画面一直在变,好看出虚拟屏会不会过几秒就不动了)。页面上写明这是 Mina 自己的测试页。
+ * The page where the compatibility self-test is operated on the Mina virtual screen: a counting button,
+ * an input box, a scrollable row, a row of numbers that keep jumping, and a horizontal bar that changes
+ * color back and forth (the screen keeps changing, so you can see whether the virtual screen will stop
+ * moving after a few seconds). The page states that this is Mina's own test page.
  *
- * 清单里导出,但要求调用方持有 INTERACT_ACROSS_USERS_FULL(shell 和系统有,普通 App 拿不到),没有 intent-filter:
- * 只由内置助手以 shell 身份按组件名打开到 Mina 的屏上(见 [intent])。
- * 万一开到了主屏(屏号是 0),马上关掉,不打扰用户。控件用普通的 View 和资源 id;
- * 文字按 App 语言取([tr]),自检那边按同样的文字认控件(读屏时有字的控件不带资源 id)。
+ * Exported from the manifest, but the caller is required to hold INTERACT_ACROSS_USERS_FULL (available
+ * in the shell and system, but not available in ordinary apps). There is no intent-filter: only the
+ * built-in assistant opens it to Mina's screen by the component name as a shell (see [intent]). If you
+ * open the home screen (screen number is 0), turn it off immediately so as not to disturb the user.
+ * Controls use ordinary View and resource IDs; text is taken according to the App language ([tr]), and
+ * the same text is used to identify controls on the self-test side (controls with text during screen
+ * reading do not have resource IDs).
  */
 class SelfCheckTargetActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
@@ -58,13 +63,15 @@ class SelfCheckTargetActivity : Activity() {
         setContentView(content())
     }
 
-    // 再打开一次时从头来:计数清零、输入框清空、滚回顶上
+    // When you open it again, start from the beginning: clear the count, clear the input box, and scroll
+    // back to the top.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setContentView(content())
     }
 
-    // 看得见就一直跳(虚拟屏上的页面不一定拿到焦点,不按 onResume 算)
+    // Keep jumping as long as you can see it (the page on the virtual screen may not be focused, and it
+    // does not count if onResume is pressed)
     override fun onStart() {
         super.onStart()
         main.removeCallbacks(ticker)
@@ -104,7 +111,8 @@ class SelfCheckTargetActivity : Activity() {
         column.addView(Button(this).apply {
             id = R.id.selfcheck_button
             text = tr(R.string.selfcheck_target_button)
-            // 按钮默认按主题显示成全大写,读屏读到的也就变了样:照写的样子显示
+            // By default, the button is displayed in all caps according to the theme, so what you read
+            // when reading the screen will change: it will be displayed as written.
             isAllCaps = false
             setOnClickListener {
                 taps++
@@ -138,12 +146,12 @@ class SelfCheckTargetActivity : Activity() {
 
         @Volatile private var current: WeakReference<SelfCheckTargetActivity>? = null
 
-        /** 打开这一页用的 intent:指明组件,单独一个任务,不进最近任务。 */
+        /** The intent used to open this page: indicates the component, a single task, and does not enter the recent tasks. */
         fun intent(context: Context): Intent = Intent()
             .setClassName(context.packageName, SystemIntents.OWN_PAGE_CLASS)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        /** 自检结束或取消:还开着就关掉。主线程调。 */
+        /** Self-test ended or canceled: Turn off if it is still on. Main thread adjustment. */
         fun finishOpen() {
             current?.get()?.finish()
             current = null

@@ -18,11 +18,11 @@ import com.meenai.mina.core.tool.SubActions
 const val SCRIPT_CODE_MAX_CHARS = 8_000
 const val SCRIPT_DEFAULT_TIMEOUT_MS = 30_000
 const val SCRIPT_MAX_TIMEOUT_MS = 60_000
-/** 一次脚本里最多几个动作(点、输入、打开网址)。 */
+/** There are at most several actions in a script (click, enter, open URL). */
 const val SCRIPT_MAX_ACTIONS = 20
-/** 一次脚本里最多几次 mina.navigate;整页跳走本来就会结束脚本,这条只管同页内跳转后继续的情况。 */
+/** The maximum number of times mina.navigate can be used in a script; jumping the entire page will end the script. This only takes into account the situation of continuing after jumping within the same page. */
 const val SCRIPT_MAX_NAVIGATIONS = 3
-/** 一次脚本里最多几次读(snapshot、read):每次都进运行记录。 */
+/** The maximum number of reads (snapshot, read) in a script: each time the execution record is entered. */
 const val SCRIPT_MAX_READS = 40
 private const val MAX_LOGS = 50
 private const val MAX_LOG_CHARS = 500
@@ -38,12 +38,14 @@ private const val TEXT_MAX_CHARS = 30_000
 private const val TEXT_DEFAULT_CHARS = 4_000
 private const val WAIT_DEFAULT_MS = 5_000
 
-/** 这些错误一出现整个脚本就停:剩下的动作不再做,交回模型。 */
+/** As soon as these errors occur, the entire script stops: no further actions are performed, and the model is returned. */
 private val FATAL = setOf("confirmation_required", "guard_stopped", "handed_over", "tab_crashed", "no_tab_open")
 
 /**
- * 一次 web_script 的 `mina.*` 调用:校验参数、计上限、翻译成工具调用交给 [sub](子步编号 `<callId>.<n>`),
- * 把结果整理成脚本拿到的值;记下每一步的结局,最后整理成工具结果。
+ * A `mina.*` call of web_script: verify the parameters, calculate the upper limit, translate it into a
+ * tool call and give it to [sub] (substep number `<callId>.<n>`), organize the results into the values
+ * obtained by the script; write down the outcome of each step, and finally it organize into the tool
+ * results.
  */
 internal class ScriptCalls(private val callId: String, private val sub: SubActions?, private val tools: ToolIndex) : ScriptBridge {
     private val steps = mutableListOf<JsonObject>()
@@ -57,7 +59,7 @@ internal class ScriptCalls(private val callId: String, private val sub: SubActio
     private var abort: ScriptAbort? = null
     private var abortExtra: JsonObject = JsonObject(emptyMap())
 
-    /** 做这个动作的工具。 */
+    /** Tools to do this action. */
     private fun tool(verb: Verb): String = tools.nameOf(verb, WEB)!!
 
     override fun log(text: String) {
@@ -133,7 +135,8 @@ internal class ScriptCalls(private val callId: String, private val sub: SubActio
             }
             return fail(error ?: "failed", message)
         }
-        // 写操作之后页面变了,旧编号作废;要再点就再 snapshot
+        // After the write operation, the page changes and the old number is invalid; if you want to
+        // click again, take a snapshot again.
         if (write) snapshotId = null
         return when (op) {
             "snapshot" -> {
@@ -162,8 +165,10 @@ internal class ScriptCalls(private val callId: String, private val sub: SubActio
     }
 
     /**
-     * mina.query / queryAll / text:校验、计数,交回 `{ok, read:{mode, selector, fields, limit, maxChars}}`,由端口在读取世界里读。
-     * 按 value 属性选元素不行(能一位一位猜出隐藏字段的值),转义、注释、命名空间的写法也认([SelectorPolicy])。
+     * mina.query / queryAll / text: Check, count, return `{ok, read:{mode, selector, fields, limit,
+     * maxChars}}`, read by the port in the reading world. It is not possible to select elements by the
+     * value attribute (you can guess the value of the hidden field one by one), and the writing method
+     * of escape, comment, and namespace is also recognized ([SelectorPolicy]).
      */
     private fun pageRead(op: String, args: JsonObject): JsonObject {
         val selector = str(args, "selector")?.takeIf { it.length <= SELECTOR_MAX_CHARS } ?: return bad("mina.$op needs a CSS selector (at most $SELECTOR_MAX_CHARS characters)")
@@ -198,7 +203,7 @@ internal class ScriptCalls(private val callId: String, private val sub: SubActio
         }
     }
 
-    /** 整理成 web_script 的工具结果。 */
+    /** Tool results organized into web_script. */
     fun content(run: ScriptRun): JsonObject {
         val stopped = abort
         return buildJsonObject {
@@ -251,7 +256,7 @@ internal class ScriptCalls(private val callId: String, private val sub: SubActio
 
     private fun str(o: JsonObject, k: String): String? = (o[k] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
 
-    /** 没给为 0;给了但不合法为 null。 */
+    /** If it is not given, it is 0; if it is given but it is illegal, it is null. */
     private fun int(o: JsonObject, k: String, min: Int, max: Int): Int? {
         val v = o[k] ?: return 0
         if (v is JsonNull) return 0

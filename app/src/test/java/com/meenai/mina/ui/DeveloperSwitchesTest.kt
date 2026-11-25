@@ -14,7 +14,7 @@ class DeveloperSwitchesTest {
     private val speed by lazy { DeveloperSwitches.speed(SpeedFlags.OFF) }
     private val experimental by lazy { DeveloperSwitches.experimental(SpeedFlags.OFF) }
 
-    /** 原「速度」下的八个开关,每个只在一组里出现一次,id 不重复。 */
+    /** Each of the eight switches under the original "Speed" only appears once in a group, and the IDs are not repeated. */
     @Test
     fun eightSwitchesInTwoGroups() {
         assertEquals(
@@ -25,7 +25,7 @@ class DeveloperSwitchesTest {
         assertEquals(8, (speed + experimental).map { it.id }.toSet().size)
     }
 
-    /** 拨动一个开关只改它自己那一项,其余保持原值。 */
+    /** Turning a switch only changes its own item, and the others remain at their original values. */
     @Test
     fun toggleChangesOnlyItsOwnFlag() {
         val base = SpeedFlags(replay = true, deepLinks = true)

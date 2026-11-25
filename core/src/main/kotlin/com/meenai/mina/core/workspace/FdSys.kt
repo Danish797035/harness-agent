@@ -13,51 +13,54 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 
-/** 句柄所指文件的类型与身份(fstat/lstat)。 */
+/** The type and identity of the file pointed to by the handle (fstat/lstat). */
 data class FdStat(val kind: Kind, val nlink: Long, val size: Long, val dev: Long, val ino: Long) {
     enum class Kind { FILE, DIR, LINK, OTHER }
 }
 
-/** 打开一次得到的句柄;实际是哪个文件只看句柄本身(安卓上读 /proc/self/fd/N),不再按路径重走。 */
+/** Open the handle obtained once; only the handle itself (read /proc/self/fd/N on Android) is used to determine the actual file, and there is no need to retrace the path. */
 interface OpenFd : Closeable {
     fun realPath(): String
     fun stat(): FdStat
-    /** 文件句柄上的通道(读或写,看打开方式);目录没有。 */
+    /** The channel on the file handle (read or write, depending on the opening method); the directory does not. */
     fun channel(): FileChannel
     fun truncate(size: Long)
 }
 
 enum class OpenHow { READ, CREATE_NEW, WRITE, APPEND }
 
-/** [FdSys] 报的系统调用错误,由 [WorkspaceFileGate] 换成工具层的错误码。 */
+/** The system call error reported by [FdSys] is changed from [WorkspaceFileGate] to the error code of the tool layer. */
 class FdSysException(val kind: Kind, cause: Throwable? = null) : IOException(kind.name, cause) {
     enum class Kind { NOT_FOUND, EXISTS, LINK, NOT_DIR, NOT_FILE }
 }
 
 /**
- * 系统调用那一层。带 dir 的调用都以那个已打开的目录为准,[name] 是单段名字,最后一段不跟随链接。
- * 安卓上的实现在 app(open O_NOFOLLOW + /proc/self/fd/N);[NioFdSys] 是 JVM 上按路径的近似,只给 JVM 测试用。
+ * The system call layer. Calls with dir are based on the opened directory. [name] is a single-segment
+ * name, and the last segment does not follow the link. The implementation on Android is app(open
+ * O_NOFOLLOW + /proc/self/fd/N); [NioFdSys] is an approximation of the path on the JVM and is only used
+ * for JVM testing.
  */
 interface FdSys {
-    /** 根目录本身(调用方给的、沙箱碰不到的路径);最后一段是链接时报 LINK。 */
+    /** The root directory itself (a path given by the caller and unreachable by the sandbox); the last paragraph is LINK. */
     fun openRoot(path: File): OpenFd
     fun openDir(dir: OpenFd, name: String, create: Boolean): OpenFd
     fun openFile(dir: OpenFd, name: String, how: OpenHow): OpenFd
-    /** 不跟随链接;不存在为 null。 */
+    /** Do not follow the link; null if not present. */
     fun lstat(dir: OpenFd, name: String): FdStat?
     fun readlink(dir: OpenFd, name: String): String?
     fun list(dir: OpenFd): List<String>
-    /** 删掉这一项本身(文件、链接或空目录),不跟随链接。 */
+    /** Delete the item itself (file, link or empty directory) without following the link. */
     fun remove(dir: OpenFd, name: String)
-    /** 同一目录里改名,[to] 已有(文件或链接)时整个换掉。 */
+    /** Change the name in the same directory, and replace the entire [to] (file or link) if it already exists. */
     fun rename(dir: OpenFd, from: String, to: String)
     fun symlink(dir: OpenFd, name: String, target: String)
     fun chmod(fd: OpenFd, mode: Int)
 }
 
 /**
- * JVM 上的近似实现:按路径解析,检查与使用之间有空隙。只用于 JVM 单元测试(macOS 上没有 /proc/self/fd);
- * 手机上一律用 app 里的安卓实现。
+ * Approximate implementation on JVM: parsing by path, there is a gap between inspection and use. Only
+ * used for JVM unit testing (there is no /proc/self/fd on macOS); on mobile phones, it is always
+ * implemented using Android in the app.
  */
 object NioFdSys : FdSys {
     private class Fd(val path: Path, private val ch: FileChannel?) : OpenFd {
@@ -100,7 +103,8 @@ object NioFdSys : FdSys {
         val p = fd(dir).path.resolve(name)
         val a = attrs(p)
         if (a?.isSymbolicLink == true) throw FdSysException(if (how == OpenHow.CREATE_NEW) FdSysException.Kind.EXISTS else FdSysException.Kind.LINK)
-        // NIO 打不开 O_NONBLOCK:FIFO 之类先按类型拒掉,免得读写时卡住
+        // NIO cannot be opened. O_NONBLOCK: FIFO and the like are rejected first by type to avoid
+        // getting stuck during reading and writing.
         if (a != null && !a.isRegularFile) throw FdSysException(if (how == OpenHow.CREATE_NEW) FdSysException.Kind.EXISTS else FdSysException.Kind.NOT_FILE)
         val opts = when (how) {
             OpenHow.READ -> setOf(StandardOpenOption.READ)

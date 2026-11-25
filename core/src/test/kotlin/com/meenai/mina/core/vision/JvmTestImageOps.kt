@@ -5,8 +5,9 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * 测试用「假图」:前 8 字节是宽、高(大端 Int),后面每像素一个灰度字节。
- * 纯 JVM 解不了 PNG,测试只需要一个能被各操作一致处理的格式。
+ * "Fake image" for testing: the first 8 bytes are width and height (big-endian Int), followed by one
+ * grayscale byte for each pixel. Pure JVM cannot decode PNG, the test only needs a format that can be
+ * processed consistently by all operations.
  */
 object JvmTestImageOps : ImageOps {
     class Gray(val w: Int, val h: Int, val px: ByteArray) {
@@ -50,7 +51,7 @@ object JvmTestImageOps : ImageOps {
         val g = decode(img)
         val l = toPx(box[0], g.w) - expandPx; val t = toPx(box[1], g.h) - expandPx
         val r = toPx(box[2], g.w) + expandPx; val b = toPx(box[3], g.h) + expandPx
-        // 灰度图里用 255 代表红框
+        // In the grayscale image, 255 is used to represent the red box.
         return encode(g.w, g.h) { x, y ->
             val onX = x in l..r && (y in t until t + strokePx || y in b - strokePx + 1..b)
             val onY = y in t..b && (x in l until l + strokePx || x in r - strokePx + 1..r)

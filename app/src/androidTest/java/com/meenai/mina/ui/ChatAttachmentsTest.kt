@@ -33,13 +33,13 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 对话页的附件:「＋」面板开关、面板里的照片、输入框上方待发的那一排、发出去的消息怎么画。 */
+/** Attachments to the conversation page: "+" panel switch, photos in the panel, the row above the input box to be sent, and how to draw the sent message. */
 @RunWith(AndroidJUnit4::class)
 class ChatAttachmentsTest {
 
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    /** 假的图:每张都是一块 40×30 的空图,不读手机。 */
+    /** Fake pictures: Each picture is a 40×30 empty picture and cannot be read by mobile phones. */
     private val images = AttachImages { _, _ -> ImageBitmap(40, 30) }
 
     private fun composer(attachments: List<PendingAttachment> = emptyList(), text: String = "", onSend: () -> Unit = {}) = compose.setContent {
@@ -64,7 +64,7 @@ class ChatAttachmentsTest {
         compose.onAllNodesWithTag("panel-body").assertCountEquals(0)
         compose.onNodeWithContentDescription(AttachCopy.ADD).performClick()
         compose.onNodeWithTag("panel-body").assertIsDisplayed()
-        // 再点(这时是 ×)收起
+        // Click again (this time it is ×) to close
         compose.onNodeWithContentDescription(AttachCopy.CLOSE).performClick()
         waitGone("panel-body")
         compose.onNodeWithContentDescription(AttachCopy.ADD).assertIsDisplayed()

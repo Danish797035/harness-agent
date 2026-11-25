@@ -1,16 +1,16 @@
 package com.meenai.mina.core.visual
 
-/** 动作前后两帧画面的粗比较用的格子与阈值(判动作效果的旁证)。 */
+/** The grid and threshold used for rough comparison of the two frames before and after the action (circumstantial evidence for judging the effect of the action). */
 object FrameTuning {
-    /** 画面格子的列数、行数。 */
+    /** The number of columns and rows of the screen grid. */
     const val GRID_COLS = 24
     const val GRID_ROWS = 48
-    /** 一格亮度差超过这么多算这格变了。 */
+    /** If the brightness difference of one grid exceeds this much, it is considered that the grid has changed. */
     const val CELL_DELTA = 16
-    /** 整屏至少这么多格(约 1%)变了才算看得出的变化。 */
+    /** A visible change requires at least this many frames (about 1%) of the entire screen to change. */
     const val FRAME_VISIBLE = 0.01
-    /** 目标区域里至少这么多格变了才算区域里看得出的变化。 */
+    /** At least this many cells in the target area must have changed to be considered a visible change in the area. */
     const val REGION_VISIBLE = 0.15
-    /** 整屏这么多格变了算大面积变化。 */
+    /** Changing so many frames on the entire screen is considered a large area change. */
     const val FRAME_LARGE = 0.25
 }

@@ -9,19 +9,21 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 对话适配器以外也要照同一套说法报错的地方(比如语音转文字)用:发一个请求,把 HTTP 状态和报错内容转成 [ModelError]。
- * 映射本身从各适配器原样搬来,适配器改成调这里,避免两份各改各的。
+ * In addition to the conversation adapter, the same method should be used to report errors (such as
+ * voice-to-text): send a request to convert the HTTP status and error content into [ModelError]. The
+ * mapping itself is moved from each adapter as it is, and the adapter is changed here to avoid changing
+ * the two copies.
  */
 object ModelHttp {
     class Reply(val status: Int, val retryAfter: String?, val body: String) {
         val ok: Boolean get() = status in 200..299
     }
 
-    /** 发出请求并读完回复;网络失败抛 [ModelError.Network],取消协程会取消请求。 */
+    /** Send a request and read the reply; if the network fails, [ModelError.Network] will be thrown. Canceling the coroutine will cancel the request. */
     suspend fun send(http: OkHttpClient, request: Request): Reply =
         HttpSupport.execute(http, request).let { Reply(it.status, it.retryAfter, it.body) }
 
-    /** OpenAI 兼容接口(对话、转写同一套)的错误映射。[model] 是请求的模型名。 */
+    /** Wrong mapping of OpenAI compatible interfaces (same set of dialogue and transcription). [model] is the requested model name. */
     fun openAiError(status: Int, retryAfter: String?, body: String, model: String): ModelError =
         ModelAccessErrors.of(status, body, model) ?: when {
             status == 401 -> ModelError.Auth()
@@ -36,7 +38,7 @@ object ModelHttp {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Gemini 原生接口的错误映射。 */
+    /** Wrong mapping of Gemini native interfaces. */
     fun geminiError(status: Int, retryAfter: String?, body: String, model: String): ModelError {
         val err = try { json.parseToJsonElement(body).jsonObject["error"] as? JsonObject } catch (e: Exception) { null }
         val st = (err?.get("status") as? JsonPrimitive)?.contentOrNull.orEmpty()
@@ -45,7 +47,9 @@ object ModelHttp {
         ModelAccessErrors.of(status, body, model)?.let { return it }
         return when {
             status == 401 || status == 403 -> ModelError.Auth()
-            // 这个模型额度为零的 429 上面已认成用不了;其余 429 按可重试限流处理(其限流与额度文案混用,无法可靠区分)
+            // The 429 of this model with zero quota have been deemed unusable; the remaining 429 are
+            // treated as retryable current limits (its current limit and quota copy are mixed and cannot
+            // be reliably distinguished)
             status == 429 || st == "RESOURCE_EXHAUSTED" -> ModelError.RateLimited(HttpSupport.retryAfterMs(retryAfter))
             status == 404 -> ModelError.ModelNotFound(model, ModelAccessErrors.jsonDetail(body))
             status == 413 || (status == 400 && lower.contains("token") &&

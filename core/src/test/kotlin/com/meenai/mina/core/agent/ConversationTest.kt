@@ -23,14 +23,15 @@ class ConversationTest {
         val t = (m.parts.single() as Part.Text).text
         assertFalse("问题5" in t)
         assertTrue(t.indexOf("问题6") < t.indexOf("问题7") && t.indexOf("问题7") < t.indexOf("问题8"))
-        // 超长时丢掉较早的,保留最近的
+        // If it is too long, discard the earlier one and keep the latest one.
         val long = (1..5).map { Turn("问题$it", "长".repeat(300), "succeeded") }
         val capped = text(long, maxTokens = 600)
         assertTrue(TokenEstimate.of(capped) <= 600)
         assertTrue("问题5" in capped && "问题1" !in capped)
-        // 单轮就超长:截断而不是超出
+        // A single round is too long: truncate rather than exceed
         assertTrue(TokenEstimate.of(text(listOf(Turn("问", "长".repeat(5000), "succeeded")), maxTokens = 300)) <= 300)
-        // 各字段分别截:原话很长时结局也还在
+        // Each field is cut separately: even if the original story is very long, the ending is still
+        // there
         val both = text(listOf(Turn("问".repeat(2000), "长".repeat(5000), "succeeded")), maxTokens = 300)
         assertTrue(both, TokenEstimate.of(both) <= 300 && "The user said: 问问" in both && "result: 长长" in both)
     }
@@ -44,7 +45,8 @@ class ConversationTest {
     }
 
     @Test fun failedTurnShowsReason() {
-        // 停止的那一轮没有交代时只说取消了(停止后补上交代的见 StopSummaryTest)
+        // If there is no explanation in the stopped round, it will just say canceled (see
+        // StopSummaryTest to make up the explanation after stopping)
         val t = text(listOf(Turn("订票", "验证码一直过不去", "failed"), Turn("查天气", Conversation.CANCELLED_OUTCOME, "cancelled")))
         assertTrue("not finished, reason: 验证码一直过不去" in t)
         assertTrue("the user cancelled this task" in t && "before the stop" !in t)

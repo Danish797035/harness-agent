@@ -26,8 +26,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 /**
- * 一次模型调用:历史只追加,估算越过触发点才压缩一次([ContextCompressor],完整历史不动)、主模型一时的故障按 [retry] 重试、上下文超长时压得更狠再发一次,
- * lightSteps 打开时按 [router] 在大小模型之间分工(轻量模型出错不重试,这一步直接改问主模型)。每个任务开始时 [reset]。
+ * One model call: The history is only appended, and it is compressed only once when the trigger point is
+ * estimated ([ContextCompressor], the complete history does not move). If the main model fails
+ * temporarily, press [retry] to retry. If the context is too long, press [router] to resend. When
+ * lightSteps is opened, press [router] to divide the work between large and small models (light model
+ * does not retry if there is an error, this step directly changes to the main model). Each mission
+ * starts with [reset].
  */
 internal class ModelCaller(
     private val model: ChatModel,
@@ -41,28 +45,28 @@ internal class ModelCaller(
     private val trace: RunTrace? = null,
     private val onActiveModel: (String) -> Unit = {},
 ) {
-    /** 每个模型一份压缩状态:各自的上下文、各自发出的那份历史,轻量模型那次压缩不连累主模型的请求前缀。 */
+    /** Each model has a copy of the compression state: its own context, its own history, and the compression of the lightweight model does not involve the request prefix of the main model. */
     private val compressors = java.util.IdentityHashMap<ChatModel, ContextCompressor>()
     private fun compressorFor(m: ChatModel) =
         compressors.getOrPut(m) { ContextCompressor(tools.index, structured = flags.structuredCompaction,
             diffScreens = tools.inlineScreen, triggerOverride = m.capabilities.compactionTriggerTokens) }
     private val compactions = java.util.IdentityHashMap<ChatModel, CompactionState>()
-    /** 本任务里已为重试等过的时间(对着 [RetryPolicy.taskWaitBudgetMs])。 */
+    /** The time that has elapsed for retry in this task (facing [RetryPolicy.taskWaitBudgetMs]). */
     private var taskRetryWaitMs = 0L
 
-    /** 本任务的系统提示词:开工时按发给模型的同一份工具列表拼([SystemPrompt.assemble]),任务内不变。 */
+    /** The system prompt word for this task: Press the same tool list sent to the model when starting work ([SystemPrompt.assemble]), and the task remains unchanged. */
     var systemPrompt: String = ""
 
-    /** 最近一次调用在成功那次请求之前花掉的时间(失败的请求、退避)。 */
+    /** The time it took for the most recent call to succeed (failed requests, backoff). */
     var lastRetryWaitMs = 0L
         private set
 
-    /** 本任务里轻量模型给出、已进历史的回复;换模型时按它去掉别家模型的私有数据。 */
+    /** In this task, the lightweight model gives a reply that has been entered into the history; when changing models, click it to remove the private data of other models. */
     private val lightReplies: MutableSet<Message> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
 
-    /** 带真实用量的回复(按消息身份)和给出它的模型,是量请求大小的锚点([UsageMeter]);压缩改写前缀后清空。 */
+    /** The reply with actual usage (by message identity) and the model giving it, is the anchor point for the size of the request ([UsageMeter]); cleared after compression rewrite prefix. */
     private val anchors = java.util.IdentityHashMap<Message, Pair<ChatModel, UsageMeter.Anchor>>()
-    /** 每个模型最近一次请求的固定开销估算;回复进历史时和用量一起记进锚点。 */
+    /** The fixed cost estimate of the latest request for each model; when the reply is entered into the history, it will be recorded in the anchor point together with the usage. */
     private val lastOverhead = java.util.IdentityHashMap<ChatModel, Int>()
 
     fun reset(prompt: String) {
@@ -75,29 +79,32 @@ internal class ModelCaller(
         lastOverhead.clear()
     }
 
-    /** 回复进了历史:是轻量模型给的就记下;有真实 usage 的记成上下文大小的锚点。 */
+    /** The reply is entered into the history: if it is given by the lightweight model, it will be recorded; if it has real usage, it will be recorded as the anchor point of the context size. */
     fun noteReply(m: Message, used: ChatModel, usage: Usage?) {
         if (router?.isLight(used) == true) lightReplies += m
         val overhead = lastOverhead[used]
         if (usage != null && overhead != null) anchors[m] = used to UsageMeter.Anchor(usage, overhead)
     }
 
-    /** 发给 [using] 的整份请求有多大:最近一条它给的、带真实用量的回复作锚点,没有就全量估算(见 [UsageMeter])。 */
+    /** How big is the entire request sent to [using]: The most recent reply it sent with the actual usage is used as the anchor point. If not, the full amount is estimated (see [UsageMeter]). */
     private fun requestTokens(messages: List<Message>, using: ChatModel, overhead: Int, scale: Double): Int =
         UsageMeter.of(messages, overhead, scale) { m -> anchors[m]?.takeIf { it.first === using }?.second }
 
-    /** 本任务里分工是否在起作用:开关打开、轻量模型能接手机步、没因不可恢复的错误停用。 */
+    /** Is the division of labor working in this task: the switch is turned on, the lightweight model can accept mobile phone steps, and it is not deactivated due to unrecoverable errors. */
     private val routing: Boolean get() = flags.lightSteps && router?.active == true
 
-    /** 开了分工就在运行记录里记每次调用的模型和角色(停用之后也记,便于对比)。 */
+    /** Once the division of labor is enabled, record the model and role of each call in the running record (also record it after deactivation, for easy comparison). */
     val recordRoles: Boolean get() = flags.lightSteps && router != null
 
     fun roleOf(m: ChatModel) = if (router?.isLight(m) == true) ROLE_LIGHT else ROLE_MAIN
 
     /**
-     * 按 [router] 选模型。轻量模型出错、没调工具(不带调用的回复是最终回答,只由主模型给),或要放弃、确认、接管、追问、做不可逆的事,
-     * 它的回复不执行(作为 [ROLE_LIGHT_REJECTED] 记下用量),这一步改问主模型,改问前用 [restarted] 报新的起问时刻。
-     * 返回回复和实际用的模型。
+     * Press [router] to select the model. If the lightweight model makes an error, the tool is not
+     * adjusted (the reply without calling is the final answer, and is only given by the main model), or
+     * if it wants to give up, confirm, take over, question, or do irreversible things, its reply will
+     * not be executed (note the usage as [ROLE_LIGHT_REJECTED]). In this step, the main model is changed
+     * to the query. Before changing the question, use [restarted] to report the new question time.
+     * Returns the response and the actual model used.
      */
     suspend fun routed(
         history: List<Message>, specs: List<ToolSpec>, track: StepTrack, step: Int, restarted: (Long) -> Unit,
@@ -106,14 +113,17 @@ internal class ModelCaller(
         val r = router?.takeIf { routing } ?: return ask(history, specs, step, onText = onText) to model
         val picked = r.pick(track.context(step, history.any { m -> m.parts.any { it is Part.Image } }))
         if (!r.isLight(picked)) return ask(history, specs, step, onText = onText) to model
-        // 轻量模型的上下文可能更小:它报超长、它那次折叠多少,都不连累主模型(压缩状态按模型分开记)
+        // The context of a lightweight model may be smaller: it is reported to be too long, and how much
+        // it is folded at that time does not affect the main model (the compression status is recorded
+        // separately by model)
         val asked = now()
         val light = try {
             complete(viewFor(history, picked), specs, picked, RetryPolicy.NONE, step, onText)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Key、额度、模型名、请求本身不对,重试也没用:本任务余下的步都用主模型
+            // The key, quota, model name, and request itself are incorrect, and it is useless to try
+            // again: the main model will be used for the remaining steps of this task.
             if (e is ModelError.Auth || e is ModelError.QuotaExceeded || e is ModelError.ModelNotFound ||
                 e is ModelError.ModelNotAvailable || e is ModelError.ToolsUnsupported ||
                 e is ModelError.ChatGptLimitReached || e is ModelError.ChatGptNotEligible || e is ModelError.SignInExpired || e is ModelError.AccountPlanNotAllowed ||
@@ -139,13 +149,14 @@ internal class ModelCaller(
         ModelRouter.mainOnly(call.name, tools.verb(call.name)) ||
             (!autonomous && ConfirmDecision.mayBeIrreversible(tools, call.name, parseArgs(call.argsJson)))
 
-    /** 问 [using](默认主模型):发出的是给它看的那份历史([viewFor])压缩后的副本。 */
+    /** Question [using] (default master model): What is sent is a compressed copy of the history ([viewFor]) shown to it. */
     suspend fun ask(history: List<Message>, specs: List<ToolSpec>, step: Int, using: ChatModel = model, onText: ((String) -> Unit)? = null): ModelReply =
         complete(viewFor(history, using), specs, using, retry, step, onText)
 
     /**
-     * 发给 [to] 的历史:别的模型给出的回复去掉思考内容和调用上的私有数据(这些只能原样回给产生它的那个模型)。
-     * 只看字段在不在,不分服务商。
+     * History sent to [to]: Replies given by other models remove the thinking content and private data
+     * on the call (these can only be returned to the model that generated it as is). Only check whether
+     * the field is present, regardless of service provider.
      */
     private fun viewFor(history: List<Message>, to: ChatModel): List<Message> {
         val toLight = router?.isLight(to) == true
@@ -181,16 +192,19 @@ internal class ModelCaller(
             if (raw.rewritten) anchors.clear()
             val restored = ContextRecovery.ensure(history, raw.messages)
             val sent = if (restored === raw.messages) raw else raw.copy(messages = restored, estimate = TokenEstimate.of(restored))
-            // 界面实时显示上下文用了多少、还剩多少(没报用量的服务商也有估算)
+            // The interface displays in real time how much context has been used and how much is left
+            // (service providers that do not report usage also have estimates)
             currentCoroutineContext()[com.meenai.mina.core.usage.RunUsageTally]?.noteContext(sent.estimate + overhead, contextTokens)
             val (next, report) = CompactionPolicy.sent(compaction, sent.foldedSteps)
             if (report) emit(RunEvent.Compressed(now(), sent.foldedSteps))
             compaction = next
             compactions[using] = compaction
             try {
-                // 差异的 base 被裁掉或折叠时,下一次写操作要发全量
+                // When the different base is cut or folded, the next write operation must be issued in
+                // full
                 if (tools.inlineScreen) tools.setVisibleObservations(visibleReads(sent.messages))
-                // 这一次之前花掉的(失败的请求、退避)都算重试等待
+                // Everything spent before this time (failed requests, backoff) is counted as retry
+                // waiting.
                 lastRetryWaitMs = now() - began
                 onActiveModel(using.name)
                 suspend fun send(): ModelReply = if (onText == null) using.complete(systemPrompt, sent.messages, specs)
@@ -228,22 +242,22 @@ internal class ModelCaller(
                 retries += 1
                 taskRetryWaitMs += wait
                 emit(RunEvent.State(now(), "model_retry", "${roleOf(using)} ${RetryPolicy.label(e)} #$retries ${wait}ms"))
-                // 等待中取消任务就此结束
+                // The task of canceling while waiting is over.
                 delay(wait)
             }
         }
     }
 
     companion object {
-        /** [RunEvent.ModelReply.role] 的取值;分工没起作用时为 null。 */
+        /** The value of [RunEvent.ModelReply.role]; it is null when division of labor does not work. */
         const val ROLE_MAIN = "main"
         const val ROLE_LIGHT = "light"
-        /** 轻量模型的回复没执行,这一步改问了主模型;仍是一次模型调用,用量照记。 */
+        /** The reply of the lightweight model was not executed, and this step changed the main model; it is still a model call, and the usage is taken into account. */
         const val ROLE_LIGHT_REJECTED = "light_rejected"
     }
 }
 
-/** 发出的历史里还完整可见的读取(按编号):带元素列表的读取结果与带 screen 对象的动作结果。 */
+/** Reads (by number) are also fully visible in the emitted history: read results with element lists and action results with screen objects. */
 internal fun visibleReads(messages: List<Message>): Set<String> {
     val out = HashSet<String>()
     for (m in messages) for (p in m.parts) {

@@ -73,18 +73,21 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlin.math.roundToInt
 
-/** 服务端用量的三种状态:第一次读、读到、读不到退回本机。 */
+/** There are three states of server usage: first read, read, and return to local machine if no read. */
 private enum class SyncPhase { Checking, Server, Local }
 
 /**
- * 设置 › 用量上限。
+ * Settings › Usage limits.
  *
- * 连着 Gemini 时先读 Gemini 账号自己的用量(和网页 Usage limits 页同一个 GraphQL 查询),
- * 读到就照网页那样显示 Current usage / Weekly limit 和真实重置时间;
- * 读不到(没登录、接口变了、网络不通)就退回本机账本,老实写「这是本 App 的请求数」,
- * 不再拿本机预算冒充 Google 的额度。
+ * When connected to Gemini, first read the Gemini account's own usage (the same GraphQL query as the
+ * Usage limits page of the web page). Once it is read, it will display the Current usage / Weekly limit
+ * and the real reset time as shown on the web page; if it cannot be read (not logged in, the interface
+ * has changed, or the network is unavailable), it will be returned to the local account book and
+ * honestly write "This is the number of requests for this App", and no longer use the local budget to
+ * pretend to be Google's quota.
  *
- * 服务端用量每 60 秒读一次(Google 自己的页面也不会更快),本机数字在页面开着时每 5 秒跟着账本更新。
+ * Server-side usage is read every 60 seconds (Google's own page isn't any faster), and local numbers are
+ * updated with the ledger every 5 seconds while the page is open.
  */
 @Composable
 fun UsageLimitsScreen(
@@ -99,7 +102,8 @@ fun UsageLimitsScreen(
     var budget by remember { mutableIntStateOf(flags.usageDailyBudget()) }
     var now by remember { mutableStateOf(Instant.now()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    // 页面在前台时每 5 秒走一次:跨过零点时今天/这周跟着换;退到后台就停,省电
+    // The page moves every 5 seconds when it is in the foreground: when it crosses zero, it will change
+    // today/this week; it will stop when it returns to the background to save power.
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             now = Instant.now()
@@ -110,7 +114,8 @@ fun UsageLimitsScreen(
         }
     }
     val zone = remember { ZoneId.of("Asia/Kolkata") }
-    // 装了 Gemini Web 就用它的账号用量;否则只算本机
+    // If Gemini Web is installed, its account usage will be used; otherwise, only the local machine will
+    // be counted.
     val providerId = remember(live) {
         live.firstOrNull { it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == ProviderStore.GEMINI_WEB_SIGN_IN }?.id
     }
@@ -120,7 +125,8 @@ fun UsageLimitsScreen(
 
     var serverUsage by remember(providerId) { mutableStateOf<GeminiUsage?>(null) }
     var lastSyncAt by remember(providerId) { mutableStateOf(0L) }
-    // 第一次读之前先显示「正在检查」,别先闪一下本机数字再跳成 Google 的
+    // Display "Checking" before reading for the first time. Don't flash the local number first and then
+    // jump to Google.
     var phase by remember(providerId) {
         mutableStateOf(if (providerId == null) SyncPhase.Local else SyncPhase.Checking)
     }
@@ -146,7 +152,9 @@ fun UsageLimitsScreen(
                     phase = SyncPhase.Local
                     failures++
                 } else {
-                    // 之前读到过就继续显示,只把「多久前更新」变旧;失败越多次,重试越慢
+                    // If it has been read before, it will continue to be displayed, and only the "how
+                    // long ago it was updated" will become old; the more times it fails, the slower the
+                    // retry will be.
                     failures++
                 }
                 delay(if (failures == 0) 60_000L else (60_000L * failures).coerceAtMost(300_000L))
@@ -287,7 +295,7 @@ fun UsageLimitsScreen(
     }
 }
 
-/** Gemini 账号的用量窗口:百分比 + 进度条 + 真实重置时间。 */
+/** Gemini account usage window: percentage + progress bar + real reset time. */
 @Composable
 private fun ServerLimitCard(
     icon: ImageVector,
@@ -341,7 +349,7 @@ private fun LocalChip() {
     }
 }
 
-/** 第一次读取账号用量时的占位,避免本机数字一闪而过。 */
+/** Placeholder when reading the account usage for the first time to prevent local numbers from flashing by. */
 @Composable
 private fun CheckingCard() {
     MinaCard(Modifier.padding(bottom = 12.dp)) {
@@ -361,7 +369,7 @@ private fun CheckingCard() {
     }
 }
 
-/** 「Updated just now / 3 min ago」,靠外层每 5 秒的 tick 自己变。 */
+/** "Updated just now / 3 min ago" depends on the outer layer ticking every 5 seconds. */
 @Composable
 private fun updatedLabel(lastSyncAt: Long, now: Instant): String {
     val minutes = ((now.toEpochMilli() - lastSyncAt).coerceAtLeast(0L) / 60_000L).toInt()
@@ -372,7 +380,7 @@ private fun updatedLabel(lastSyncAt: Long, now: Instant): String {
     }
 }
 
-/** 一张上限卡:标题、右边「X% used」、进度条、说明和重置时间。 */
+/** A cap card: title, "X% used" on the right, progress bar, description and reset time. */
 @Composable
 private fun LimitCard(
     icon: ImageVector,
@@ -430,7 +438,7 @@ private fun LimitCard(
     }
 }
 
-/** 预算的减 / 加:圆形小按钮,点一下改一档。 */
+/** Budget reduction/addition: Click the small round button to change the budget. */
 @Composable
 private fun BudgetButton(icon: ImageVector, label: String, enabled: Boolean, tag: String, onClick: () -> Unit) {
     val c = MinaTheme.colors

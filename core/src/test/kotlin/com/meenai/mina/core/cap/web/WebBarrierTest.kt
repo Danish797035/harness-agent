@@ -38,7 +38,7 @@ class WebBarrierTest {
     @Test fun status403AloneIsNotRiskControl() {
         val c = WebBarrier.classify(facts(listOf("Forbidden"), 403))
         assertEquals(ScreenState.NORMAL, c.state); assertFalse(c.needsHuman)
-        // 有那类字但状态正常也不算
+        // It doesn’t count if there are those words but the condition is normal.
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(listOf("账号异常处理指南"), 200)).state)
     }
 
@@ -49,10 +49,10 @@ class WebBarrierTest {
             val c = WebBarrier.classify(facts(frames = listOf("https://ads.example.net/slot", u)))
             assertEquals(u, "captcha", c.takeoverReason); assertTrue(c.needsHuman)
         }
-        // google.com 上别的框架(地图、视频)不算
+        // Other frames (maps, videos) on google.com do not count
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(frames = listOf("https://www.google.com/maps/embed?pb=1"))).state)
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(frames = listOf("https://player.video.example.org/v/1"))).state)
-        // 同源框架不算(只看跨源的)
+        // Same-origin frameworks are not counted (only cross-source ones are considered)
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(frames = listOf("https://hcaptcha.com/x"), host = "www.hcaptcha.com")).state)
         assertEquals("captcha", WebBarrier.classify(facts(listOf("请完成安全验证"))).takeoverReason)
     }
@@ -64,7 +64,7 @@ class WebBarrierTest {
             assertEquals(ScreenDiagnosis.UNSUPPORTED_BROWSER, c.takeoverReason)
             assertTrue(c.cause!!.contains("switch route"))
         }
-        // 只是提到浏览器或下载 App,不算拒绝
+        // Just mentioning a browser or downloading an app does not count as rejection
         for (t in listOf("Open in browser", "下载 App 领红包", "请下载 App")) assertEquals(t, null, WebBarrier.classify(facts(listOf(t))).takeoverReason)
     }
 
@@ -74,7 +74,8 @@ class WebBarrierTest {
     }
 
     @Test fun screenDiagnosisNeedsHumanWinsFirst() {
-        // 429 限流页上同时有密码框:先按同一套规则判成登录
+        // 429 There is a password box on the current limit page at the same time: first judge it as
+        // login according to the same set of rules.
         val c = WebBarrier.classify(facts(listOf("Too many requests"), 429, password = true))
         assertEquals("login", c.takeoverReason)
         assertEquals("captcha", WebBarrier.classify(facts(listOf("请完成安全验证", "请在浏览器中打开"))).takeoverReason)
@@ -100,9 +101,9 @@ class WebBarrierTest {
             assertTrue("$t", c.takeoverReason == "access_blocked" || c.takeoverReason == "captcha")
         }
         assertEquals("access_blocked", WebBarrier.classify(facts(listOf("安全提示", "访问存在异常"))).takeoverReason)
-        // 只有标题、没有异常一类的字:不算
+        // Words with only titles and no exceptions: do not count
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(listOf("安全提示", "请勿向陌生人转账"))).state)
-        // 字很多的页面(讲这类问题的文章)不算
+        // Pages with a lot of words (articles about such issues) do not count
         val article = listOf("网络环境异常怎么办") + List(60) { "第 $it 段正文,讲解常见原因和处理办法。" }
         assertEquals(ScreenState.NORMAL, WebBarrier.classify(facts(article)).state)
     }
@@ -111,7 +112,7 @@ class WebBarrierTest {
         assertEquals("您的环境存在异常", WebBarrier.apiRisk("""{"code":37,"message":"您的环境存在异常","zpData":{}}"""))
         assertEquals("Too Many Requests", WebBarrier.apiRisk("""{"error":"Too Many Requests"}"""))
         assertEquals("访问过于频繁", WebBarrier.apiRisk("""{"ret":1,"msg":"访问过于频繁"}"""))
-        // 成功的、不是 JSON 的、只在数据里提到的:都不算
+        // Successful ones, not JSON, only mentioned in the data: do not count
         assertNull(WebBarrier.apiRisk("""{"code":0,"message":"Success","data":{"list":[]}}"""))
         assertNull(WebBarrier.apiRisk("""{"code":0,"data":{"title":"访问异常排查指南"}}"""))
         assertNull(WebBarrier.apiRisk("<html>访问异常</html>"))

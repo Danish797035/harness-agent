@@ -33,7 +33,7 @@ class AgentLoopTimingTest {
     private fun call(name: String, args: String = "{}") = Part.ToolCall("t${++seq}", name, args)
     private fun reply(c: Part.ToolCall) = ModelReply(listOf(c), StopReason.ToolUse, null)
 
-    /** 每次调用把假时钟推进 [ms]。 */
+    /** Each call advances the fake clock by [ms]. */
     private fun slow(inner: ChatModel, ms: Long) = object : ChatModel by inner {
         override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
             now += ms
@@ -63,7 +63,8 @@ class AgentLoopTimingTest {
         assertEquals("model", observe.source)
     }
 
-    // 等用户回答(ask_user)的时间不算进工具耗时:那是等人,不是 Mina 慢
+    // The time spent waiting for the user to answer (ask_user) is not included in the tool's time
+    // consumption: that is waiting for someone, not the slowness of Mina
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun durationMsExcludesUserWaits() = runTest {
         val m = FakeModel(reply(call("ask_user", """{"prompt":"发给谁?"}""")), com.meenai.mina.core.testing.answerReply("x"))
@@ -78,7 +79,8 @@ class AgentLoopTimingTest {
         assertEquals(0L, asked.durationMs)
     }
 
-    // 重试前花的时间(失败的那次请求和退避)单记 retryWaitMs,不算进这次回复的 latencyMs
+    // The time spent before retrying (the failed request and backoff) is recorded as retryWaitMs alone,
+    // not included in the latencyMs of this reply.
     @Test fun retryWaitSplitFromLatency() {
         var first = true
         val inner = FakeModel(com.meenai.mina.core.testing.answerReply("x"))
@@ -97,11 +99,12 @@ class AgentLoopTimingTest {
         val r = events.filterIsInstance<RunEvent.ModelReply>().single()
         assertEquals(1200L, r.latencyMs)
         assertEquals(500L, r.retryWaitMs)
-        // 到手时刻含之前的重试:用户在这时看到回答
+        // The arrival time includes previous retries: the user sees the answer at this time
         assertEquals(1700L, r.repliedAtMs)
     }
 
-    // 带调用的回复执行完才记;到手的时刻另记,第一次反馈按它算
+    // The reply with the call is not recorded until it is executed; the time when it is received is
+    // recorded separately, and the first feedback is counted as it
     @Test fun replyArrivalRecordedBeforeToolTime() {
         val screen = object : ScreenPort by FakeScreen() {
             override suspend fun snapshot() = FakeScreen().snapshot().also { now += 300 }
@@ -113,7 +116,7 @@ class AgentLoopTimingTest {
         assertEquals(1000L, RunMetrics.of(events)!!.firstFeedbackMs)
     }
 
-    // 失败的结局带上类别
+    // Failed ending with category
     @Test fun failedEndCarriesItsKind() {
         val broken = object : ChatModel by FakeModel(com.meenai.mina.core.testing.answerReply("x")) {
             override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply = throw ModelError.Auth()

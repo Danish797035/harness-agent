@@ -67,7 +67,7 @@ class AdbPairingTest {
         assertEquals(AdbPairingException.Reason.CONNECT_FAILED, e.reason)
     }
 
-    /** 两端导出一致,且空 context 与不带 context 相同(Android 端传空数组)。 */
+    /** The exports at both ends are consistent, and empty context is the same as without context (the Android side passes an empty array). */
     @Test
     fun tls13ExporterAgreesAndIgnoresEmptyContext() {
         ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { ss ->
@@ -167,12 +167,13 @@ class AdbIdentityTest {
         val a = AdbIdentitySource(store, { "mina@x" }).forConnect()
         val raw = file.readBytes()
         assertTrue("not stored in clear", !String(raw, Charsets.ISO_8859_1).contains(String(a.keyPair.private.encoded.copyOfRange(30, 60), Charsets.ISO_8859_1)))
-        // 另一个进程(新的来源)读回同一把
+        // Another process (new source) reads back the same
         val b = AdbIdentitySource(store, { "mina@x" }).forConnect()
         assertEquals(a.publicKey, b.publicKey)
         assertEquals(a.adbPublicKey, b.adbPublicKey)
 
-        // 换了包装密钥(如 Keystore 被清)就读不出:报出来,不换钥匙、不动文件
+        // If the packaging key is changed (such as the Keystore is cleared), it cannot be read: report
+        // it out, the key will not be changed, and the file will not be moved.
         val other = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
         val otherStore = WrappedKeyFile(file) { other }
         assertThrows(AdbKeyUnreadableException::class.java) { otherStore.read() }

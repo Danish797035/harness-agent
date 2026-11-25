@@ -51,7 +51,7 @@ class ModelOptionsTest {
         assertEquals(null, ModelOptions.defaultMain(ModelOptions.merge(listOf(ListedModel("embed", toolCalls = false)), base)))
     }
 
-    /** 先自家的(预设的模型词),再接口明说能调用工具的,其余照列表顺序;明说不会调用工具的、像向量 / 语音 / 画图的不试。 */
+    /** Start with your own (default model words), then use the interface that clearly states that you can call the tool, and follow the list order for the rest; do not try those that clearly state that you cannot call the tool, such as vector/speech/drawing. */
     @Test fun candidatesPreferTheProvidersOwnFamily() {
         val listed = listOf(
             ListedModel("antdigital/Ling-3.1-flash", toolCalls = true),
@@ -73,7 +73,8 @@ class ModelOptionsTest {
             ModelOptions.candidates(options, kimi),
         )
         assertEquals("moonshot-v1", ModelOptions.defaultMain(options, kimi))
-        // 认不出是哪家:接口明说能调用工具的在前,其余照列表顺序
+        // Can't recognize which company it is: The interface clearly states that the tools can be called
+        // first, and the rest follow the order of the list.
         assertEquals(listOf("antdigital/Ling-3.1-flash", "qwen-plus", "qwen-max", "Other/Chat", "moonshot-v1"), ModelOptions.candidates(options))
         assertEquals(kimi, ModelOptions.familyOf("https://api.moonshot.cn/v1/"))
         assertEquals(emptyList<String>(), ModelOptions.familyOf("https://openrouter.ai/api/v1"))
@@ -81,13 +82,14 @@ class ModelOptionsTest {
 
     private fun ids(listed: List<ListedModel>, tokens: List<String>) = ModelOptions.candidates(ModelOptions.merge(listed, base), tokens)
 
-    /** 自家的模型按版本新的在前,不管接口给的顺序;同版本的照列表顺序,不评 flash、pro、lite 哪个好。 */
+    /** Our own models are listed in order of newer version first, regardless of the order of interfaces; models of the same version are listed in order, and we do not comment on which one is better: flash, pro, or lite. */
     @Test fun ownModelsNewestVersionFirst() {
         assertEquals(
             listOf("x4", "x-3.1-pro", "x-3-flash", "x-3-pro", "x-2.5-flash", "x-2.0-flash-001"),
             ids(listOf("x-2.5-flash", "x-3-flash", "x-2.0-flash-001", "x-3.1-pro", "x4", "x-3-pro").map { ListedModel(it) }, listOf("x")),
         )
-        // 横线分开的小版本、带字母的版本号;b / k 结尾的是参数量、上下文长度,不算版本
+        // Small versions separated by horizontal lines, version numbers with letters; b / k at the end
+        // is the parameter amount and context length, not counting the version
         assertEquals(
             listOf("claude-haiku-4-5-20251001", "claude-opus-4-1-20250805", "claude-3-5-haiku-20241022"),
             ids(listOf("claude-3-5-haiku-20241022", "claude-opus-4-1-20250805", "claude-haiku-4-5-20251001").map { ListedModel(it) }, listOf("claude")),
@@ -95,7 +97,7 @@ class ModelOptionsTest {
         assertEquals(listOf("qwen3-max", "qwen2.5-72b-instruct"), ids(listOf(ListedModel("qwen2.5-72b-instruct"), ListedModel("qwen3-max")), listOf("qwen")))
     }
 
-    /** 同一个版本:正式版在前,再是 latest 别名,预览、试验的在后;同一档里没写日期的在前,再按日期新的在前。 */
+    /** The same version: the official version comes first, then the latest alias, and the preview and experimental ones come last; the undated version in the same file comes first, and then the newer version comes first. */
     @Test fun stableBeforePreviewAtTheSameVersion() {
         assertEquals(
             listOf("x-2.5-flash", "x-2.5-flash-2025-08-07", "x-2.5-flash-latest", "x-2.5-flash-preview-09-2025", "x-2.5-flash-exp-0827", "x-2.5-flash-preview-05-20"),
@@ -105,11 +107,12 @@ class ModelOptionsTest {
                 listOf("x"),
             ),
         )
-        // 更新的版本哪怕只是预览,也排在老版本的正式版前面
+        // Even if the updated version is just a preview, it is still ranked ahead of the official
+        // version of the old version.
         assertEquals(listOf("x-3-pro-preview", "x-2.5-pro"), ids(listOf(ListedModel("x-2.5-pro"), ListedModel("x-3-pro-preview")), listOf("x")))
     }
 
-    /** 读不出版本的(别名之类)在读得出的后面,彼此照列表顺序。 */
+    /** The versions that cannot be read (aliases, etc.) are listed after the ones that can be read, and they are listed in order. */
     @Test fun unparsableVersionsAfterParsedOnes() {
         assertEquals(
             listOf("x-2-mini", "x-1.5", "x-flash-latest", "x-chat", "x-pro"),
@@ -117,7 +120,7 @@ class ModelOptionsTest {
         )
     }
 
-    /** 外层先后不变:自家的在前,再是接口明说能调用工具的;版本只在自家同一档里比,别家的照列表顺序。 */
+    /** The outer order remains unchanged: your own version comes first, and then the interface that clearly states that you can call the tool; versions are only compared in the same file of your own version, and those of other companies are in the order of the list. */
     @Test fun versionOrderStaysInsideTheOuterOrder() {
         val listed = listOf(
             ListedModel("other-9"),
@@ -128,11 +131,11 @@ class ModelOptionsTest {
             ListedModel("other-5"),
         )
         assertEquals(listOf("x-2", "x-1", "x-3", "other-1", "other-9", "other-5"), ids(listed, listOf("x")))
-        // 没有自家的词:照旧,不按版本排
+        // No own words: as usual, not arranged by version
         assertEquals(listOf("x-1", "x-2", "other-1", "other-9", "x-3", "other-5"), ids(listed, emptyList()))
     }
 
-    /** 接口列出来老的 2.5 在前:先试的是最新的,向量模型、别家的 gemma 不先试。 */
+    /** The old 2.5 interfaces are listed first: the latest one is tried first, and the vector model and gemma from other companies are not tried first. */
     @Test fun realisticGeminiListTriesTheNewestFirst() {
         val listed = listOf(
             ListedModel("gemini-2.5-flash", displayName = "Gemini 2.5 Flash"),
@@ -171,7 +174,8 @@ class ModelOptionsTest {
         }
         assertFalse("接口说是对话模型就照接口", ModelOptions.looksNonChat(opt("my-embed-chat", chat = true)))
         assertTrue(ModelOptions.looksNonChat(opt("x", chat = false)))
-        // 全都像别的用途:没有候选,默认主模型退回第一个可当主模型的
+        // All are like other uses: there are no candidates, the default main model is returned to the
+        // first one that can be used as the main model
         val only = ModelOptions.merge(listOf(ListedModel("text-embedding-v4")), base)
         assertEquals(emptyList<String>(), ModelOptions.candidates(only))
         assertEquals("text-embedding-v4", ModelOptions.defaultMain(only))

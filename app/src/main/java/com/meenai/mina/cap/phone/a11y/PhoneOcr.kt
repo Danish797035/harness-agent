@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** 两套内置模型均在本机运行；同一帧并行识别，完成后才释放位图。两套都出错时抛异常(不当成没字)。 */
+/** Both sets of built-in models run natively; the same frame is recognized in parallel, and the bitmap is released only after completion. If both sets of errors occur, an exception will be thrown (should not be interpreted as "no"). */
 internal object PhoneOcr {
     private const val TAG = "PhoneOcr"
 
@@ -47,7 +47,8 @@ internal object PhoneOcr {
                 result?.textBlocks?.forEach { block -> block.lines.forEach { line ->
                     val box = line.boundingBox ?: return@forEach
                     val value = line.text.trim()
-                    // 有的识别模型不给置信度(为 0),当作没有
+                    // Some recognition models do not give a confidence level (0) and treat it as if
+                    // there is no
                     if (value.isNotEmpty()) lines += VisibleTextLine(value, listOf(
                         normalize(box.left, bitmap.width), normalize(box.top, bitmap.height),
                         normalize(box.right, bitmap.width), normalize(box.bottom, bitmap.height),
@@ -56,7 +57,8 @@ internal object PhoneOcr {
                 if (remaining.decrementAndGet() == 0) {
                     val complete = lines.toList()
                     bitmap.recycle()
-                    // 两套都出错不是「屏上没字」:照实报错,读屏结果才写得出 ocr: failed
+                    // Errors in both sets are not "no words on the screen": report the error truthfully,
+                    // and read the screen result to write ocr: failed
                     if (continuation.isActive) {
                         if (succeeded.get() == 0) continuation.resumeWithException(IllegalStateException("text recognition failed"))
                         else continuation.resume(complete)

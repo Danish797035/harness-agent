@@ -15,12 +15,16 @@ import kotlin.math.roundToInt
 import com.meenai.mina.core.uistate.WebInfo
 
 /**
- * 页面脚本输出 → ScreenSnapshot。输入形如
- * `{"els":[{"r":"button","n":"搜索","x":120,"y":40,"w":80,"h":32,"id":"go","c":1,"e":0,"s":0}],"vw":412,"vh":915,"dpr":2.625,"trunc":false,"mut":17}`,
- * 坐标为 CSS 像素。center 换成 WebView 像素(优先按 viewportW / vw 换算,其次 dpr),夹在视口内;bounds 按视口归一到 0–999,和手机同一坐标系。
- * 另有可选标记:`ph`=name 是输入框的提示语(placeholder)而不是已填内容,`f`=有输入焦点;文件选择控件的 `r` 为 "file"。
- * ref 按数组位置编号:坏掉的条目也占一个号,和页面脚本里的编号表对得上。
- * 坏输入给空列表,不抛异常:读屏失败不该让整个回合崩掉。
+ * Page script output → ScreenSnapshot. The input is in the shape of
+ * `{"els":[{"r":"button","n":"search","x":120,"y":40,"w":80,"h":32,"id":"go","c ":1,"e":0,"s":0}],"vw":412,"vh":915,"dpr":2.625,"trunc":false,"mut":17}`,
+ * and the coordinates are CSS pixels. Center is replaced by WebView pixels (converted by viewportW / vw
+ * first, followed by dpr), and is clamped in the viewport; bounds is normalized to 0-999 according to
+ * the viewport, which is the same coordinate system as the mobile phone. There are also optional tags:
+ * `ph`=name is the prompt (placeholder) of the input box rather than the filled content, `f`=has input
+ * focus; `r` of the file selection control is "file". ref is numbered according to the array position:
+ * the broken entry also occupies a number, which matches the numbering table in the page script. Bad
+ * input is given to an empty list, no exception is thrown: screen reading failure should not crash the
+ * entire round.
  */
 object PageTree {
     fun parse(json: String, viewportW: Int, viewportH: Int, snapshotId: String, info: WebInfo): ScreenSnapshot {
@@ -67,7 +71,7 @@ object PageTree {
         )
     }
 
-    /** 页面给的数可能是巨大值或无穷:先夹住再取整,别让取整溢出、中心点算到天边。 */
+    /** The number given on the page may be a huge value or infinite: clamp it first and then round it. Don't let the rounding overflow and the center point reach the horizon. */
     private fun px(css: Double?, scale: Double): Int = ((css ?: 0.0) * scale).coerceIn(-PX_LIMIT, PX_LIMIT).roundToInt()
 
     private const val PX_LIMIT = 1e6
@@ -78,7 +82,7 @@ object PageTree {
 
     private fun JsonObject.str(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
 
-    /** 0/1 与 true/false 都认。 */
+    /** Both 0/1 and true/false are recognized. */
     private fun JsonObject?.flag(key: String): Boolean {
         val p = this?.get(key) as? JsonPrimitive ?: return false
         return p.booleanOrNull ?: ((p.intOrNull ?: 0) != 0)

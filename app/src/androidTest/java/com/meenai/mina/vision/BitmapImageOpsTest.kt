@@ -18,7 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 
-/** 图像处理在真机 Bitmap 上的行为;哈希两项在 Agent 虚拟屏上只读浏览系统设置(需要内置助手与无障碍服务)。 */
+/** The behavior of image processing on the real device Bitmap; the hash two items read-only browse system settings on the Agent virtual screen (requires built-in assistant and accessibility services). */
 @RunWith(AndroidJUnit4::class)
 class BitmapImageOpsTest {
     private val ops = BitmapImageOps
@@ -48,7 +48,7 @@ class BitmapImageOpsTest {
         s
     }
 
-    /** 等画面稳定(过渡动画结束)后取一帧。 */
+    /** Take one frame after the picture stabilizes (the transition animation ends). */
     private fun DeviceSupport.Agent.settledFrame(): ByteArray {
         Thread.sleep(1_000)
         val png = runBlocking { screen.screenshotPng() }
@@ -81,7 +81,8 @@ class BitmapImageOpsTest {
         val out = ops.drawFrame(img, intArrayOf(250, 250, 749, 749))
         val bmp = BitmapFactory.decodeByteArray(out, 0, out.size)
         assertEquals(200 to 100, bmp.width to bmp.height)
-        // 框 [50,25]–[149,74] 外扩 3 像素,四条边都是 4 像素宽、都画在外扩后的框内:x 47..50 / 149..152,y 22..25 / 74..77
+        // Frame [50,25]–[149,74] is expanded by 3 pixels, all four sides are 4 pixels wide, and are
+        // drawn within the expanded frame: x 47..50 / 149..152, y 22..25 / 74..77
         assertEquals(Color.RED, bmp.getPixel(48, 50))
         assertEquals(Color.RED, bmp.getPixel(100, 23))
         assertEquals(Color.RED, bmp.getPixel(47, 50))
@@ -101,7 +102,8 @@ class BitmapImageOpsTest {
 
     @Test
     fun toJpegShrinks() {
-        // 像照片的图:平滑的明暗加噪点。规则的渐变 PNG 压得比 JPEG 还小,比不出缩小
+        // Photo-like image: smooth light and dark plus noise. Regular gradient PNG is compressed smaller
+        // than JPEG and cannot be reduced compared to
         val noise = java.util.Random(7)
         val img = png(1440, 3200) { x, y ->
             val n = noise.nextInt(48) - 24

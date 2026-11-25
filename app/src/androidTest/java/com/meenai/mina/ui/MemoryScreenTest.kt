@@ -48,7 +48,7 @@ class MemoryScreenTest {
         compose.onNodeWithText("手写一条").performClick()
         compose.onNodeWithTag("memory-content").performTextInput("用户住在张江")
         compose.onNodeWithTag("memory-save").performClick()
-        // 点一行升起操作面板,选「改一改」
+        // Click on a line to raise the operation panel and select "Change"
         compose.onNodeWithText("用户住在张江").performClick()
         compose.onNodeWithText("改一改").performClick()
         compose.onNodeWithTag("memory-content").performTextClearance()
@@ -69,7 +69,7 @@ class MemoryScreenTest {
         compose.onNodeWithText("好").performClick()
         compose.waitForIdle()
         assertEquals(MemoryStatus.active, store.items.value.single().status)
-        // 批准后从「待确认」里拿走,出现在记忆列表里
+        // After approval, take it away from "Pending Confirmation" and appear in the memory list.
         compose.onNodeWithText("没有等你确认的东西").assertExists()
         compose.onNodeWithTag("segment-Memories").performClick()
         assertEquals(1, compose.onAllNodesWithTag("memory-row").fetchSemanticsNodes().size)

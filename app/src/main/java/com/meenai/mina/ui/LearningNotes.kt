@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 结果卡片下的小字:记住了什么、学会或停用了哪项技能,各带按钮。 */
+/** Small print under the result card: what was remembered, which skills were learned or deactivated, each with a button. */
 internal fun LazyListScope.learningNotes(ex: Exchange, vm: ChatViewModel) {
     val runId = ex.runId ?: return
     if (ex.memoryNotes.isEmpty() && ex.skillNotes.isEmpty()) return
@@ -53,4 +53,3 @@ private fun NoteLine(text: String, buttons: @Composable () -> Unit) {
         buttons()
     }
 }
-

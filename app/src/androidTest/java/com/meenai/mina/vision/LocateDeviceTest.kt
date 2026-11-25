@@ -27,8 +27,9 @@ import kotlin.math.roundToInt
 import com.meenai.mina.core.assembly.toolDispatcher
 
 /**
- * phone_find_visually 在 Agent 虚拟屏上只读浏览系统设置(需要内置助手与无障碍服务)。
- * 没有真的看图模型:视觉路径用脚本模型,框按控件树里「WLAN」那一行的坐标算出来。
+ * phone_find_visually Read-only browse system settings on the Agent virtual screen (requires built-in
+ * assistant and accessibility services). There is no real picture viewing model: the visual path is
+ * calculated using a script model and based on the coordinates of the "WLAN" row in the control tree.
  */
 @RunWith(AndroidJUnit4::class)
 class LocateDeviceTest {
@@ -39,7 +40,7 @@ class LocateDeviceTest {
         agent?.release()
     }
 
-    /** 依次给出固定回答的视觉模型。 */
+    /** Visual models of fixed responses are given in turn. */
     private class ScriptedVision(vararg answers: String, verified: Boolean = true) : ChatModel {
         override val capabilities = Capabilities(toolCalls = false, vision = true, contextTokens = 32_000, reasoning = false, groundingVerified = verified)
         private val answers = ArrayDeque(answers.toList())
@@ -66,7 +67,7 @@ class LocateDeviceTest {
         val r = runBlocking { a.screen.openApp(SETTINGS) }
         assertTrue("openApp: $r", r is ActionResult.Ok)
         val home = a.snapUntil { s -> s.elements.any { it.name.trim() == "WLAN" } }
-        // 过渡动画结束,两次截图才对得上
+        // The transition animation is over and the two screenshots are suitable.
         Thread.sleep(1_000)
         return a to home
     }
@@ -98,11 +99,11 @@ class LocateDeviceTest {
     fun visionPathTapsWlan() {
         val (a, home) = openSettingsHome()
         val row = home.elements.first { it.name.trim() == "WLAN" }.bounds
-        // 读屏的 0–999 换成模型用的 0–1000
+        // 0–999 for screen reading is replaced by 0–1000 for models.
         val box = row.map { (it * 1000 / 999.0).roundToInt() }
         val model = ScriptedVision("""{"bbox_2d": [${box.joinToString(", ")}], "seen": "WLAN"}""", "是")
         val d = toolDispatcher(a.screen, vision = VisionService(model, BitmapImageOps))
-        // 不给 text:不走控件树
+        // Don’t give text: Don’t go through the control tree
         val r = d.run("phone_find_visually", """{"target":"WLAN 那一行"}""")
         assertEquals(r.toString(), "true", r.s("found"))
         assertEquals("vision", r.s("source"))
@@ -115,7 +116,8 @@ class LocateDeviceTest {
         val (a, home) = openSettingsHome()
         val row = home.elements.first { it.name.trim() == "WLAN" }.bounds
         val box = """{"bbox_2d": [${row.map { (it * 1000 / 999.0).roundToInt() }.joinToString(", ")}], "seen": "WLAN"}"""
-        // 定位准度没验证过:再框一次、两次复看都确认才交出去
+        // The positioning accuracy has not been verified: frame it again and check it twice before
+        // handing it over.
         val model = ScriptedVision(box, "是", box, "是", verified = false)
         val d = toolDispatcher(a.screen, vision = VisionService(model, BitmapImageOps))
         val r = d.run("phone_find_visually", """{"target":"WLAN 那一行"}""")

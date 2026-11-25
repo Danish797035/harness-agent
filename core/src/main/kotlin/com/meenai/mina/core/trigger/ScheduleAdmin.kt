@@ -1,6 +1,6 @@
 package com.meenai.mina.core.trigger
 
-/** 本机用户的计划管理；宿主负责持久化和重新布置闹钟。 */
+/** Schedule management for native users; host is responsible for persistence and rescheduling alarms. */
 interface ScheduleAdmin {
     fun list(threadId: String): List<TriggerDefinition>
     fun setEnabled(threadId: String, id: String, enabled: Boolean): Boolean
@@ -10,7 +10,8 @@ interface ScheduleAdmin {
 }
 
 /**
- * 存下一个定时任务之后的情况:[onTime] 为 false 表示系统没准许准时闹钟(到点可能不准时或起不来);
- * 这时 [userNotified] 说这次有没有真的给用户发出去开启的提示。
+ * The situation after saving a scheduled task: [onTime] is false, which means that the system does not
+ * allow the alarm clock to be on time (it may not be on time or unable to get up); at this time,
+ * [userNotified] says whether there is really a prompt to the user to activate it this time.
  */
 data class Scheduled(val onTime: Boolean, val userNotified: Boolean = false)

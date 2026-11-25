@@ -1,27 +1,74 @@
-# 应用访问（原型版）
+# Application access (prototype version)
 
-设置 → 应用访问按包名控制 Mina 标准手机工具。新应用及没有设置过权限的应用默认允许，包括金融应用。AI 按应用主要用途分类；分类及分类失败不会改变权限。推荐禁用只有用户应用具体清单后才生效，不会自动禁用以后安装的同类应用。同包名的分身及工作资料副本共用规则。
+Settings → App Access Control Mina Standard Mobile Tools by Package Name. New applications and
+applications without permissions are allowed by default, including financial applications. AI is
+classified according to the main purpose of the application; classification and failure of
+classification will not change the permissions. Recommended disabling will only take effect after
+the user applies a specific list, and will not automatically disable similar applications installed
+in the future. Sharing rules for clones and work data copies with the same package name.
 
-禁用后，标准手机工具拒绝自动读取及操作，并返回 `app_blocked`。任务运行中修改权限也影响后续调用。模型收到 `app_blocked` 后先重新评估路线：有别的应用、分享目标或网页路径就继续；目标应用必须用时，向用户说明该应用已在「设置 › 应用访问」里禁用，并说明可以自行允许，不以原始错误码收尾。回答与错误说明均沿用用户消息的语言。阻止列表为空时不因包名缺失而拒绝；列表非空且无法确认归属时短暂等待并重读一次，仍无法确认目标归属返回 `app_access_unverified`，不改变权限；权限文件损坏返回 `app_access_unavailable`，可在设置中明确重置；授权敏感界面返回 `app_access_protected`，交用户操作。
+When disabled, standard mobile tools refuse automatic reads and operations and return `app_blocked`.
+Changing permissions while the task is running also affects subsequent calls. After receiving
+`app_blocked`, the model first re-evaluates the route: continue if there are other applications,
+sharing targets or web page paths; when the target application must be used, explain to the user
+that the application has been disabled in "Settings > Application Access", and explain that they can
+allow it by themselves without ending with the original error code. Answers and error descriptions
+follow the language of the user message. When the block list is empty, it will not be rejected due
+to missing package names; when the list is not empty and the ownership cannot be confirmed, it will
+wait briefly and reread it again. If the target ownership is still not confirmed, it will return
+`app_access_unverified`, and the permissions will not be changed; if the permission file is damaged,
+it will return `app_access_unavailable`, which can be explicitly reset in the settings; the
+authorization sensitive interface will return `app_access_protected`, and it is left to the user to
+operate.
 
-应用访问页打开时只读取本机应用清单，不把内容发送给模型。点「刷新应用列表」且仍有未分类应用时，先确认会把应用名称和包名发送给所配置的 AI 模型用于风险分类；应用内的内容不发送。推荐禁用只列出仍允许的金融应用，可逐个禁用或一次全部禁用；已经禁用的应用不再重复出现。
+When the application access page is opened, it only reads the native application manifest and does
+not send the content to the model. When you click "Refresh Application List" and there are still
+unclassified applications, first confirm that the application name and package name will be sent to
+the configured AI model for risk classification; the content within the application will not be
+sent. It is recommended to disable only the financial applications that are still allowed and can be
+disabled one by one or all at once; already disabled applications will not reappear.
 
-页面文案跟随界面语言。分类名由界面提供，core 里不存中文；分类理由按界面语言写，换语言后旧理由保持原样，下次重新分类时更新。手动改过的分类不会被 AI 覆盖，界面把它显示为「用户选择」/「Set by you」。
+Page copy follows the interface language. The classification name is provided by the interface, and
+there is no Chinese in the core; the classification reason is written in the interface language.
+After changing the language, the old reason will remain the same and will be updated the next time
+it is reclassified. Manually changed categories will not be overwritten by AI, and the interface
+will display them as "User Choice"/"Set by you".
 
-用户主动分享被禁用应用屏幕时可以选择：
+When users actively share the screen of a disabled application, they can choose:
 
-- **允许仅分享屏幕**：以后可主动分享该应用屏幕，自动读取及操作仍禁止；可在应用访问页撤销。
-- **允许此应用**：恢复正常调用，并继续本次分享。
-- **取消分享**：不采集、不分享、不改变权限。
+- **Allow screen sharing only**: You can actively share the application screen in the future, but
+  automatic reading and operation are still prohibited; it can be revoked on the application access
+  page.
+- **Allow this application**: Resume normal calls and continue this sharing.
+- **Cancel sharing**: No collection, no sharing, no change of permissions.
 
-主动分享包含图片及同屏文字。采集前确认来源，采集后及发送前复核许可；多窗口需覆盖所有涉及的应用。允许此应用会清理独立分享许可，重新禁用需重新授权。
+Active sharing includes pictures and text on the same screen. Confirm the source before collection,
+and review the permission after collection and before sending; multiple windows need to cover all
+involved applications. Allowing this application will clear the independent sharing permission, and
+disabling it again requires re-authorization.
 
-名单为空时应用访问不做任何额外的事：不查窗口，系统提示词里也不加应用访问的规则。名单非空时，读屏用读到的那一屏自带的窗口归属核对；窗口没有变化时，紧接着的读取沿用刚才的核对结果（最多 1 秒）。
+When the list is empty, application access does not do anything extra: no window is checked, and
+application access rules are not added to the system prompts. When the list is not empty, the screen
+reading uses the window ownership of the screen read; when the window does not change, the
+subsequent reading uses the previous verification result (up to 1 second).
 
-打开 App 带 `wait` 等别的任务放开时，等之前先看目标：被禁用的应用当场返回 `app_blocked`，不去等它。等待只看占用登记、不读屏，不经过窗口核对。
+When opening an app with `wait` and other tasks, look at the target before waiting: the disabled app
+returns `app_blocked` on the spot without waiting for it. Waiting only looks at the occupancy
+registration, does not read the screen, and does not go through the window verification.
 
-## 原型边界
+## prototype boundary
 
-本功能只约束标准手机工具；shell 命令、沙箱及电脑接入（MCP）不受此门禁限制。任意 Android shell 和 Linux 命令保留现有能力及 CommandSteer 行为。脚本通过标准 phone 工具调用时仍受门禁；任意命令自身和同 UID 文件访问不是本版的隔离对象，因此不能宣称应用访问规则可抵御这些路径绕过。提示词要求 AI 尊重禁用决定，但不是 shell 的强制封锁。
+This function only restricts standard mobile tools; shell commands, sandboxes, and computer access
+(MCP) are not restricted by this access control. Any Android shell and Linux commands retain
+existing capabilities and CommandSteer behavior. Scripts are still gated when called through the
+standard phone tool; arbitrary commands themselves and file access with the same UID are not
+isolated in this release, so application access rules cannot be claimed to protect against these
+path bypasses. The prompt word requires the AI to respect the disabling decision, but not the
+shell's forced blocking.
 
-第三方应用仍可能启动被禁应用。包名检查会阻止标准工具继续跟进，不能撤回已提交给 Android 的输入，也不承诺查验与输入之间零竞态。历史记录和已经发送给模型的内容不追溯删除。应用卸载重装的识别依赖列表刷新，不作为身份隔离保证。
+Third-party apps may still launch banned apps. Package name checking prevents standard tools from
+following up, cannot undo input submitted to Android, and does not promise zero race conditions
+between checking and input. History and content already sent to the model are not deleted
+retroactively. Refreshing the identification dependency list when uninstalling and reinstalling an
+application does not guarantee identity isolation.
+

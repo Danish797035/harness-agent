@@ -33,7 +33,7 @@ data class ChildResult(val id: RunId, val phase: ChildPhase, val text: String)
 
 fun interface ChildRunHost { suspend fun spawn(spec: RunSpec, format: String?): ChildResult }
 
-/** 子 Run 先保存结论再交给父 Run；父 Run 消失时保留 Unknown 记录，不自动重跑。 */
+/** The child Run saves the conclusion first and then hands it to the parent Run; when the parent Run disappears, it retains the Unknown record and does not automatically rerun. */
 class ChildAgentRunner(
     private val create: (RunSpec) -> AgentLoop,
     private val store: ChildRunStore,

@@ -27,7 +27,7 @@ private fun e(name: String, pkg: String, alias: String = name, body: String? = "
 private fun call(name: String, args: String = "{}") = Part.ToolCall("k$name${args.hashCode()}", name, args)
 private fun reply(vararg c: Part.ToolCall) = com.meenai.mina.core.model.ModelReply(c.toList(), com.meenai.mina.core.model.StopReason.ToolUse, null)
 
-/** 参考资料:来源 + 正文。 */
+/** References: source + text. */
 private fun List<Message>.refs() = filter { ContextBuilder.kindOf(it) == ContextKind.AppKnowledge }
     .map { "${ContextBuilder.sourceOf(it)}\n${ContextBuilder.bodyOf(it)}" }
 
@@ -108,7 +108,8 @@ class AgentLoopKnowledgeTest {
         val model = FakeModel(reply(call("phone_open_link", """{"uri":"someapp://scan"}""")), reply(call("phone_open_link", """{"uri":"someapp://other"}""")), finish)
         kotlinx.coroutines.runBlocking { AgentLoop(model, tools, "B", knowledge = store, flags = SpeedFlags(deepLinks = true)).run("用 alpha 扫码") }
         val results = model.requests.last().flatMap { it.parts }.filterIsInstance<Part.ToolResult>().map { it.content }
-        // 列出的那条交给了端口(假端口不支持),没列出的被拒
+        // The one listed is given to the port (the fake port is not supported), and the one not listed
+        // is rejected.
         assertTrue(results.toString(), results.any { "\"unsupported\"" in it })
         assertTrue(results.toString(), results.any { "reference notes" in it })
     }

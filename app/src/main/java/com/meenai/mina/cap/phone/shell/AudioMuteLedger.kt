@@ -3,9 +3,12 @@ package com.meenai.mina.cap.phone.shell
 import java.io.File
 
 /**
- * 被 Mina 静音的 App → 静音前的 PLAY_AUDIO 模式,同时落在文件里:内置助手进程在静音中被杀、
- * 手机重启后,下次启动靠这份记录把声音还回去。静音时记、恢复成功后删;文件读写失败时退回只在内存里记。
- * 只有记录里的包会被恢复,别人设的值一概不碰。记录的键见 [AppAudioKey]:另一份用户里的那份单独一项。
+ * Apps muted by Mina → PLAY_AUDIO mode before muting, also fell into the file: the built-in assistant
+ * process was killed during muting, and after the phone restarts, this record will be used to return the
+ * sound the next time it is started. When muted, it will be recorded and deleted after successful
+ * recovery; when file reading and writing fails, it will be returned and only recorded in the memory.
+ * Only the packages in the record will be restored, and the values set by others will not be touched.
+ * The recorded key is [AppAudioKey]: the separate item in another user's copy.
  */
 class AudioMuteLedger(private val file: File?) {
     private val modes = LinkedHashMap<String, String>()
@@ -28,7 +31,7 @@ class AudioMuteLedger(private val file: File?) {
         if (modes.remove(packageName) != null) save()
     }
 
-    /** 把记录里的每个包恢复成 [restoreMode];[write] 返回 true 才删记录,失败的留着下次再试。返回是否全部恢复。 */
+    /** Restore each package in the record to [restoreMode]; [write] and delete the record only after returning true. If it fails, keep it and try again next time. Return whether all are restored. */
     fun restoreAll(write: (packageName: String, mode: String) -> Boolean): Boolean {
         packages().forEach { pkg -> if (write(pkg, restoreMode(modes.getValue(pkg)))) remove(pkg) }
         return modes.isEmpty()
@@ -51,14 +54,18 @@ class AudioMuteLedger(private val file: File?) {
         private val LINE = Regex("""([A-Za-z0-9_.]+(?:@[0-9]+)?) ([a-z_]+)""")
 
         /**
-         * 恢复时写回的模式。原来明确是 allow/ignore/deny 等的照原样写回;没设置过(解析出 default)的写 allow:
-         * 安卓里音频系统只认 PLAY_AUDIO 为 allow 才放声音,显式的 default 会让 App 一直没声音,
-         * 而没设置过时系统取的默认值本来就是 allow,写 allow 后 `appops get` 也回到「没设置」。
-         * 记录里出现 default 只有两种来源:静音前没设置过,或旧版本写坏后又被记下,两种改成 allow 都不会误伤。
+         * The mode of writing back during recovery. It turns out that it is clear that
+         * allow/ignore/deny, etc. are written back as they are; if they have not been set (parse out
+         * default), write allow: The audio system in Android only recognizes PLAY_AUDIO as allow before
+         * playing sound. Explicit default will make the App silent all the time, and if it is not set,
+         * the default value taken by the outdated system is originally allow. After writing allow,
+         * `appops get` also returns to "not set". There are only two sources for default appearing in
+         * the record: it has not been set before muting, or the old version was written down after being
+         * written down. Changing it to allow will not cause any accidental damage.
          */
         fun restoreMode(prior: String?): String = if (prior.isNullOrEmpty() || prior == "default") "allow" else prior
 
-        /** `appops get <pkg> PLAY_AUDIO` 的输出:"PLAY_AUDIO: ignore; time=..." → "ignore";"No operations." → null(没设置过)。 */
+        /** The output of `appops get <pkg> PLAY_AUDIO`: "PLAY_AUDIO: ignore; time=..." → "ignore"; "No operations." → null (not set). */
         fun parseSetMode(output: String): String? = Regex("""PLAY_AUDIO:\s*([a-z_]+)""").find(output)?.groupValues?.get(1)
 
         internal fun format(modes: Map<String, String>): String = modes.entries.joinToString("") { "${it.key} ${it.value}\n" }
@@ -70,16 +77,18 @@ class AudioMuteLedger(private val file: File?) {
 }
 
 /**
- * 一项静音的键。PLAY_AUDIO 按「包 + 用户」分开设:本来那份(Mina 所在用户里的)就是包名,
- * 装在另一份用户里的那份(分身、工作资料)是「包名@用户编号」,两份各记各的原值、各自恢复。
+ * A mute key. PLAY_AUDIO is opened separately according to "package + user": the original copy (in the
+ * user where Mina is located) is the package name, and the copy installed in another user (available
+ * avatar, work information) is "package name@user number". The original values of each copy are
+ * recorded and restored separately.
  */
 object AppAudioKey {
     private val KEY = Regex("""([A-Za-z0-9_.]+)(?:@([0-9]+))?""")
 
-    /** [user] 为空是本来那份。 */
+    /** [user] is the original share if it is empty. */
     fun of(packageName: String, user: Int?): String = if (user == null) packageName else "$packageName@$user"
 
-    /** 拆回(包名, 用户);本来那份用户为空。不合格式的为 null。 */
+    /** Retrieve (package name, user); the original user is empty. Unformatted is null. */
     fun parse(key: String): Pair<String, Int?>? =
         KEY.matchEntire(key)?.destructured?.let { (pkg, user) -> pkg to user.takeIf { it.isNotEmpty() }?.toIntOrNull() }
 }

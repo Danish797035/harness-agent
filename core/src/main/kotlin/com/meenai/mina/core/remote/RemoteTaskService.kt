@@ -4,20 +4,22 @@ import kotlinx.coroutines.delay
 import java.util.UUID
 
 /**
- * 远程入口共用的业务错误;HTTP 状态和 MCP isError 由各自适配器决定。
- * 要按入口换说法的几种情形各是一个子类,适配器按类型换,不去比对 message 的文字。
+ * Business errors common to remote portals; HTTP status and MCP isError are determined by the respective
+ * adapters. Each of the several situations where the message needs to be exchanged according to the
+ * entrance is a subclass, and the adapter is exchanged according to the type, without comparing the text
+ * of the message.
  */
 sealed class RemoteTaskError(val code: Code, message: String) : Exception(message) {
     enum class Code { INVALID_ARGUMENT, NOT_FOUND, CONFLICT, UNAVAILABLE }
 
-    /** 其余错误:message 原样给调用方。 */
+    /** For other errors: the message is sent to the caller as is. */
     class General(code: Code, message: String) : RemoteTaskError(code, message)
     class NoSuchTask(val id: String) : RemoteTaskError(Code.NOT_FOUND, "No remote task with id $id")
     class BadConversation : RemoteTaskError(Code.INVALID_ARGUMENT,
         "conversation must be one returned by an earlier remote task (looks like mcp-<uuid>)")
-    /** 这一步要用户在手机上处理,不能远程回答。 */
+    /** This step requires the user to handle it on their mobile phone and cannot be answered remotely. */
     class NeedsPhone : RemoteTaskError(Code.CONFLICT, RemoteStatus.ON_PHONE_NOTE)
-    /** 查到时还在问,交回答时问题已经没了。 */
+    /** When I checked, I was still asking questions, but when I turned in the answers, the questions were gone. */
     class QuestionClosed : RemoteTaskError(Code.CONFLICT, "The question is no longer open; check the task's status.")
 }
 
@@ -26,8 +28,9 @@ data class RemoteCancellation(val taskId: String, val accepted: Boolean, val sta
 data class RemoteSteerReceipt(val taskId: String, val messageId: String)
 
 /**
- * CLI API 与 MCP 共用的任务用例。没有 HTTP、JSON-RPC、工具名或命令行参数。
- * 只经 [RemoteTasks] 接入手机上原有的任务服务,不创建另一份执行器或任务状态。
+ * Task use cases common to the CLI API and MCP. There are no HTTP, JSON-RPC, tool names, or command line
+ * arguments. Only access the original task service on the phone through [RemoteTasks], without creating
+ * another executor or task state.
  */
 class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long = 250) {
     init { require(pollMs > 0) }
@@ -53,7 +56,7 @@ class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long
         return tasks.list(limit)
     }
 
-    /** 一次有界等待,状态变了或终止就返回;等待超时不取消手机任务。等待中任务查不到了,就返回最后看到的状态。 */
+    /** A bounded wait will return when the status changes or terminates; the mobile phone task will not be canceled when the wait times out. If the waiting task cannot be found, it will return to the last seen state. */
     suspend fun wait(id: String, timeoutS: Int = DEFAULT_WAIT_S): RemoteWait {
         val first = get(id)
         if (timeoutS !in 1..MAX_WAIT_S) invalid("timeout_s must be between 1 and $MAX_WAIT_S")
@@ -69,7 +72,7 @@ class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long
         return RemoteWait(now, RemoteStatus.of(now.state) != from)
     }
 
-    /** 只能回答追问,不能把付款确认或手机接管当作普通回答。 */
+    /** You can only answer follow-up questions, and you cannot treat payment confirmation or mobile phone takeover as ordinary answers. */
     fun answer(id: String, text: String): String {
         val task = get(id)
         val clean = required(text, "text", MAX_ANSWER)
@@ -82,7 +85,7 @@ class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long
         return task.id
     }
 
-    /** 仅向运行中的任务追加;回答、审批、接管和恢复仍走各自入口。宿主再次核对状态和收件箱。 */
+    /** Only append to running tasks; reply, approval, takeover and recovery still have their own entrances. The host checks status and inbox again. */
     fun steer(id: String, text: String): RemoteSteerReceipt {
         val task = get(id)
         val clean = required(text, "text", MAX_STEER)
@@ -95,7 +98,7 @@ class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long
         return RemoteSteerReceipt(task.id, messageId)
     }
 
-    /** accepted 只表示已交给任务服务,是否到 cancelled 终态仍以状态查询为准。 */
+    /** Accepted only means that the task has been handed over to the service. Whether it reaches the canceled final state is still subject to status query. */
     fun cancel(id: String): RemoteCancellation {
         val task = get(id)
         val status = RemoteStatus.of(task.state)
@@ -121,7 +124,8 @@ class RemoteTaskService(private val tasks: RemoteTasks, private val pollMs: Long
         const val MAX_GOAL = 4_000
         const val MAX_ANSWER = 2_000
         const val MAX_STEER = 4_000
-        // 保留已发出的对话编号,让新 CLI 与原 MCP 可以继续同一个远程对话。
+        // The issued session number is retained so that the new CLI and the original MCP can continue
+        // the same remote session.
         private const val CONVERSATION_PREFIX = "mcp-"
         fun newConversation(): String = CONVERSATION_PREFIX + UUID.randomUUID()
         fun isConversation(id: String): Boolean = id.startsWith(CONVERSATION_PREFIX) &&

@@ -5,11 +5,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
 
 /**
- * 回答的一处来源:指回证据账本里的一条观察([obsId],见 [com.meenai.mina.core.observation.Observation.id]),
- * 不论它是什么(一个界面、一页、一个文件、一段命令输出、一段回复)。
- * [kind] 是观察的种类([com.meenai.mina.core.observation.ObsKind.wire];旧记录里是 screen / web / app_ai / output / fact);
- * [source] 是给出它的能力(旧记录没有);[place] 是在哪里读的(App 包名、「网站 域名」或网址、命令或文件),[title] 是那一页自己的标题;
- * [step] 是第几步读的;[mediaIds] 是那一步存下的画面编号(没有为空)。
+ * One source of answer: refers back to an observation in the evidence ledger ([obsId], see
+ * [com.meenai.mina.core.observation.Observation.id]), whatever it is (an interface, a page, a file, a
+ * piece of command output, a piece of reply). [kind] is the type of observation
+ * ([com.meenai.mina.core.observation.ObsKind.wire]; in the old record it is screen / web / app_ai /
+ * output / fact); [source] is the ability to give it (the old record does not have it); [place] is where
+ * it is read (App package name, "website domain name" or URL, command or file), [title] is the title of
+ * that page; [step] Which step was read; [mediaIds] is the screen number saved in that step (not empty).
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -18,14 +20,16 @@ data class AnswerSource(
     val mediaIds: List<Int> = emptyList(), val source: String? = null,
 )
 
-/** 回答的来源由代码找,不靠模型写:证据账本里回答的事实对得上的那几条观察。 */
+/** The source of the answer is found in the code, not written in the model: the few observations in the evidence ledger that match the facts of the answer. */
 object AnswerSources {
-    /** 至多列这么多处。 */
+    /** At most, there are so many places listed. */
     const val MAX = 6
 
     /**
-     * [media] 是每一步存下的画面编号(步 → 编号)。回答里有对得上的事实时列出这些观察;
-     * 回答里没有可对的事实(「已打开蓝牙」)时用最后一条观察,那是回答说的那个结果所在的地方。什么也没读过时为空。
+     * [media] is the screen number saved in each step (step → number). If there is a valid fact in the
+     * answer, list these observations; if there is no valid fact in the answer ("Bluetooth is on"), use
+     * the last observation, which is where the result stated in the answer lies. Empty if nothing has
+     * been read.
      */
     fun of(ledger: EvidenceLedger, goal: String, answer: String, media: Map<Int, List<Int>>): List<AnswerSource> {
         val hits = ledger.supporting(goal, answer).ifEmpty { listOfNotNull(ledger.all.lastOrNull()) }

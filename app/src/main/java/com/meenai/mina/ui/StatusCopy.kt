@@ -14,36 +14,36 @@ import com.meenai.mina.core.shell.BuiltinShellFix
 import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.ui.components.ValueTone
 
-/** 设置页能直接做的修复动作。 */
+/** Repair actions can be performed directly on the settings page. */
 enum class Fix {
     OpenAccessibility, AllowNotifications, AddModel,
-    /** 直接打开「需要你处理」/「任务结果」/「任务进度」频道的设置页,打开「在屏幕上弹出」;打不开退回应用通知总页。 */
+    /** Directly open the settings page of the "Need Your Handling"/"Task Result"/"Task Progress" channel and turn on "Pop up on screen"; the return application notification general page cannot be opened. */
     OpenAttentionChannel, OpenResultChannel, OpenProgressChannel,
-    /** 「配对」通知频道的设置页:配对码要填在这类通知里。 */
+    /** "Pairing" notification channel settings page: The pairing code must be filled in this type of notification. */
     OpenPairingChannel,
-    /** 本 App 的「应用信息」页:系统拦着不让开无障碍时,在这里允许受限制的设置。 */
+    /** The "Application Information" page of this App: When the system blocks accessibility, restricted settings are allowed here. */
     OpenAppInfo,
-    // 内置助手
+    // Built-in assistant
     OpenPhoneSetup, RepairPhoneHelper, RetryPhoneHelper, UnpairPhoneHelper,
     OpenAboutPhone, OpenDeveloperOptions, OpenUsbDebugging, OpenWirelessDebugging, OpenWifi,
 }
 
-/** 顶部横幅的一行字和右侧链接。 */
+/** A line of text for the top banner and a link to the right. */
 data class BannerCopy(val title: String, val detail: String, val link: String)
 
-/** 点开问题时的说明:用大白话讲清楚是什么、怎么办;[fix] 为空表示没有一键修复。 */
+/** Instructions when clicking on the problem: use plain language to explain clearly what it is and how to do it; [fix] is empty, which means there is no one-click repair. */
 data class Explanation(val title: String, val body: String, val action: String?, val fix: Fix?)
 
 object StatusCopy {
-    /** 不经模型连做几步时卡片和通知上的说法。 */
+    /** Sayings on the cards and notifications when doing several steps in a row without going through the model. */
     fun progress(p: RunProgress): String = when (p) {
         is RunProgress.Replay -> tr(R.string.progress_replay, p.step, p.total)
         is RunProgress.Batch -> trPlural(R.plurals.progress_batch, p.steps)
-        // 只是在等另一个任务,不要用户做什么
+        // Just waiting for another task, no need for the user to do anything
         is RunProgress.WaitingForApp -> tr(R.string.progress_waiting_app, p.app)
     }
 
-    /** 付款接管的商品、金额、地址,一行一项;都没有时为 null。卡片和通知共用。 */
+    /** The product, amount, and address of the payment acceptance are one item per line; if there is none, it will be null. Cards and notifications are shared. */
     fun paymentLines(item: String?, amount: String?, address: String?): String? =
         listOfNotNull(
             item?.takeIf { it.isNotBlank() }?.let { tr(R.string.payment_item, it) },
@@ -57,23 +57,24 @@ object StatusCopy {
         AccessibilityState.EnabledNotRunning -> tr(R.string.state_not_running) to ValueTone.Bad
     }
 
-    /** 不用说明、点了直接修的问题。 */
+    /** No need to explain, just click and fix the problem directly. */
     fun directFix(p: Problem): Fix? = when (p) {
         Problem.NotificationsOff -> Fix.AllowNotifications
         is Problem.AttentionLowered -> headsUpFix(p)
         Problem.NoModel -> Fix.AddModel
-        // 引导页把每一步都讲清楚了,不再弹说明
+        // The introductory page explains each step clearly without any further explanations.
         is Problem.PhoneHelper -> when {
             PhoneSetupCopy.canReconnect(p.status) -> Fix.RetryPhoneHelper
-            // 这个 Wi-Fi 还没允许无线调试:直接去亲手打开一次(系统会问要不要允许)
+            // This Wi-Fi does not allow wireless debugging yet: go ahead and turn it on yourself (the
+            // system will ask if you want to allow it)
             (p.status as? BuiltinShellStatus.Failed)?.fix == BuiltinShellFix.OpenWirelessDebugging -> Fix.OpenWirelessDebugging
             else -> Fix.OpenPhoneSetup
         }
         else -> null
     }
 
-    // ---- 设置 › 通知 ----
-    /** 停止之后、交代还没写好时那一行小字(对话页和悬浮卡片一样)。 */
+    // ---- Settings › Notifications ----
+    /** That line of small words after stopping and before the explanation is finished (the conversation page is the same as the floating card). */
     val STOP_SUMMARIZING: String get() = tr(R.string.stop_summarizing)
     val NOTIFICATIONS: String get() = tr(R.string.notifications_title)
     val PROGRESS_CHANNEL: String get() = tr(R.string.channel_progress)
@@ -101,7 +102,7 @@ object StatusCopy {
     val RESULT_CHANNEL: String get() = tr(R.string.channel_result)
     val HEADS_UP_ACTION: String get() = tr(R.string.heads_up_action)
 
-    /** 被调低的两个频道里先处理「需要你处理」。 */
+    /** Of the two channels that have been turned down, "Need You to Handle" is dealt with first. */
     fun headsUpFix(p: Problem.AttentionLowered): Fix = if (p.attention) Fix.OpenAttentionChannel else Fix.OpenResultChannel
 
     private fun headsUpTitle(p: Problem.AttentionLowered) =
@@ -124,7 +125,8 @@ object StatusCopy {
             BuiltinShellStatus.Connecting -> BannerCopy(tr(R.string.banner_connecting), tr(R.string.banner_connecting_detail), tr(R.string.view))
             is BuiltinShellStatus.Failed ->
                 if (st.reason == BuiltinShellFailure.NoWifi) BannerCopy(tr(R.string.banner_paused), PhoneSetupCopy.NO_WIFI_LINE, tr(R.string.view))
-                // 电脑起的助手停了:标题照实说,下面一句说怎么再起
+                // The computer startup assistant has stopped: the title tells the truth, the following
+                // sentence tells how to restart it
                 else if (st.reason == BuiltinShellFailure.UsbHelperStopped) BannerCopy(
                     PhoneSetupCopy.failure(st.reason).title, PhoneSetupCopy.failure(st.reason).body, tr(R.string.view),
                 )
@@ -139,7 +141,9 @@ object StatusCopy {
         }
         is Problem.Accessibility -> when (p.state) {
             AccessibilityState.Off -> BannerCopy(tr(R.string.banner_a11y_off), tr(R.string.banner_a11y_off_detail), tr(R.string.turn_on_go))
-            // 开机后还没解锁过时服务本来就绑不上:解锁后会自己恢复,不让用户去关掉再打开
+            // Outdated services that have not been unlocked after booting cannot be bound to them: they
+            // will be restored by themselves after being unlocked, and the user will not be allowed to
+            // turn them off and on again.
             AccessibilityState.EnabledNotRunning ->
                 if (p.userLocked) BannerCopy(tr(R.string.banner_a11y_locked), tr(R.string.banner_a11y_locked_detail), tr(R.string.view))
                 else BannerCopy(tr(R.string.banner_a11y_not_running), tr(R.string.banner_a11y_not_running_detail), tr(R.string.fix_it))
@@ -192,24 +196,26 @@ object StatusCopy {
     }
 
     /**
-     * 任务卡片上跑命令这一步的说明:「正在处理文件:<命令前 40 字>」,联网时注明「可联网」。
-     * 运行环境对用户不可见,字面上不说沙箱。
+     * The description of the step of running the command on the task card is: "Processing file: <40 before command
+     * word>", and "can connect to the Internet" when connected to the Internet. The running environment is
+     * invisible to the user, not literally a sandbox.
      */
     fun sandboxCommand(command: String, network: Boolean): String = sandboxLine(tr(R.string.sandbox_command_prefix), command, 40, network)
 
-    /** 跑技能脚本时:「正在运行脚本」。 */
+    /** When running skill script: "Running script". */
     fun sandboxScript(network: Boolean): String = tr(R.string.sandbox_script) + if (network) " · $SANDBOX_ONLINE" else ""
 
-    /** 命令里 `mina progress` 报的进度。 */
+    /** The progress reported by `mina progress` in the command. */
     fun sandboxProgress(text: String, network: Boolean): String = sandboxLine("", text, 60, network)
 
     val SANDBOX_ONLINE: String get() = tr(R.string.sandbox_online)
 
-    /** 工具在等运行环境准备好时。 */
+    /** The tool waits for the runtime environment to be ready. */
     val RUNTIME_PREPARING: String get() = tr(R.string.runtime_preparing)
 
     private fun sandboxLine(prefix: String, text: String, max: Int, network: Boolean): String {
-        // 和 `mina progress` 一样去掉控制字符、零宽与改写方向的字符,卡片上显示的就是实际的命令
+        // Like `mina progress`, control characters, zero-width characters and rewriting direction
+        // characters are removed. What is displayed on the card is the actual command.
         val one = com.meenai.mina.cap.sandbox.BridgeProtocol.cleanProgress(text.replace(Regex("\\s+"), " "))
         val cut = if (one.codePointCount(0, one.length) > max) one.substring(0, one.offsetByCodePoints(0, max)) + "…" else one
         return prefix + cut + if (network) " · $SANDBOX_ONLINE" else ""

@@ -7,9 +7,9 @@ import com.meenai.mina.core.agent.TaskState
 enum class FailureClass {
     perception, grounding, route, barrier, app_state, input, guard_stop, step_limit, model_error,
     false_success, verifier_reject, gate, harness, unknown,
-    /** 交出时标了「没能核实」、核对项也没过:和假成功分开数,便于前后对比。 */
+    /** When handing it in, it was marked "failed to verify" and the check items were not passed: the false successes and false successes were counted separately for easy comparison. */
     unverified_wrong,
-    /** 并行评测里同时跑的另一题抢了这题要用的 App。 */
+    /** Another question that was run at the same time in the parallel evaluation snatched the app needed for this question. */
     interference,
 }
 
@@ -18,35 +18,37 @@ data class TaskScore(
     val passed: Boolean,
     val falseSuccess: Boolean,
     val unverified: Boolean,
-    /** 没过的核对项:"outcome_is" 或 "<序号>:<类型>"。 */
+    /** Checked items that failed: "outcome_is" or "<序号>:<类型>". */
     val failedChecks: List<String>,
     val failureClass: FailureClass?,
-    /** 写类题造出来的数据标记(已替换 {run}),报告里列出供人工清理。 */
+    /** The data marks created by writing questions ({run} has been replaced) are listed in the report for manual cleaning. */
     val marker: String? = null,
-    /** 见 [Observed.leftScope]。 */
+    /** See [Observed.leftScope]. */
     val leftScope: List<String> = emptyList(),
-    /** 交给用户接管的障碍种类(见 [Scoring.handedOver]):单列,不算办成。 */
+    /** Type of failure handed over to the user (see [Scoring.handedOver]): Single column, not considered completed. */
     val handedOver: String? = null,
 )
 
 object Scoring {
     private val MODEL_ERROR = Regex("API [Kk]ey|额度|限流|模型|quota|rate limit|ChatGPT|permission")
 
-    /** 评测运行器自己出错时,失败原因以此开头。 */
+    /** When the evaluation runner itself makes an error, the failure reason begins with this. */
     const val HARNESS_PREFIX = "评测器:"
 
-    /** 并行评测里两题互相干扰导致的失败,原因以此开头。 */
+    /** The reason for failure caused by interference between the two questions in the parallel assessment starts with this. */
     const val INTERFERENCE_PREFIX = "并行干扰:"
 
-    /** Agent 自己调用 end_not_done 时的失败原因;期望失败的题只认这一种。 */
+    /** The reason for the failure when the Agent calls end_not_done by itself; only this type is recognized for questions that expect failure. */
     const val GAVE_UP = "Agent 如实报告做不成"
 
-    /** 核查一直不通过时失败原因的开头(见 AgentLoop)。 */
+    /** The beginning of the failure reason when the check consistently fails (see AgentLoop). */
     const val VERIFICATION_PREFIX = "核查未通过"
 
     /**
-     * 交给打分的失败原因:按失败来源 [FailKind] 生成,不用 Agent 自己说的话,
-     * 否则 Agent 如实放弃时话里带「模型」「额度」会被误判成模型出错。
+     * The reason for the failure of the submission for scoring: generated according to the source of
+     * failure [FailKind]. It does not need to be said by the Agent himself. Otherwise, when the Agent
+     * gives up truthfully, the words "model" and "amount" in his words will be misjudged as a model
+     * error.
      */
     fun failReason(f: TaskState.Failed): String = when (f.kind) {
         FailKind.GaveUp -> GAVE_UP
@@ -56,8 +58,11 @@ object Scoring {
     }
 
     /**
-     * 按运行记录里判的结局打分:回答如实说没办成、只办了一部分的([Observed.judged] 为 partial / not_possible),
-     * 和 Agent 如实放弃一样算 failed,不算报成功。没判过、没判成的照交出时的结局。
+     * Score according to the outcome judged in the running record: if the answer is that it was not
+     * completed or was only partially completed ([Observed.judged] is partial / not_possible), it will
+     * be counted as failed as if the Agent gave up truthfully, and will not be counted as a success. The
+     * ending of the case that has not been judged and failed to be judged will be the same as when it is
+     * handed over.
      */
     fun recorded(o: Observed): Observed =
         if ((o.outcome == "succeeded" || o.outcome == "unverified") && (o.judged == "partial" || o.judged == "not_possible"))
@@ -74,14 +79,15 @@ object Scoring {
             unverified = o.outcome == "unverified",
             failedChecks = failed,
             failureClass = initialClass(t, o),
-            // 至少走了一步才可能造出数据;没开跑的题不列进清理清单
+            // It is possible to create data only after taking at least one step; questions that have not
+            // been started will not be included in the cleaning list
             marker = t.marker?.takeIf { o.steps > 0 },
             leftScope = o.leftScope,
             handedOver = handedOver(t, o),
         )
     }
 
-    /** 初判失败类别;办成的题返回 null。人看运行记录后可改判。 */
+    /** The initial judgment failure category; successful questions return null. People can change the judgment after looking at the running records. */
     fun initialClass(t: EvalTask, observed: Observed): FailureClass? {
         val o = recorded(observed)
         val failed = failedChecks(t, o)
@@ -89,7 +95,8 @@ object Scoring {
         if (isFalseSuccess(o, failed)) return FailureClass.false_success
         if (o.outcome == "unverified") return FailureClass.unverified_wrong
         val reason = o.failReason.orEmpty()
-        // 未满足的标准原文可能带「模型」等字,先认核查
+        // The original text of unsatisfied standards may contain words such as "model", please check
+        // first.
         if (reason.startsWith(VERIFICATION_PREFIX)) return FailureClass.verifier_reject
         infraClass(o)?.let { return it }
         return when {
@@ -101,7 +108,7 @@ object Scoring {
         }
     }
 
-    /** 基础设施导致的失败(模型、评测器),优先于守卫停止、步上限等归类。 */
+    /** Failures caused by infrastructure (models, evaluators) take precedence over guard stops, step limits, etc. */
     private fun infraClass(o: Observed): FailureClass? {
         val reason = o.failReason ?: return null
         return when {
@@ -114,16 +121,19 @@ object Scoring {
 
     private fun isFalseSuccess(o: Observed, failed: List<String>) = o.outcome == "succeeded" && failed.isNotEmpty()
 
-    /** [EvalTask.acceptTakeoverOn] 没写时的默认:读类题撞上登录墙交给用户(只有用户能登录);别的类不认。 */
+    /** [EvalTask.acceptTakeoverOn] Default when not written: Reading category questions hit the login wall and are given to the user (only users can log in); other categories are not recognized. */
     fun takeoverKinds(t: EvalTask): List<String> =
         t.acceptTakeoverOn ?: if (t.category == EvalCategory.Read && t.expect == Expect.Succeeded) listOf("login") else emptyList()
 
-    /** 声明了用户已登录的前置条件:这时再撞上登录墙不是「交给用户」能解释的。 */
+    /** It declares the precondition that the user has logged in: Hitting the login wall again at this time cannot be explained by "leaving it to the user". */
     private val SIGNED_IN_KINDS = setOf("signedIn", "login", "site")
 
     /**
-     * 撞上题目认可的障碍、屏上也看得出来([Observed.takeoverBarrier]),交给了用户:返回障碍种类,单独记一类「交给用户」。
-     * 不算办成(算不算由人定),也不算别的失败。题目声明了已登录的前置条件时不认。
+     * If you encounter an obstacle recognized by the question, you can see it on the screen
+     * ([Observed.takeoverBarrier]) and hand it over to the user: Return to the obstacle type and record
+     * a separate category "Leave it to the user". It does not count as a success (whether it counts or
+     * not is decided by the person), nor does it count as any other failure. The question will not be
+     * recognized when it states that you have logged in as a prerequisite.
      */
     fun handedOver(t: EvalTask, o: Observed): String? = o.takeoverBarrier?.takeIf { kind ->
         t.expect != Expect.Takeover && o.outcome == "takeover" && kind in takeoverKinds(t) &&
@@ -132,13 +142,15 @@ object Scoring {
 
     private fun failedChecks(t: EvalTask, o: Observed): List<String> {
         val expected = when (t.expect) {
-            Expect.Succeeded -> "succeeded" // unverified 不算
+            Expect.Succeeded -> "succeeded" // unverified does not count
             Expect.Failed -> "failed"
             Expect.Confirmation -> "confirmation"
             Expect.Takeover -> "takeover"
         }
         val out = mutableListOf<String>()
-        // 期望失败的题,只有 Agent 自己如实放弃才算;模型、评测器出错,撞步上限、被守卫停下都不算
+        // Questions that expect failure will only count if the Agent gives up truthfully; errors in the
+        // model or evaluator, hitting the upper limit of steps, or being stopped by a guard will not
+        // count.
         val honest = t.expect != Expect.Failed || o.failReason == GAVE_UP
         if (o.outcome != expected || !honest) out += "outcome_is"
         t.checks.forEachIndexed { i, c -> if (!Checks.passes(c, o)) out += "$i:${typeName(c)}" }
@@ -157,3 +169,4 @@ object Scoring {
         is Check.ConfirmationShows -> "confirmation_shows"
     }
 }
+

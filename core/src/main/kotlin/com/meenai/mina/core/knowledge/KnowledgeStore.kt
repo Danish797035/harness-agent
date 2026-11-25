@@ -5,23 +5,26 @@ import java.io.File
 
 private val GENERIC = setOf("app", "apps", "web", "www", "site", "browser")
 
-// 太泛的中文词:只有 “打开/进入/去”+词 这种明确点名时才算命中(“设置一个闹钟”不算)
+// Chinese words that are too general: only "open/enter/go"+words will count if they are explicitly named
+// ("set an alarm" does not count)
 private val GENERIC_ZH = setOf(
     "设置", "浏览器", "搜索", "地图", "相机", "相册", "日历", "时钟", "天气", "音乐",
     "视频", "文件", "短信", "电话", "邮件", "商城", "应用", "手机",
 )
 private val NAMING_PREFIXES = listOf("打开", "进入", "去")
 
-// 常见的系统类 App 名。品牌词后面紧跟着它(「某牌应用市场」)时,说的是这个 App,不是品牌自己的商城等条目
+// Common system app names. When the brand word is followed immediately by it ("a certain brand's
+// application market"), it is talking about this App, not the brand's own mall and other items.
 private val APP_KINDS = listOf(
     "应用市场", "应用商店", "浏览器", "钱包", "日历", "时钟", "相机", "图库", "文件管理", "主题", "云空间",
     "运动健康", "计算器", "便签", "备忘录", "录音机", "游戏中心", "手机管家", "天气",
 )
 
 /**
- * 内置知识 + 用户补充:[notes] 按条目名(App 名或站点域名),附在对应条目正文后面并标明是用户自己写的;
- * [learnedNotes] 是 Mina 自学的 App 知识补充,附在最后并标明试用中还是已核实。
- * 匹配是确定性的字符串匹配,不调用模型。
+ * Built-in knowledge + user supplement: [notes] is based on the item name (App name or site domain
+ * name), attached to the text of the corresponding item and marked as written by the user;
+ * [learnedNotes] is Mina’s self-taught App knowledge supplement, attached to the end and marked as being
+ * in trial or verified. The match is a deterministic string match and does not call the model.
  */
 class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<String, String> = emptyMap(),
     learnedNotes: Map<String, LearnedNote> = emptyMap()) {
@@ -34,20 +37,22 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
             trial = learned?.trial == true)
     }
 
-    /** 条目 [name] 的内置正文本身(不带用户补充和自学补充);起草自学补充时拿它当「现有的说明」。 */
+    /** The built-in text of the entry [name] itself (without user supplements and self-study supplements); use it as the "existing description" when drafting the self-study supplements. */
     fun builtIn(name: String): String? = bundled.firstOrNull { it.name == name && it.body != null }?.body
 
     private fun pick(c: List<KnowledgeEntry>): KnowledgeEntry? = c.firstOrNull { it.body != null } ?: c.firstOrNull()
 
     fun byPackage(pkg: String): KnowledgeEntry? = pick(entries.filter { pkg in it.packages })
 
-    /** 主机名对上的站点知识(最具体的域名优先,见 [SiteMatch])。 */
+    /** Site knowledge on hostname pairs (most specific domain name first, see [SiteMatch]). */
     fun byDomain(host: String): KnowledgeEntry? = pick(SiteMatch.best(host, entries) { it.domains })
 
     /**
-     * 命中任务文字的条目。已安装 App 的条目排最前,其次有正文的,再按命中词长度(越长越具体)。
-     * [installed] 是已安装 App(包名, 显示名):命中词后面紧跟着某个已安装 App 的名字时,
-     * 说的是那个 App(如「某牌」+「应用市场」),不算命中。
+     * The entry that hits the task text. Entries with installed apps are ranked first, followed by those
+     * with text, and then by the length of the hit word (the longer, the more specific). [installed] is
+     * an installed App (package name, display name): When the hit word is followed by the name of an
+     * installed App, it refers to that App (such as "a certain brand" + "App Market"), and it is not
+     * counted as a hit.
      */
     fun matchTask(text: String, limit: Int = 2, installed: List<Pair<String, String>> = emptyList()): List<KnowledgeEntry> {
         val t = text.lowercase()
@@ -56,11 +61,11 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
         return entries.mapNotNull { e -> score(e, t, followers)?.let { e to it } }
             .sortedWith(compareBy({ it.first.packages.none(packages::contains) }, { it.first.body == null }, { -it.second }))
             .map { it.first }
-            .distinctBy { it.service } // 同一服务的 App 与站点只给排序靠前的那份;另一份进入该 App/站点时再按包名/域名给
+            .distinctBy { it.service } // For Apps and sites of the same service, only the one with the highest ranking will be given; when the other copy enters the App/site, it will be given based on the package name/domain name.
             .take(limit)
     }
 
-    /** “小红书”→ com.xingin.xhs;按名称/显示名/别名精确匹配(忽略大小写),只看安卓条目。 */
+    /** "Little Red Book" → com.xingin.xhs; Exact match by name/display name/alias (ignore case), only look at Android entries. */
     fun packageFor(nameOrAlias: String): String? {
         val q = nameOrAlias.trim().lowercase()
         if (q.isEmpty()) return null
@@ -73,7 +78,7 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
     private fun score(e: KnowledgeEntry, text: String, followers: List<String>): Int? {
         var best = -1
         val terms = (listOf(e.display, e.name) + e.aliases).map { it.trim().lowercase() }
-        // 条目自己的名字(如「某牌商城」)不算「另一个 App」
+        // The name of the entry (such as "a certain brand mall") does not count as "another App"
         val others = followers.filter { f -> terms.none { it.endsWith(f) } }
         for (x in terms) {
             if (x.length < 2 || x in GENERIC || (x.all { it.isDigit() } && x.length < 3)) continue
@@ -87,8 +92,9 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
         return best.takeIf { it >= 0 }
     }
 
-    // 英文/数字词要求单词边界,免得 "mm" 命中 "command";中文直接子串
-    // [others] 是别的 App 的名字:命中词后面紧跟着它时,命中词只是那个 App 名字的一部分
+    // English/numeric words require word boundaries to prevent "mm" from hitting "command"; the Chinese
+    // direct substring [others] is the name of another App: when the hit word is followed by it, the hit
+    // word is only part of the name of that App
     private fun containsTerm(text: String, term: String, others: List<String> = emptyList()): Boolean {
         var from = 0
         while (true) {
@@ -107,12 +113,13 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
     private fun Char.isAsciiAlnum() = this in 'a'..'z' || this in '0'..'9'
 
     companion object {
-        /** 附在 App/站点知识后面的用户补充的标题。 */
+        /** A title for user additions to append to app/site knowledge. */
         const val NOTES_HEADER = "## The user's own notes (written by the user; when they differ from the text above or the current screen, the current screen takes precedence)"
 
         /**
-         * 读构建时生成的索引里的 App(APP.md,安卓)与站点(SITE.md,网页)知识;正文取主文件去掉头部,
-         * App 与站点通过 [KnowledgeEntry.related] 互相关联。
+         * Read the App (APP.md, Android) and site (SITE.md, web page) knowledge in the index generated
+         * during construction; the main text is taken from the main file and the header is removed, and
+         * the App and site are related to each other through [KnowledgeEntry.related].
          */
         fun loadBundled(loader: ClassLoader = KnowledgeStore::class.java.classLoader): List<KnowledgeEntry> {
             val catalog = GuideCatalog.loadBundled(loader)
@@ -132,7 +139,7 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
             }
         }
 
-        /** 用户对某个 App/站点的补充:`<dir>/apps/<id>/NOTES.md`、`<dir>/sites/<id>/NOTES.md`,按条目名。 */
+        /** User's additions to an App/site: `<dir>/apps/<id>/NOTES.md`, `<dir>/sites/<id>/NOTES.md`, by entry name. */
         fun loadNotes(dir: File): Map<String, String> =
             listOf("apps", "sites").flatMap { sub ->
                 File(dir, sub).listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.name }.mapNotNull { d ->
@@ -141,3 +148,4 @@ class KnowledgeStore(private val bundled: List<KnowledgeEntry>, notes: Map<Strin
             }.toMap()
     }
 }
+

@@ -75,12 +75,14 @@ class MainActivity : ComponentActivity() {
     private var requestedConversation by mutableStateOf<String?>(null)
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        // 用户选过「不再询问」时系统不再弹窗,只能去设置里打开
+        // When the user selects "Don't ask again", the system will no longer pop up the window and can
+        // only be opened in the settings.
         if (!granted && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) openNotificationSettings()
         monitor.refresh()
     }
 
-    // 安卓 12 及以前套上 App 里选的语言;13 起系统自己套
+    // For Android 12 and before, the language selected in the App is applied; from Android 13 onwards,
+    // the system can apply it by itself.
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLanguage.wrap(newBase))
     }
@@ -92,11 +94,12 @@ class MainActivity : ComponentActivity() {
         monitor = SystemStatusMonitor(this, PhoneServices.of(this).shellControl)
         val store = ProviderStore.get(this)
         setContent {
-            // 外观按设置来,改了当场换;系统栏图标的深浅跟着界面
+            // The appearance is set according to the settings. If you change it, change it on the spot;
+            // the depth of the system bar icon will follow the interface.
             val dark = appearanceDark()
             LaunchedEffect(dark) { systemBarsFor(dark) }
             HarnessTheme(dark = dark, reduceMotion = animationsOff(this)) {
-                // 在输入框外面点一下或拖动就收起键盘,全 App 统一
+                // Click or drag outside the input box to hide the keyboard, unified across the app
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
                     HarnessRoot(store, monitor, ::perform, requestedConversation) { requestedConversation = null }
                 }
@@ -113,9 +116,11 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         monitor.start()
-        // 每次打开都悄悄查一次新版本(两分钟内连着打开的只查一次),失败不吭声
+        // Every time it is opened, it will quietly check for new versions (only once if it is opened
+        // within two minutes), and no sound will be made if it fails.
         com.meenai.mina.about.UpdateAutomation.onAppOpened(this, (application as HarnessApp).updates)
-        // 电脑连接开着、服务却不在(被系统停过、从后台没能起来):界面在前台时补起来
+        // The computer connection is open but the service is not there (it was stopped by the system and
+        // failed to get up from the background): the interface is restored when it is in the foreground.
         (application as HarnessApp).mcp.ensureRunning()
     }
 
@@ -144,8 +149,8 @@ class MainActivity : ComponentActivity() {
             Fix.OpenResultChannel -> openChannelSettings(TaskService.CHANNEL_RESULT)
             Fix.OpenProgressChannel -> openChannelSettings(TaskService.CHANNEL_PROGRESS)
             Fix.OpenPairingChannel -> openChannelSettings(PairingNotifier.ensureChannel(this).id)
-            Fix.AddModel -> Unit // 设置页自己处理
-            // 换页由 HarnessRoot 处理
+            Fix.AddModel -> Unit // Handle the settings page yourself
+            // Paging is handled by HarnessRoot
             Fix.OpenPhoneSetup, Fix.RepairPhoneHelper -> Unit
             Fix.RetryPhoneHelper -> phone.pairing.scope.launch {
                 phone.sharedShell.reconnect()
@@ -165,7 +170,7 @@ class MainActivity : ComponentActivity() {
 
     private fun openNotificationSettings() = open(appNotificationSettings())
 
-    /** 直接打开某个通知频道的设置页;系统没有这个页面时退回应用通知总页。 */
+    /** Directly open the settings page of a certain notification channel; if the system does not have this page, return to the application notification general page. */
     private fun openChannelSettings(channelId: String) {
         val channelPage = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, packageName).putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
@@ -175,7 +180,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 依次试,第一个能打开的就用:各家设置页不一定都认同一个入口。 */
+    /** Try them in order, and use the first one that can be opened: Not all settings pages agree with the same entrance. */
     private fun openFirst(intents: List<Intent>) {
         val hit = intents.firstOrNull { it.resolveActivity(packageManager) != null } ?: intents.last()
         open(hit)
@@ -195,7 +200,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 用系统浏览器打开外部链接(GitHub、X 等);没有浏览器时提示一句。 */
+/** Use the system browser to open external links (GitHub, X, etc.); prompt a message if there is no browser. */
 internal fun openInBrowser(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -204,20 +209,22 @@ internal fun openInBrowser(context: Context, url: String) {
     }
 }
 
-/** 依次试 [candidates],第一个 [start] 成功的就停;都不行返回 false。系统设置页各家不一定都有,靠这个退回通用页。 */
+/** Try [candidates] in sequence, and stop if the first [start] succeeds; if not, return false. Not all companies have a system settings page, so you can use this to return to the general page. */
 internal fun <T> firstThatStarts(candidates: List<T>, start: (T) -> Boolean): Boolean = candidates.any(start)
 
 /**
- * 页面切换:对话页是根,侧栏和设置等入口把页面压进 [NavStack],返回键和页面上的返回按钮都走 [NavStack.back]。
- * 各页面只通过回调进出,不知道彼此。
+ * Page switching: The dialog page is the root, the sidebar and settings and other entrances are pressed
+ * into [NavStack], and the return key and the return button on the page are all pressed into
+ * [NavStack.back]. Each page only enters and exits through callbacks and does not know each other.
  */
 @Composable
 private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, activityFix: (Fix) -> Unit,
     requestedConversation: String?, onConversationOpened: () -> Unit) {
     val nav = rememberNavStack()
-    // 从设置页「重新配对」进来时先回到配对一步
+    // When entering "re-pairing" from the settings page, go back to the pairing step first.
     var setupRepair by rememberSaveable { mutableStateOf(false) }
-    // 首次上手正在走哪一步;为空时不在上手流程里。配置模型页从哪儿来就回哪儿去
+    // Which step is being taken when getting started for the first time; if it is empty, it is not in
+    // the getting started process. The configuration model page goes back to where it came from.
     var onboarding by rememberSaveable { mutableStateOf<OnboardingStep?>(null) }
     val onFix: (Fix) -> Unit = { fix ->
         when (fix) {
@@ -288,12 +295,14 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
         }
     }
     val release = remember { Build.VERSION.RELEASE }
-    // 结果卡片上点了「看看」:打开技能分段
+    // Click "Look" on the result card: open skill segmentation
     val memoryRuntime = remember { MemoryRuntime.of(context) }
     val phoneSetup = remember { PhoneServices.of(context).setupPrompt }
     val openMemory by memoryRuntime.openRequest.collectAsState()
     LaunchedEffect(openMemory) { if (openMemory != null) nav.push(Route.Memory) }
-    // 第一次打开:欢迎 → 配置模型 → 手机操作;配过模型的跳过前两步,手机操作已就绪或看过引导的跳过最后一步
+    // Open for the first time: Welcome → Configure model → Mobile operation; if you have configured the
+    // model, skip the first two steps; if the mobile operation is ready or have seen the guide, skip the
+    // last step
     val onboardingState = remember { OnboardingState(context) }
     fun onboardingInputs() = Onboarding.Inputs(
         hasMainModel = store.roles.value.main != null,
@@ -304,7 +313,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     fun goOnboarding(step: OnboardingStep?) {
         onboarding = step
         when (step) {
-            // 上手的每一步都直接放在对话页上面一层,做完回到对话页
+            // Every step of getting started is placed directly on the top layer of the dialogue page.
+            // When you are done, return to the dialogue page.
             OnboardingStep.Welcome -> nav.show(Route.Welcome)
             OnboardingStep.Model -> nav.show(Route.ModelSetup)
             OnboardingStep.Phone -> { setupRepair = false; nav.show(Route.PhoneSetup) }
@@ -315,10 +325,13 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
         if (onboarding == null) Onboarding.start(onboardingInputs())?.let(::goOnboarding)
     }
     val phoneSetupNeeded by phoneSetup.needed.collectAsState()
-    // 页面有自己的返回处理时(设置页里的子页、侧栏)由它们先接;这里只管退回上一页
+    // When the page has its own return processing (subpages and sidebars in the settings page), they are
+    // connected first; here we just return to the previous page.
     BackHandler(enabled = nav.canGoBack) { nav.back() }
     val back: () -> Unit = { nav.back() }
-    // 聊天页离开组合树时保留列表位置和输入内容，返回设置页等子页面后原样恢复。
+    // When the chat page leaves the combination tree, the list position and input content are retained,
+    // and they are restored to their original state after returning to sub-pages such as the settings
+    // page.
     val screenStates = rememberSaveableStateHolder()
     when (nav.current) {
         Route.PhoneSetup -> PhoneSetupScreen(status, setupRepair, onFix, onboarding = onboarding == OnboardingStep.Phone) {
@@ -340,7 +353,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
             )
         }
         Route.Chat -> screenStates.SaveableStateProvider(Route.Chat.name) {
-            // 对话页重新看得见(回到前台、从别的页面回来):补上别处存进来的轮次,接上别处开始的任务
+            // The conversation page is visible again (returning to the front desk, coming back from
+            // other pages): make up for rounds saved elsewhere, and pick up tasks started elsewhere.
             LifecycleStartEffect(Unit) {
                 app.chat.refresh()
                 onStopOrDispose {}
@@ -432,7 +446,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
         Route.License -> LicensesScreen(onBack = back)
         Route.Browser -> BrowserScreen(remember { UserBrowser.of(context) }, onBack = back)
         Route.Memory -> {
-            // 第一次取记忆要读盘解密,放到后台线程;页面的协程跟着这一屏走
+            // The first time you retrieve the memory, you need to read the disk and decrypt it, and put
+            // it in the background thread; the coroutine of the page follows this screen.
             val vmScope = rememberCoroutineScope()
             val vm by produceState<MemoryViewModel?>(null) {
                 value = withContext(Dispatchers.IO) {
@@ -447,7 +462,7 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 }
             }
             vm?.let { m ->
-                // 从结果卡片的「看看」进来:直接看技能分段
+                // Enter from "Look" on the result card: look directly at the skill segment
                 LaunchedEffect(m) { if (memoryRuntime.openRequest.value != null) m.select(Segment.Skills) }
                 MemoryScreen(m) { memoryRuntime.requestOpen(null); nav.back() }
             }

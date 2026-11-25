@@ -18,12 +18,14 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * 路线存成 `<dir>/<首个包名>/<id>.json`;超过 [max] 条时删最久没用的。
- * 读不了的文件直接删掉(开发期格式变了不做兼容)。产品路径用 [shared],全进程一个实例、一把锁。
+ * Routes are saved as `<dir>/<first package name>/<id>.json`; when there are more than [max], the routes that have
+ * been unused for a long time are deleted. Files that cannot be read are deleted directly (the format
+ * changes during the development period and will not be compatible). The product path uses [shared],
+ * with one instance and one lock for the entire process.
  */
 class FileRouteStore(
     private val dir: File, private val max: Int = 200,
-    /** 改名前记下的路线读出时把旧工具名换成现在的。 */
+    /** Replace the old tool name with the current one when reading out the route you noted before changing the name. */
     private val legacy: LegacyNames = legacyNames(), private val tools: ToolIndex = knownTools(),
 ) : RouteStore {
     init { require(max > 0) { "max must be positive" } }
@@ -64,9 +66,9 @@ class FileRouteStore(
         f.parentFile?.mkdirs()
         val tmp = File(f.parentFile, "${f.name}.tmp")
         FileOutputStream(tmp).use { out -> out.write(bytes); out.fd.sync() }
-        // 原子替换:旧文件在新文件就位前一直完好
+        // Atomic replacement: old files remain intact until new files are in place
         Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-        // 同 id 换了首个包名:旧位置的那份删掉
+        // Changed the first package name with the same id: delete the copy at the old location
         existing.filter { it.second.id == r.id && it.first.absoluteFile != f.absoluteFile }.forEach { it.first.delete() }
         val kept = existing.filter { it.second.id != r.id } + (f to r)
         kept.sortedBy { it.second.lastUsedMs }.take((kept.size - max).coerceAtLeast(0)).forEach { it.first.delete() }
@@ -91,7 +93,7 @@ class FileRouteStore(
         dir.listFiles()?.filter { it.isDirectory && it.list()?.isEmpty() == true }?.forEach { it.delete() }
     }
 
-    /** 给出进程里那一份的 Application。 */
+    /** Give the application in the process. */
     interface Owner {
         val routes: FileRouteStore
     }
@@ -102,10 +104,10 @@ class FileRouteStore(
         private val UNSAFE = Regex("[^A-Za-z0-9._-]")
         private fun safe(s: String) = UNSAFE.replace(s, "_").ifEmpty { "_" }.let { if (it == "." || it == "..") "_" else it }
 
-        /** 产品里的那份(App 建):files/routes 下。 */
+        /** The copy in the product (App built): files/routes. */
         fun create(context: Context): FileRouteStore = FileRouteStore(File(context.applicationContext.filesDir, DIR))
 
-        /** App 内共用的那份(经 [Owner] 给出;任务结束记录、设置页清除都用它):全进程一个实例、一把锁。 */
+        /** The share shared within the App (given by [Owner]; it is used for task end records and settings page clearing): one instance and one lock for the entire process. */
         fun shared(context: Context): FileRouteStore = (context.applicationContext as? Owner)?.routes
             ?: error("the Application (${context.applicationContext.javaClass.name}) must implement FileRouteStore.Owner to give the route store")
     }

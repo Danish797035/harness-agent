@@ -5,18 +5,20 @@ import com.meenai.mina.chat.PageOrigin
 import com.meenai.mina.core.cap.web.WebUrlPolicy
 
 /**
- * 在浏览器页上对着一页问 Mina 时,接着哪个对话(纯逻辑)。规则:
- * 1. 同一页(网址相同,不计 `#` 后面)上问过的,接着最近那个对话,不论隔了多久;
- * 2. 否则同一个网站(主机名相同)上 [SAME_SITE_MS] 内问过的,接着最近那个——在一个网站里一路点下去(搜索结果 → 商品页 → 购物车)
- *    还是同一件事;
- * 3. 都没有就开新对话。用户随时可以选「新对话」。
- * 隔了很久再来同一个网站的另一页,多半是另一件事,所以第 2 条有时限;同一页没有时限,回到这一页就是接着这一页的事。
+ * When asking Mina to a page on a browser page, which conversation should follow (pure logic). Rules: 1.
+ * Asked on the same page (same URL, excluding `#`), then follow the most recent conversation, no matter
+ * how long the interval is; 2. Otherwise, ask on the same website (same host name) in [SAME_SITE_MS],
+ * then follow the most recent one - click all the way through a website (search results → product page →
+ * shopping cart) and still the same thing; 3. Open a new conversation if there is no such thing. Users
+ * can select "New Conversation" at any time. Coming back to another page of the same website after a
+ * long time is probably about another matter, so Article 2 has a time limit; there is no time limit for
+ * the same page. Returning to this page is just the continuation of this page.
  */
 object PageConversations {
-    /** 同一个网站上「接着问」的时限:最近一次改动在这之内。 */
+    /** The time limit for "continue asking" on the same website: the latest change is within this. */
     const val SAME_SITE_MS = 2 * 60 * 60 * 1000L
 
-    /** [all] 是对话列表(最近改过的在前,见 [com.meenai.mina.chat.ConversationStore.list]);[url] 是此刻看着的页面。 */
+    /** [all] is the conversation list (most recently modified first, see [com.meenai.mina.chat.ConversationStore.list]); [url] is the page you are looking at at the moment. */
     fun pick(all: List<ConversationSummary>, url: String, now: Long): ConversationSummary? {
         val page = pageKey(url)
         val host = WebUrlPolicy.host(url)
@@ -25,12 +27,12 @@ object PageConversations {
             ?: fromPages.firstOrNull { host != null && it.page!!.host == host && now - it.updatedAt in 0..SAME_SITE_MS }
     }
 
-    /** 这一页记成对话的来处:网址、主机名、标题;不是网页地址为 null。 */
+    /** This page records the source of the conversation: URL, hostname, title; if not the web address is null. */
     fun origin(url: String, title: String): PageOrigin? {
         val host = WebUrlPolicy.host(url)?.takeIf { url.startsWith("http", ignoreCase = true) } ?: return null
         return PageOrigin(url, host, title.trim())
     }
 
-    /** 认「同一页」用的网址:去掉 `#` 后面和结尾的斜杠。 */
+    /** To identify the URL used for "same page": remove the slashes after and at the end of `#`. */
     fun pageKey(url: String): String = url.substringBefore('#').trimEnd('/')
 }

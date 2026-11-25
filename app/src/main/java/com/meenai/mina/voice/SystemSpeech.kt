@@ -15,14 +15,16 @@ import com.meenai.mina.i18n.AppLanguage
 import kotlinx.coroutines.flow.Flow
 import java.util.Locale
 
-/** 手机上登记的一个识别服务,见 [SystemSpeech.services]。[component] 是「包名/类名」的短写。 */
+/** An identification service registered on a mobile phone, see [SystemSpeech.services]. [component] is the abbreviation of "package name/class name". */
 data class RecognizerService(val component: String, val open: Boolean, val permission: String?)
 
-/** 手机自带识别:能力检测、错误码怎么归类、识别用的语言。 */
+/** The mobile phone comes with identification: ability detection, how to classify error codes, and the language used for identification. */
 object SystemSpeech {
     /**
-     * 安卓 11 起要在清单里声明查询 RecognitionService,否则这里永远是不可用。
-     * [silent] 是之前试过、服务不响应的记号(见 [SpeechSettings.systemSilent]):系统只能说有没有,理不理要试了才知道。
+     * Starting from Android 11, query RecognitionService must be declared in the manifest, otherwise it
+     * will never be available. [silent] is a sign that the service has not responded after trying it
+     * before (see [SpeechSettings.systemSilent]): the system can only tell whether it is available, and
+     * you will not know until you try it.
      */
     fun capability(context: Context, silent: Boolean = false): SystemCapability {
         val onDevice = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -32,8 +34,10 @@ object SystemSpeech {
     }
 
     /**
-     * 识别服务的错误码归到哪种失败;null 表示「这一段没听到话」(没匹配上、没开口),按着时重开、松开后照已有的给结果。
-     * 列表外的码(服务端错误、语言不支持等)按服务出了问题处理。
+     * Identifies the type of failure that the error code of the service belongs to; null means "no words
+     * were heard in this paragraph" (no matching, no opening). Restart when pressed, and the result will
+     * be the same as before when released. Codes outside the list (server errors, language not
+     * supported, etc.) will be handled as service problems.
      */
     fun failureOf(code: Int): SpeechFailure? = when (code) {
         SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> null
@@ -46,7 +50,7 @@ object SystemSpeech {
         else -> SpeechFailure.Unavailable(SpeechEngineSpec.Why.SystemGone)
     }
 
-    /** 一个错误码到了之后怎么办:重开、按已听到的收尾、报失败。 */
+    /** What to do after an error code arrives: restart, press the end you heard, report failure. */
     sealed interface Outcome {
         data object Retry : Outcome
         data object Finish : Outcome
@@ -54,8 +58,10 @@ object SystemSpeech {
     }
 
     /**
-     * [holding] 是手还按着,[heard] 是已经听到过字。已经听到的字不丢:松开后、或按着时中途出错,都按听到的收尾。
-     * 松开后有的服务在 stopListening 之后报 ERROR_CLIENT,什么都没听到时那是没听清,不是麦克风坏了。
+     * [holding] means the hand is still pressed, [heard] means the word has been heard. Don't lose the
+     * words you have heard: after releasing the word, or if you make a mistake while pressing, just
+     * finish with the word you heard. Some services will report ERROR_CLIENT after stopListening. If you
+     * don't hear anything, it means you didn't hear clearly. It's not that the microphone is broken.
      */
     fun afterError(code: Int, holding: Boolean, heard: Boolean): Outcome {
         val failure = failureOf(code)
@@ -68,23 +74,29 @@ object SystemSpeech {
     }
 
     /**
-     * 开始听之后 [SystemSpeechSession.NO_RESPONSE_MS] 内识别服务一个回调都没给时怎么办。
-     * [answered] 是这个识别器之前回过话(说明服务是好的,只是这一段卡住了):按已听到的收尾,什么都没听到就是没听清。
-     * 从没回过话就是这台手机的识别服务不理第三方 App 的请求,再等也不会有字,报 [SpeechEngineSpec.Why.SystemNoResponse]。
+     * What to do when the recognition service gives no callback within
+     * [SystemSpeechSession.NO_RESPONSE_MS] after listening starts. [answered] means this recognizer
+     * answered before (the service works, it just got stuck now): finish with what was heard; if nothing
+     * was heard, the speech was unclear. If it never answered, the phone's recognition service is
+     * ignoring requests from third-party apps, so waiting longer will not produce words; report
+     * [SpeechEngineSpec.Why.SystemNoResponse].
      */
     fun afterSilence(answered: Boolean): Outcome =
         if (answered) Outcome.Finish else Outcome.Fail(SpeechFailure.Unavailable(SpeechEngineSpec.Why.SystemNoResponse))
 
     /**
-     * 松开后再等 [SystemSpeechSession.FINAL_WAIT_MS] 仍没有最终结果时怎么收。
-     * 和 [afterSilence] 一样:回过话按已听到的收尾,从没回过话就是不响应。
-     * 不能因为没回过话就什么也不做,否则悬浮胶囊会停在「转文字…」。
+     * How to close [SystemSpeechSession.FINAL_WAIT_MS] when there is still no final result after
+     * releasing it. Same as [afterSilence]: if you reply, end with what you heard. If you never reply,
+     * it means no response. You can't do nothing just because you haven't replied, otherwise the
+     * suspension capsule will stop at "Transfer text...".
      */
     fun afterReleaseWait(answered: Boolean): Outcome = afterSilence(answered)
 
     /**
-     * 手机上登记的识别服务(声明了 RecognitionService 的组件)。[RecognizerService.open] 是它对别的 App 开放(exported);
-     * [RecognizerService.permission] 是绑定它要的权限。给诊断信息和 [attempts] 用。
+     * The recognition service registered on the mobile phone (the component that declares
+     * RecognitionService). [RecognizerService.open] means it is open (exported) to other apps;
+     * [RecognizerService.permission] means the permissions it needs to be bound. For diagnostic
+     * information and [attempts].
      */
     fun services(context: Context): List<RecognizerService> = runCatching {
         context.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0).map { r ->
@@ -94,9 +106,13 @@ object SystemSpeech {
     }.getOrDefault(emptyList())
 
     /**
-     * 一次会话依次去试的识别服务,null 是系统默认的那个(不点名,由系统挑)。
-     * 之前点名试过、回了话的([remembered],还在手机上)排最前;默认的一个回调都不给时,再点名试其余的,对别的 App 开放的先试。
-     * 手机上只有一个服务时它就是默认的,不再点名重试;最多试 [MAX_ATTEMPTS] 个,免得按着的人干等。
+     * A session is used to try the identification services one by one, and null is the system default
+     * one (not named, chosen by the system). Those who have tried calling before and responded
+     * ([remembered], still on the phone) will be ranked first; when none of the default callbacks are
+     * given, then try the others by calling, and those open to other apps will be tried first. When
+     * there is only one service on the phone, it will be the default one, and you will not need to name
+     * it and try again; you can try [MAX_ATTEMPTS] at most, so that the person pressing the button will
+     * not have to wait.
      */
     fun attempts(services: List<RecognizerService>, remembered: String?): List<String?> {
         val known = remembered?.takeIf { r -> services.any { it.component == r } }
@@ -105,33 +121,38 @@ object SystemSpeech {
         return (listOfNotNull(known) + listOf(null) + others).take(MAX_ATTEMPTS)
     }
 
-    /** 一次会话最多试几个识别服务(含默认的)。 */
+    /** A maximum of several identification services (including the default ones) can be tried in one session. */
     const val MAX_ATTEMPTS = 3
 
-    /** 本机识别说这个语言用不了(没装语言包等):换成联网识别再试。 */
+    /** Local recognition says that this language cannot be used (no language pack installed, etc.): Switch to network recognition and try again. */
     internal fun languageMissing(code: Int) = code == ERROR_LANGUAGE_NOT_SUPPORTED || code == ERROR_LANGUAGE_UNAVAILABLE
 
-    /** App 语言对应的识别语言(BCP-47);跟随系统时用系统的语言。选的语言和系统语言相同时(中文除外)沿用系统的地区。 */
+    /** The recognition language corresponding to the App language (BCP-47); use the system language when following the system. When the selected language is the same as the system language (except Chinese), the system region will be used. */
     fun speechTag(language: AppLanguage, system: Locale = Locale.getDefault()): String = when {
         language == AppLanguage.System -> languageRegion(system)
-        // 中文按选的简繁定地区,不跟系统
+        // For Chinese, select Simplified and Traditional to determine the region, which does not follow
+        // the system.
         language.language == "zh" -> language.speechTag!!
-        // 系统也是这种语言时用系统的地区(英式英语、墨西哥西班牙语…),否则用这种语言最常见的地区
+        // The system is also the region where the system is used in this language (British English,
+        // Mexican Spanish...), otherwise the most common region in which this language is used
         AppLanguage.modernCode(system.language) == language.language -> languageRegion(system)
         else -> language.speechTag!!
     }
 
     /**
-     * 只留「语言-地区」:系统语言常带文字子标签(zh-Hans-CN),识别服务普遍只认 zh-CN 这样的写法,
-     * 多一段就可能当成不支持的语言。扩展、变体也一并去掉。
+     * Only "Language-Region" is left: the system language often has a text sub-tag (zh-Hans-CN), and the
+     * recognition service generally only recognizes zh-CN. If it is written with more than one
+     * paragraph, it may be regarded as an unsupported language. Extensions and variants are also
+     * removed.
      */
     private fun languageRegion(locale: Locale): String =
         Locale.Builder().setLanguage(locale.language).setRegion(locale.country).build().toLanguageTag()
 
-    /** 转写接口要的 ISO-639-1 语言代码。 */
+    /** ISO-639-1 language code required by the transliteration interface. */
     fun isoCode(tag: String): String = Locale.forLanguageTag(tag).language
 
-    // 安卓 12 起才有的错误码;写成数值,低版本收不到也不影响
+    // The error code is only available since Android 12; it is written as a numerical value. It will not
+    // be affected if lower versions cannot receive it.
     private const val ERROR_TOO_MANY_REQUESTS = 10
     private const val ERROR_SERVER_DISCONNECTED = 11
     private const val ERROR_LANGUAGE_NOT_SUPPORTED = 12
@@ -139,12 +160,17 @@ object SystemSpeech {
 }
 
 /**
- * 手机自带识别的一次会话。[SpeechRecognizer] 只能在主线程建和调,所以这里所有对它的操作都投到主线程。
- * 按着期间识别服务自己结束一段(出最终结果或「没听到」)就立刻重开,各段由 [Segments] 拼起来;
- * 松开后 stopListening,最多等 [FINAL_WAIT_MS] 拿最终结果,等不到就用最后一次中间结果。
- * 每次 startListening 后 [NO_RESPONSE_MS] 内服务一个回调都没有:手还按着、[attempts] 里还有没试的服务,就换下一个去听;
- * 都试过了按 [SystemSpeech.afterSilence] 收尾。从没回过话时调 [onNoResponse],回过话时调一次 [onAnswered] 并带上回话的服务
- * (null 是系统默认的):设置据此数连着几次不响应,够了才记下,也记住点名试通的那个。
+ * A session that the phone comes with recognition. [SpeechRecognizer] can only be created and reconciled
+ * in the main thread, so all operations on it here are cast to the main thread. Press the period
+ * identification service to end a section (the final result or "not heard") and then restart it
+ * immediately. Each section is put together by [Segments]; after releasing, stopListening, wait at most
+ * [FINAL_WAIT_MS] to get the final result, and if it cannot wait, use the last intermediate result.
+ * Every time after startListening, there is no callback for the service in [NO_RESPONSE_MS]: the hand is
+ * still pressed, and there is still a service in [attempts] that has not been tried, so I change to the
+ * next one to listen; I have tried [SystemSpeech.afterSilence] to end it. When there is no reply, dial
+ * [onNoResponse]. When there is a reply, dial [onAnswered] once and bring the service of the reply (null
+ * is the system default): set the number of consecutive non-responses according to this number. Only
+ * after enough, remember it. Also remember the one who was called to try.
  */
 class SystemSpeechSession(
     context: Context,
@@ -152,7 +178,7 @@ class SystemSpeechSession(
     private val languageTag: String,
     private val onNoResponse: () -> Unit = {},
     private val onAnswered: (String?) -> Unit = {},
-    /** 依次去试的识别服务,见 [SystemSpeech.attempts];null 是系统默认的。 */
+    /** Try the identification service in turn, see [SystemSpeech.attempts]; null is the system default. */
     private val attempts: List<String?> = listOf(null),
 ) : SpeechSession {
     private val context = context.applicationContext
@@ -162,26 +188,28 @@ class SystemSpeechSession(
     override val events: Flow<SpeechEvent> = out.flow
     override val live = true
 
-    // 下面这些只在主线程读写
+    // The following are only read and written in the main thread
     private var recognizer: SpeechRecognizer? = null
     private var usingOnDevice = false
-    /** 正在试 [attempts] 里的第几个。 */
+    /** Trying the number in [attempts]. */
     private var attempt = 0
     private var holding = true
     private val restarts = Restarts()
     private var restartPending = false
-    /** 当前识别器回过话没有(任何回调都算)。 */
+    /** The current recognizer has not responded (any callbacks count). */
     private var answered = false
-    /** 这次会话已经报过 [onAnswered];每次会话只报一次,免得每个音量回调都写设置。 */
+    /** [onAnswered] has been reported for this session; it is reported only once per session to avoid having to write settings for each volume callback. */
     private var reported = false
-    /** 这次会话已经因为不响应记过一次。松开后的等待和静默计时可能先后到,不能记成两次。 */
+    /** This session has already been demerited once for non-response. The waiting and silent timing after release may occur one after another and cannot be recorded twice. */
     private var notedSilent = false
-    // 松开后再等 [FINAL_WAIT_MS]。回过话按已听到的收尾;一个回调都没有也要结束,不能停在「转文字…」
+    // Release and wait for [FINAL_WAIT_MS]. After replying, end as you heard; it must end even if there
+    // is no callback, and you cannot stop at "convert to text..."
     private val timeout = Runnable { concludeRelease() }
     private val silence = Runnable {
         if (done()) return@Runnable
         if (!answered && holding && attempt + 1 < attempts.size) {
-            // 这个服务一个回调都没给:手还按着,换下一个服务接着听
+            // This service didn't give a single callback: I still kept my hand pressed, so I changed to
+            // the next service and continued listening.
             attempt++
             open(preferOnDevice = false)
             return@Runnable
@@ -189,7 +217,7 @@ class SystemSpeechSession(
         concludeSilence()
     }
 
-    /** 静默到点、且不再换下一个服务:按有没有回过话收尾。不响应同一次会话只记一次。 */
+    /** Be silent to the point, and will not change to the next service: end with whether there is a reply. Not responding to the same session is only recorded once. */
     private fun concludeSilence() {
         if (done()) return
         when (val o = SystemSpeech.afterSilence(answered)) {
@@ -206,7 +234,7 @@ class SystemSpeechSession(
         if (holding) listen() else concludeRelease()
     }
 
-    /** 松开后的等待到点,或重开时发现手指已经离开:一定结束这次会话。 */
+    /** If you wait too long after releasing it, or if you find that your finger has left when you reopen it, you must end this session. */
     private fun concludeRelease() {
         if (done()) return
         when (val o = SystemSpeech.afterReleaseWait(answered)) {
@@ -228,20 +256,23 @@ class SystemSpeechSession(
         if (!holding || done()) return@onMain
         holding = false
         if (restartPending) {
-            // 上一段已经结束、还没重开:没有在听的,直接按已听到的收尾
+            // The previous segment has ended and has not been restarted yet: If you are not listening,
+            // just press the ending button you have heard.
             finish(SpeechEvent.Final(segments.full()))
             return@onMain
         }
         try {
             recognizer?.stopListening()
         } finally {
-            // stopListening 里同步回调可能已经结束会话,也可能拆掉了等待;没结束就一定再排上
+            // The synchronization callback in stopListening may have ended the session, or may have
+            // removed the wait; if it is not over, it will be queued again.
             if (!done()) main.postDelayed(timeout, FINAL_WAIT_MS)
         }
     }
 
     override fun cancel() {
-        // 先关事件出口(任何线程都立刻生效),再到主线程收拾识别器
+        // First close the event exit (any thread takes effect immediately), and then the main thread
+        // cleans up the recognizer
         if (!out.cancel()) return
         onMain {
             recognizer?.cancel()
@@ -260,7 +291,8 @@ class SystemSpeechSession(
             null
         }
         usingOnDevice = r != null
-        // 点名的服务用它;没点名(或名字认不出)交给系统默认的
+        // It is used for services that are named; services that are not named (or whose names cannot be
+        // recognized) are left to the system's default service.
         val named = attempts.getOrNull(attempt)?.let(ComponentName::unflattenFromString)
         val rec = r ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context, named) }.getOrNull()
         if (rec == null) {
@@ -279,7 +311,8 @@ class SystemSpeechSession(
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            // 联网识别时:手机有本机识别能力就请服务尽量离线识别
+            // When identifying on the Internet: If your mobile phone has native identification
+            // capabilities, please ask the service to identify it offline as much as possible.
             if (!usingOnDevice && onDevice) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         main.removeCallbacks(silence)
@@ -297,7 +330,7 @@ class SystemSpeechSession(
         teardown()
     }
 
-    /** 按着时这一段空了:按 [Restarts] 决定隔多久重开,或者不再重开、按已听到的收尾。重开总是投到主线程稍后做,不在回调里直接开。 */
+    /** This section is empty when pressed: press [Restarts] to decide how long it will take to reopen, or not to reopen again, and press the ending you have heard. Restarting is always done in the main thread and is not started directly in the callback. */
     private fun emptySegment() {
         when (val d = restarts.onEmpty(android.os.SystemClock.elapsedRealtime())) {
             Restarts.Decision.GiveUp -> finish(SpeechEvent.Final(segments.full()))
@@ -308,7 +341,7 @@ class SystemSpeechSession(
         }
     }
 
-    /** 服务回了话:这一段不算没响应。 */
+    /** The service replied: This period is not considered unresponsive. */
     private fun heard() {
         answered = true
         main.removeCallbacks(silence)
@@ -325,7 +358,9 @@ class SystemSpeechSession(
         restartPending = false
         val rec = recognizer
         recognizer = null
-        // 先摘掉再 destroy:destroy 里可能同步回调 onError,这时不能再换引擎,否则会在失败处理里嵌套重开
+        // Remove it first and then destroy:destroy may call back onError synchronously. At this time,
+        // you cannot change the engine, otherwise it will be nested and restarted in the failure
+        // processing.
         usingOnDevice = false
         rec?.let { runCatching { it.destroy() } }
     }
@@ -347,7 +382,8 @@ class SystemSpeechSession(
         override fun onRmsChanged(rmsdB: Float) {
             heard()
             if (done()) return
-            // 识别服务给的大致在 -2..10 dB,压到 0..1 画波形
+            // The identification service gives roughly -2..10 dB, and the pressure is reduced to 0..1 to
+            // draw the waveform.
             out.send(SpeechEvent.Level(((rmsdB + 2f) / 12f).coerceIn(0f, 1f)))
         }
 
@@ -366,7 +402,8 @@ class SystemSpeechSession(
             val text = firstText(results)
             segments.segmentDone(text)
             if (holding) {
-                // 识别服务觉得一句说完了,但手还按着:接着听下一段
+                // The recognition service feels that the sentence has been finished, but the hand is
+                // still pressed: continue to listen to the next paragraph
                 if (text.isBlank()) {
                     emptySegment()
                 } else {
@@ -387,7 +424,8 @@ class SystemSpeechSession(
             if (usingOnDevice && SystemSpeech.languageMissing(error) && segments.full().isEmpty()) {
                 open(preferOnDevice = false)
                 if (!holding && !done()) {
-                    // 已经松开了:新识别器只收尾,等待上限重新算
+                    // Already loosened: the new recognizer is only finishing, waiting for the upper
+                    // limit to be recalculated
                     recognizer?.stopListening()
                     main.postDelayed(timeout, FINAL_WAIT_MS)
                 }
@@ -401,18 +439,21 @@ class SystemSpeechSession(
         }
     }
 
-    // 放在所有属性之后:onMain 在主线程上是当场执行,open 用到的 listener 等属性此时都已初始化
+    // Placed after all attributes: onMain is executed on the spot on the main thread, and attributes
+    // such as listener used by open have been initialized at this time.
     init {
         onMain { open(onDevice && attempts.firstOrNull() == null) }
     }
 
     companion object {
-        /** 松开后等最终结果的上限。 */
+        /** Wait for the upper limit of the final result after releasing. */
         const val FINAL_WAIT_MS = 2_000L
 
         /**
-         * 开始听之后等识别服务第一个回调(通常是 onReadyForSpeech,正常几百毫秒内到)的上限。
-         * 留出识别服务进程冷启动的时间;超过就当这一段没响应。
+         * After starting to listen, wait for the upper limit of the first callback of the recognition
+         * service (usually onReadyForSpeech, which normally occurs within a few hundred milliseconds).
+         * Set aside time to identify the cold start of the service process; if it exceeds this period,
+         * it will be treated as unresponsive.
          */
         const val NO_RESPONSE_MS = 3_000L
     }

@@ -3,7 +3,7 @@ package com.meenai.mina.core.knowledge
 import com.meenai.mina.core.skills.PersonalSkills
 import com.meenai.mina.core.skills.SkillStatus
 
-/** 内置的 App 知识(kind `app`)、站点知识(`site`)、技能(`skill`),或用户的个人技能(`personal`);[files] 是可读的文件(主文件在前,其余是附件)。 */
+/** Built-in App knowledge (kind `app`), site knowledge (`site`), skills (`skill`), or the user's personal skills (`personal`); [files] are readable files (main file first, the rest are attachments). */
 data class GuideInfo(
     val kind: String,
     val name: String,
@@ -12,7 +12,7 @@ data class GuideInfo(
     val aliases: List<String>,
     val terms: List<String>,
     val files: List<String>,
-    /** 关联的 App / 站点名。 */
+    /** Associated App/site name. */
     val apps: List<String> = emptyList(),
     val sites: List<String> = emptyList(),
 )
@@ -26,36 +26,38 @@ sealed interface GuideView {
 }
 
 private const val SKILL_FILE = "SKILL.md"
-/** 文档可能提到本机没有的工具;在注入和 knowledge_read / skill_read 的边界处提醒。 */
+/** Documentation may mention tools not available natively; a reminder at the boundary of injection and knowledge_read / skill_read. */
 const val UNAVAILABLE_TOOLS_NOTE = "(Note: scripts mentioned in the text and tools this phone does not have are not available; use only the tools in your tool list.)"
-/** 设备支持沙箱时的附注:技能脚本按清单可以跑。 */
+/** Note when the device supports sandbox: Skill scripts can be run according to the list. */
 const val SANDBOX_TOOLS_NOTE = "(Note: scripts marked runnable can be run with run_bundled_script; other scripts and tools this phone does not have are not available.)"
 
-/** 注入参考资料、knowledge_read / skill_read 时的附注,按沙箱工具是否提供。 */
+/** Notes when injecting reference materials and knowledge_read / skill_read, depending on whether the sandbox tool provides them. */
 fun toolsNote(sandboxAvailable: Boolean): String = if (sandboxAvailable) SANDBOX_TOOLS_NOTE else UNAVAILABLE_TOOLS_NOTE
 const val VIEW_LIMIT = 12_000
 const val FIND_LIMIT = 10
-/** 任务开始按任务文字给 App/站点知识索引的得分门槛:名称/显示名/别名至少部分对上。 */
+/** The task starts by giving the App/Site Knowledge Index a score threshold based on the task text: name/display name/alias at least partially matched. */
 const val RECOMMEND_MIN_SCORE = 60
 const val PERSONAL_KIND = "personal"
-/** App 与网站知识(knowledge_search / knowledge_read 管的);技能是另一组(内置技能与个人技能)。 */
+/** App and website knowledge (controlled by knowledge_search / knowledge_read); skills are another group (built-in skills and personal skills). */
 val KNOWLEDGE_KINDS = setOf(KnowledgeIndex.APP, KnowledgeIndex.SITE)
 val SKILL_KINDS = setOf(KnowledgeIndex.SKILL, PERSONAL_KIND)
 
 /**
- * 只读的目录:按名称/别名/描述查找、读取文本。内置部分来自构建时生成的 [KnowledgeIndex.RESOURCE] 与各自的目录,
- * 再合并用户的个人技能(kind = `personal`,在用的才算;同名整体覆盖内置)。
+ * Read-only directory: search and read text by name/alias/description. The built-in part comes from the
+ * [KnowledgeIndex.RESOURCE] generated during the build and their respective directories, and then merges
+ * the user's personal skills (kind = `personal`, only those in use are counted; the whole with the same
+ * name covers the built-in).
  */
 class GuideCatalog private constructor(
     private val loader: ClassLoader,
     internal val rows: List<IndexEntry>,
     private val personal: PersonalSkills? = null,
-    /** 个人技能正文载入时做的改写(改名前的工具名换成现在的);默认原样。 */
+    /** The rewriting was done when the personal skill text was loaded (the tool name before the renaming was changed to the current one); the default is as is. */
     private val rewrite: (String) -> String = { it },
 ) {
     private val bundledItems: List<GuideInfo> = rows.map(::info)
 
-    /** 个人技能每次现读:收下、停用随时发生。 */
+    /** Personal skills can be read every time: they can be accepted or deactivated at any time. */
     val items: List<GuideInfo>
         get() {
             val mine = personalEntries().map { it.info }
@@ -64,7 +66,8 @@ class GuideCatalog private constructor(
         }
 
     /**
-     * [route] 为 `android`:有名为 [name] 的 App 知识;为 `browser`:有名为 [name] 的站点知识,或名为 [name] 的 App 关联了站点。
+     * [route] means `android`: there is knowledge of the App named [name]; for `browser`: there is
+     * knowledge of the site named [name], or the App named [name] is associated with the site.
      */
     fun hasRoute(name: String, route: String): Boolean = when (route) {
         "android" -> bundledItems.any { it.kind == KnowledgeIndex.APP && it.name == name }
@@ -73,8 +76,10 @@ class GuideCatalog private constructor(
     }
 
     /**
-     * 评分:名称/显示名/别名整词相同 > 包含(或整个出现在查询词里) > 检索词 > 描述;每个空白分隔的词分别计分,
-     * 至少一个词命中、且总分不低于 [minScore] 才返回。[among] 给了时只查这几种(见 [KNOWLEDGE_KINDS]、[SKILL_KINDS])。
+     * Scoring: The name/display name/alias is the same as the whole word > contains (or appears entirely
+     * in the query word) > search term > description; each blank-separated word is scored separately,
+     * and at least one word is hit and the total score is not lower than [minScore]. When [among] is
+     * given, only check these types (see [KNOWLEDGE_KINDS], [SKILL_KINDS]).
      */
     fun find(query: String, kind: String? = null, limit: Int = FIND_LIMIT, minScore: Int = 0, among: Set<String>? = null): List<GuideInfo> {
         val tokens = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
@@ -92,7 +97,8 @@ class GuideCatalog private constructor(
         return tokens.map { t ->
             when {
                 names.any { it == t } -> 100
-                // 中文目标通常不带空格,整句是一个词:名字出现在句子里也算部分对上
+                // Chinese targets usually do not have spaces, and the entire sentence is one word: if
+                // the name appears in the sentence, it is also considered a partial match.
                 names.any { it.contains(t) || (it.length >= 2 && t.contains(it)) } -> 60
                 terms.any { it == t } -> 50
                 terms.any { it.contains(t) } -> 40
@@ -102,8 +108,8 @@ class GuideCatalog private constructor(
         }.sum()
     }
 
-    /** [name] 可写 `app:meituan` / `site:jd.com` / `skill:documents` / `personal:xxx`,也可只写名字(重名时报歧义)。 */
-    /** [note] 是放在正文前的附注(见 [toolsNote])。[among] 给了时只读这几种,名字是另一组的时说清该用哪个工具读。 */
+    /** [name] can be written as `app:meituan` / `site:jd.com` / `skill:documents` / `personal:xxx`, or just the name can be written (the same name will cause ambiguity). */
+    /** [note] is a note placed before the text (see [toolsNote]). When [among] is given, only these types can be read. When the name is in another group, please indicate which tool should be used to read it. */
     fun view(name: String, file: String? = null, note: String = UNAVAILABLE_TOOLS_NOTE, among: Set<String>? = null): GuideView {
         val n = name.trim()
         val prefixed = n.substringBefore(':', "").takeIf { it in KnowledgeIndex.KINDS || it == PERSONAL_KIND }
@@ -133,7 +139,8 @@ class GuideCatalog private constructor(
         return GuideView.Found(info, path, note + "\n" + (if (cut) text.take(VIEW_LIMIT) + "\n…(truncated; use file_path to view the other files)" else text), cut, text.length)
     }
 
-    // 坏掉的个人技能明确报错,不回退到同名内置技能
+    // Broken personal skills will clearly report an error and will not fall back to the built-in skill
+    // with the same name.
     private fun viewPersonal(info: GuideInfo, path: String): GuideView {
         if (path != SKILL_FILE) return GuideView.Failed("file_not_found", "Personal skill ${info.name} has only $SKILL_FILE.")
         val body = personalEntries().find { it.info.name == info.name }?.body
@@ -143,7 +150,7 @@ class GuideCatalog private constructor(
         return GuideView.Found(info, SKILL_FILE, if (cut) body.take(VIEW_LIMIT) + "\n…(truncated)" else body, cut, body.length)
     }
 
-    /** 主文件(APP.md / SITE.md / SKILL.md)的正文,去掉头部。坏掉的个人技能为 null。 */
+    /** The main text of the main file (APP.md / SITE.md / SKILL.md), remove the header. Broken personal skills are null. */
     fun fullText(info: GuideInfo): String? {
         if (info.kind == PERSONAL_KIND) return personalEntries().find { it.info.name == info.name }?.body
         return read(info, KnowledgeIndex.fileOf(info.kind))
@@ -152,12 +159,12 @@ class GuideCatalog private constructor(
     private fun read(info: GuideInfo, file: String): String? =
         resource("${KnowledgeIndex.dirOf(info.kind)}/${info.name}/$file")?.let { FrontMatter.parse(it.toString(Charsets.UTF_8)).second }
 
-    /** 在沙箱里的目录(`/opt/mina/skills` 之下),也是 run_bundled_script 的 source 参数,如 `skills/documents`、`skills/research`。 */
+    /** The directory in the sandbox (under `/opt/mina/skills`) is also the source parameter of run_bundled_script, such as `skills/documents`, `skills/research`. */
     fun scriptSource(info: GuideInfo): String = "${KnowledgeIndex.dirOf(info.kind).substringAfterLast('/')}/${info.name}"
 
     /**
-     * 要同步进沙箱的脚本:每个带 `scripts/manifest.json` 的条目,清单本身加上清单里列出的文件。
-     * 键是 `/opt/mina/skills` 之下的相对路径。
+     * Scripts to be synchronized into the sandbox: each entry with `scripts/manifest.json`, the manifest
+     * itself plus the files listed in the manifest. The key is a relative path under `/opt/mina/skills`.
      */
     fun scriptFiles(): Map<String, ByteArray> {
         val out = sortedMapOf<String, ByteArray>()
@@ -171,7 +178,7 @@ class GuideCatalog private constructor(
         return out
     }
 
-    /** 清单里标为可运行(且是能跑的脚本类型)的脚本,`目录/文件`,如 `skills/documents/scripts/extract_pdf.py`。 */
+    /** Scripts marked as executable (and of a executable script type) in the list are `directory/file`, such as `skills/documents/scripts/extract_pdf.py`. */
     fun runnableScripts(): Set<String> {
         val out = sortedSetOf<String>()
         for (info in bundledItems) {
@@ -183,12 +190,14 @@ class GuideCatalog private constructor(
         return out
     }
 
-    /** 内置站点知识里有没有声明站点命令(没有就不提供运行站点命令的工具)。 */
+    /** Are there any site commands declared in the built-in site knowledge (if not, the tool for running site commands will not be provided). */
     fun hasSiteCommands(): Boolean = rows.any { it.kind == KnowledgeIndex.SITE && it.commands.isNotEmpty() }
 
     /**
-     * 主机 [host] 所属站点声明的站点命令,带脚本正文;没有为空。站点和注入站点知识时按同一规则认([SiteMatch],最具体的域名优先),
-     * 认出的站点没有命令就是没有,不退到别的站点。
+     * The site command declared by the site to which host [host] belongs, with script text; if not, it
+     * is empty. The site and the site knowledge injected are recognized according to the same rules
+     * ([SiteMatch], the most specific domain name takes precedence). If there is no command for the
+     * recognized site, it means it does not exist, and it will not be returned to other sites.
      */
     fun siteCommands(host: String): List<SiteCommand> {
         val site = SiteMatch.best(host, rows.filter { it.kind == KnowledgeIndex.SITE }) { it.domains }.firstOrNull()
@@ -199,22 +208,23 @@ class GuideCatalog private constructor(
         }
     }
 
-    /** 主机 [host] 所属站点知识写的 pace(认站点的规则同 [siteCommands]);没有为 null。 */
+    /** The pace written by the knowledge of the site to which host [host] belongs (the rules for identifying the site are the same as [siteCommands]); if not, it is null. */
     fun sitePace(host: String): String? =
         SiteMatch.best(host, rows.filter { it.kind == KnowledgeIndex.SITE }) { it.domains }.firstOrNull()?.pace
 
-    /** 包名 [packageName] 所属 App 知识写的 pace(包名在它的 packages 里);没有为 null。 */
+    /** The package name [packageName] is written in pace by the knowledge of the App it belongs to (the package name is in its packages); if not, it is null. */
     fun appPace(packageName: String): String? =
         rows.firstOrNull { it.kind == KnowledgeIndex.APP && packageName in it.packages }?.pace
 
     private fun resource(rel: String): ByteArray? = loader.getResourceAsStream(rel)?.use { it.readBytes() }
 
-    /** [body] 为 null:SKILL.md 头部缺失、名字对不上或正文为空。 */
+    /** [body] is null: SKILL.md header is missing, the name does not match, or the body is empty. */
     private class PersonalEntry(val info: GuideInfo, val body: String?)
 
     private fun personalEntries(): List<PersonalEntry> =
         personal?.list().orEmpty().filter { it.status == SkillStatus.active || it.status == SkillStatus.trial }.map { s ->
-            // 改名前写下的工具名换成现在的,模型读到的都是能用的名字
+            // Change the tool name written before the name change to the current one, and the model will
+            // read all the usable names.
             val (meta, body) = FrontMatter.parse(s.markdown).let { (m, b) -> m to rewrite(b) }
             fun one(k: String) = meta[k] as? String
             fun many(k: String) = (meta[k] as? List<*>)?.filterIsInstance<String>() ?: listOfNotNull(one(k)?.takeIf { it.isNotEmpty() })
@@ -236,7 +246,7 @@ class GuideCatalog private constructor(
             return GuideCatalog(loader, rows.orEmpty())
         }
 
-        /** 内置目录 + 个人技能;[rewrite] 是个人技能正文载入时的改写(改名前的工具名换成现在的)。 */
+        /** Built-in directory + personal skills; [rewrite] is the rewrite when the personal skill text is loaded (the tool name before the rename is changed to the current one). */
         fun withPersonal(bundled: GuideCatalog, personal: PersonalSkills, rewrite: (String) -> String = { it }): GuideCatalog =
             GuideCatalog(bundled.loader, bundled.rows, personal, rewrite)
 

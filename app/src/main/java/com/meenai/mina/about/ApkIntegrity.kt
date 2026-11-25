@@ -4,21 +4,23 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.File
 import java.security.MessageDigest
 
-/** 更新包没通过校验时为什么拒绝;界面按这个给出不同的说明。 */
+/** Why is the update package rejected when it fails the verification? The interface gives different instructions based on this. */
 class ApkRejected(val reason: Reason) : Exception(reason.name) {
     enum class Reason {
-        /** 大小、SHA-256 对不上,或者根本读不出安装包。 */
+        /** The size and SHA-256 do not match, or the installation package cannot be read at all. */
         Corrupt,
-        /** 不是 Mina,或者版本不比已装的新。 */
+        /** It is not Mina, or the version is not newer than the installed one. */
         NotNewer,
-        /** 签名证书和已装的 Mina 不同。 */
+        /** The signing certificate is different from the installed Mina. */
         Signer,
     }
 }
 
 /**
- * 下载地址只接受官方仓库的 HTTPS 发布附件。之后的跳转(到 GitHub 的附件存储)由系统下载服务处理、我们管不到,
- * 所以下载完的文件一律再验:大小与 SHA-256(发布元数据给了才验)、包名、版本号、签名证书。
+ * The download address only accepts HTTPS release attachments from the official repository. Subsequent
+ * jumps (to GitHub's attachment storage) are handled by the system download service and are beyond our
+ * control, so all downloaded files must be re-verified: size and SHA-256 (the release metadata is
+ * verified only after verification), package name, version number, and signature certificate.
  */
 internal object ApkIntegrity {
     private val official = "${HarnessLinks.RELEASES}/download/".toHttpUrl()
@@ -31,7 +33,7 @@ internal object ApkIntegrity {
         require(parsed.encodedPath.endsWith(".apk", ignoreCase = true))
     }
 
-    /** 给了摘要就必须是 sha256 且对得上;别的写法也算对不上,不放过。 */
+    /** If the abstract is given, it must be sha256 and correct; other writing methods are not considered correct, so we will not let it go. */
     fun verify(file: File, size: Long?, digest: String?) {
         corruptUnless(file.isFile && file.length() > 0)
         if (size != null) corruptUnless(file.length() == size)
@@ -42,8 +44,10 @@ internal object ApkIntegrity {
     }
 
     /**
-     * 新包的签名证书(各证书 SHA-256)要和已装的一致;新包轮换过签名时,已装的证书要在它的签名历史里。
-     * 系统安装器也会拦,这里提前拦下是为了给出说得清的提示。
+     * The signing certificate of the new package (each certificate SHA-256) must be consistent with the
+     * installed one; when the new package is rotated for signature, the installed certificate must be in
+     * its signature history. The system installer will also block it. The purpose of blocking it in
+     * advance is to give a clear prompt.
      */
     fun requireSameSigner(installed: Set<String>, archive: Set<String>, archiveHistory: Set<String>) {
         if (installed.isEmpty() || archive.isEmpty()) throw ApkRejected(ApkRejected.Reason.Signer)

@@ -28,12 +28,15 @@ import com.meenai.mina.core.uistate.withPortRef
 import com.meenai.mina.core.uistate.DwellStop
 import com.meenai.mina.core.uistate.dwellStopped
 
-/** 复制、剪切、粘贴。 */
+/** Copy, cut, paste. */
 private val CLIPBOARD_KEYS = setOf("KeyC", "KeyX", "KeyV")
 
 /**
- * web_interact:按 action 校验参数(多给的参数报错,不默默忽略),坐标按最近一屏换成 view 像素,
- * 稳定编号开着时两头的编号都先翻译成端口编号。组合键、拖动、下拉选择可能触发提交,要按目标判不可逆。
+ * web_interact: Verify parameters by action (extra parameters will report an error and will not be
+ * ignored silently), coordinates will be replaced by view pixels based on the latest screen, and when
+ * stable numbering is on, the numbers at both ends will be translated into port numbers first. Key
+ * combinations, dragging, and drop-down selections may trigger submission, which must be determined by
+ * the target to determine whether it is irreversible.
  */
 internal object Interact : WebTool {
     override val verb = Verb.Interact
@@ -81,11 +84,13 @@ internal object Interact : WebTool {
             "key" -> {
                 val spec = a.str("key", max = 60) ?: throw ArgError("key", "required for action key")
                 val combo = CdpKeys.parseCombo(spec) ?: throw ArgError("key", "not a supported key or combination: '$spec'. Use names like Enter, Escape, Tab, ArrowDown, Control+A, Shift+Tab")
-                // 剪贴板快捷键会把用户剪贴板里的东西交给网页(或改掉剪贴板):不做
+                // Clipboard shortcut keys will transfer the contents of the user's clipboard to the web
+                // page (or change the clipboard): Don't do it
                 if (combo.modifiers.any { it == KeyModifier.Control || it == KeyModifier.Meta } && combo.key.code in CLIPBOARD_KEYS) {
                     throw ArgError("key", "clipboard shortcuts (copy, cut, paste) are not allowed; use web_type_text to enter text")
                 }
-                // 回车一类的键可能提交、换页:和点击一样先补足这一页的停留
+                // Keys such as Enter can submit and page change: just like clicking, first make up for
+                // the stay on this page.
                 try { ctx.dwell?.before(port = w) } catch (e: DwellStop) { return dwellStopped(e) }
                 ctx.action(w.pressCombo(combo))
             }
@@ -108,7 +113,7 @@ internal object Interact : WebTool {
         }
     }
 
-    /** 一个落点:编号([refKey],snapshotId 共用)或 0–999 坐标;两样都给、坐标只给一半时报错,都没给为 null。 */
+    /** A landing point: number ([refKey], shared by snapshotId) or 0-999 coordinates; if both are given, an error will be reported if only half of the coordinates are given, and if neither is given, it will be null. */
     private suspend fun point(a: Args, ctx: ToolContext, refKey: String, xKey: String, yKey: String): WebPoint? {
         val ref = a.str(refKey)
         val x = a.coord(xKey); val y = a.coord(yKey)
@@ -124,7 +129,7 @@ internal object Interact : WebTool {
         return WebPoint.Xy(toPx(x, s.width), toPx(y!!, s.height))
     }
 
-    /** 稳定编号开着时把模型编号翻译成端口编号;已退役为 null(ref_expired)。 */
+    /** When stable numbering is on, translate the model number into a port number; retired to null (ref_expired). */
     private fun portPoint(p: WebPoint, ctx: ToolContext): WebPoint? {
         val st = ctx.session.stabilizer
         if (p !is WebPoint.Ref || st == null) return p

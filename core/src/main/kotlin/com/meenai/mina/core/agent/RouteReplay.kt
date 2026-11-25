@@ -27,28 +27,32 @@ private val REPLAY_SCREEN_HEADER: String get() = Feedback["replay_screen_header"
 private val REPLAY_NO_SCREEN: String get() = Feedback["replay_no_screen"]
 
 /**
- * 经验回放:第一次模型调用之前,有合适的路线就先照着做,做完或对不上都交还模型;任务结束后按结局更新路线的计数。
- * 路线出了问题(匹配、读写路线)都不影响任务。每个任务开始时 [reset]。
+ * Experience playback: Before calling the model for the first time, if there is a suitable route, follow
+ * it first, and return the model if it is completed or if it does not match; after the task is
+ * completed, the route count is updated according to the ending. Problems with the route (matching,
+ * reading and writing routes) will not affect the task. Each mission starts with [reset].
  */
 internal class RouteReplay(
     private val routes: RouteMatcher,
     private val tools: ToolDispatcher,
     private val gate: suspend () -> Unit,
-    /** 对外显示回放进度(也是关卡等完之后恢复的状态)。 */
+    /** The playback progress is displayed externally (also the state restored after the level is finished). */
     private val show: (TaskState.Running) -> Unit,
     private val emit: (RunEvent) -> Unit,
     private val clock: () -> Long,
 ) {
-    /** 本次任务回放过的路线与结果。 */
+    /** The replayed route and results of this mission. */
     private var replayed: Pair<Route, ReplayOutcome>? = null
 
     fun reset() { replayed = null }
 
-    /** 交还时读屏用最近操作的那块屏的读元素工具(回放的路线落在哪块屏就读哪块)。 */
+    /** When returning the screen, use the read element tool of the most recently operated screen to read the screen (read whichever screen the playback route falls on). */
     private val dumpTool: String get() = tools.index.nameOf(Verb.ListElements, tools.surface)!!
 
     /**
-     * 找路线并回放;回放过就把经过(做了哪几步、在哪对不上)和一份当前全量读屏交给模型,返回读屏里的前台 App。
+     * Find the route and play it back; after the playback, hand over the process (how many steps you
+     * took and where it doesn’t match) and a copy of the current full screen reading to the model, and
+     * return to the front-end app in the screen reading.
      */
     suspend fun run(task: String, history: MutableList<Message>, executor: ActionExecutor, ctx: ContextBuilder, track: StepTrack): Place? {
         val choice = try {
@@ -66,7 +70,7 @@ internal class RouteReplay(
             sink = object : RunSink {
                 override fun event(e: RunEvent) {
                     emit(e)
-                    // 一步对上了就显示下一步
+                    // If one step is correct, the next step will be displayed.
                     if (e is RunEvent.Replay && e.matched && e.step < e.total) {
                         running = running.copy(progress = RunProgress.Replay(e.step + 1, e.total))
                         show(running)
@@ -100,7 +104,8 @@ internal class RouteReplay(
             is ReplayOutcome.StoppedForConfirmation -> Feedback.format("replay.progress", "done" to out.done, "total" to steps.size, "steps" to doneLines.ifEmpty { Feedback["replay.no_steps"] },
                 "next" to Feedback.format("replay.stopped", "step" to (out.done + 1), "action" to Replayer.describe(steps[out.done], choice.slots)))
         }
-        // 当前全量读屏:模型从这里拿编号接着做;读不到就只交说明,任务照常继续
+        // Currently reading the screen in full: the model takes the number from here and continues; if
+        // it cannot be read, just hand in the instructions, and the task continues as usual.
         val looked = try {
             tools.executeRead(Part.ToolCall("replay_handback", dumpTool, "{}"), 0).takeIf { it.content["ok"] == JsonPrimitive(true) }
         } catch (e: CancellationException) {
@@ -110,21 +115,25 @@ internal class RouteReplay(
         }
         val read = looked?.content
         if (read != null) {
-            // 读屏做成一对工具调用与结果:裁剪和「模型看得到哪几屏」按读屏工具认它,各家接口对调用和结果的配对要求也都满足
+            // Screen reading creates a pair of tool calls and results: Cropping and "How many screens
+            // can the model see?" Press the screen reading tool to identify it. Each interface also
+            // meets the matching requirements for calls and results.
             val id = "replay_handback"
             history += Message(Role.Assistant, listOf(Part.Text(Feedback.format("replay.handback", "head" to head, "note" to REPLAY_SCREEN_HEADER)), Part.ToolCall(id, dumpTool, "{}")), Author.Mina)
             history += Message(Role.Tool, listOf(Part.ToolResult(id, read.toString(), isError = false, looked?.observations.orEmpty().map { it.tag })), Author.Mina)
-            // 能看图的主模型:交还时和动作之后一样看到此刻的画面
+            // Main model that can see pictures: you can see the scene at the moment when returning it
+            // and after the action.
             tools.imageNow()?.let { (png, shotId) -> history += Message(Role.User, listOf(Part.Text(Feedback["action_frame_note"]), tools.modelImage(png, shotId)), Author.Mina) }
         } else {
             history += ctx.notice(REPLAY_SOURCE, Feedback.format("replay.handback", "head" to head, "note" to REPLAY_NO_SCREEN))
         }
-        // 交还之后的一步按恢复步算(大小模型分工时交给主模型)
+        // The step after handing over is counted as a recovery step (handled to the main model when the
+        // large and small models are divided)
         track.markRecovery()
         return looked?.place
     }
 
-    /** 回放走完且这次运行算办成了([LearnGate],[outcome] 是交出回答后判的结局):成功计数 +1、清掉连续失误。 */
+    /** After the playback is completed and this run is completed ([LearnGate], [outcome] are the endings judged after handing in the answer): the success count +1, and the consecutive errors are cleared. */
     suspend fun noteResult(end: TaskState, outcome: RunOutcome) {
         val (route, out) = replayed ?: return
         if (out !is ReplayOutcome.Completed || !LearnGate.done(end, outcome)) return
@@ -134,12 +143,13 @@ internal class RouteReplay(
     private suspend fun update(id: String, change: (Route) -> Route) {
         val store = routes.store
         try {
-            // 读改写一次完成:并行的另一个任务同时改这条路线时计数不会丢
+            // Reading and rewriting are completed in one go: the count will not be lost when another
+            // parallel task changes this route at the same time.
             withContext(Dispatchers.IO) { store.update(id, change) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // 路线计数写不进去不影响任务
+            // If the route count cannot be written, it will not affect the task.
         }
     }
 

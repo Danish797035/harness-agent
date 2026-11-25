@@ -38,8 +38,11 @@ import com.meenai.mina.ui.components.MinaSwitch
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * 设置 › 恢复与修复 里手机操作的几个授权开关的文字(纯函数,便于测试)。和引导页一样说大白话,
- * 每一项都写清楚打开后 Mina 会做什么、怎么关;说明一直写在开关下面。都默认打开,配好手机操作后 Mina 自己补上。
+ * The text of several authorization switches for mobile phone operation in Settings › Recovery and
+ * Repair (pure functions, easy for testing). Just like the introductory page, it is written in plain
+ * language. Each item is clearly stated what Mina will do after it is turned on and how to turn it off.
+ * The instructions are always written below the switch. They are all turned on by default, and Mina can
+ * make up for it after configuring the mobile phone for operation.
  */
 object RecoveryCopy {
     data class SwitchCopy(val title: String, val subtitle: String, val explain: String)
@@ -71,20 +74,24 @@ object RecoveryCopy {
     val FAILED: String get() = tr(R.string.rec_failed)
     val WORKING: String get() = tr(R.string.rec_working)
 
-    /** 开关拨动后的一行反馈;成功时不多说。 */
+    /** One line of feedback after flipping the switch; not much to say when successful. */
     fun result(r: PermissionResult): String? = when (r) {
         PermissionResult.Done -> null
         PermissionResult.NoRunner -> NEED_SETUP
         is PermissionResult.Failed -> FAILED
     }
 
-    /** 要靠配对过的无线调试才起作用的几项:只用 USB 启动命令起过助手时用不上。 */
+    /** Several items that require paired wireless debugging to work: It is not available when starting the assistant using only the USB boot command. */
     private val NEEDS_PAIRING = setOf(RecoveryCapability.RestoreAfterReboot, RecoveryCapability.AutoWirelessDebugging)
 
     /**
-     * 默认打开、还没生效的那一项下面说一句:没配好手机操作就提示先完成设置(配好后自动打开),
-     * 自动打开没成功就照实说;生效了或用户关掉了不多说。
-     * 助手只用 USB 启动命令起过([HelperRestart.UsbCommand])时,靠无线调试重起助手的两项说清用不上、重启后要再运行命令。
+     * Let me say something about the item that is enabled by default and has not yet taken effect: If
+     * the phone is not configured properly, it will be prompted to complete the settings first (it will
+     * automatically open after configuration). If the automatic opening is not successful, just tell the
+     * truth; if it is effective or the user has turned it off, there will be no further explanation.
+     * When the assistant is started using only the USB startup command ([HelperRestart.UsbCommand]), the
+     * two instructions for restarting the assistant through wireless debugging are clearly unavailable
+     * and the command must be run again after restarting.
      */
     fun pending(
         c: RecoveryCapability, consent: RecoveryConsent, paired: Boolean, autoFailed: Set<RecoveryCapability>,
@@ -98,13 +105,13 @@ object RecoveryCopy {
         else -> null
     }
 
-    /** 「替我打开无障碍」下面,上次自动重启无障碍服务成功的时间;没成功时不说,界面顶上的提示照旧给手动处理的办法。 */
+    /** Under "Turn on accessibility for me", the time when the automatic restart of the accessibility service was successful last time is shown. If it fails, it will not be mentioned. The prompt at the top of the interface will still provide manual processing. */
     fun restarted(o: RepairOutcome?, zone: ZoneId = ZoneId.systemDefault()): String? =
         o?.takeIf { it.restarted }?.let { tr(R.string.rec_restarted_at, HH_MM.format(Instant.ofEpochMilli(it.atMillis).atZone(zone))) }
 
     private val HH_MM = DateTimeFormatter.ofPattern("HH:mm")
 
-    /** 「自动打开无线调试」下面,替你打开没成功、先停下的原因;没停下不多说。 */
+    /** "Automatically turn on wireless debugging" below, I will tell you why it failed to turn on and stopped first; I won't say more if I don't stop. */
     fun autoOnBlocked(b: AutoOnBlock?): String? = when (b) {
         null -> null
         AutoOnBlock.NotAllowedHere -> tr(R.string.rec_not_allowed_here)
@@ -112,7 +119,7 @@ object RecoveryCopy {
         AutoOnBlock.GaveUp -> tr(R.string.rec_gave_up)
     }
 
-    /** 「重启后自动恢复」下面,上次开机的结果;正常恢复了不多说。 */
+    /** "Automatic recovery after restart" below, the results of the last boot; not much to say about normal recovery. */
     fun lastRestore(o: RestoreOutcome?): String? = when (o) {
         null, RestoreOutcome.Restored -> null
         RestoreOutcome.PermissionMissing -> tr(R.string.rec_permission_missing)
@@ -121,7 +128,7 @@ object RecoveryCopy {
     }
 }
 
-/** 接上真实状态的几个开关:选择存在 [com.meenai.mina.settings.RecoverySettings],执行走已配对的连接。 */
+/** Connect several switches in the real state: select [com.meenai.mina.settings.RecoverySettings] and execute the paired connection. */
 @Composable
 fun RecoverySwitches() {
     val context = LocalContext.current
@@ -148,7 +155,8 @@ fun RecoverySwitches() {
         onToggle = { cap, on ->
             busy = cap
             message = null
-            // 不跟页面走:用户离开设置页时命令也要跑完,选择才和系统一致
+            // Don’t follow the page: When the user leaves the settings page, the command must be
+            // completed before the selection is consistent with the system.
             phone.pairing.scope.launch {
                 val r = phone.recovery.permissions.set(cap, on)
                 message = RecoveryCopy.result(r)?.let { cap to it }
@@ -159,10 +167,13 @@ fun RecoverySwitches() {
 }
 
 /**
- * 不带状态的几个开关,便于测试。开关显示用户要不要这一项(没亲手关掉就是打开),拨动直接执行,不再确认;
- * [notes] 是某一项下面的一行提示(拨动的结果、要先完成设置、自动打开没成功);
- * [restartNote] 是「替我打开无障碍」下面的一行说明(上次自动重启过无障碍服务);
- * [autoOnNote] 是「自动打开无线调试」下面的一行说明(替你打开没成功、先停下了)。
+ * Several switches without status for easy testing. The switch shows whether the user wants this item
+ * (turn it on without turning it off personally), and the toggle is executed directly without
+ * confirmation; [notes] is a line of prompts under a certain item (the result of the toggle, the
+ * settings must be completed first, and the automatic opening is not successful); [restartNote] is the
+ * line of instructions under "Turn on accessibility for me" (the accessibility service was automatically
+ * restarted last time); [autoOnNote] It's the line below "Automatically turn on wireless debugging" (it
+ * didn't work for you, so I stopped it first).
  */
 @Composable
 fun RecoverySection(

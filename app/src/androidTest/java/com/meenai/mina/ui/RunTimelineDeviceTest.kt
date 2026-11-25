@@ -30,8 +30,10 @@ import com.meenai.mina.task.testTasks
 import com.meenai.mina.task.TaskEnvironment
 
 /**
- * 真机:脚本模型跑一个 3 步任务(打开设置、看屏幕、交结果),在结果卡片上点「查看过程」,
- * 时间线上应有 3 行,点有画面的那行能看到当时的缩略图。需要内置助手在运行、Mina 无障碍服务已开启。
+ * Real machine: The script model runs a 3-step task (open settings, view the screen, and submit the
+ * results). Click "View Process" on the result card. There should be 3 lines on the timeline. Click on
+ * the line with the picture to see the thumbnail at that time. Requires the built-in assistant to be
+ * running and the Mina accessibility service to be turned on.
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)

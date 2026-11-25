@@ -6,7 +6,7 @@ import com.meenai.mina.core.workspace.WorkspaceFileGate
 import com.meenai.mina.core.workspace.SandboxTree
 import kotlinx.serialization.json.JsonObject
 
-/** 沙箱命令请求手机工具时,交回本任务的动作执行入口。 */
+/** When the sandbox command requests a mobile tool, the action execution entry for this task is returned. */
 fun interface PhoneCommandHandler {
     suspend fun call(tool: String, args: JsonObject): JsonObject
 }
@@ -19,56 +19,59 @@ sealed interface SandboxStatus {
     data class Broken(val reason: String) : SandboxStatus
 }
 
-/** Agent 接触 Linux 沙箱的唯一入口;路径都是沙箱里的路径([SandboxPaths])。 */
+/** The Agent is the only entrance to the Linux sandbox; the paths are all paths in the sandbox ([SandboxPaths]). */
 interface SandboxPort {
-    /** 沙箱目录的树锁:往工作区写的都在它的许可里写。 */
+    /** Tree lock of sandbox directory: Everything written to the workspace is written in its permission. */
     val tree: SandboxTree
 
     fun status(): SandboxStatus
 
-    /** 用户是否允许沙箱联网(运行环境还没准备好时也知道);默认按就绪状态里的。 */
+    /** Whether the user allows the sandbox to connect to the Internet (it will also be known when the running environment is not ready); by default, it is in the ready state. */
     fun networkAllowed(): Boolean = (status() as? SandboxStatus.Ready)?.network == true
 
-    /** [cwd]:`/workspace` 下的相对路径,null 为 `/workspace` 本身。 */
+    /** [cwd]: The relative path under `/workspace`, null is `/workspace` itself. */
     suspend fun run(workspace: String, argv: List<String>, cwd: String?, timeoutMs: Long, onProgress: (String) -> Unit): CommandResult
 
-    /** 当前任务提供手机工具入口时，命令可通过桥接调用；旧实现仍可只实现 [run]。 */
+    /** When the current task provides a mobile tool entry, the command can be called through the bridge; the old implementation can still only implement [run]. */
     suspend fun runWithPhone(workspace: String, argv: List<String>, cwd: String?, timeoutMs: Long,
         onProgress: (String) -> Unit, phone: PhoneCommandHandler?): CommandResult =
         run(workspace, argv, cwd, timeoutMs, onProgress)
 
-    /** 沙箱路径对应的宿主文件;越界(含符号链接指到外面)或 [forWrite] 时不在工作区下,返回 null。只用来判断,读写走 [files]。 */
+    /** The host file corresponding to the sandbox path; when it is out of bounds (including symbolic links pointing outside) or [forWrite] is not in the workspace, null is returned. Only used for judgment, read and write [files]. */
     fun hostPath(workspace: String, sandboxPath: String, forWrite: Boolean): File?
 
-    /** 宿主侧读写沙箱目录里的文件都过这一道:打开一次、在句柄上核实、再在这个句柄上读写。 */
+    /** Reading and writing files in the sandbox directory on the host side go through this process: open once, verify on the handle, and then read and write on this handle. */
     val files: WorkspaceFileGate
 
-    /** 规范化后的沙箱路径 → (宿主根目录, 根下相对路径),交给 [files];技能目录只读,越界为 null。工作区目录不存在时建上。 */
+    /** The normalized sandbox path → (host root directory, relative path under the root) is given to [files]; the skill directory is read-only, and is null when out of bounds. Create the workspace directory if it does not exist. */
     fun hostRoot(workspace: String, normalized: String, forWrite: Boolean): Pair<File, String>?
 
-    /** 存到手机的「下载/Harness」,返回 "Download/Harness/<名字>"。 */
+    /** Save it to "Download/Harness" on your phone and return to "Download/Harness/<name>". */
     suspend fun share(file: File, name: String): String
 
     fun freeBytes(): Long
     fun workspaceBytes(workspace: String): Long
 
     /**
-     * 存完整输出到 /workspace/.mina/out-<n>.txt,返回沙箱路径。经 [files] 新建(.mina 被换成链接等时抛异常,不写任何东西)。
+     * Save the complete output to /workspace/.mina/out-<n>.txt and return the sandbox path. Created by
+     * [files] (an exception is thrown when.mina is replaced by a link, etc., and nothing is written).
      */
     fun saveOutput(workspace: String, text: String): String
 
-    /** [skillPath]:`/opt/mina/skills` 下的技能目录(相对路径);读随 App 打包的那份清单,没有为空。 */
+    /** [skillPath]: The skill directory (relative path) under `/opt/mina/skills`; read the list packaged with the App, and it is not empty. */
     fun scriptManifest(skillPath: String): List<ScriptEntry>
 
     /**
-     * 运行环境还没准备好(首次启动解包中、或还没开始)时:开始准备并等它,最多 [timeoutMs];返回等完后的状态。
-     * 不支持的设备、准备失败时尽快返回。默认实现不等。
+     * When the operating environment is not ready yet (unpacking is being started for the first time, or
+     * has not yet started): Start preparation and wait for it, up to [timeoutMs]; return to the state
+     * after waiting. Unsupported devices, return as soon as possible when preparation fails. The default
+     * implementation is not equal.
      */
     suspend fun awaitReady(timeoutMs: Long): SandboxStatus = status()
 
-    /** 把 `/opt/mina/skills` 核对成随 App 打包的那份:多出、缺少、改过的都重新同步。失败只记下,不抛。 */
+    /** Check `/opt/mina/skills` to the one packaged with the App: any extra, missing, or modified ones will be resynchronized. Just record the failures, don't throw them away. */
     suspend fun prepare() {}
 
-    /** [skillPath] 下的 [file] 与打包的那份逐字节相同;不同就重新同步一次再核,仍不同为 false。 */
+    /** [file] under [skillPath] is the same as the packed one byte by byte; if it is different, resynchronize it and check again. If it is still different, it will be false. */
     suspend fun verifyScript(skillPath: String, file: String): Boolean = true
 }

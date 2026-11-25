@@ -4,8 +4,11 @@ import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.prompt.Prompts
 
 /**
- * 本任务的工具:[all] 是各能力与核心可能提供的全部工具(按发给模型的顺序),本任务能调用的按配置筛过。
- * 每次调用按名字找到工具再执行,分发器不认识具体工具。[groupOf] 给出工具所属的组(见 [ToolGroups];一直都在为 null)。
+ * The tools for this task: [all] are all the tools that may be provided by each capability and core (in
+ * the order of delivery to the model). The tools that can be called by this task are filtered by
+ * configuration. Every time it is called, the tool is found by name and then executed. The distributor
+ * does not know the specific tool. [groupOf] gives the group to which the tool belongs (see
+ * [ToolGroups]; always null).
  */
 internal class ToolRegistry(private val ctx: ToolContext, all: List<AgentTool>, private val groupOf: (AgentTool) -> String? = { null }) {
     private val declared: Map<String, AgentTool> = all.associateBy { it.name }
@@ -17,12 +20,15 @@ internal class ToolRegistry(private val ctx: ToolContext, all: List<AgentTool>, 
 
     operator fun get(name: String): AgentTool? = tools[name]
 
-    /** 按名字查工具的声明(风险、判定目标……),本任务没提供的也查得到;不认识的为 null。 */
+    /** Search the statement of the tool by name (risks, determination goals...). If this task does not provide it, you can also find it; if you don't know it, it will be null. */
     fun declared(name: String): AgentTool? = declared[name]
 
     /**
-     * 第一次取目录时冻结本 Run 的工具定义(全文、入口的短说明、所属的组);后续端口状态变化只能影响执行,不能改提示词前缀。
-     * 入口的短说明在 prompts/entries/<工具名>.md,参数和全文一样。
+     * The tool definition of this Run (full text, short description of the entry, and the group it
+     * belongs to) is frozen when the directory is fetched for the first time; subsequent port status
+     * changes can only affect the execution, and the prompt word prefix cannot be changed. The short
+     * description of the entry is in prompts/entries/<tool name>.md, and the parameters are the same as the
+     * full text.
      */
     private val frozen: List<ToolGroups.Slot> by lazy {
         tools.values.filter { it.offered(ctx) }.map { t ->
@@ -31,21 +37,21 @@ internal class ToolRegistry(private val ctx: ToolContext, all: List<AgentTool>, 
         }
     }
 
-    /** 本任务提供的全部工具(每组都展开、全文)。 */
+    /** All tools provided for this task (expanded, full text for each group). */
     fun definitions(): List<ToolSpec> = frozen.map { it.full }
 
-    /** 此刻发给模型的工具:只展开 [expanded] 里的组(见 [ToolGroups.layout])。 */
+    /** Tools sent to the model at this time: Expand only the groups in [expanded] (see [ToolGroups.layout]). */
     fun layered(expanded: Set<String>, extra: Map<String, List<ToolSpec>>): List<ToolSpec> = ToolGroups.layout(frozen, expanded, extra)
 
-    /** 组 [group] 里有发给模型的入口工具。 */
+    /** Group [group] contains the entry tool issued to the model. */
     fun hasEntry(group: String): Boolean = frozen.any { it.group == group && it.entry != null }
 
-    /** 组 [group] 里发给模型的工具名(按登记的顺序)。 */
+    /** Tool names assigned to the model in group [group] (in the order of registration). */
     fun members(group: String): List<String> = frozen.filter { it.group == group }.map { it.full.name }
 
-    /** 能放进 do_steps 的工具名(本任务没提供的也列),按登记的顺序。 */
+    /** Tool names that can be put into do_steps (those not provided in this task are also listed), in the order of registration. */
     fun batchable(): List<String> = declared.values.filter { it.batchable }.map { it.name }
 
-    /** 「未知工具」的说明里列出的名字:随时可用的那些(不动屏幕的一组看运行环境就绪,不列)。 */
+    /** The names listed in the description of "Unknown Tools": those that are available at any time (the group that does not move the screen to see if the operating environment is ready, is not listed). */
     fun listedNames(): List<String> = tools.values.filter { !it.offScreen }.map { it.name }
 }

@@ -18,7 +18,7 @@ class AppClassifierTest {
         assertNull(AppAccessState(classifications = mapOf("bank" to AppClassification(AppCategory.Finance))).denial("bank"))
     }
 
-    /** 分类理由用界面语言写:语言和要分类的应用一起交给模型,不是写死在提示词里。 */
+    /** The reasons for classification are written in the interface language: the language and the application to be classified are handed over to the model, rather than written in the prompt words. */
     @Test fun reasonLanguageIsSentWithTheApps() = runTest {
         val model = RecordingModel("""[{"package":"bank","category":"Finance","reason":"Banking app"}]""")
         val parsed = AppClassifier(model, language = "English").classify(listOf("bank" to "Bank App"))
@@ -28,7 +28,7 @@ class AppClassifierTest {
         assertTrue("classification rules missing from system prompt", model.system.contains("Classify Android applications"))
     }
 
-    /** 换语言只改理由的语言,分类结果本身不变。 */
+    /** Changing the language only changes the language of the reason, and the classification result itself remains unchanged. */
     @Test fun languageOnlyChangesTheReasonLanguage() = runTest {
         val reply = """[{"package":"bank","category":"Finance","reason":"银行"}]"""
         val zh = AppClassifier(RecordingModel(reply), language = "Simplified Chinese").classify(listOf("bank" to "银行"))

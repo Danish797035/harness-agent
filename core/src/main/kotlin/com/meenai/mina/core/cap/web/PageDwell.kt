@@ -10,15 +10,21 @@ import com.meenai.mina.core.uistate.PageLimitReached
 import com.meenai.mina.core.uistate.PlacePace
 
 /**
- * 一个任务里按 [PagePacing] 停留:看着页面的地址([seen])认出来了新的一页,往下滚时页面自己又拉来一批内容([loadedMore])
- * 也算一页;要换页的动作之前 [before] 补足这一页还没停够的时间,停了多久交给 [onWait](记成这次调用的等待)。
- * [pace] 按主机名给出站点知识对这个网站浏览快慢的说法。
- * 给了 [idle] 且动作不按屏幕坐标做(交了端口)时,停留里按它的安排把页面轻轻滚几下([WebPort.idleScroll]),滚了几下交给 [onIdleScroll]。
- * 同一个网站本任务里来的页到了上限,[before] 不再等,抛 [PageLimitReached]:调用方不做这个动作;
- * 上限只管浏览:正在做的对外动作(发送、提交,[outwardStart] 到 [outwardEnd] 之间)不拦,
- * 本任务在这个网站上做成过对外动作之后不再设上限。
- * 停留中用户插了话([waitOrSteer]),[before] 不再等,抛 [DwellInterrupted]:调用方同样不做这个动作;
- * 这一页没停够的部分不算停过,下次要换页之前照样补足。
+ * Press [PagePacing] to stay in a task: looking at the address of the page ([seen]), you recognize a new
+ * page. When scrolling down, the page itself pulls in a batch of content ([loadedMore]), which is also
+ * counted as one page; before the page change action, [before] makes up for the time that the page has
+ * not been paused. After how long, it is handed over to [onWait] (recorded as the wait for this call).
+ * [pace] gives site knowledge on the browsing speed of this website by host name. When [idle] is given
+ * and the action is not performed according to the screen coordinates (the port is handed over), the
+ * page is gently scrolled a few times according to its arrangement during the stay
+ * ([WebPort.idleScroll]), and the page is handed over to [onIdleScroll] after a few scrolls. The pages
+ * from this task on the same website have reached the upper limit. [before] will no longer wait and
+ * throw [PageLimitReached]: the caller will not perform this action; the upper limit is only browsing:
+ * the external actions being done (sending, submitting, between [outwardStart] and [outwardEnd]) will
+ * not be blocked. This task will no longer set an upper limit after the external actions are completed
+ * on this website. The user interrupts during the pause ([waitOrSteer]), [before] no longer waits,
+ * throws [DwellInterrupted]: The caller also does not perform this action; the part that is not paused
+ * on this page is not considered paused, and it will be made up before the next page change.
  */
 internal class PageDwell(
     private val pacing: PagePacing,
@@ -27,13 +33,13 @@ internal class PageDwell(
     private val clock: () -> Long = System::currentTimeMillis,
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
-    /** 停下之后调用(参数是停了多少毫秒)。 */
+    /** Called after stopping (the parameter is the number of milliseconds to stop). */
     var onWait: (Long) -> Unit = {}
 
-    /** 停留里轻轻滚了页面之后调用(参数是滚了几下)。 */
+    /** Called after gently scrolling the page while staying (the parameter is the number of scrolls). */
     var onIdleScroll: (Int) -> Unit = {}
 
-    /** 停留里轻轻滚过页面、接着要做动作之前调用(重看动作前的样子,免得把滚动算成动作的效果)。 */
+    /** While staying, gently scroll through the page and then call it before taking action (revisit the appearance before the action to avoid counting scrolling as the effect of the action). */
     var afterIdle: suspend () -> Unit = {}
 
     private var lastUrl: String? = null
@@ -42,7 +48,7 @@ internal class PageDwell(
 
     val paced: Boolean get() = pacing.paced
 
-    /** 看到了页面此刻的地址(读屏、打开网页的结果):和上次看到的不同(不计 # 后面)就是来了新的一页。 */
+    /** I saw the address of the page at the moment (the result of reading the screen and opening the web page): it is different from the last time I saw it (not counting the #), it is a new page. */
     @Synchronized
     fun seen(url: String?) {
         val u = url?.substringBefore('#')?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: return
@@ -51,30 +57,33 @@ internal class PageDwell(
         pacing.noteLoad(u, clock(), paceOf(u))
     }
 
-    /** 地址没变,页面自己又拉来了一批内容(往下滚加载更多)。 */
+    /** The address has not changed, and the page itself has pulled in a batch of content (scroll down to load more). */
     @Synchronized
     fun loadedMore() {
         lastUrl?.let { pacing.noteLoad(it, clock(), paceOf(it)) }
     }
 
-    /** 用户答过话:各网站的页数重新算。 */
+    /** The user replied: The number of pages on each website will be recalculated. */
     fun userAnswered() = pacing.userAnswered()
 
-    /** 正在做的对外动作所在的网站(可注册域名);没有为 null。 */
+    /** The website where the external action is being performed (registerable domain name); if not, null. */
     @Volatile private var outwardNow: String? = null
 
-    /** 在 [site](网站主机名)上要做一次对外动作:这一次不受页数上限拦。 */
+    /** Make an external action on [site] (website host name): this time it is not restricted by the page limit. */
     fun outwardStart(site: String) { outwardNow = siteKey(site) }
 
-    /** 对外动作做完;[done](做成了)时这个网站不再设页数上限。 */
+    /** When the external action is completed; [done] (made), this website will no longer have a page limit. */
     fun outwardEnd(site: String, done: Boolean) {
         outwardNow = null
         if (done) pacing.outwardDone(site)
     }
 
     /**
-     * 要换页之前:这一页没停够就补足;[target] 是要打开的网址(打开网页时),不给按此刻这一页的网站。返回停了多久。
-     * [port] 给了(动作不按屏幕坐标做)时,停留里可以轻轻滚几下页面。[gate] 时先看页数上限,到了抛 [PageLimitReached]。
+     * Before you want to change the page: If this page has not stopped enough, make up for it; [target]
+     * is the URL to be opened (when opening the web page), not the website of this page at the moment.
+     * Returns how long it was paused. When [port] is given (the action is not performed according to the
+     * screen coordinates), you can gently scroll the page a few times while staying. When it comes to
+     * [gate], first look at the upper limit of the number of pages, and then throw [PageLimitReached].
      */
     suspend fun before(target: String? = null, port: WebPort? = null, gate: Boolean = true): Long {
         val site = target ?: synchronized(this) { lastUrl } ?: return 0
@@ -88,14 +97,17 @@ internal class PageDwell(
         return wait
     }
 
-    /** 停 [ms] 毫秒;用户插了话就不再停,抛 [DwellInterrupted]。 */
+    /** Stop [ms] milliseconds; stop when the user interrupts, throw [DwellInterrupted]. */
     private suspend fun pause(ms: Long) {
         waitOrSteer { sleep(ms) } ?: throw DwellInterrupted()
     }
 
     /**
-     * 停 [wait] 毫秒,其间按 [plan] 的安排轻轻滚几下;端口说这会儿不便滚(弹框、输入框拿着焦点等)就不再滚,照样停够。
-     * 用户插话截断了停留时,滚过的几下照样报出去、模型手里的那一屏照样标成过时。
+     * Pause for [wait] milliseconds, during which time you will scroll slightly according to the
+     * arrangement of [plan]; if the port says that it is not convenient to scroll at this time (pop-up
+     * box, input box holding the focus, etc.), it will stop scrolling, and it is still enough. When the
+     * user interrupts the pause by interrupting, the scrolling times are still reported, and the screen
+     * in the model's hand is still marked as outdated.
      */
     private suspend fun idleWait(port: WebPort, plan: IdleScroll, wait: Long) {
         val start = clock()
@@ -127,7 +139,7 @@ internal class PageDwell(
 
     private fun hostOf(site: String): String = UrlHost.of(if ("://" in site) site else "https://$site") ?: site
 
-    /** 往下滚之前记下页面已收到的响应;滚完用 [afterScroll] 比,有新的成批数据就是加载了更多。 */
+    /** Before scrolling down, write down the responses that the page has received; after scrolling, use [afterScroll]. If there are new batches of data, more will be loaded. */
     suspend fun scrollMark(port: WebPort): Set<String>? = if (!paced) null else try {
         port.captures(null, null, false).mapTo(HashSet()) { it.id }
     } catch (e: CancellationException) {
@@ -142,7 +154,7 @@ internal class PageDwell(
         if (fresh.any { it.id !in mark && batch(it) }) loadedMore()
     }
 
-    /** 像一批列表数据的响应:成功收完、JSON 或文本、不太小(统计、心跳一类的小响应不算)。 */
+    /** Responses like a batch of list data: successfully received, JSON or text, not too small (small responses such as statistics and heartbeats are not counted). */
     private fun batch(c: CapturedResponse): Boolean {
         if (c.state != CapturedResponse.State.DONE || c.status !in 200..299) return false
         val mime = c.mime?.lowercase().orEmpty()
@@ -151,7 +163,7 @@ internal class PageDwell(
     }
 
     private companion object {
-        /** 算作「又来了一批内容」的响应至少这么大。 */
+        /** The response that counts as "another batch of content is coming" is at least this big. */
         const val MORE_MIN_BYTES = 2_048L
     }
 }

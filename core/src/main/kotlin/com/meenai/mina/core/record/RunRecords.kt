@@ -1,8 +1,10 @@
 package com.meenai.mina.core.record
 
 /**
- * 读已经存下的运行记录(只读):概要(run.json)和事件(events.jsonl)。记录落盘时已脱敏、截短,读出来原样给。
- * 记录已被清掉、编号不认识或读不出时返回 null / 空表,不抛异常。由 app 一侧按落盘的记录实现。
+ * Read the saved running records (read-only): summary (run.json) and event (events.jsonl). The record
+ * has been desensitized and truncated when placed on the disk, and is read as it is. When the record has
+ * been cleared, the number is unknown or cannot be read, null/empty table is returned and no exception
+ * is thrown. It is realized by pressing the record on the side of the app.
  */
 interface RunRecords {
     suspend fun summary(runId: String): RunSummary?

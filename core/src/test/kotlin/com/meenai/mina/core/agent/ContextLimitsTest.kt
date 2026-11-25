@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 触发点刚好不低于 [trigger] 的最小窗口(触发点随窗口单调不减)。 */
+/** The trigger point is just not lower than the minimum window of [trigger] (the trigger point does not decrease monotonically with the window). */
 internal fun windowFor(trigger: Int): Int {
     var lo = 1
     var hi = 100_000_000
@@ -16,18 +16,20 @@ internal fun windowFor(trigger: Int): Int {
     return lo
 }
 
-/** 还没校准时整份请求的估算(消息 + 固定开销,乘 [ContextCompressor.UNCALIBRATED_SCALE])。 */
+/** Estimation of the entire request before calibration (message + fixed overhead, multiplied by [ContextCompressor.UNCALIBRATED_SCALE]). */
 internal fun uncalibrated(ms: List<Message>, overhead: Int = 0) = UsageMeter.of(ms, overhead, ContextCompressor.UNCALIBRATED_SCALE)
 
 class ContextLimitsTest {
     @Test fun smallLocalWindow32k() {
         val l = ContextLimits.of(32_000)
-        // 输出预留 8K(窗口的四分之一),余量 6K(可用的四分之一)
+        // Output reserve 8K (a quarter of the window), margin 6K (a quarter of the available)
         assertEquals(24_000, l.usable)
         assertEquals(6_000, l.margin)
         assertEquals(18_000, l.trigger)
         assertEquals(12_000, l.target)
-        // 固定开销 11K 算在整份请求里,不再从触发点里扣第二次:消息还有 7K 可用,不会一开局就压
+        // The fixed overhead of 11K is included in the entire request and will not be deducted a second
+        // time from the trigger point: the message still has 7K available and will not be overwhelmed as
+        // soon as it starts.
         assertTrue(l.trigger - 11_000 >= 7_000)
     }
 
@@ -51,7 +53,8 @@ class ContextLimitsTest {
             assertTrue("$w", l.trigger >= w * ContextLimits.MIN_TRIGGER_SHARE && l.trigger <= l.usable)
             assertTrue("$w", l.target < l.trigger)
         }
-        // 按模型给的触发点:限在下限和可用窗口之间;目标跟着降
+        // According to the trigger point given by the model: the limit is between the lower limit and
+        // the available window; the target then decreases
         assertEquals(16_000, ContextLimits.of(32_000, triggerOverride = 1_000).trigger)
         assertEquals(24_000, ContextLimits.of(32_000, triggerOverride = 99_999).trigger)
         val low = ContextLimits.of(1_000_000, triggerOverride = 600_000)

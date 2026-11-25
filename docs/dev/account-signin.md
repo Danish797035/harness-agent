@@ -1,42 +1,100 @@
-# 用账号登录
+# Log in with account
 
-「添加服务商」最上面是「用账号登录 · 不用填 Key」一组：ChatGPT、xAI / Grok、OpenRouter。点一家先弹出说明面板（会发生什么、要注意什么），点了才开始登录；登录成功后打开这一家的详情：账号、状态、可用的模型（可刷新）、设为主模型、退出登录（只清本机）。
+At the top of "Add Service Provider" is the group "Log in with account · No need to fill in Key":
+ChatGPT, xAI / Grok, OpenRouter. Clicking on a family will first pop up the explanation panel (what
+will happen, what should be paid attention to), click to start logging in; after successful login,
+the details of this family will be opened: account, status, available models (can be refreshed), set
+as the main model, log out (only clear the local machine).
 
-「用 ChatGPT 登录」保持原样（`core/chatgpt/`，授权码 + PKCE，本机回调）。这里是另外几家账号登录，以及明确不做的原因。本机回调（`core/oauth/LoopbackCallback.kt`）和 PKCE（`core/oauth/Pkce.kt`）是 ChatGPT 和 OpenRouter 共用的。
+"Log in with ChatGPT" remains as is (`core/chatgpt/`, authorization code + PKCE, local callback).
+Here are a few other account logins and the clear reasons not to do it. Native callbacks
+(`core/oauth/LoopbackCallback.kt`) and PKCE (`core/oauth/Pkce.kt`) are common to ChatGPT and
+OpenRouter.
 
-登录、加密保存、刷新、调用各家自己的接口，四步分开。访问令牌、刷新令牌、设备码不进日志、不进诊断信息、不进界面上除用户码以外的文字。会话 JSON 和 API Key 放在同一处（`provider-keys.json`），用同一套加密。
+Login, encrypted saving, refreshing, and calling each company's own interface are four separate
+steps. Access tokens, refresh tokens, device codes are not entered in logs, diagnostic information
+is not entered, and text other than user codes on the interface is not entered. The session JSON and
+API Key are placed in the same place (`provider-keys.json`) and use the same encryption set.
 
-## xAI / Grok（设备码）
+## xAI/Grok (device code)
 
-- 读 `https://auth.x.ai/.well-known/openid-configuration`。签发方必须是 `https://auth.x.ai`，设备码和令牌地址必须是 https 且主机是 `auth.x.ai`。对不上就停止，请求不发到别的主机。
-- 设备码（RFC 8628）的 scope 是 `openid profile email offline_access grok-cli:access api:access`。用户在浏览器里打开验证页、核对短码，App 轮询换令牌。验证页的主机不在允许名单（`auth.x.ai`、`accounts.x.ai`）里就改开固定的官方页。
-- 客户端是 xAI 官方命令行工具的公开登录入口（公开 client_id `b1a00492-073a-47ea-816f-4c329264a828`）。这不是 xAI 给 Mina 注册的应用，xAI 可能限制这种用法，账号有被限制的风险。界面在登录前写明，不点「继续登录」就不发生。
-- 调用走 xAI 自己的 Responses：`https://api.x.ai/v1/responses`（`ResponsesModel`），不转成别的协议。
-- 访问令牌快过期时用刷新令牌换新的，同一时刻只有一个在换。刷新被拒且不能再用时清掉本机令牌，报「登录已失效」。
-- 登录成功但调用回 HTTP 403：说明这个订阅档位不能用这个接口（`ModelError.AccountPlanNotAllowed`），不重试；详情页和任务结局里都提示改用 xAI 的 API Key。
-- 退出只清这台手机上的令牌。xAI 账号里的授权要到 xAI 的账号设置里自己断开（没有可用的公开注销）。
+- Read `https://auth.x.ai/.well-known/openid-configuration`. The issuer must be `https://auth.x.ai`,
+  the device code and token address must be https and the host is `auth.x.ai`. If it doesn't match,
+  it will stop and the request will not be sent to other hosts.
+- The scope of the device code (RFC 8628) is `openid profile email offline_access grok-cli:access
+  api:access`. The user opens the verification page in the browser, checks the short code, and the
+  App polls for token exchange. If the host of the verification page is not in the allowed list
+  (`auth.x.ai`, `accounts.x.ai`), the fixed official page will be opened instead.
+- The client is the public login entrance of xAI official command line tool (public client_id
+  `b1a00492-073a-47ea-816f-4c329264a828`). This is not an application registered by xAI for Mina.
+  xAI may restrict this usage, and there is a risk that the account will be restricted. The
+  interface clearly states before logging in, and it will not happen unless you click "Continue
+  logging in".
+- Call xAI’s own Responses: `https://api.x.ai/v1/responses` (`ResponsesModel`) and do not convert it
+  to other protocols.
+- When the access token is about to expire, use the refresh token to replace it with a new one. Only
+  one is being replaced at the same time. When the refresh is rejected and can no longer be used,
+  the local token will be cleared and "Login has expired" will be reported.
+- The login is successful but the call returns HTTP 403: This indicates that this subscription level
+  cannot use this interface (`ModelError.AccountPlanNotAllowed`) and does not try again; both the
+  details page and the task ending prompt to use xAI's API Key instead.
+- Exiting will only clear the token on this phone. The authorization in the xAI account must be
+  disconnected by yourself in the xAI account settings (there is no public logout available).
 
-## OpenRouter（官方 OAuth PKCE）
+## OpenRouter (Official OAuth PKCE)
 
-OpenRouter 官方给第三方应用的登录方式（文档：https://openrouter.ai/docs/use-cases/oauth-pkce），换到的是一把普通的 OpenRouter API Key。
+OpenRouter official login method for third-party applications (Document:
+https://openrouter.ai/docs/use-cases/oauth-pkce), and what it returns is an ordinary OpenRouter API Key.
 
-- 本机回调：`LoopbackCallback` 在 `127.0.0.1` 上开系统挑的空闲端口，回调地址写成 `http://localhost:<端口>/auth/callback`（OpenRouter 写明本机回调任意端口都可以）。
-- 用系统浏览器打开 `https://openrouter.ai/auth?callback_url=…&code_challenge=…&code_challenge_method=S256&key_label=Mina&state=…`。校验串每次新生成，只在本机。
-- 回调带回 `code` 和 `state`：state 对不上的回 400、接着等；没带 code 也没带 state 的（用户在授权页拒绝）当作没同意。
-- `POST https://openrouter.ai/api/v1/auth/keys`，JSON `{code, code_verifier, code_challenge_method: "S256"}`，返回 `key`。403 是 code 或校验串不对、或 code 过期（10 分钟），400 是校验方式对不上。出错只留状态码，不留正文。换完才把结果页回给浏览器。
-- 存法：按 OpenRouter 预设存成一家 OpenAI 兼容服务商（`https://openrouter.ai/api/v1`），Key 和别的 API Key 一样经 `KeyCipher` 加密存在 `provider-keys.json`；服务商上记 `signIn = "openrouter"`（`providers.json` 的 `services[].signIn`），详情里显示成账号登录的样子。授权来的和用户自己填 Key 的 OpenRouter 各是一家（列表里授权来的写作「OpenRouter（账号登录）」），授权不会顶掉用户自己填的 Key，再登录只更新授权来的那一家。列模型、调用都和填 Key 的一样。
-- 退出登录只删本机的 Key，服务商、模型和用途留着；界面提示到 OpenRouter 的 Keys 页面（`https://openrouter.ai/settings/keys`）删掉名为 Mina 的那把。
+- Local callback: `LoopbackCallback` opens the idle port selected by the system on `127.0.0.1`, and
+the callback address is written as `http://localhost:<port>/auth/callback` (OpenRouter states that any
+local callback port can be used).
+- Open
+`https://openrouter.ai/auth?callback_url=…&code_challenge=…&code_challenge_method=S256&key_label=Mina&state=…`
+  with your system browser. The verification string is newly generated every time, only on this
+  machine.
+- The callback returns `code` and `state`: If the state does not match, it will return 400, and then
+  wait; if it does not include code or state (the user refuses on the authorization page), it will
+  be treated as not agreeing.
+- `POST https://openrouter.ai/api/v1/auth/keys`, JSON `{code, code_verifier, code_challenge_method:
+  "S256"}`, return `key`. 403 means the code or verification string is incorrect, or the code has
+  expired (10 minutes), 400 means the verification method does not match. If an error occurs, only
+  the status code is left, not the text. After the change is completed, the result page is returned
+  to the browser.
+- Saving method: Press OpenRouter to save as an OpenAI compatible service provider
+  (`https://openrouter.ai/api/v1`) by default. The Key is encrypted by `KeyCipher` and stored in
+  `provider-keys.json` like other API Keys; the service provider records `signIn = "openrouter"`
+  (`services[].signIn` of `providers.json`), and the details are displayed as account login. The
+  authorized OpenRouter and the OpenRouter that the user fills in the Key by themselves are each
+  from the same company (the authorized one in the list is written as "OpenRouter (account login)").
+  The authorization will not override the Key that the user filled in by himself. Logging in again
+  will only update the authorized one. The column model and call are the same as filling in the Key.
+- After logging out, only the local Key will be deleted, leaving the service provider, model and
+  purpose intact; the interface will prompt you to the OpenRouter Keys page
+  (`https://openrouter.ai/settings/keys`) to delete the one named Mina.
 
-## 不做
+## Don't do it
 
-### Claude 订阅
+### Claude Subscribe
 
-Anthropic 写明 OAuth 只给它自己的应用；第三方产品要用 Console 的 API Key 或云厂商凭证，不允许第三方 App 提供 Claude.ai 登录，也不允许把订阅额度接到自己的请求上。Mina 继续用 Anthropic 预设填 API Key。
+Anthropic states that OAuth is only for its own applications; third-party products must use the
+Console's API Key or cloud vendor credentials. Third-party apps are not allowed to provide Claude.ai
+login, nor are they allowed to transfer subscription credits to their own requests. Mina continues
+to use Anthropic to fill in the API Key by default.
 
-### MiniMax 账号
+### MiniMax account
 
-MiniMax 的官方文档没有给第三方 App 的 OAuth：没有让第三方自己登记客户端的入口，也没有公开给第三方用的 client_id。能找到的账号登录做法都要借用别家登记的客户端，Mina 不这样做。MiniMax 文档里给第三方工具的正当做法是 Token Plan（Coding Plan）的 API Key，在 Mina 里用 MiniMax 预设填 Key 即可。
+MiniMax's official documentation does not provide OAuth for third-party apps: it does not allow
+third parties to register their own client entries, nor does it disclose the client_id for third
+parties to use. All the account login methods you can find must be borrowed from clients registered
+by other companies. Mina does not do this. The valid method for third-party tools in the MiniMax
+document is the API Key of the Token Plan (Coding Plan), and you can use MiniMax to fill in the Key
+by default in Mina.
 
-### Google 账号（Gemini）
+### Google Account (Gemini)
 
-Google 不允许第三方软件借用它自家工具的 OAuth 客户端去访问后端。第三方要用 AI Studio 或 Vertex AI 的 API Key。Mina 继续用 Gemini 预设填 API Key。
+Google does not allow third-party software to borrow the OAuth client of its own tools to access the
+backend. Third parties need to use the API Key of AI Studio or Vertex AI. Mina continues to use
+Gemini to fill in the API Key by default.
+
+

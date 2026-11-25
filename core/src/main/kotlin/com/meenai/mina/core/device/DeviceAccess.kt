@@ -4,7 +4,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** 主屏状态,与 Agent 的虚拟屏无关。读不到状态时由端口报错,不推定已解锁。 */
+/** The main screen state has nothing to do with the Agent's virtual screen. If the status cannot be read, the port will report an error and it will not be presumed to be unlocked. */
 data class DeviceState(val interactive: Boolean, val keyguardShowing: Boolean, val deviceLocked: Boolean,
     val secure: Boolean, val helperAvailable: Boolean, val userUnlocked: Boolean) {
     val ready: Boolean get() = interactive && !keyguardShowing && !deviceLocked && userUnlocked
@@ -12,7 +12,7 @@ data class DeviceState(val interactive: Boolean, val keyguardShowing: Boolean, v
 
 enum class CredentialKind { Pin, Password }
 
-/** 凭据只在本机确定性流程内短暂存在;不提供带原文的 toString。用完擦除。 */
+/** Credentials exist only briefly within the native deterministic process; no toString with text is provided. Erase when finished. */
 class DeviceCredential(val kind: CredentialKind, val value: CharArray, val revision: String = "") : AutoCloseable {
     override fun close() { value.fill('\u0000') }
     override fun toString() = "DeviceCredential($kind, redacted)"
@@ -25,7 +25,7 @@ class DeviceCredential(val kind: CredentialKind, val value: CharArray, val revis
     }
 }
 
-/** 平台适配:唤醒、显示系统凭据页、确认输入目标、输入。绝不改变系统锁屏凭据。 */
+/** Platform adaptation: wake up, display system credentials page, confirm input target, input. Never change system lock screen credentials. */
 interface DeviceAccessPort {
     suspend fun state(): DeviceState
     suspend fun wake(): Boolean
@@ -34,7 +34,7 @@ interface DeviceAccessPort {
     suspend fun enter(credential: DeviceCredential): Boolean
 }
 
-/** 许可和凭据来自手机设置,电脑不能修改。输入前持久化占位,失败/取消/崩溃后不再自动重试。 */
+/** Permissions and credentials come from phone settings and cannot be modified on a computer. The placeholder is persisted before input and will no longer be automatically retried after failure/cancellation/crash. */
 interface DeviceAccessStore {
     val enabled: Boolean
     val credentialConfigured: Boolean
@@ -47,7 +47,7 @@ interface DeviceAccessStore {
 data class DeviceAccessResult(val status: String, val state: DeviceState?, val enabled: Boolean,
     val credentialConfigured: Boolean, val attemptBlocked: Boolean)
 
-/** 整个进程共用一份。并发调用串行化,成功依据系统状态,不依据按键或命令的返回码。 */
+/** The entire process shares one copy. Concurrent calls are serialized, and success is based on system status, not on keystrokes or command return codes. */
 class DeviceAccess(private val port: DeviceAccessPort, private val store: DeviceAccessStore,
     private val pollMs: Long = 150, private val waitMs: Long = 5_000) {
     private val mutex = Mutex()
@@ -97,7 +97,8 @@ class DeviceAccess(private val port: DeviceAccessPort, private val store: Device
             if (!targetReady) return@withLock result("unsupported_keyguard", read())
             if (!store.enabled) return@withLock result("disabled", read())
             if (!store.beginAttempt(it)) return@withLock result("attempt_blocked", read())
-            // 从此刻起中断也保留占位,不重复输入。只有系统已解锁才清掉。
+            // From now on, the interrupt will also retain the placeholder and will not be entered
+            // repeatedly. It can only be cleared if the system is unlocked.
             if (!store.enabled) return@withLock result("disabled", read())
             if (!port.enter(it)) {
                 val after = read()

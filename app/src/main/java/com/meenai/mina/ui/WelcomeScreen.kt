@@ -41,7 +41,7 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 上手第一步:说清 Mina 是什么、能做哪几类事,开始前要做的两件事和大概时间。 */
+/** The first step to get started: Explain clearly what Mina is, what types of things it can do, two things to do before starting, and the approximate time. */
 @Composable
 fun WelcomeScreen(onStart: () -> Unit) {
     val c = MinaTheme.colors
@@ -93,7 +93,7 @@ private fun Feature(icon: ImageVector, title: String, body: String, first: Boole
 
 private val LogoShape = RoundedCornerShape(22.dp)
 
-/** 欢迎页的文字。 */
+/** Welcome page text. */
 object WelcomeCopy {
     val TITLE: String get() = tr(R.string.welcome_title)
     val LEAD: String get() = tr(R.string.welcome_lead)

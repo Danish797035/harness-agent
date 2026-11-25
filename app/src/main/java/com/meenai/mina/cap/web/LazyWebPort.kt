@@ -24,9 +24,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 用到时才建的网页端口(和手机虚拟屏到第一次 launch_app 才建同一个道理):第一次打开网址时才调 [create] 建后台网页显示、标签池和脚本引擎;
- * 只用手机的任务从头到尾不建。没建之前,其余方法都按「还没有打开的网页」回答,和建好后没有标签时一样。
- * 建不起来(系统 WebView 出问题)时这次打开网址按标签崩溃报(tab_crashed),下次再试。
+ * The web port is built when it is used (the same reason as the mobile phone virtual screen is not built
+ * until the first launch_app): [create] is called to build the background web page display, tag pool and
+ * script engine when the website is opened for the first time; tasks that only use the mobile phone are
+ * not built from beginning to end. Before it is built, all other methods are answered by "webpage that
+ * has not been opened", just like when there is no label after it is built. When it cannot be built
+ * (there is a problem with the system WebView), the crash report (tab_crashed) occurs when opening the
+ * URL and pressing the tab this time. Try again next time.
  */
 class LazyWebPort(private val create: suspend () -> WebPort) : WebPort {
     private val lock = Mutex()
@@ -46,7 +50,7 @@ class LazyWebPort(private val create: suspend () -> WebPort) : WebPort {
 
     override suspend fun navigate(url: String, newTab: Boolean): NavResult = built().navigate(url, newTab)
 
-    /** 现在就建好(任务开局就要用网页时,如借来了用户看着的页面);建不起来返回 false,下次用到时再试。 */
+    /** Build it now (when the task starts using a web page, such as borrowing the page that the user is looking at); if it cannot be built, it returns false and try again next time it is used. */
     suspend fun prepare(): Boolean = try {
         built()
         true
@@ -54,7 +58,7 @@ class LazyWebPort(private val create: suspend () -> WebPort) : WebPort {
         false
     }
 
-    // ---------- 没建之前:没有打开的网页 ----------
+    // ---------- Before building: no open web page ----------
 
     override suspend fun snapshot(): ScreenSnapshot = port?.snapshot() ?: EMPTY
     override suspend fun peek(): ScreenSnapshot = port?.peek() ?: EMPTY
@@ -78,7 +82,7 @@ class LazyWebPort(private val create: suspend () -> WebPort) : WebPort {
     override suspend fun frameGrid() = port?.frameGrid()
     override suspend fun readPage(maxChars: Int, offset: Int, scrollLazy: Boolean): PageText =
         port?.readPage(maxChars, offset, scrollLazy) ?: PageText("", "", "", emptyList(), emptyList(), false, null)
-    /** 读一个网址(后台标签)和打开网址一样要先建好;读当前标签没建之前是空页。 */
+    /** Reading a URL (background tag) must be created first just like opening a URL; reading the current tag is an empty page before it is created. */
     override suspend fun read(req: PageRead): PageText =
         if (req.url != null) built().read(req) else port?.read(req) ?: PageText("", "", "", emptyList(), emptyList(), false, null)
     override suspend fun evaluate(script: String, timeoutMs: Long, args: JsonObject?): EvalJs =

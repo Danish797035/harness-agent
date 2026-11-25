@@ -25,7 +25,7 @@ class ResourceScopeTest {
         fun release() { released += name }
     }
 
-    /** 建好之后、交回调用方之前任务被取消:换线程的 withContext 交回时抛取消,资源仍归作用域,收尾时放掉。 */
+    /** After it is built, the task is canceled before it is handed back to the caller: when the withContext of the thread is changed and handed back, the cancellation is thrown, the resource is still returned to the scope, and is released at the end. */
     @Test
     fun cancelledRightAfterCreationStillReleased() = runBlocking {
         val scope = ResourceScope()
@@ -53,7 +53,7 @@ class ResourceScopeTest {
         assertEquals(listOf("c", "b", "a"), released)
     }
 
-    /** 放掉也在登记时给的上下文里做(如只能在主线程关的东西)。 */
+    /** Release can also be done in the context given during registration (such as something that can only be closed in the main thread). */
     @Test
     fun releaseRunsInAcquireContext() = runBlocking {
         val pool = Executors.newSingleThreadExecutor { Thread(it, "owner-thread") }
@@ -68,7 +68,7 @@ class ResourceScopeTest {
         }
     }
 
-    /** 一个放不掉,其余照放;第一个错误在全部放完后抛出。 */
+    /** If one cannot be released, the rest will be released; the first error will be thrown after all are released. */
     @Test
     fun failingReleaseDoesNotSkipOthers() = runBlocking {
         val scope = ResourceScope()
@@ -84,7 +84,7 @@ class ResourceScopeTest {
         assertEquals(listOf("c", "a"), released)
     }
 
-    /** 作用域已关:再建出来的立即放掉,调用方拿到错误而不是一个没人管的资源。 */
+    /** The scope is closed: any newly created resources are immediately discarded, and the caller gets an error instead of an unmanaged resource. */
     @Test
     fun acquireAfterCloseReleasesImmediately() = runBlocking {
         val scope = ResourceScope()
@@ -98,7 +98,7 @@ class ResourceScopeTest {
         assertEquals(listOf("late"), released)
     }
 
-    /** 多个线程同时登记、同时关:每个恰好放一次。 */
+    /** Multiple threads register and close at the same time: each is released exactly once. */
     @Test
     fun concurrentAcquireAndCloseReleaseEachOnce() = runBlocking {
         repeat(50) { round ->

@@ -24,7 +24,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-/** 传输层只须实现这两个操作；每个 Run 开局调用一次 tools，之后目录不变。 */
+/** The transport layer only needs to implement these two operations; tools are called once for each Run start, and the directory remains unchanged thereafter. */
 interface McpEndpoint {
     val serverId: String
     fun tools(): List<McpToolDescriptor>
@@ -47,10 +47,10 @@ data class McpToolDescriptor(
 
 data class McpResult(val text: String, val isError: Boolean = false, val costUnits: Long = 0)
 
-/** 每个服务独立配置；Restricted 不采信服务自称的只读注解。 */
+/** Each service is configured independently; Restricted does not respect the read-only annotation that the service claims. */
 enum class McpTrust { Restricted, TrustAnnotations }
 
-/** 长结果的完整文本由宿主保存；返回的引用只含文件路径或资源 ID。 */
+/** The full text of long results is saved by the host; the returned reference contains only the file path or resource ID. */
 fun interface McpResultStore { fun save(serverId: String, toolName: String, content: String): String }
 
 data class McpConnection(
@@ -63,7 +63,7 @@ data class McpConnection(
     init { require(previewChars > 0 && (maxCostUnits == null || maxCostUnits >= 0)) }
 }
 
-/** 没有只读注解就按可写处理；破坏性与开放世界操作记成不可逆、对外(审批记录据此知道任务做过对外的事)。 */
+/** If there is no read-only annotation, it will be treated as writable; destructive and open-world operations will be recorded as irreversible and external (the approval record will know that the task has done external things). */
 fun mcpApprovalRisk(a: McpAnnotations, trust: McpTrust = McpTrust.TrustAnnotations): ApprovalRisk = when {
     a.destructiveHint == true -> ApprovalRisk(ActionRisk.Irreversible)
     a.openWorldHint == true -> ApprovalRisk(ActionRisk.External)

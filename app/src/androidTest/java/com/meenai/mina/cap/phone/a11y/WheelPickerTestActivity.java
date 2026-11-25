@@ -9,9 +9,11 @@ import android.widget.TextView;
 import java.util.Locale;
 
 /**
- * 滚轮测试页:两个原版数字滚轮(0–59,两位数显示,循环),都从 0 开始。
- * 「分」可以直接输入;「锁住」挡住了里面的输入框(拿不到焦点,写进去的字不会被采用),只能一格一格滚。
- * 测试 APK 的页面运行在测试包自己的进程里、不带 Kotlin 标准库,所以用 Java 写。
+ * Scroll wheel test page: two original number scroll wheels (0–59, two-digit display, loop), both
+ * starting from 0. "Min" can be input directly; "Lock" blocks the input box inside (cannot get focus,
+ * and the words written in will not be used), so you can only scroll one box at a time. The test APK
+ * page runs in the test package's own process without the Kotlin standard library, so it is written in
+ * Java.
  */
 public class WheelPickerTestActivity extends Activity {
     public static final String MINUTES = "分";

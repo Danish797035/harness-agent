@@ -8,7 +8,7 @@ import org.junit.Test
 class ModelAccessErrorsTest {
     private fun notAvailable(status: Int, body: String) = ModelAccessErrors.of(status, body, "m") as ModelError.ModelNotAvailable
 
-    /** 各家「这个账号用不了这个模型」的说法:认成 ModelNotAvailable,带上服务端的原话。 */
+    /** Everyone's statement that "this account cannot use this model": recognize it as ModelNotAvailable and bring the original words of the server. */
     @Test fun accountCannotUseTheModel() {
         val notActivated = """{"code":"InvalidParameter","message":"The product is not activated, please confirm that you have activated products and try again after activation.","request_id":"x"}"""
         val e = notAvailable(400, notActivated)
@@ -19,7 +19,7 @@ class ModelAccessErrorsTest {
         notAvailable(403, """{"error":{"message":"Project does not have access to model gpt-x","code":"model_not_found"}}""")
         notAvailable(400, """{"error":{"code":"1220","message":"您当前使用该 API 的权限未开通"}}""")
         notAvailable(403, """{"error":{"message":"无权限访问该模型"}}""")
-        // 404 也可能这样说
+        // 404 may also be said
         notAvailable(404, """{"error":{"message":"Model not activated for this account"}}""")
         assertEquals("plain text not activated", notAvailable(400, "plain text not activated").detail)
         val noProvider = notAvailable(400, """{"message":"Model deepseek-ai/DeepSeek-V4-Pro has no provider supported"}""")
@@ -31,7 +31,7 @@ class ModelAccessErrorsTest {
         assertTrue(ModelAccessErrors.of(400, """{"error":{"message":"Function calling is not supported for this model"}}""", "x") is ModelError.ToolsUnsupported)
     }
 
-    /** 400 / 403 里说没有这个模型的:认成找不到模型,带上原话;404 没说别的由调用方照旧处理。 */
+    /** 400 / 403 says that there is no such model: it is considered that the model cannot be found, and the original words are provided; 404 does not say anything else, and the caller will handle it as usual. */
     @Test fun modelNotFoundInsideOtherStatuses() {
         val nf = ModelAccessErrors.of(400, """{"error":{"message":"Model Not Exist","type":"invalid_request_error"}}""", "m") as ModelError.ModelNotFound
         assertEquals("m", nf.model)
@@ -40,7 +40,7 @@ class ModelAccessErrorsTest {
         assertNull(ModelAccessErrors.of(404, """{"error":{"code":"model_not_found","message":"The model `x` does not exist or you do not have access to it."}}""", "m"))
     }
 
-    /** 找不到模型时只要 JSON 里的原话:地址不对时反向代理回的 HTML 页、空内容不当原话。 */
+    /** When the model cannot be found, only the original text in JSON is needed; when the address is incorrect, the HTML page returned by the reverse proxy and the empty content are not the original text. */
     @Test fun jsonDetailTakesOnlyWhatJsonSays() {
         assertEquals("none of group/rpa's models is ready", ModelAccessErrors.jsonDetail("""{"error":{"type":"not_found_error","message":"none of group/rpa's models is ready"}}"""))
         assertEquals("no route", ModelAccessErrors.jsonDetail("""{"error":"no route"}"""))
@@ -51,7 +51,7 @@ class ModelAccessErrorsTest {
         assertEquals("<html><head><title>404 Not Found</title></head></html>", ModelAccessErrors.detail("<html><head><title>404 Not Found</title></head></html>"))
     }
 
-    /** 原话去掉首尾空白;太长的截短,末尾加「…」。 */
+    /** Remove the leading and trailing blanks from the original words; shorten them if they are too long and add "..." at the end. */
     @Test fun longDetailIsClippedWithAnEllipsis() {
         assertEquals("short", ModelAccessErrors.jsonDetail("""{"error":{"message":"  short \n"}}"""))
         val long = "models/x is not found. " + "y".repeat(200)
@@ -61,7 +61,7 @@ class ModelAccessErrorsTest {
         assertEquals(clipped, ModelAccessErrors.detail("""{"error":{"message":"$long"}}"""))
     }
 
-    /** 429 里说这个账号在这个模型上额度为零:换模型才行,认成用不了;其余 429(真限流、额度用完)交给调用方。 */
+    /** 429 says that this account has a zero quota on this model: you can only change the model, and it is considered unusable; the remaining 429 (true current limit, quota used up) is handed over to the caller. */
     @Test fun quotaZeroForThisModelIsNotAvailable() {
         val freeTierZero = """{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. """ +
             """* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-x-pro",""" +
@@ -70,7 +70,7 @@ class ModelAccessErrorsTest {
         assertTrue(e.detail, e.detail.startsWith("You exceeded your current quota"))
         notAvailable(429, """{"error":{"code":429,"message":"Quota exceeded","status":"RESOURCE_EXHAUSTED","details":[{"violations":[{"quotaValue":"0"}]}]}}""")
         notAvailable(429, """{"error":{"code":429,"message":"This model doesn't have a free quota tier. Please enable billing.","status":"RESOURCE_EXHAUSTED"}}""")
-        // OpenAI 兼容的入口回的是数组
+        // The OpenAI compatible entry returns an array
         val inArray = notAvailable(429, """[{"error":{"code":429,"message":"Quota exceeded for metric: free_tier_input_token_count, limit: 0","status":"RESOURCE_EXHAUSTED"}}]""")
         assertEquals("Quota exceeded for metric: free_tier_input_token_count, limit: 0", inArray.detail)
         assertNull(ModelAccessErrors.of(429, """{"error":{"code":429,"message":"Quota exceeded for metric: requests_per_minute, limit: 10. Please retry in 7s.","status":"RESOURCE_EXHAUSTED"}}""", "m"))
@@ -79,7 +79,7 @@ class ModelAccessErrorsTest {
         assertNull(ModelAccessErrors.of(429, "", "m"))
     }
 
-    /** 模型下线了:404 / 400 里说 no longer available、retired、model … deprecated 的认成用不了,带原话;Gemini 的 not found for API version 认成找不到。 */
+    /** The model is offline: 404 / 400 says no longer available, retired, model... deprecated means it cannot be used, with the original words; Gemini means not found for API version means it cannot be found. */
     @Test fun retiredModels() {
         assertEquals(
             "Gemini 1.5 Flash is no longer available. Please switch to a newer model.",
@@ -93,28 +93,30 @@ class ModelAccessErrorsTest {
             ModelAccessErrors.of(400, """{"error":{"code":400,"message":"models/gemini-x is not found for API version v1beta, or is not supported for generateContent.","status":"INVALID_ARGUMENT"}}""", "m")
                 is ModelError.ModelNotFound,
         )
-        // 只说某个参数弃用了的不认
+        // It just says that a certain parameter is deprecated and doesn't recognize it.
         assertNull(ModelAccessErrors.of(400, """{"error":{"message":"The parameter `max_tokens` is deprecated, use `max_completion_tokens`."}}""", "m"))
     }
 
-    /** 400 里说这个模型不能走当前这个接口(服务商要求另一套形状):算这个模型用不了、接着试下一个,带上服务端的原话。 */
+    /** 400 says that this model cannot use the current interface (the service provider requires another set of shapes): consider this model unusable, then try the next one, and bring the original words of the server. */
     @Test fun modelCannotGoThroughThisEndpoint() {
         val shape = """{"error":{"message":"Model claude-sonnet-5-5 must be called via /provider/v1/messages (Anthropic Messages shape).","type":"invalid_request_error","param":"model","code":"unsupported_model"}}"""
         val e = notAvailable(400, shape)
         assertEquals("m", e.model)
         assertTrue(e.detail, e.detail.startsWith("Model claude-sonnet-5-5 must be called via /provider/v1/messages"))
-        // 只说错误代码的
+        // Just the error code
         notAvailable(400, """{"error":{"type":"invalid_request_error","param":"model","code":"unsupported_model"}}""")
         notAvailable(400, """{"error":{"message":"This model is only supported in v1/responses and not in v1/chat/completions.","param":"model"}}""")
         assertTrue(ModelAccessErrors.of(400, """{"error":{"message":"gpt-4o is not supported for this endpoint"}}""", "gpt-4o") is ModelError.ModelNotAvailable)
-        // 请求本身不对的不认,交给调用方按状态码说
+        // If the request itself is incorrect, it will not be recognized and will be handed over to the
+        // caller according to the status code.
         assertNull(ModelAccessErrors.of(400, """{"error":{"message":"Invalid value for 'temperature': 3"}}""", "m"))
-        // 说的是 Key 不能用这个接口、不是模型:不认,403 照旧由调用方当 Key 的问题
+        // It is talking about the problem that Key cannot use this interface, not the model: not
+        // recognized, 403, the caller is still the Key
         assertNull(ModelAccessErrors.of(403, """{"error":{"message":"Your API key is not supported for this endpoint"}}""", "gpt-x"))
         assertTrue(ModelHttp.openAiError(403, null, """{"error":{"message":"Your API key is not supported for this endpoint"}}""", "gpt-x") is ModelError.Auth)
     }
 
-    /** Key、额度、请求本身不对的不认;401 一律不看。 */
+    /** If the key, limit, or request itself is incorrect, it will not be recognized; 401 will not be viewed. */
     @Test fun otherErrorsAreLeftToTheAdapter() {
         assertNull(ModelAccessErrors.of(401, """{"error":{"message":"not activated"}}""", "m"))
         assertNull(ModelAccessErrors.of(400, """{"error":{"message":"Invalid parameter: messages"}}""", "m"))

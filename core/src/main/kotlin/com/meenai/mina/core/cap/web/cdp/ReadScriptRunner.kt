@@ -26,10 +26,13 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 一个标签的读脚本(见 [ReadScriptProtocol]):在主框架的读取世界里跑,一次一个。
- * 读取世界建一次、留着用(state 跨调用保留),页面换了文档它就没了,下次再建(结果里 fresh=true)。
- * 兜底:跑着时脚本发出任何网络请求、主框架要跳转(先 `Page.stopLoading`)都让这次以错误结束。
- * 到时限先让脚本之后的 sleep 失败;连这都等不到回应(同步死循环占着页面)才打断执行。
+ * A tag reading script (see [ReadScriptProtocol]): runs in the main frame's reading world, one at a
+ * time. Read the world and build it once and keep it (state is retained across calls). If the page is
+ * changed and the document is changed, it will be lost. Build it again next time (fresh=true in the
+ * result). Bottom line: Any network request the script makes while running or the main frame jumps
+ * (first `Page.stopLoading`) will end with an error. When the time limit is reached, let the sleep after
+ * the script fail first; even this can't wait for a response (the synchronization infinite loop occupies
+ * the page) before interrupting the execution.
  */
 class ReadScriptRunner(val session: CdpSession, private val sessionId: String? = null) {
     private val lock = Mutex()
@@ -38,7 +41,7 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
 
     private class World(val frameId: String, val context: Int, val origin: String?, val fresh: Boolean)
 
-    /** 连接断了抛 [CdpConnectionClosedException](由调用方判断是不是标签崩了)。 */
+    /** When the connection is broken, throw [CdpConnectionClosedException](it is up to the caller to determine whether the label is broken). */
     suspend fun run(code: String, args: JsonObject?, timeoutMs: Long): EvalJs = lock.withLock {
         coroutineScope {
             val outcome = CompletableDeferred<EvalJs>()
@@ -46,7 +49,7 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
             val answered = AtomicBoolean(false)
             var world: World? = null
 
-            // 先订阅再动手:事件流不重放
+            // Subscribe first and act later: event stream does not replay
             launch(start = CoroutineStart.UNDISPATCHED) {
                 session.events.collect { e ->
                     if (e.sessionId != sessionId) return@collect
@@ -55,7 +58,8 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
                     when (e.method) {
                         "Runtime.executionContextDestroyed" -> if ((p["executionContextId"] as? JsonPrimitive)?.intOrNull == w.context) gone(outcome)
                         "Runtime.executionContextsCleared" -> gone(outcome)
-                        // 不开 Runtime 时没有上下文销毁的事件:主框架换了文档,世界就没了
+                        // There is no context destruction event when Runtime is not enabled: if the main
+                        // frame changes the document, the world will be gone.
                         "Page.frameNavigated" -> if (mainFrameNavigated(p, w.frameId)) gone(outcome)
                         "Network.requestWillBeSent" -> if (running.get()) ReadScriptProtocol.requestViolation(p)?.let {
                             outcome.complete(EvalJs.Failed(BLOCKED_NETWORK, it))
@@ -121,7 +125,7 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
         outcome.complete(EvalJs.Failed(NAVIGATED, "the page loaded a new document while the script ran, so the script stopped and its state is gone; read the new page"))
     }
 
-    /** 脚本没跑完就收尾:先让它之后的 sleep 失败;这都等不到回应时它在跑同步死循环,才打断。 */
+    /** The script ends before it has finished running: first let the subsequent sleep fail; it does not wait until the response is received and it is running in a synchronous infinite loop before interrupting. */
     private suspend fun stop(ctx: Int) {
         val answeredStop = try {
             session.send("Runtime.evaluate", buildJsonObject { put("expression", ReadScriptProtocol.STOP); put("contextId", ctx) }, sessionId, STEP_TIMEOUT_MS)
@@ -134,10 +138,12 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
         if (!answeredStop) runCatching { session.send("Runtime.terminateExecution", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS) }
     }
 
-    /** 留着的读取世界还在就用它,不在(或第一次)就建一个并装上前置脚本。 */
+    /** Use the remaining read world if it is still there, build one and install the pre-script when it is not (or for the first time). */
     private suspend fun ensureWorld(): World {
-        // 不开 Runtime:开着它时页面能察觉到调试器(有的网站因此一直重载);隔离世界、求值都不需要它
-        // 兜底要看的事件:跳转请求、网络请求(已开着的再开一次无妨)
+        // Do not turn on Runtime: when it is turned on, the page can detect the debugger (some websites
+        // are always reloaded because of this); it is not needed for isolation of the world and
+        // evaluation. Events to look at: jump requests, network requests (it doesn't hurt to open it
+        // again if it is already turned on)
         session.send("Page.enable", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)
         session.send("Network.enable", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)
         val frameId = session.send("Page.getFrameTree", JsonObject(emptyMap()), sessionId, STEP_TIMEOUT_MS)["frameTree"]
@@ -147,7 +153,7 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
         context = null
         val ctx = session.send("Page.createIsolatedWorld", buildJsonObject {
             put("frameId", frameId); put("worldName", worldName)
-            // 协议里的参数名就是这么拼的
+            // This is how the parameter names in the protocol are spelled.
             put("grantUniveralAccess", false)
         }, sessionId, STEP_TIMEOUT_MS)["executionContextId"]?.jsonPrimitive?.intOrNull
             ?: throw CdpException(0, "no execution context", "Page.createIsolatedWorld")
@@ -160,7 +166,7 @@ class ReadScriptRunner(val session: CdpSession, private val sessionId: String? =
         return World(frameId, ctx, origin, fresh = true)
     }
 
-    /** 读取世界装好了时为页面的源;世界没了或没装为 null。 */
+    /** When the world is loaded, it is read as the source of the page; when the world is gone or not installed, it is null. */
     private suspend fun probe(ctx: Int): String? = try {
         val r = session.send("Runtime.evaluate", buildJsonObject {
             put("expression", ReadScriptProtocol.PROBE); put("contextId", ctx); put("returnByValue", true)

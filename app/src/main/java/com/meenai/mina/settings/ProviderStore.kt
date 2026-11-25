@@ -71,8 +71,11 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
- * 一个模型接入:属于哪个服务商([providerId])、模型名、能力。接口类型、地址和名字照抄所属服务商(建模型时用);
- * Key 存在服务商上。这是存储内部的一层:用户只选「哪个用途用哪个模型」,配置随选择建、没人用就删。
+ * A model access: which service provider it belongs to ([providerId]), model name, and capabilities. The
+ * interface type, address and name are copied from the service provider (used when building the model);
+ * the key is stored in the service provider. This is a layer inside the storage: users only choose
+ * "which model to use for which purpose", and configurations are created as they choose and deleted when
+ * no one uses them.
  */
 data class ProviderConfig(
     val id: String,
@@ -80,23 +83,25 @@ data class ProviderConfig(
     val baseUrl: String,
     val model: String,
     val capabilities: Capabilities,
-    /** 界面上显示的名字。 */
+    /** The name displayed on the interface. */
     val name: String = "",
-    /** 所属 [Provider] 的 id;为空时由 [ProviderStore.save] 按接口类型、地址和名字归到对应服务商。 */
+    /** The id of [Provider]; if it is empty, [ProviderStore.save] will assign it to the corresponding service provider according to the interface type, address and name. */
     val providerId: String = "",
 ) {
     /**
-     * 接口类型。[OpenAiResponses] 用在模型列表给某个模型写明 Responses 协议时、预设「OpenAI」,以及添加自定义服务商时选了它;
-     * [ChatGpt] 是用 ChatGPT 账号登录、用套餐额度调用的那一家:凭据是登录(见 [ChatGptSession]),不是 API Key。
-     * [Xai] 同样是账号登录(设备码),凭据是登录不是 API Key,调用 xAI 自己的 Responses 接口。
+     * Interface type. [OpenAiResponses] is used when specifying the Responses protocol for a model in
+     * the model list, presetting "OpenAI", and selecting it when adding a custom service provider;
+     * [ChatGpt] is the one that is logged in with a ChatGPT account and called with the package quota:
+     * the credential is login (see [ChatGptSession]), not the API Key. [Xai] is also an account login
+     * (device code), the credential is login and not API Key, and calls xAI's own Responses interface.
      */
     enum class Kind {
         OpenAiCompat, Anthropic, Gemini, OpenAiResponses, ChatGpt, Xai, GeminiWeb;
 
         /**
-         * 这个接口类型发请求走哪种协议。用它筛掉接口写明了不支持的模型,见 [com.meenai.mina.ui.ModelSetupViewModel]
-         * 的试调用。账号登录的两家(ChatGpt、Xai)都走 Responses;这两家不走那张表单的试调用(登录时已经核对过),
-         * 所以这里只求写对,不影响筛谁。
+         * Which protocol does this interface type use to send requests? Use it to filter out interfaces
+         * that indicate unsupported models, see the trial call of
+         * [com.meenai.mina.ui.ModelSetupViewModel]. Both accounts (ChatGpt,
          */
         val protocol: ModelProtocol
             get() = when (this) {
@@ -107,7 +112,7 @@ data class ProviderConfig(
             }
 
         companion object {
-            /** 模型单独指定的协议用哪种接口类型的适配器。 */
+            /** The model individually specifies which interface type adapter to use for the protocol. */
             fun of(protocol: ModelProtocol): Kind = when (protocol) {
                 ModelProtocol.ChatCompletions -> OpenAiCompat
                 ModelProtocol.Messages -> Anthropic
@@ -115,23 +120,30 @@ data class ProviderConfig(
                 ModelProtocol.Responses -> OpenAiResponses
             }
 
-            /** 添加自定义服务商时可选的接口类型(填地址和 API Key 的)。Responses 排最后,和 README 里的次序一致。 */
+            /** Optional interface type when adding a custom service provider (fill in the address and API Key). Responses are listed last, consistent with the order in the README. */
             val withApiKey: List<Kind> = listOf(OpenAiCompat, Anthropic, Gemini, OpenAiResponses)
         }
     }
 }
 
 /**
- * 一个已连接的服务商:名字、接口类型、地址;Key 单独加密保存。
- * [models] 是最近一次列出的模型(「测试并保存」或刷新时记下,和配置存在同一个文件里);
- * 为 null 表示还没列过,空列表表示列过但服务不提供列表(或一个也没有)。
- * [sessionHeader] 是它要求放对话会话号的请求头名(来自预设,见 [ProviderPreset.sessionHeader]);不要的为 null。
- * [verifiedModels] 是在这家试调用(见 [ProviderStore.probe])得到过回复的模型名:不提供列表的服务商,模型名是手填的,
- * 没在这里的就没核实过(旧版本存下的都没有,那时不提供列表的服务商不试调用)。
- * [typedModels] 是用户手填、试调用通过后加进来的模型名(列表里没有、或这家列不出模型):刷新列表不丢,选模型时标「手填」。
- * [savedUntested] 是用户跳过测试直接存下的一家(见 [ProviderStore.connect]):既没列过模型、也没试调用过,
- * 所以 [models] 是空列表、[verifiedModels] 是空的,但那些「这家不提供列表」的说法对它不成立。
- * 之后成功列过一次模型或试通过一次就清掉(见 [ProviderStore.rememberModels]、[ProviderStore.markVerified])。
+ * A connected service provider: name, interface type, address; Key is stored separately and encrypted.
+ * [models] is the most recently listed model (recorded during "test and save" or refresh, and stored in
+ * the same file as the configuration); null means it has not been listed yet, and an empty list means it
+ * has been listed but the service does not provide a list (or none). [sessionHeader] is the request
+ * header name (from the default, see [ProviderPreset.sessionHeader]) that requires the conversation
+ * session number; otherwise it is null. [verifiedModels] is the model name that has been responded to in
+ * this trial call (see [ProviderStore.probe]): the service provider does not provide a list, the model
+ * name is filled in by hand, and if it is not here, it has not been verified (the old version is not
+ * saved, and the service provider that did not provide the list at that time did not try to call).
+ * [typedModels] is the model name that was manually filled in by the user and added after passing the
+ * trial call (it is not in the list, or the model cannot be listed in this company): it will not be lost
+ * after refreshing the list, and mark "hand filled" when selecting the model. [savedUntested] is a
+ * company that users skip testing and save directly (see [ProviderStore.connect]): it has neither listed
+ * models nor tried calling them, so [models] is an empty list and [verifiedModels] is empty, but the
+ * statement that "this company does not provide a list" is not true for it. After successfully listing
+ * the model once or passing it once, it will be cleared (see [ProviderStore.rememberModels],
+ * [ProviderStore.markVerified]).
  */
 data class Provider(
     val id: String,
@@ -143,27 +155,31 @@ data class Provider(
     val verifiedModels: Set<String> = emptySet(),
     val typedModels: Set<String> = emptySet(),
     /**
-     * Key 是怎么来的:用账号授权换来的(目前只有 [ProviderStore.OPENROUTER_SIGN_IN])为那一家的标记,用户自己填的为 null。
-     * 标了的服务商详情里是账号登录的样子(退出登录、到对方页面删 Key),不是「更换 Key」。
+     * How does the Key come from: It is exchanged for account authorization (currently only
+     * [ProviderStore.OPENROUTER_SIGN_IN]), which is the mark of that company, and the user fills in
+     * null. The marked service provider details show the account login (log out, go to the other party's
+     * page to delete the key), not "change the key".
      */
     val signIn: String? = null,
     val savedUntested: Boolean = false,
-    /** 按模型名保留，用途切换后也能找回。 */
+    /** It is retained according to the model name and can be retrieved after the use is switched. */
     val contextSettings: Map<String, ModelContextSettings> = emptyMap(),
-    /** 用户说的某个模型能不能看图(按模型名):比列表和预设初值都算数,见 [ModelOptions.seesImages]。 */
+    /** Whether a certain model mentioned by the user can be viewed in pictures (according to the model name): both the ratio list and the preset initial value count, see [ModelOptions.seesImages]. */
     val visionOverrides: Map<String, Boolean> = emptyMap(),
 ) {
     val key: String get() = ProviderConnection.keyOf(kind, baseUrl, name)
 
     /**
-     * [model] 在这家还没测试通过:这家没有可用的列表(不提供,或跳过测试存下时没列过),模型名是手填的,又没在
-     * [verifiedModels] 里。账号登录的那几家模型名是固定的,不算。服务商页对这样在用的模型给「重新测试」。
+     * [model] has not passed the test here: there is no available list (it is not provided, or it is not
+     * listed when the test is skipped and saved), the model name is filled in by hand, and it is not in
+     * [verifiedModels]. The model names logged into the account are fixed and do not count. The service
+     * provider page "retests" such models in use.
      */
     fun untested(model: String): Boolean =
         kind != ProviderConfig.Kind.ChatGpt && kind != ProviderConfig.Kind.Xai && kind != ProviderConfig.Kind.GeminiWeb && models?.isEmpty() == true && model !in verifiedModels
 }
 
-/** 留空的窗口沿用所选模型配置，留空的触发点交给核心自动计算。 */
+/** The window left blank will inherit the selected model configuration, and the trigger points left blank will be automatically calculated by the core. */
 data class ModelContextSettings(val windowTokens: Int? = null, val triggerTokens: Int? = null) {
     fun limits(modelWindow: Int): ContextLimits = ContextLimits.of(windowTokens ?: modelWindow, triggerTokens)
 
@@ -171,43 +187,45 @@ data class ModelContextSettings(val windowTokens: Int? = null, val triggerTokens
         (triggerTokens == null || (triggerTokens > 0 && triggerTokens == limits(modelWindow).trigger))
 }
 
-/** 一个用途选了什么:一个具体模型、用主模型,或不用(只有看图可以不用)。 */
+/** What to choose for a purpose: a specific model, use the main model, or not (you can only use it if you look at the picture). */
 sealed interface RoleChoice {
-    /** 用 [configId] 这条模型配置。 */
+    /** Use the model configuration [configId]. */
     data class Model(val configId: String) : RoleChoice
     data object SameAsMain : RoleChoice
     data object Off : RoleChoice
 }
 
 /**
- * 三个用途各选了什么,都是用户明说的,没有按能力推断的默认分配。
- * [main] 是主模型的配置 id,为 null 表示还没选;看图默认不用,轻量默认用主模型。
+ * What is selected for each of the three uses is clearly stated by the user, and there is no default
+ * allocation based on capabilities. [main] is the configuration id of the main model. If it is null, it
+ * means it has not been selected. It is not used by default when viewing pictures, and the main model is
+ * used by default for lightweight.
  */
 data class RoleChoices(
     val main: String? = null,
     val vision: RoleChoice = RoleChoice.Off,
     val light: RoleChoice = RoleChoice.SameAsMain,
-    /** 按用途保存,同一个模型可在不同用途选不同档位;「用主模型」连同它的档位一起跟随。 */
+    /** Save according to usage, the same model can be used in different gears for different purposes; "Use the main model" will follow along with its gears. */
     val reasoningEfforts: Map<ModelRole, String> = emptyMap(),
 ) {
-    /** 这个用途的选择;主模型没选时为 null。 */
+    /** The selection for this purpose; null when the main model is not selected. */
     operator fun get(role: ModelRole): RoleChoice? = when (role) {
         ModelRole.Main -> main?.let(RoleChoice::Model)
         ModelRole.Vision -> vision
         ModelRole.Light -> light
     }
 
-    /** 这个用途实际用的配置 id:「用主模型」取主模型的;不用、或主模型还没选时为 null。 */
+    /** The configuration id actually used for this purpose: "Use main model" takes the main model; it is null when it is not used or the main model has not been selected. */
     fun resolve(role: ModelRole): String? = when (val c = get(role)) {
         is RoleChoice.Model -> c.configId
         RoleChoice.SameAsMain -> main
         RoleChoice.Off, null -> null
     }
 
-    /** 有用途在用的配置 id;其余的配置没人用,会被删掉。 */
+    /** Configuration IDs that are in use for a purpose; other configurations are not used and will be deleted. */
     val referenced: Set<String> get() = ModelRole.entries.mapNotNull(::resolve).toSet()
 
-    /** 改一个用途;这个用途不接受的选择(主模型只能是具体模型,轻量不能不用)返回 null。 */
+    /** Change a purpose; this purpose does not accept selections (the main model can only be a specific model, lightweight cannot be used) and returns null. */
     fun with(role: ModelRole, choice: RoleChoice): RoleChoices? = (when (role) {
         ModelRole.Main -> (choice as? RoleChoice.Model)?.let { copy(main = it.configId) }
         ModelRole.Vision -> copy(vision = choice)
@@ -222,7 +240,7 @@ data class RoleChoices(
         else -> null
     }
 
-    /** 指向 [valid] 之外的选择退回默认:主模型变成没选,看图不用,轻量用主模型。 */
+    /** Selections pointing to other than [valid] return to the default: the main model becomes unselected, and is not used for viewing pictures. Use the main model lightly. */
     fun keepOnly(valid: Set<String>): RoleChoices {
         fun RoleChoice.gone() = this is RoleChoice.Model && configId !in valid
         return RoleChoices(
@@ -235,9 +253,11 @@ data class RoleChoices(
 }
 
 /**
- * 建一个模型客户端时额外给的:[headers] 每个请求都带(客户端标识、会话号,见 [ClientHeaders]);
- * [maxOutputTokens] 限制回复长度(连接测试用),null 按适配器默认;[reasoningEffort] 是这个用途选的思考强度;
- * [thinkingTypes] 是模型列表写明这个模型接受的思考方式(见 [ListedModel.thinkingTypes]),没说为 null。
+ * Additional information provided when building a model client: [headers] Each request carries (client
+ * ID, session number, see [ClientHeaders]); [maxOutputTokens] limits the reply length (for connection
+ * testing), null is the default by the adapter; [reasoningEffort] is the thinking intensity selected for
+ * this purpose; [thinkingTypes] is the model list indicating the thinking method accepted by this model
+ * (see [ListedModel.thinkingTypes]), if not stated, it is null.
  */
 data class ClientSetup(
     val headers: Map<String, String> = emptyMap(),
@@ -246,55 +266,66 @@ data class ClientSetup(
     val thinkingTypes: List<String>? = null,
 )
 
-/** 「测试并保存」试调用(见 [ProviderStore.probe])的结果。 */
+/** "Test and save" the results of the trial call (see [ProviderStore.probe]). */
 sealed interface ProbeResult {
-    /** 模型调用了试用的工具:接口通,也会调用工具。 */
+    /** The model calls the trial tools: if the interface is passed, the tools will also be called. */
     data object ToolCalled : ProbeResult
-    /** 接口通,模型只回了话、没调用工具:Mina 干活靠工具,这个模型当不了主模型。 */
+    /** The interface works, but the model only replies and does not call tools: Mina relies on tools to work, and this model cannot be used as the main model. */
     data object NoToolCall : ProbeResult
-    /** 请求失败;[error] 带着服务端的报错。 */
+    /** The request failed; [error] with an error from the server. */
     data class Failed(val error: ModelError) : ProbeResult
 }
 
 /**
- * 服务商、模型配置的存取与用途选择。配置存成 JSON 文件,API Key 经 [KeyCipher] 加密后另存一个文件,每个服务商一份。
+ * Service provider, model configuration access and usage selection. The configuration is saved as a JSON
+ * file, and the API Key is encrypted by [KeyCipher] and saved in another file, one copy for each service
+ * provider.
  *
- * 用户只管两层:连了哪些服务商、每个用途([RoleChoices])用哪个模型。模型配置([ProviderConfig])是内部的一层:
- * 选模型时当场建,没有用途再用它就删掉(见 [prune];Key 按服务商存,删配置不动 Key)。
- * 用途选什么就是什么,不看能力标记;选具体模型时把对应标记记为 true(见 [choose])。
+ * Users only care about two layers: which service providers are connected and which model to use for
+ * each purpose ([RoleChoices]). Model configuration ([ProviderConfig]) is an internal layer: it is
+ * created on the spot when you select a model, and it is deleted when it is no longer used (see [prune];
+ * the key is stored according to the service provider, and the key does not change when you delete the
+ * configuration). Choose whatever the purpose is, regardless of the ability mark; when selecting a
+ * specific model, mark the corresponding mark as true (see [choose]).
  *
- * 旧版本的文件:只有模型配置、Key 按配置 id 存的,读入时按 [ProviderConnection.keyOf] 归成服务商,
- * Key 取那组里任一条的,原来按配置 id 存的 Key 清掉(见 [migrate]);用途只记了显式指定的,
- * 读入时把那时实际生效的分配一次写明(见 [migrateRoles])。已迁移好的不再动,重复执行没有副作用。
+ * Files of the old version: only the model configuration and Key are stored according to the
+ * configuration id. When reading, they are classified as service providers according to
+ * [ProviderConnection.keyOf]. The Key is any one in that group. The original Key saved according to the
+ * configuration id is cleared (see [migrate]); only the explicitly specified uses are recorded. When
+ * reading in, the allocation that is actually effective at that time is written once (see
+ * [migrateRoles]). The migrated data will not be moved again, and repeated execution will have no side
+ * effects.
  *
- * 拿来调用的模型只从 [modelFor] 出去,出去前一律套上计量(见 [metered]),每次调用都记到 [usage]:
- * 谁调用、调用几次都不用各自记账。
+ * The model to be called only goes out from [modelFor], and it is measured before going out (see
+ * [metered]). Every call is recorded in [usage]: whoever calls it and how many times it is called do not
+ * need to keep separate accounts.
  */
 class ProviderStore(
     dir: File,
     private val cipher: KeyCipher,
     private val usage: UsageSink = UsageSink { _, _ -> },
     private val newId: () -> String = { UUID.randomUUID().toString() },
-    /** 发给模型服务的 User-Agent;App 给 `Mina/<版本>`。 */
+    /** Send it to the User-Agent of the model service; App to `Mina/<version>`. */
     private val userAgent: String = "Mina",
-    /** 列模型:接口类型、地址、Key、每个请求都带的头。 */
+    /** Column model: interface type, address, Key, and headers carried by each request. */
     private val modelLister: suspend (ProviderConfig.Kind, String, String?, Map<String, String>) -> ModelListResult = ::listAvailable,
-    /** 「用 ChatGPT 登录」的授权服务(换令牌、刷新、注销)。 */
+    /** Authorization service for "Login with ChatGPT" (token exchange, refresh, logout). */
     val chatGptAuth: ChatGptAuth = defaultChatGptAuth,
-    /** xAI 订阅登录(设备码、刷新)。 */
+    /** xAI subscription login (device code, refresh). */
     val xaiAuth: XaiAuth = defaultXaiAuth,
-    /** OpenRouter 账号授权(换 Key)。 */
+    /** OpenRouter account authorization (change Key). */
     val openRouterAuth: OpenRouterAuth = defaultOpenRouterAuth,
     /**
-     * 建可调用的模型:配置、Key、服务商列表里给这个模型单独指定的接口(没有为 null,按配置的接口类型和地址)、请求头等。
-     * 为 null 时用内置的适配器(测试里换成假的)。
+     * Create a callable model: configuration, Key, interface specified separately for this model in the
+     * service provider list (if not null, according to the configured interface type and address),
+     * request header, etc. When null, use the built-in adapter (change to false in testing).
      */
     modelFactory: ((ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel)? = null,
 ) {
     private val modelFactory: (ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel = modelFactory ?: ::buildModel
-    /** 每个 ChatGPT 服务商一份:同一时刻只有一个在换令牌。 */
+    /** One copy for each ChatGPT service provider: only one is exchanging tokens at the same time. */
     private val chatGptTokens = mutableMapOf<String, ChatGptTokens>()
-    /** 每个订阅账号一份,和 ChatGPT 一样同一时刻只有一个在换令牌。 */
+    /** One copy for each subscription account, and just like ChatGPT, only one is exchanging tokens at the same time. */
     private val accountTokens = mutableMapOf<String, AccountTokens>()
     private val configFile = File(dir, CONFIG_FILE)
     private val configBackup = File(dir, "$CONFIG_FILE.bak")
@@ -304,21 +335,21 @@ class ProviderStore(
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _providers = MutableStateFlow<List<Provider>>(emptyList())
-    /** 已连接的服务商,按连接的先后。 */
+    /** Connected service providers, in order of connection. */
     val providers: StateFlow<List<Provider>> = _providers.asStateFlow()
 
     private val _configs = MutableStateFlow<List<ProviderConfig>>(emptyList())
     val configs: StateFlow<List<ProviderConfig>> = _configs.asStateFlow()
 
     private val _roles = MutableStateFlow(RoleChoices())
-    /** 三个用途各选了什么;指向的配置都在 [configs] 里。 */
+    /** What are selected for each of the three purposes; the pointed configurations are all in [configs]. */
     val roles: StateFlow<RoleChoices> = _roles.asStateFlow()
 
     private val _keysRevision = MutableStateFlow(0L)
-    /** Key 发生保存或变动时的版本计数，用于触发候选模型重新计算。 */
+    /** Key version count when saved or changed, used to trigger candidate model recalculation. */
     val keysRevision: StateFlow<Long> = _keysRevision.asStateFlow()
 
-    /** 服务商 id → 加密后的 Key。 */
+    /** Service provider id → encrypted Key. */
     private var keys: Map<String, String> = emptyMap()
 
     init {
@@ -331,10 +362,13 @@ class ProviderStore(
     fun provider(id: String): Provider? = _providers.value.firstOrNull { it.id == id }
 
     /**
-     * 新增或替换同 id 的模型配置(新增的要再交给 [choose],否则下次读入时没人用会被删掉)。
-     * 配置挂到 [ProviderConfig.providerId] 指的服务商下(接口类型、地址、名字以服务商的为准);
-     * 没指或指的不存在,就按接口类型、地址和名字找对应的服务商,找不到新建一个。
-     * [apiKey] 是那个服务商的 Key:null 表示不改,空串表示清除。
+     * Add or replace the model configuration with the same ID (the new one must be handed over to
+     * [choose], otherwise it will be deleted when no one uses it the next time it is read). The
+     * configuration is linked to the service provider pointed by [ProviderConfig.providerId] (the
+     * interface type, address, and name are subject to the service provider); if it is not pointed out
+     * or the pointed one does not exist, just look for the corresponding service provider based on the
+     * interface type, address, and name, and if you cannot find it, create a new one. [apiKey] is the
+     * Key of that service provider: null means not to change, and empty string means clearing.
      */
     @Synchronized
     fun save(cfg: ProviderConfig, apiKey: String?) {
@@ -347,28 +381,33 @@ class ProviderStore(
         writeConfig()
     }
 
-    /** 这个模型配置所属服务商的 Key。 */
+    /** This model configures the Key of the service provider it belongs to. */
     fun apiKey(configId: String): String? =
         _configs.value.firstOrNull { it.id == configId }?.let { providerKey(it.providerId) }
 
-    /** 服务商的 Key。解不开(例如密钥库被系统清掉)时当作没有 Key。 */
+    /** The key of the service provider. If it cannot be unlocked (for example, the keystore is cleared by the system), it is treated as if there is no Key. */
     fun providerKey(providerId: String): String? {
         val enc = synchronized(this) { keys[providerId] } ?: return null
         return runCatching { String(cipher.decrypt(decode(enc))) }.getOrNull()
     }
 
-    /** 这个服务商存了 Key 没有(本地服务可以不填)。 */
+    /** Does this service provider have a Key stored in it (you don’t need to fill it in for local services). */
     fun hasKey(providerId: String): Boolean = synchronized(this) { providerId in keys }
 
     /**
-     * 「测试并保存」连上了一个服务商:存下它(名字、接口类型、地址、Key)和列出的模型。
-     * 接口类型、地址和名字都相同的服务商已经有了,就更新那一个(换 Key、换列表),不重复添加。
-     * [apiKey] 为 null 时不改已存的 Key。[verified] 是这次试调用得到回复的模型名,记进 [Provider.verifiedModels];
-     * [typed] 是其中用户手填的,记进 [Provider.typedModels]。
-     * [signIn] 是 Key 的来历(见 [Provider.signIn]):用户自己填 Key 的为 null,授权来的为那一家的标记。
-     * 两种来历各是各的服务商(地址、名字一样也不合并):授权不会顶掉用户自己填的 Key,退出登录也只删授权来的那把。
-     * [untested] 为真是用户跳过测试直接存下的(见 [Provider.savedUntested]):一个模型都没列、也没试调用。
-     * 已经有这一家、而且它列过模型或核实过时,不会因为这个参数被重新标成没测过。
+     * "Test and save" connects to a service provider: saves it (name, interface type, address, key) and
+     * the model listed. If there is already a service provider with the same interface type, address,
+     * and name, just update that one (change the key, change the list), and do not add it repeatedly.
+     * When [apiKey] is null, the existing Key will not be changed. [verified] is the model name that was
+     * responded to during this trial call, and is recorded as [Provider.verifiedModels]; [typed] is
+     * filled in by the user, and is recorded as [Provider.typedModels]. [signIn] is the origin of the
+     * Key (see [Provider.signIn]): the Key filled in by the user is null, and the one authorized is the
+     * mark of that company. The two sources are from different service providers (addresses and names
+     * are not merged): authorization will not delete the key filled in by the user, and only the
+     * authorized one will be deleted when logging out. [untested] was saved directly by the user
+     * skipping the test (see [Provider.savedUntested]): not a single model was listed, and no attempt
+     * was made to call it. There is already this one, and it has been listed as a model or verified as
+     * outdated, it will not be remarked as untested because of this parameter.
      */
     @Synchronized
     fun connect(
@@ -381,12 +420,14 @@ class ProviderStore(
     ): Provider {
         val found = findOrAddProvider(name, kind, baseUrl, signIn)
         if (apiKey != null) setKey(found.id, apiKey)
-        // 跳过测试时没有列表可存:这家之前列过的留着,不要用空表把已有的列表盖掉
+        // There is no list to save when skipping the test: keep the list that has been listed before. Do
+        // not use an empty list to cover the existing list.
         val listed = if (untested && models.isEmpty()) found.models ?: models else models
         val p = found.copy(
             models = listed, sessionHeader = sessionHeader,
             verifiedModels = found.verifiedModels + verified, typedModels = found.typedModels + typed,
-            // 这次没测、这家也没有核实过的模型、也没列过列表,才是「没测过」;别的情况一律按测过
+            // This time I have not tested it, this company has not verified the model, and has not made
+            // a list, so it is "not tested"; in other cases, it is regarded as "tested".
             savedUntested = untested && verified.isEmpty() && found.verifiedModels.isEmpty() && listed.isEmpty(),
         )
         _providers.value = _providers.value.map { if (it.id == p.id) p else it }
@@ -394,7 +435,7 @@ class ProviderStore(
         return p
     }
 
-    /** 记下服务商最近一次列出的模型。列出来了,就说明「没测过」不再成立(跳过测试存下的那家在这里清掉标记)。 */
+    /** Note the last model listed by the service provider. If it is listed, it means that "not tested" is no longer true (the company that skipped the test and saved it clears the mark here). */
     @Synchronized
     fun rememberModels(providerId: String, models: List<ListedModel>) {
         if (provider(providerId) == null) return
@@ -405,9 +446,10 @@ class ProviderStore(
     }
 
     /**
-     * 记下 [model] 在这家试调用得到了回复(见 [Provider.verifiedModels])。
-     * 试通过了就说明「没测过」不再成立,跳过测试存下的那家在这里清掉标记——这个模型本来就在
-     * [Provider.verifiedModels] 里时也要清,不能直接返回。
+     * Note that [model] got a reply from this test call (see [Provider.verifiedModels]). If the test
+     * passes, it means that "not tested" is no longer true. The one where you skipped the test and saved
+     * it clears the mark here - this model must be cleared even when it is already in
+     * [Provider.verifiedModels], and cannot be returned directly.
      */
     @Synchronized
     fun markVerified(providerId: String, model: String) {
@@ -419,7 +461,7 @@ class ProviderStore(
         writeConfig()
     }
 
-    /** 记下用户在这家手填的 [model](见 [Provider.typedModels])。 */
+    /** Note down the [model](see [Provider.typedModels]) that the user filled in here. */
     @Synchronized
     fun markTyped(providerId: String, model: String) {
         val p = provider(providerId) ?: return
@@ -428,16 +470,19 @@ class ProviderStore(
         writeConfig()
     }
 
-    /** 换掉一个服务商的 Key(它下面的模型都用这一个)。 */
+    /** Replace the Key of a service provider (all models below it use this one). */
     @Synchronized
     fun updateProviderKey(providerId: String, apiKey: String) {
         if (provider(providerId) != null) setKey(providerId, apiKey)
     }
 
     /**
-     * 删掉一个服务商:它下面的模型配置和 Key 一起删。用着它的用途退回默认(主模型变成没选,看图不用,轻量用主模型);
-     * 界面上删除前已经说明哪些用途要重新选。删的是 ChatGPT 的,连注册到的 client_id 一起忘掉(本机标识留着):
-     * 下次登录重新注册,可以换一个账号。
+     * Delete a service provider: the model configuration and Key under it are deleted together. Use its
+     * purpose to return to the default (the main model becomes unselected, not used for viewing
+     * pictures, and the main model is used lightly); the interface has already explained which purposes
+     * need to be re-selected before deleting it. What was deleted was ChatGPT, and the registered
+     * client_id was also forgotten (the local identity remains): you can log in and register again next
+     * time, or you can change your account.
      */
     @Synchronized
     fun removeProvider(providerId: String) {
@@ -453,8 +498,9 @@ class ProviderStore(
     }
 
     /**
-     * 把服务商 [providerId] 下的 [model] 用作 [role]:这个模型还没有配置就按 [caps] 建一条,再交给 [choose]。
-     * 服务商不存在时返回 false。
+     * Use [model] under the service provider [providerId] as [role]: This model has not been configured
+     * yet, so create one according to [caps], and then give it to [choose]. Returns false if the service
+     * provider does not exist.
      */
     @Synchronized
     fun use(role: ModelRole, providerId: String, model: String, caps: Capabilities): Boolean {
@@ -465,9 +511,12 @@ class ProviderStore(
     }
 
     /**
-     * 定一个用途:用户选什么就是什么,不看能力标记。选具体模型当主模型时把工具调用标记记为 true(运行时据此发工具定义);
-     * 看图标记不改存着的,在 [configFor] 里按当下的选择推出来,换走了就跟着回去。之后没人用的配置删掉。
-     * 配置不存在、或这个用途不接受这种选择(见 [RoleChoices.with])时返回 false。
+     * Set a purpose: whatever the user chooses is what it is, regardless of the ability mark. When
+     * selecting a specific model as the main model, mark the tool call flag as true (the tool definition
+     * will be sent accordingly during runtime); if the saved diagram mark is not changed, press the
+     * current selection in [configFor] to push it out, and then go back after changing it. Delete
+     * configurations that are no longer used. Returns false if the configuration does not exist, or if
+     * this selection is not accepted for this purpose (see [RoleChoices.with]).
      */
     @Synchronized
     fun choose(role: ModelRole, choice: RoleChoice): Boolean {
@@ -486,7 +535,7 @@ class ProviderStore(
         return true
     }
 
-    /** 只改这个用途;不支持的协议、跟随主模型的用途或列表明确不支持的档位不接受。 */
+    /** Only change this use; unsupported protocols, uses that follow the main model, or gears that are clearly unsupported in the list will not be accepted. */
     @Synchronized
     fun setReasoningEffort(role: ModelRole, effort: String?): Boolean {
         if (_roles.value[role] !is RoleChoice.Model) return false
@@ -517,7 +566,7 @@ class ProviderStore(
         return true
     }
 
-    /** 记下用户说的 [model] 能不能看图(见 [Provider.visionOverrides]);服务商不存在时返回 false。 */
+    /** Write down what the user said about whether [model] can view pictures (see [Provider.visionOverrides]); return false when the service provider does not exist. */
     @Synchronized
     fun setModelVision(providerId: String, model: String, sees: Boolean): Boolean {
         val p = provider(providerId) ?: return false
@@ -526,7 +575,7 @@ class ProviderStore(
         return true
     }
 
-    /** 看图模型的「看图定位已验证」(开发者选项里改);看图用主模型时改的是主模型那条配置。没有看图模型时不动。 */
+    /** "Viewing positioning has been verified" for the image viewing model (changed in developer options); when using the main model for viewing images, the configuration of the main model is changed. It does not move when the model is not viewed. */
     @Synchronized
     fun setVisionGroundingVerified(verified: Boolean) {
         val id = _roles.value.resolve(ModelRole.Vision) ?: return
@@ -537,9 +586,13 @@ class ProviderStore(
     }
 
     /**
-     * 这个用途实际用的配置;没选、不用时为 null。看图标记按当下推出来,不看存着的列表数据有没有写:
-     * 看图这一路总是 true(用户选了它来看图);别的用途按 [ModelOptions.seesImages]——用户在这个模型上说过的为准,
-     * 没说过而看图也用这条配置(选了同一个模型,或「用主模型」)的,同样算能看,截图直接附给它,不必另调一次看图。
+     * The actual configuration used for this purpose; null when not selected or not used. The picture
+     * viewing mark is pushed out immediately, regardless of whether the saved list data has been
+     * written: the picture viewing path is always true (the user selects it to view the picture); for
+     * other uses, it is [ModelOptions.seesImages] - what the user has said on this model shall prevail.
+     * If it is not mentioned and the picture viewing also uses this configuration (the same model is
+     * selected, or "use the main model"), it can still be viewed. The screenshot is directly attached to
+     * it, and there is no need to adjust the picture viewing again.
      */
     fun configFor(role: ModelRole): ProviderConfig? {
         val choices = _roles.value
@@ -549,16 +602,19 @@ class ProviderStore(
         return if (sees == cfg.capabilities.vision) cfg else cfg.copy(capabilities = cfg.capabilities.copy(vision = sees))
     }
 
-    /** 主模型在它那家还没测试通过时给出那一家(见 [Provider.untested]);任务因模型失败时据此提示去「重新测试」。 */
+    /** The main model gives the name of the model when it has not passed the test (see [Provider.untested]); when the task fails due to the model, it prompts to "retest" accordingly. */
     fun untestedMainProvider(): Provider? {
         val cfg = configFor(ModelRole.Main) ?: return null
         return provider(cfg.providerId)?.takeIf { it.untested(cfg.model) }
     }
 
     /**
-     * 这个用途用的模型,套好计量;没选、不用时为 null。用量记在 [role] 名下:「用主模型」的看图、轻量调用
-     * 记作看图、轻量,服务商和模型是主模型那条配置的。这是 App 里建可调用模型的唯一入口。
-     * [session] 是这次调用属于的对话(同一段对话里建的模型都给同一个);服务商声明了会话头的,每个请求都带上它。
+     * The model used for this purpose is set with measurement; if it is not selected or not used, it
+     * will be null. The usage is recorded under the name [role]: "Use the main model" for image viewing
+     * and lightweight calls. The service provider and model are configured for the main model. This is
+     * the only entrance to build callable models in the App. [session] is the conversation to which this
+     * call belongs (the models built in the same conversation are all given to the same one); the
+     * service provider declares the conversation header and brings it with every request.
      */
     fun modelFor(role: ModelRole, session: ModelSession = ModelSession.fresh()): ChatModel? = configFor(role)?.let { cfg ->
         val p = provider(cfg.providerId)
@@ -576,10 +632,13 @@ class ProviderStore(
     }
 
     /**
-     * 「测试并保存」的试调用:还没存下的服务商,按真实任务同一条路([modelFactory]、同样的请求头)建出 [model],
-     * 带一个无参数的工具([PROBE_TOOL])、请它调用;回复限得很短(协议允许的话,见 [buildModel])。
-     * 回了工具调用为 [ProbeResult.ToolCalled],只回了话为 [ProbeResult.NoToolCall],请求失败带着服务端的报错原样返回。
-     * 不计量:这几个 token 不属于任何用途。会话号用新的,不属于任何对话。超时由调用方管。
+     * Trial call of "Test and Save": The service provider has not yet saved it, build [model] according
+     * to the same path as the real task ([modelFactory], the same request header), bring a tool without
+     * parameters ([PROBE_TOOL]), and ask it to call; the reply limit is very short (if the protocol
+     * allows, see [buildModel]). The tool call returned was [ProbeResult.ToolCalled], and the only
+     * response was [ProbeResult.NoToolCall]. The request failed and the server error was returned as is.
+     * Unmeasured: These tokens do not belong to any purpose. Use a new session number that does not
+     * belong to any conversation. Timeouts are managed by the caller.
      */
     suspend fun probe(
         kind: ProviderConfig.Kind, baseUrl: String, apiKey: String?, sessionHeader: String?,
@@ -601,18 +660,18 @@ class ProviderStore(
 
     private fun headers(sessionHeader: String?, session: ModelSession) = ClientHeaders.of(userAgent, sessionHeader, session)
 
-    /** 不属于任何对话的请求(如语音转写)给这家带的头:客户端标识,声明了会话头的用新的会话号。 */
+    /** Requests that do not belong to any conversation (such as voice transcription) bring a header to this company: client ID, and declare the session header with a new session number. */
     fun clientHeaders(p: Provider): Map<String, String> = headers(p.sessionHeader, ModelSession.fresh())
 
-    /** 服务商最近一次列出的这个模型(单独指定的接口、写明的思考方式等);每次建模型时现查,重新列过就用新的。 */
+    /** The model last listed by the service provider (individually specified interfaces, stated thinking methods, etc.); check it every time you build a model, and use the new one if it is re-listed. */
     private fun listedOf(cfg: ProviderConfig): ListedModel? =
         provider(cfg.providerId)?.models?.firstOrNull { it.id == cfg.model }
 
-    /** 列出这个服务商的可用模型(见 [ModelCatalog]);不属于任何对话,声明了会话头的用新的会话号。 */
+    /** Lists the available models for this service provider (see [ModelCatalog]); does not belong to any session, declares the session header with a new session number. */
     suspend fun listModels(kind: ProviderConfig.Kind, baseUrl: String, apiKey: String?, sessionHeader: String? = null): ModelListResult =
         modelLister(kind, baseUrl, apiKey, headers(sessionHeader, ModelSession.fresh()))
 
-    /** 重新列一个已连接服务商的模型:用存着的 Key;订阅登录用访问令牌(快过期先换新的)。 */
+    /** Re-list a model of the connected service provider: use the saved Key; use the access token for subscription login (replace with a new one if it is about to expire). */
     suspend fun listModels(p: Provider): ModelListResult {
         if (p.kind == ProviderConfig.Kind.GeminiWeb) {
             return ModelListResult.Ok(p.models?.takeIf { it.isNotEmpty() } ?: GeminiWebClient.DEFAULT_MODELS)
@@ -633,22 +692,24 @@ class ProviderStore(
         return listModels(p.kind, base, token, p.sessionHeader)
     }
 
-    // ---------- ChatGPT 登录 ----------
+    // ---------- ChatGPT Login ----------
 
-    /** ChatGPT 服务商的登录(和 API Key 存在同一处、同样加密);没有或解不开为 null。 */
+    /** Login of the ChatGPT service provider (exists in the same place as the API Key and is also encrypted); if not available or cannot be decoded, it is null. */
     fun chatGptSession(providerId: String): ChatGptSession? = ChatGptSession.fromJson(providerKey(providerId))
 
-    /** 已连接的 ChatGPT 服务商(只有一家)。 */
+    /** Connected ChatGPT service provider (only one). */
     fun chatGptProvider(): Provider? = _providers.value.firstOrNull { it.kind == ProviderConfig.Kind.ChatGpt }
 
-    /** 登录成功:存下登录和列出的模型;已有 ChatGPT 服务商就更新那一家。 */
+    /** Login successful: Save the login and listed models; if there is an existing ChatGPT service provider, update that one. */
     @Synchronized
     fun connectChatGpt(session: ChatGptSession, models: List<ListedModel>): Provider =
         connect(CHATGPT_NAME, ProviderConfig.Kind.ChatGpt, ChatGptAuth.API_BASE, session.toJson(), models)
 
     /**
-     * 退出登录:先在服务端注销刷新令牌(确认不了也照样清),再清掉本机的令牌;注册(client_id)和账号留着,再登录时沿用。
-     * 返回服务端是否确认了注销。服务商和它的模型、用途都不动。
+     * Log out: first log out the refresh token on the server (clear it even if it cannot be confirmed),
+     * and then clear the local token; keep the registration (client_id) and account number, and use them
+     * when logging in again. Returns whether the server confirms the logout. The service provider and
+     * its model and usage are not moved.
      */
     suspend fun signOutChatGpt(providerId: String): Boolean {
         val s = chatGptSession(providerId) ?: return true
@@ -658,8 +719,11 @@ class ProviderStore(
     }
 
     /**
-     * 这台设备在 ChatGPT 那边的本机标识和注册到的 client_id。标识第一次用时生成,之后一直不变;client_id 注册后记下,
-     * 退出登录后留着(再登录沿用,不重复注册),删掉 ChatGPT 服务商时忘掉。两者都不是密钥,明文存。
+     * The device's local ID and registered client_id on the ChatGPT side. The identifier is generated
+     * when it is used for the first time and remains unchanged thereafter; write down the client_id
+     * after registration, keep it after logging out (it will be used when logging in again, no repeated
+     * registration), and forget it when deleting the ChatGPT service provider. Both are not keys and are
+     * stored in clear text.
      */
     @Synchronized
     fun chatGptRegistration(): Pair<String, String?> {
@@ -672,7 +736,7 @@ class ProviderStore(
         return fresh to null
     }
 
-    /** 记下注册到的 client_id(换令牌前就记,换失败了下次也不用重新注册)。 */
+    /** Make a note of the registered client_id (note it before changing the token, you don’t need to re-register next time if the change fails). */
     @Synchronized
     fun rememberChatGptClient(clientId: String) {
         val host = chatGptRegistration().first
@@ -690,15 +754,16 @@ class ProviderStore(
         }
     }
 
-    // ---------- xAI 账号登录 ----------
+    // ---------- xAI account login ----------
 
-    /** 订阅账号的登录(和 API Key 存在同一处、同样加密);没有或解不开为 null。 */
+    /** Login of the subscription account (exists in the same place as the API Key and is also encrypted); if not available or cannot be unlocked, it is null. */
     fun accountSession(providerId: String): AccountSession? = AccountSession.fromJson(providerKey(providerId))
 
     fun xaiProvider(): Provider? = _providers.value.firstOrNull { it.kind == ProviderConfig.Kind.Xai }
 
     /**
-     * 登录成功:存下登录和列出的模型。同一家账号登录只有一个服务商,再登录就更新它。
+     * Login successful: Save login and listed models. There is only one service provider when you log in
+     * with the same account, and you will update it when you log in again.
      */
     @Synchronized
     fun connectAccount(session: AccountSession, models: List<ListedModel>): Provider {
@@ -716,7 +781,7 @@ class ProviderStore(
         return p
     }
 
-    /** 退出登录:只清这台手机上的令牌。xAI 账号里的授权要到 xAI 的设置里自己断开。 */
+    /** Log out: Only clear the token on this phone. The authorization in the xAI account must be disconnected by yourself in the settings of xAI. */
     @Synchronized
     fun signOutAccount(providerId: String) {
         val s = accountSession(providerId) ?: return
@@ -735,28 +800,32 @@ class ProviderStore(
         }
     }
 
-    // ---------- 用 OpenRouter 账号登录 ----------
+    // ---------- Log in with OpenRouter account ----------
 
-    /** 用 OpenRouter 账号授权连上的那一家;没有为 null。 */
+    /** The company to which the OpenRouter account is authorized to connect; if not, it is null. */
     fun openRouterAccount(): Provider? = _providers.value.firstOrNull { it.signIn == OPENROUTER_SIGN_IN }
 
     /**
-     * 授权换到了 Key:按 OpenRouter 预设存成一家普通的 OpenAI 兼容服务商(Key 照常加密),标上是授权来的。
-     * 已经有授权来的那一家就更新它;用户自己填 Key 的 OpenRouter 不动,两家并存。
+     * The authorization has been changed to Key: Press OpenRouter to default to a common OpenAI
+     * compatible service provider (the key is encrypted as usual), marked as authorized. The one that
+     * has been authorized will update it; the OpenRouter where the user fills in the Key by himself will
+     * not move, and the two coexist.
      */
     @Synchronized
     fun connectOpenRouter(apiKey: String, models: List<ListedModel>): Provider =
         connect(OPENROUTER_NAME, ProviderConfig.Kind.OpenAiCompat, OpenRouterAuth.API_BASE, apiKey, models, signIn = OPENROUTER_SIGN_IN)
 
-    /** 退出 OpenRouter 登录:删掉这台手机上的 Key;服务商、模型和用途留着。OpenRouter 那边的 Key 要用户到 Keys 页面删。 */
+    /** Log out of OpenRouter: Delete the Key on this phone; keep the service provider, model and purpose. The Key on OpenRouter requires the user to delete it on the Keys page. */
     @Synchronized
     fun signOutOpenRouter(providerId: String) {
         if (provider(providerId)?.signIn == OPENROUTER_SIGN_IN && providerId in keys) setKey(providerId, "")
     }
 
     /**
-     * 刷新换到的令牌写回去,前提是这期间存着的登录没变:换令牌要等网络,用户可能已经退出或重新登录,
-     * 那样旧的刷新结果不能盖掉(否则退出了又被悄悄登录回来,或新登录被旧令牌顶掉)。
+     * The token exchanged by the refresh is written back, provided that the saved login has not changed
+     * during this period: the token change has to wait for the network, and the user may have logged out
+     * or logged in again, so the old refresh result cannot be overwritten (otherwise, you will be logged
+     * back quietly after logging out, or the new login will be overridden by the old token).
      */
     @Synchronized
     private fun saveRefreshed(providerId: String, before: AccountSession, after: AccountSession) {
@@ -781,7 +850,7 @@ class ProviderStore(
         }
     }
 
-    // ---------- Gemini Web 账号登录 ----------
+    // ---------- Gemini Web account login ----------
 
     fun geminiWebProvider(): Provider? = _providers.value.firstOrNull { it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == GEMINI_WEB_SIGN_IN }
 
@@ -903,15 +972,19 @@ class ProviderStore(
         setKey(id, session.toJson())
     }
 
-    /** 模型单独指定了接口的,按它的协议选适配器、用它的地址;否则按配置的接口类型和地址。Key 都用服务商的。 */
+    /** If the model specifies the interface separately, select the adapter according to its protocol and use its address; otherwise, use the configured interface type and address. Keys are all from service providers. */
     /**
-     * 请求头四种协议一样带。回复上限([ClientSetup.maxOutputTokens])只给 Messages(本来就必填)和 generateContent;
-     * Chat Completions 不给(有的模型只认 `max_tokens`、有的只认 `max_completion_tokens`,给错了整个请求被拒,
-     * 连接测试就会误报),Responses 也不给(ChatGPT 套餐那条路不收 `max_output_tokens`)。
+     * The first four protocols are requested to be the same. The upper limit of replies
+     * ([ClientSetup.maxOutputTokens]) is only given to Messages (which is required in the first place)
+     * and generateContent; it is not given to Chat Completions (some models only recognize `max_tokens`,
+     * and some only recognize `max_completion_tokens`. If the answer is wrong, the entire request will
+     * be rejected, and the connection test will cause a false positive), and Responses are not given
+     * (the ChatGPT package does not accept `max_output_tokens`).
      */
     private fun buildModel(cfg: ProviderConfig, apiKey: String?, endpoint: ModelEndpoint?, setup: ClientSetup): ChatModel {
         val (kind, adapterBase) = adapterFor(cfg, endpoint)
-        // 订阅登录用服务商当前的地址(登录时可能换过),配置里存的是添加时的
+        // Use the current address of the service provider to subscribe and log in (it may have been
+        // changed when logging in), and the configuration is stored in the address when adding.
         val baseUrl = if (cfg.kind == ProviderConfig.Kind.Xai) {
             provider(cfg.providerId)?.baseUrl?.takeIf { it.isNotBlank() } ?: adapterBase
         } else adapterBase
@@ -973,7 +1046,7 @@ class ProviderStore(
         _keysRevision.value++
     }
 
-    /** 删掉没有用途在用的模型配置。Key 存在服务商上,不受影响。 */
+    /** Delete model configurations that are not used for any purpose. The key exists on the service provider and will not be affected. */
     private fun prune() {
         val used = _roles.value.referenced
         _configs.value = _configs.value.filter { it.id in used }
@@ -1049,7 +1122,9 @@ class ProviderStore(
 
         migrate()
         repairGeminiWebBindings()
-        // 指向不存在的配置的选择退回默认,没人用的配置删掉;和文件里的不一样(含刚迁移的用途)才写回
+        // Selections that point to configurations that do not exist are returned to default, and
+        // configurations that are no longer used are deleted; they are written back only if they are
+        // different from those in the file (including the purpose of the new migration).
         _roles.value = _roles.value.keepOnly(_configs.value.map { it.id }.toSet())
         prune()
         if (configFile.isFile) {
@@ -1065,8 +1140,11 @@ class ProviderStore(
         (this[key] as? JsonArray)?.toList().orEmpty()
 
     /**
-     * 旧版本的 `roles` 只记显式指定的配置 id,没指定的按默认规则分配:主模型取第一个配置,看图在主模型能看图时由它兼任,
-     * 轻量跟随主模型。这里把那时实际生效的分配写明成 [RoleChoices],之后不再有隐含的规则。
+     * The old version of `roles` only remembers the configuration ids that are explicitly specified, and
+     * those that are not specified are assigned according to the default rules: the main model takes the
+     * first configuration, and when the main model can view the pictures, it is also responsible for it,
+     * and it follows the main model lightly. Here, the allocation that actually takes effect at that
+     * time is written as [RoleChoices], and there will be no implicit rules thereafter.
      */
     private fun migrateRoles(old: JsonObject?): RoleChoices {
         val ids = _configs.value.map { it.id }.toSet()
@@ -1081,9 +1159,13 @@ class ProviderStore(
     }
 
     /**
-     * 把没有归属的模型配置(旧版本的文件)归到服务商下:按 [ProviderConnection.keyOf] 分组,每组一个服务商,
-     * Key 取组里任一条按配置 id 存的(密文原样搬过去)。先写含新旧两份的 Key 文件,再写配置,最后清掉不属于任何服务商的 Key;
-     * 中途断掉的话,下次读入时没归属的配置还在,会重做。都归好了就只清理残留的 Key。
+     * Group the unowned model configurations (old version files) under the service provider: group them
+     * according to [ProviderConnection.keyOf], one service provider for each group, and take the Key
+     * from any item in the group that is saved according to the configuration id (the ciphertext is
+     * moved over as it is). First write the new and old Key files, then write the configuration, and
+     * finally clear the Key that does not belong to any service provider; if it is disconnected midway,
+     * the unowned configuration will still be there the next time it is read, and will be redone. Once
+     * everything is done, just clean up the remaining Keys.
      */
     private fun migrate() {
         val known = _providers.value.map { it.id }.toSet()
@@ -1114,7 +1196,8 @@ class ProviderStore(
         name = o.str("name"),
         kind = ProviderConfig.Kind.valueOf(o.str("kind")),
         baseUrl = o.str("baseUrl"),
-        // 旧版本存下的没有这一项:按地址对得上的预设补上(读入后写回文件时记进去)
+        // This item is not saved in the old version: fill it in according to the default address that
+        // matches the address (note it when writing back the file after reading it)
         sessionHeader = o["sessionHeader"]?.jsonPrimitive?.content ?: ProviderPresets.forBaseUrl(o.str("baseUrl"))?.sessionHeader,
         signIn = o["signIn"]?.jsonPrimitive?.content,
         verifiedModels = o["verifiedModels"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty(),
@@ -1127,7 +1210,8 @@ class ProviderStore(
             (raw as? JsonPrimitive)?.booleanOrNull?.let { model to it }
         }.toMap(),
         typedModels = o["typedModels"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty(),
-        // 旧版本存下的没有这一项:那时每一家都走过「测试并保存」,按测过算
+        // There is no such item saved in the old version: at that time, every company had gone through
+        // the "test and save" process, and it was calculated based on the test.
         savedUntested = o["untested"]?.jsonPrimitive?.booleanOrNull ?: false,
         models = o["models"]?.jsonArray?.map { e ->
             val m = e.jsonObject
@@ -1169,7 +1253,7 @@ class ProviderStore(
         providerId = o["providerId"]?.jsonPrimitive?.content.orEmpty(),
     )
 
-    /** `uses` 里的一个用途:`{"use":"model","config":id}`、`{"use":"main"}` 或 `{"use":"none"}`;认不出的按默认。 */
+    /** A use in `uses`: `{"use":"model","config":id}`, `{"use":"main"}` or `{"use":"none"}`; if it is not recognized, press the default. */
     private fun choicesOf(o: JsonObject): RoleChoices {
         fun choice(role: ModelRole): RoleChoice? {
             val c = runCatching { o[role.name]?.jsonObject }.getOrNull() ?: return null
@@ -1292,7 +1376,7 @@ class ProviderStore(
     private fun encode(b: ByteArray) = Base64.getEncoder().encodeToString(b)
     private fun decode(s: String) = Base64.getDecoder().decode(s)
 
-    /** 给出进程里那一份的 Application。 */
+    /** Give the application in the process. */
     interface Owner {
         val providers: ProviderStore
     }
@@ -1302,18 +1386,19 @@ class ProviderStore(
         private const val KEY_FILE = "provider-keys.json"
         private const val CHATGPT_HOST_FILE = "chatgpt-host.json"
 
-        /** `uses` 里每个用途的 `use`:具体模型(另记 `config`)、用主模型、不用。旧版本的文件里只有 `roles`。 */
+        /** `use` for each purpose in `uses`: specific model (remember `config`), use the main model, do not use. The old version of the file only has `roles`. */
         private const val USE_MODEL = "model"
         private const val USE_MAIN = "main"
         private const val USE_NONE = "none"
 
-        // 连服务商的客户端都经 NetProxy 建:走设置 › 网络代理,本机、局域网地址(本地模型)直连
+        // Even the service provider's client is built through NetProxy: Go to Settings › Network proxy,
+        // local machine, LAN address (local model) direct connection
         private val http by lazy { NetProxy.shared.client(OkHttpClient.Builder().readTimeout(120, TimeUnit.SECONDS)) }
 
-        /** 和对话模型共用的连接池;同一服务商的其他请求(如语音转写)也用它。 */
+        /** A connection pool shared with the conversation model; other requests from the same service provider (such as speech transcription) also use it. */
         val modelHttp: OkHttpClient get() = http
 
-        /** 列模型、账号登录换令牌用的:读超时短一些,同样走网络代理。 */
+        /** Column model, account login and token exchange are used: the read timeout is shorter, and the network proxy is also used. */
         private val shortHttp by lazy { NetProxy.shared.client(OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS)) }
 
         private val catalog by lazy { ModelCatalog(shortHttp) }
@@ -1322,23 +1407,25 @@ class ProviderStore(
         private val defaultOpenRouterAuth by lazy { OpenRouterAuth(shortHttp) }
         private val defaultXaiAuth by lazy { XaiAuth(shortHttp) }
 
-        /** ChatGPT 服务商的名字(品牌名,不随界面语言变)。 */
+        /** The name of the ChatGPT service provider (brand name, does not change with the interface language). */
         const val CHATGPT_NAME = "ChatGPT"
-        /** 用 xAI 账号登录的服务商的名字(品牌名,不随界面语言变)。和填 Key 的「xAI」预设不是同一家。 */
+        /** The name of the service provider logged in with the xAI account (brand name, does not change with the interface language). It is not the same company as the "xAI" where you filled in the Key. */
         const val XAI_NAME = "xAI / Grok"
-        /** 用 OpenRouter 账号授权的服务商:名字和预设一样,[Provider.signIn] 标成这个。 */
+        /** Service provider authorized with OpenRouter account: The name is the same as the default, [Provider.signIn] is marked as this. */
         const val OPENROUTER_NAME = "OpenRouter"
         const val OPENROUTER_SIGN_IN = "openrouter"
-        /** 用 Gemini Web 账号登录的服务商。 */
+        /** Service provider logged in with Gemini Web account. */
         const val GEMINI_WEB_NAME = "Google Gemini"
         const val GEMINI_WEB_BASE = "https://gemini.google.com"
         const val GEMINI_WEB_SIGN_IN = "gemini_web"
-        /** 出错说明里怎么称呼这家的登录。 */
+        /** What is the name of this login in the error message? */
         private const val XAI_ACCOUNT = "xAI"
 
         /**
-         * 试调用:临时配置的 id、系统提示、那句话、试用的工具、回复上限。
-         * 上限留得够一次工具调用,连同必须先想一想的模型的思考(Messages、generateContent 把思考也算在上限里)。
+         * Trial call: temporarily configured id, system prompt, sentence, trial tool, upper limit of
+         * reply. The upper limit is enough for one tool call, along with the thought of the model that
+         * must be thought about first (Messages, generateContent and thinking are also included in the
+         * upper limit).
          */
         private const val PROBE_ID = "probe"
         private const val PROBE_SYSTEM = "This is a connection test. Call the get_time tool now. Do not answer with text."
@@ -1347,8 +1434,9 @@ class ProviderStore(
         private const val PROBE_MAX_TOKENS = 1024
 
         /**
-         * 列模型的接口:OpenAI 兼容、Responses、ChatGPT 和 xAI 都是 `GET {base}/models`(Bearer;订阅登录的 [apiKey] 是访问令牌)。
-         * [headers] 每个请求都带(见 [ClientHeaders])。
+         * Column model interfaces: OpenAI compatible, Responses, ChatGPT and xAI are all `GET
+         * {base}/models` (Bearer; [apiKey] for subscription login is the access token). [headers] comes
+         * with every request (see [ClientHeaders]).
          */
         suspend fun listAvailable(kind: ProviderConfig.Kind, baseUrl: String, apiKey: String?, headers: Map<String, String>): ModelListResult =
             when (kind) {
@@ -1360,18 +1448,20 @@ class ProviderStore(
             }
 
         /**
-         * 调用这个模型用哪种适配器、交给它什么 Base URL。建模型([buildModel])和给思考档位([ReasoningOptions])都按它。
-         * 订阅登录(xAI)固定走这一家的接口,不跟模型列表里写的别的协议走,免得把订阅转去另一个接口。
+         * Which adapter to use to call this model and what Base URL to give it. Click it to build a
+         * model ([buildModel]) and give a thinking gear ([ReasoningOptions]). Subscription login (xAI)
+         * always uses this interface, and does not follow other protocols written in the model list, so
+         * as not to transfer the subscription to another interface.
          */
         internal fun adapterFor(cfg: ProviderConfig, endpoint: ModelEndpoint?): Pair<ProviderConfig.Kind, String> =
             if (endpoint == null || cfg.kind == ProviderConfig.Kind.Xai) cfg.kind to cfg.baseUrl
             else ProviderConfig.Kind.of(endpoint.protocol) to endpoint.adapterBaseUrl
 
-        /** 产品里的那份(App 建):配置在 files/settings 下,Key 用 Android 密钥库加密,用量记到 [usage]。 */
+        /** The one in the product (App built): configured under files/settings, the Key is encrypted with the Android keystore, and the usage is recorded as [usage]. */
         fun create(context: Context, usage: UsageSink, userAgent: String): ProviderStore =
             ProviderStore(File(context.applicationContext.filesDir, "settings"), KeystoreKeyCipher(), usage, userAgent = userAgent)
 
-        /** App 内共用的那份(经 [Owner] 给出)。 */
+        /** The share shared within the App (given by [Owner]). */
         fun get(context: Context): ProviderStore = (context.applicationContext as? Owner)?.providers
             ?: error("the Application (${context.applicationContext.javaClass.name}) must implement ProviderStore.Owner to give the model settings")
     }

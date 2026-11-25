@@ -16,8 +16,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 给用户看的设备码:用户码、验证页、有效期和轮询间隔。设备码本身不在这里,不进界面、不进日志。
- * [verificationUriComplete] 已经带上用户码,主机必须在允许名单里才会用;否则用 [verificationUri]。
+ * Device code shown to the user: user code, verification page, validity period and polling interval. The
+ * device code itself is not here, does not enter the interface, and does not enter the log.
+ * [verificationUriComplete] has been brought with the user code, and the host must be in the allowed
+ * list to use it; otherwise, use [verificationUri].
  */
 data class DeviceChallenge(
     val userCode: String,
@@ -27,13 +29,13 @@ data class DeviceChallenge(
     val intervalSec: Long,
 )
 
-/** 一次设备码授权。设备码只留给轮询,不提供给界面。 */
+/** One time device code authorization. The device code is only reserved for polling and is not provided to the interface. */
 class DeviceGrant internal constructor(
     val challenge: DeviceChallenge,
     internal val deviceCode: String,
 )
 
-/** 轮询一次的结果。错误里只有代码,没有响应正文(正文里可能夹着令牌)。 */
+/** The result of polling once. There is only the code in the error, not the response body (the body may contain a token). */
 sealed interface DevicePoll {
     data object Pending : DevicePoll
     data object SlowDown : DevicePoll
@@ -43,8 +45,10 @@ sealed interface DevicePoll {
 }
 
 /**
- * RFC 8628 设备码:向 [deviceUrl] 要一组码,再向 [tokenUrl] 用设备码换令牌。
- * 两个地址的主机都必须在 [allowedHosts] 里,而且除了本机测试以外必须是 https;对不上就抛 [AccountSignInException],请求不发出去。
+ * RFC 8628 device code: Ask [deviceUrl] for a set of codes, and then ask [tokenUrl] to exchange the
+ * device code for a token. The hosts of both addresses must be in [allowedHosts], and must be https
+ * except for local testing; if they do not match, throw [AccountSignInException] and the request will
+ * not be sent.
  */
 class DeviceCodeClient(
     private val http: OkHttpClient,
@@ -74,7 +78,8 @@ class DeviceCodeClient(
             ?: throw AccountSignInException(AccountSignInFailure.Rejected, "no_user_code")
         val verify = root.str("verification_uri")?.takeIf { it.isNotEmpty() }
             ?: throw AccountSignInException(AccountSignInFailure.Rejected, "no_verification_uri")
-        // 验证页交给调用方按自己的主机名单核对后再打开,这里不发出去
+        // The verification page is handed over to the caller to check against its own host list before
+        // opening it. It will not be sent here.
         val complete = root.str("verification_uri_complete")?.takeIf { it.isNotEmpty() }
         val expires = (root["expires_in"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: DEFAULT_EXPIRES_SEC
         val interval = (root["interval"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: DEFAULT_INTERVAL_SEC
@@ -84,7 +89,7 @@ class DeviceCodeClient(
         )
     }
 
-    /** 问一次。设备码只放在表单里,不出现在返回的错误里。 */
+    /** Ask once. The device code is only placed in the form and does not appear in the returned error. */
     suspend fun poll(deviceCode: String): DevicePoll {
         val url = OauthUrls.check(tokenUrl, allowedHosts)
         val form = FormBody.Builder()
@@ -151,9 +156,11 @@ class DeviceCodeClient(
 }
 
 /**
- * 等到用户在浏览器里点完,或超时、拒绝、取消。轮询间隔按服务端说的来;[slow_down] 再加 5 秒(RFC 8628)。
- * 用户在浏览器里时 Mina 在后台,网络可能一时不通:连着 [MAX_POLL_FAILURES] 次连不上才算失败,中间照常等下一轮。
- * [sleep] 测试里换成空等;真机用 [delay]。
+ * Wait until the user finishes clicking in the browser, or timeout, reject, or cancel. The polling
+ * interval is as specified by the server; add 5 seconds to [slow_down] (RFC 8628). When the user is in
+ * the browser, Mina is in the background, and the network may be temporarily unavailable: it will be
+ * considered a failure if it cannot be connected for [MAX_POLL_FAILURES] times, and it will wait for the
+ * next round as usual. Change [sleep] to empty in the test; use [delay] on the real machine.
  */
 suspend fun awaitDeviceGrant(
     grant: DeviceGrant,
@@ -191,7 +198,7 @@ suspend fun awaitDeviceGrant(
     throw AccountSignInException(AccountSignInFailure.TimedOut, "expired")
 }
 
-/** 只接受 https(本机测试除外)且主机在名单里的地址。用户信息(userinfo)一律拒绝。 */
+/** Only addresses that accept https (except local testing) and the host is in the list. User information (userinfo) is always rejected. */
 object OauthUrls {
     fun check(url: String, allowedHosts: Set<String>): HttpUrl {
         if (!allowed(url, allowedHosts)) throw AccountSignInException(AccountSignInFailure.BadIssuer, "host")
@@ -207,7 +214,7 @@ object OauthUrls {
     }
 }
 
-/** 刷新令牌已不能再用。 */
+/** The refresh token can no longer be used. */
 internal val TERMINAL_REFRESH = setOf(
     "invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired",
     "refresh_token_invalidated", "refresh_token_reused",
@@ -216,7 +223,7 @@ internal val TERMINAL_REFRESH = setOf(
 private const val SLOW_DOWN_MS = 5_000L
 private const val MAX_POLL_FAILURES = 3
 
-/** 真机上等这么久再问下一次。默认参数用函数引用,避免编译器处理不了 lambda 里的挂起调用。 */
+/** I'll wait for so long before asking next time on a real machine. Default parameters are referenced by functions to avoid the compiler not being able to handle hanging calls in lambdas. */
 internal suspend fun oauthSleep(ms: Long) = delay(ms)
 
 private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull

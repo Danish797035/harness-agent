@@ -3,17 +3,22 @@ package com.meenai.mina.core.agent
 import com.meenai.mina.core.tool.ToolDispatcher
 
 /**
- * 用户一句话里他自己的话(开局、插话、回答追问一个口径)。语言提示和回答的语言检查只看他这次打的字([typed]);
- * 记忆、技能的引文还认他引的自己说过的话([said]),引的 Mina 的回答不算。
+ * The user's own words in a sentence (starting, interjecting, answering follow-up questions). The
+ * language check for language prompts and answers only looks at the words he typed this time ([typed]);
+ * the quotations for memory and skills also look at the words he quoted himself ([said]), and Mina's
+ * answers quoted are not counted.
  */
 internal object UserWords {
     /**
-     * [text] 是去掉屏幕说明后的那句(见 [UserScreenTurns]);再先后去掉浏览器页的页面说明([ToolDispatcher.userWords])、
-     * 最前面引的那一段([QuoteMessage])和末尾的附件行([AttachmentLines])。都没有时是原话;只引了一段、只选了字、只带了附件时为空。
+     * [text] is the sentence after removing the screen description (see [UserScreenTurns]); then remove
+     * the page description of the browser page ([ToolDispatcher.userWords]), the first paragraph
+     * ([QuoteMessage]) and the attachment line at the end ([AttachmentLines]). If there are none, it
+     * means the original words; if only a paragraph is quoted, only words are selected, and only
+     * attachments are included, it is empty.
      */
     fun typed(text: String, tools: ToolDispatcher): String = AttachmentLines.words(QuoteMessage.words(tools.userWords(text)))
 
-    /** [typed] 之外,引的是用户自己说过的话时连引的那段一起算(对话页引的是他当时打的字),放在前面;引的是 Mina 的回答时只有 [typed]。 */
+    /** In addition to [typed], when quoting what the user said himself, the quoted paragraph is counted together (the dialogue page quotes are what he typed at the time) and is placed in front; when quoting Mina's answer, only [typed] is used. */
     fun said(text: String, tools: ToolDispatcher): String {
         val own = QuoteMessage.parse(tools.userWords(text)).quote?.takeIf { it.from == QuoteMessage.From.You }?.text
         return listOfNotNull(own, typed(text, tools)).filter { it.isNotBlank() }.joinToString("\n")

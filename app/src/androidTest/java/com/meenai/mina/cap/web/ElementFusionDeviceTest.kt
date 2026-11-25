@@ -43,16 +43,20 @@ import kotlin.math.abs
 import com.meenai.mina.cap.phone.PhoneServices
 
 /**
- * 真机测试:有 DevTools 会话时,读屏把页面脚本的元素表和无障碍树合起来。
- * 测试页(fusion.html)有普通按钮、只挂监听器的 div、开放与封闭的 shadow 按钮、同源框架和跨源框架里的按钮
- * (跨源框架用第二个资源域名 fixtures2.androidplatform.net 给出,不走网络;本机回环明文 HTTP 被网络安全策略拦着,用不上)。
- * DevTools 会话:产品的入口给不出时,测试自己经本进程的抽象套接字连上(找目标靠给页面打记号)。连不上就跳过。
+ * Real machine test: When there is a DevTools session, screen reading combines the element table of the
+ * page script and the accessibility tree. The test page (fusion.html) has ordinary buttons, divs with
+ * only listeners, open and closed shadow buttons, buttons in the same-origin frame and cross-origin
+ * frame (the cross-origin frame is given by the second resource domain name
+ * fixtures2.androidplatform.net and does not go through the network; the local loopback plaintext HTTP
+ * is blocked by the network security policy and cannot be used). DevTools session: When the product
+ * entrance cannot be provided, test yourself to connect through the abstract socket of this process
+ * (find the target by marking the page). If you can't connect, skip it.
  */
 @RunWith(Parameterized::class)
 class ElementFusionDeviceTest(private val mobile: Boolean) {
     private val instr = InstrumentationRegistry.getInstrumentation()
     private val ctx = instr.targetContext
-    /** 本测试自己的一份:换会话来源、连法都不影响别的测试。 */
+    /** This test is my own: changing the session source and connection method will not affect other tests. */
     private val devtools = WebDevtools(PhoneServices.of(InstrumentationRegistry.getInstrumentation().targetContext).hub::openDevtoolsSocket)
     private lateinit var host: WebHost
     private lateinit var tab: WebTab
@@ -76,11 +80,13 @@ class ElementFusionDeviceTest(private val mobile: Boolean) {
             host.attach(tab)
         }
         screen = WebScreen({ tab }, host, SystemClock::uptimeMillis)
-        // 桌面版(仿真宽视口、Input 坐标另有倍数)与手机版各跑一遍
+        // Run the desktop version (simulated wide viewport, input coordinates with multiples) and the
+        // mobile version respectively.
         devtools.setSiteMode(SITE, mobile)
         runBlocking {
             assertTrue("load", tab.load(fixture("fusion.html")))
-            // 测试页自己的脚本中途出错时,后面的断言会误报成产品问题:先确认它跑完了
+            // When the test page's own script fails in the middle, the subsequent assertions will be
+            // mistakenly reported as product problems: first confirm that it has finished running.
             assertTrue("fixture script did not finish", js("window.__ready === true") == "true")
         }
         if (runBlocking { devtools.awaitSession(tab) } == null && devtools.session(tab) == null) {
@@ -88,7 +94,8 @@ class ElementFusionDeviceTest(private val mobile: Boolean) {
             devtools.provider = { t -> if (t === tab) session else savedProvider(t) }
         }
         assumeTrue("no DevTools session for the tab", devtools.session(tab) != null)
-        // 产品自己的会话才有站点模式:确认这一遍真是要测的模式
+        // Only the product's own session has site mode: confirm that this is really the mode to be
+        // tested.
         if (session == null) {
             val vw = runBlocking { js("innerWidth") }.toDouble()
             assertTrue("mobile=$mobile innerWidth=$vw", if (mobile) vw < 1000 else vw >= 1000)
@@ -118,7 +125,8 @@ class ElementFusionDeviceTest(private val mobile: Boolean) {
         assertTrue("$cross", cross.clickable && cross.role == "button")
         assertNotNull("跨源框架里的元素登记了节点号", screen.backendNodeId(cross.ref, s.snapshotId))
         assertNotNull(screen.backendNodeId(plain.ref, s.snapshotId))
-        // 中心点与页面里量的一致(跨源框架内按钮在框架里 10,10 起 120x40)
+        // The center point is consistent with the amount of the page (the button in the cross-origin
+        // frame is in the frame 10,10 and up 120x40)
         val css = JSONObject(js("(function(){var f=document.getElementById('cross').getBoundingClientRect();return {x:f.left+70,y:f.top+30,vw:innerWidth};})()"))
         val k = s.width / css.getDouble("vw")
         val ex = (css.getDouble("x") * k).toInt()
@@ -150,7 +158,7 @@ class ElementFusionDeviceTest(private val mobile: Boolean) {
         assertTrue("$times", times.max() < 2_500)
     }
 
-    /** 跨源框架加载完、合并结果里有它的按钮再读;最多等 5 秒。 */
+    /** After the cross-source framework is loaded and its button appears in the merged result, read again; wait up to 5 seconds. */
     private suspend fun readFused(): ScreenSnapshot {
         val end = SystemClock.elapsedRealtime() + 5_000
         var s = screen.snapshot()
@@ -183,7 +191,7 @@ class ElementFusionDeviceTest(private val mobile: Boolean) {
         suspendCancellableCoroutine { c -> tab.view.evaluateJavascript(script) { c.resume(it) } }
     }
 
-    /** 本进程 WebView 的 DevTools 抽象套接字;给页面打记号,逐个目标求值找到这个标签。 */
+    /** This process uses WebView's DevTools abstract socket; marks the page and evaluates each target to find the label. */
     private suspend fun connectOwn(): CdpSession? {
         val socket = "webview_devtools_remote_${Process.myPid()}"
         val transport = LocalTransport()

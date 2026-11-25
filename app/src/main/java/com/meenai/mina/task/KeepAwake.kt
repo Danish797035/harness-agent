@@ -14,14 +14,19 @@ interface WakeLockPort {
 }
 
 /**
- * 任务在跑时屏幕不熄灭:持有屏幕 wake lock,不改任何系统设置、不改亮度。
- * 熄屏后系统会丢弃注入的触摸并随后上锁,所以 Agent 干活期间不能让屏幕自动熄灭;
- * 但用户没在操作时屏幕不必全亮,到了系统的超时照常变暗(见 [ScreenWakeLock])。
+ * The screen does not turn off when the task is running: hold the screen wake lock and do not change any
+ * system settings or brightness. After the screen is turned off, the system will discard the injected
+ * touch and then lock it, so the screen cannot be turned off automatically while the Agent is working;
+ * however, the screen does not have to be fully bright when the user is not operating, and it will dim
+ * as usual when the system times out (see [ScreenWakeLock]).
  *
- * 只在 Running 时持有。等待接管/回答/继续/解锁时屏幕不需要为 Agent 亮着,
- * 再保持 [GRACE_MS](用户多半正要处理,别让屏幕在他眼前熄掉)后释放,任务继续跑时重新持有。
- * 结束、失败、取消立即释放。锁随进程走:Mina 异常退出时系统自动收回,不需要持久化恢复。
- * 用户按电源键照样能熄屏(没带 ACQUIRE_CAUSES_WAKEUP),这时 gate 会让任务等待解锁。
+ * Only held while Running. The screen does not need to be on for the Agent when waiting for
+ * takeover/answer/continue/unlock, and then hold [GRACE_MS] (the user is probably about to process,
+ * don't let the screen go out in front of his eyes) and then release it, and hold it again when the task
+ * continues to run. End, failure, and cancellation are released immediately. The lock follows the
+ * process: the system automatically takes back Mina when it exits abnormally, and no recovery persistent
+ * is required. The user can still turn off the screen by pressing the power button (without
+ * ACQUIRE_CAUSES_WAKEUP). At this time, the gate will wait for the task to be unlocked.
  */
 class KeepAwake(private val lock: WakeLockPort, private val scope: CoroutineScope) {
     private var held = false
@@ -63,7 +68,7 @@ class KeepAwake(private val lock: WakeLockPort, private val scope: CoroutineScop
         }
     }
 
-    /** 任务结束:释放并忽略之后到达的任何状态(旁路协程里迟到的发布不能重新拿锁)。 */
+    /** Task ends: Release and ignore any state reached afterward (late release in the bypass coroutine cannot retake the lock). */
     @Synchronized
     fun close() {
         closed = true
@@ -76,8 +81,9 @@ class KeepAwake(private val lock: WakeLockPort, private val scope: CoroutineScop
 }
 
 /**
- * 几个任务共用一把屏幕锁:每个任务拿一份 [lease],第一份持有时获取、最后一份放开时释放。
- * 每份自己记着拿没拿,重复获取或释放不会多算。
+ * Several tasks share a screen lock: each task gets a copy of [lease], which is acquired when the first
+ * one is held and released when the last one is released. Remember whether you took each copy. Repeated
+ * acquisition or release will not be counted.
  */
 class SharedWakeLock(private val lock: WakeLockPort) {
     private var count = 0
@@ -104,11 +110,14 @@ class SharedWakeLock(private val lock: WakeLockPort) {
 }
 
 /**
- * 屏幕锁用 SCREEN_DIM_WAKE_LOCK:屏幕保持开着,用户一段时间没碰手机时由系统照常调暗,
- * 用户一碰又回到原来的亮度。不改系统亮度,也不调亮。调暗时屏幕仍是开着、可交互的状态,
- * 注入的触摸照样送达;Agent 操作的是另一块虚拟显示屏,那边的输入也不受主屏明暗影响。
- * 这类锁已标为弃用(推荐窗口的 FLAG_KEEP_SCREEN_ON),但 Mina 在后台跑任务时没有自己的窗口,
- * 而前台服务持有的这类锁仍然有效。
+ * Use SCREEN_DIM_WAKE_LOCK for screen lock: The screen remains on. When the user does not touch the
+ * phone for a period of time, the system will dim it as usual. When the user touches the phone, it will
+ * return to the original brightness. The system brightness is not changed or brightened. When dimming,
+ * the screen is still open and interactive, and the injected touch is still delivered; the Agent
+ * operates another virtual display, and the input there is not affected by the brightness of the main
+ * screen. This type of lock has been marked as deprecated (FLAG_KEEP_SCREEN_ON for windows is
+ * recommended), but Mina does not have its own window when running tasks in the background, and this
+ * type of lock held by the foreground service is still valid.
  */
 class ScreenWakeLock(context: Context) : WakeLockPort {
     private val lock = context.getSystemService(PowerManager::class.java)
@@ -119,11 +128,11 @@ class ScreenWakeLock(context: Context) : WakeLockPort {
     override fun release() { if (lock.isHeld) lock.release() }
 
     companion object {
-        /** 保持亮屏但允许系统按超时调暗。 */
+        /** Keep the screen on but allow the system to dim by timeout. */
         @Suppress("DEPRECATION")
         const val LEVEL = PowerManager.SCREEN_DIM_WAKE_LOCK
 
-        /** 兜底上限,防止哪条路径漏了释放;正常由任务状态释放。 */
+        /** The upper limit is set to prevent any path from missing the release; it is normally released by the task status. */
         private const val MAX_HOLD_MS = 6 * 60 * 60 * 1000L
     }
 }

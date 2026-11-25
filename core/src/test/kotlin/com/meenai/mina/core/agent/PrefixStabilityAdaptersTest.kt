@@ -39,11 +39,15 @@ import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * [PrefixStabilityTest] 的同一个假任务,换成另外几种接口的适配器(Responses、Anthropic、Gemini,以及带显式缓存标记的
- * OpenAI 兼容接口),按线上字节查同样几条:区 0(系统提示词、工具)只在展开一组时变,展开时排在前面的工具逐字不变;
- * 历史只追加,只有压缩的那几次改写;回放的思考(加密思考、带签名的思考、thoughtSignature)每一步都带齐;
- * 区 0 和消息以外的顶层字段(思考档位、输出上限等)每次相同。
- * 缓存标记(cache_control)每次挪到最后一条,标记本身不进缓存的键,比对前去掉;Anthropic 一次请求的标记不超过 4 个。
+ * The same fake task of [PrefixStabilityTest] was replaced with adapters of several other interfaces
+ * (Responses, Anthropic, Gemini, and OpenAI-compatible interfaces with explicit cache tags), and the
+ * same items were checked by online bytes: Area 0 (system prompt words, tools) only changes when a group
+ * is expanded, and the tools ranked first do not change word by word when expanded; The history is only
+ * appended, only the compressed ones are rewritten; the playback thoughts (encrypted thoughts, signed
+ * thoughts, thoughtSignature) are brought together at every step; area 0 and the top-level fields other
+ * than the message (thinking gear, output upper limit, etc.) are the same every time. The cache tag
+ * (cache_control) is moved to the last one each time. The tag itself does not enter the cache key and is
+ * removed before comparison; Anthropic requests no more than 4 tags at a time.
  */
 class PrefixStabilityAdaptersTest {
     private val servers = mutableListOf<MockWebServer>()
@@ -51,19 +55,19 @@ class PrefixStabilityAdaptersTest {
 
     @After fun tearDown() = servers.forEach { it.shutdown() }
 
-    /** 一种接口:怎么建适配器、请求怎么拆成区 0 与逐条消息、怎么回工具调用和最终回答。 */
+    /** An interface: how to build an adapter, how to split requests into areas 0 and messages one by one, how to return tool calls and the final answer. */
     private interface Api {
         fun model(url: String, vision: Boolean, contextTokens: Int): ChatModel
-        /** 区 0 与逐条消息占的顶层字段;其余顶层字段每次请求都该一样。 */
+        /** Area 0 is the top-level field occupied by each message; the remaining top-level fields should be the same for each request. */
         val keys: Set<String>
-        /** 假回复里每一步回放值的前缀(第 n 步是前缀加 n);没有回放的接口为 null。 */
+        /** The prefix of the playback value of each step in the fake reply (the nth step is the prefix plus n); the interface without playback is null. */
         val replay: String?
-        /** 80K 窗口下改写前缀的请求(压缩),见 [PrefixStabilityTest.compaction]。 */
+        /** Request to rewrite prefix (compression) under 80K window, see [PrefixStabilityTest.compaction]. */
         val compactions: List<Int>
         fun zone0(body: JsonObject): String
-        /** 逐条消息(条目),去掉了缓存标记。 */
+        /** Message (entry) by message, the cache mark is removed. */
         fun messages(body: JsonObject): List<String>
-        /** 逐个工具的原样字节与名字。 */
+        /** The raw bytes and names of each tool. */
         fun tools(body: JsonObject): List<Pair<String, String>>
         fun call(step: Int, name: String, args: JsonObject, promptTokens: Int): MockResponse
         fun answer(promptTokens: Int): MockResponse
@@ -133,8 +137,10 @@ class PrefixStabilityAdaptersTest {
             GeminiModel(url, "k", "m", Capabilities(true, vision, contextTokens, true), OkHttpClient(), reasoningEffort = "medium")
         override val keys = setOf("systemInstruction", "tools", "contents")
         override val replay = "TS"
-        // 请求字节比另外三种略少,离触发点只差一点:提示词或工具说明长短一变,越过触发点的那一步就可能和另外三种差一步
-        // (曾经是 13、24);现在和另外三种同一步越过
+        // The request bytes are slightly less than the other three, and are just one step away from the
+        // trigger point: once the length of the prompt word or tool description changes, the step beyond
+        // the trigger point may be one step away from the other three (it used to be 13, 24); now it is
+        // crossed over at the same step as the other three
         override val compactions = listOf(12, 21, 30)
         override fun zone0(body: JsonObject) = body["systemInstruction"].toString() + body["tools"]
         override fun messages(body: JsonObject) = body["contents"]!!.jsonArray.map { it.toString() }
@@ -150,7 +156,7 @@ class PrefixStabilityAdaptersTest {
         )
     }
 
-    /** OpenAI 兼容接口里要标缓存的那种(部分服务商的兼容接口如此):每次把标记挪到最后一条。 */
+    /** The OpenAI compatible interface needs to be marked as cached (the compatible interfaces of some service providers are like this): move the mark to the last one each time. */
     private val explicitCompat = object : Api {
         override fun model(url: String, vision: Boolean, contextTokens: Int) = OpenAiCompatModel(
             "$url/v1", "k", "m", Capabilities(true, vision, contextTokens, false, promptCaching = PromptCaching.Explicit), OkHttpClient(),
@@ -164,9 +170,12 @@ class PrefixStabilityAdaptersTest {
             body["tools"]!!.jsonArray.map { it.toString() to it.jsonObject["function"]!!.jsonObject.str("name")!! }
 
         /**
-         * 标记时字符串内容换成一段文字块,不再是最后一条时又是字符串:比对时当成同一条。依据是某服务商兼容接口的
-         * 上下文缓存文档(2026-11-01 查的)的例子:第一次以数组带标记发 system 消息,
-         * 第二次同样的内容以字符串发,照样命中;文档只举了 system 消息,别的角色同样处理是推断。
+         * When marking, the string content is replaced by a text block. When it is no longer the last
+         * one, it is a string again: it is treated as the same one when comparing. The basis is an
+         * example of the context cache document of a service provider's compatible interface (checked on
+         * 2026-11-01): the first time a system message is sent with an array tag, and the second time
+         * the same content is sent as a string, it still hits; the document only cites the system
+         * message, and other roles are processed similarly, which is an inference.
          */
         private fun plain(m: JsonObject): JsonObject {
             val block = (m["content"] as? JsonArray)?.singleOrNull() as? JsonObject ?: return m
@@ -182,7 +191,7 @@ class PrefixStabilityAdaptersTest {
             json("""{"choices":[{"finish_reason":"stop","message":{"content":"看完了"}}],"usage":{"prompt_tokens":$promptTokens,"completion_tokens":10}}""")
     }
 
-    /** 跑一遍 [PrefixStabilityTest] 的假任务,返回服务端收到的请求。 */
+    /** Run the fake task of [PrefixStabilityTest] and return the request received by the server. */
     private fun run(api: Api, vision: Boolean = false, contextTokens: Int = 1_000_000): List<JsonObject> {
         val bodies = CopyOnWriteArrayList<JsonObject>()
         val server = MockWebServer().also { servers += it }.apply {
@@ -222,7 +231,7 @@ class PrefixStabilityAdaptersTest {
         return bodies.toList()
     }
 
-    /** 最近一次读屏里第一个元素的编号与读屏编号;结果在各家的线上格式里转义层数不同,按转义不限地找。 */
+    /** The number of the first element in the latest screen reading and the screen reading number; as a result, the number of escape layers in each online format is different, and you can search without limit by escaping. */
     private fun lastRead(text: String): Pair<String, String> {
         val at = ELEMENTS.findAll(text).last().range.first
         return REF.find(text, at)!!.groupValues[1] to SNAPSHOT.findAll(text.substring(0, at)).last().groupValues[1]
@@ -236,8 +245,11 @@ class PrefixStabilityAdaptersTest {
     )
 
     /**
-     * 两条消息里第一处不同:内容是块(或 part)的列表时细到块。同一角色的连续消息并成一条的接口(Anthropic、Gemini)
-     * 把摘要并进开头那条用户消息,那条也装着开局上下文;细到块才分得清改的是摘要还是开局上下文。
+     * The first difference between the two messages is that when the content is a list of blocks (or
+     * parts), the details are down to the block. Interfaces (Anthropic, Gemini) that merge consecutive
+     * messages of the same role into one. Merge the summary into the first user message, which also
+     * contains the deployment context; it is not until the block is detailed that it is clear whether
+     * the summary or the deployment context is changed.
      */
     private fun firstDiff(old: String, new: String): Pair<String, String> {
         val (a, b) = Json.parseToJsonElement(old).jsonObject to Json.parseToJsonElement(new).jsonObject
@@ -249,7 +261,7 @@ class PrefixStabilityAdaptersTest {
 
     private class Result(val changed: List<Int>, val share: Double, val opened: List<Int>)
 
-    /** 同 [PrefixStabilityTest] 的几条;[appendOnly]:没越过触发点,一次也不该改写。 */
+    /** Same as [PrefixStabilityTest]; [appendOnly]: The trigger point has not been crossed and should not be rewritten even once. */
     private fun check(api: Api, bodies: List<JsonObject>, label: String, appendOnly: Boolean = true): Result {
         val zone0 = bodies.map(api::zone0)
         val msgs = bodies.map(api::messages)
@@ -267,7 +279,8 @@ class PrefixStabilityAdaptersTest {
             val same = a.zip(b).takeWhile { (x, y) -> x == y }.size
             if (same == a.size) continue
             changed += i
-            // 第一处改写的就是被裁掉的那条,或者摘要本身(再压一次时摘要换成新的)
+            // The first thing to be rewritten is the deleted article, or the abstract itself (the
+            // abstract will be replaced with a new one when you press it again)
             val (old, new) = firstDiff(a[same], b[same])
             assertTrue("$label 第 ${i + 1} 次请求第 $same 条改写不是压缩:${new.take(300)}",
                 markers.any { it in new && it !in old } || ContextCompressor.HEADER in new)
@@ -281,7 +294,7 @@ class PrefixStabilityAdaptersTest {
         return Result(changed, share, opened)
     }
 
-    /** 最后一次请求带齐了 30 步的回放:前后两次一致地都不带,上面几条查不出来。 */
+    /** The last request brought all 30 steps of playback: it was not brought twice before and after, and the above items cannot be found. */
     private fun replaysAll(api: Api, bodies: List<JsonObject>, label: String) {
         val prefix = api.replay ?: return
         val last = bodies.last().toString()
@@ -289,7 +302,8 @@ class PrefixStabilityAdaptersTest {
         assertEquals("$label:最后一次请求缺了这几步的回放", emptyList<Int>(), missing)
     }
 
-    // 读屏、大结果(和画面):30 步里一次也不改写,区 0 只在第一次用手机、第一次用沙箱时展开
+    // Screen reading, large results (and screen): do not rewrite once in 30 steps, area 0 is only
+    // expanded when using the phone for the first time or using the sandbox for the first time
     private fun appendOnly(api: Api, label: String) {
         for (vision in listOf(false, true)) {
             val l = if (vision) "$label vision" else label
@@ -301,7 +315,8 @@ class PrefixStabilityAdaptersTest {
         }
     }
 
-    // 80K 窗口:只在压缩的那几次改写,序号和 [PrefixStabilityTest.compaction] 的算法一样(Gemini 见它的 compactions)
+    // 80K window: only rewritten a few times during compression, the sequence number is the same as the
+    // algorithm of [PrefixStabilityTest.compaction] (Gemini, see its compactions)
     private fun compaction(api: Api, label: String) {
         val bodies = run(api, contextTokens = 80_000)
         val r = check(api, bodies, "$label compaction", appendOnly = false)
@@ -319,7 +334,8 @@ class PrefixStabilityAdaptersTest {
     @Test fun explicitCompatAppendOnly() = appendOnly(explicitCompat, "compat explicit")
     @Test fun explicitCompatCompaction() = compaction(explicitCompat, "compat explicit")
 
-    // 系统提示词、最后一个工具、最后一条用户消息各一个;Anthropic 一次请求最多 4 个,多了整次请求被拒(400)
+    // One system prompt word, one for the last tool, and one for the last user message; Anthropic can
+    // request up to 4 at a time, if more, the entire request will be rejected (400)
     @Test fun anthropicCacheMarksStayWithinLimit() {
         for (body in run(anthropic, contextTokens = 80_000)) {
             assertEquals("缓存标记个数", 3, CACHE_MARK.findAll(body.toString()).count())

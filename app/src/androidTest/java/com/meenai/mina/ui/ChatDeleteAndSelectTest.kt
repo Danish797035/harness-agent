@@ -41,8 +41,12 @@ import java.io.File
 import java.util.UUID
 
 /**
- * 侧栏长按一条对话在原地弹出菜单(置顶、改名、删除,点外面收起):删除先确认、删掉、列表当场更新;改名后列表换成新名字;置顶后排到最上面带图钉。
- * 还有对话页里长按回答、用户的话弹出复制 / 引用 / 选择文字:选择文字后能选中,引用随下一句话发出去。不用真机的任务环境。
+ * Long press a conversation in the sidebar to pop up a menu in place (pin to top, rename, delete, click
+ * outside to close): to delete, confirm first, delete, and the list is updated on the spot; after
+ * renaming, the list is replaced with a new name; after pinning, it is rowed to the top with a pushpin.
+ * There is also a long-press answer in the conversation page, and the user's words will pop up to
+ * copy/quote/select text: after selecting the text, you can select it, and the quote will be sent with
+ * the next sentence. A task environment that does not require a real machine.
  */
 @RunWith(AndroidJUnit4::class)
 class ChatDeleteAndSelectTest {
@@ -102,7 +106,7 @@ class ChatDeleteAndSelectTest {
             .getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString { it.text }.orEmpty()
         assertTrue(body, "天气" in body && "停止" in body && "2" in body)
 
-        // 取消:什么都不删
+        // Cancel: delete nothing
         compose.onNodeWithText("取消").performClick()
         compose.waitForIdle()
         assertTrue(removed.isEmpty())
@@ -117,7 +121,7 @@ class ChatDeleteAndSelectTest {
         compose.onNodeWithText("订票").assertExists()
     }
 
-    /** 长按在原地弹出菜单:抬起的那一行(还是那个标题)和三项置顶、改名、删除;只是打开菜单什么都不改。 */
+    /** Long press to pop up the menu in place: the raised row (still the same title) and three items: pin, rename, delete; just open the menu and nothing will be changed. */
     @Test fun longPressShowsTheThreeActions() {
         store.append("a", Turn("查天气", "晴", "succeeded"))
         store.setTitle("a", "天气")
@@ -129,13 +133,14 @@ class ChatDeleteAndSelectTest {
         compose.onNodeWithTag("drawer-menu-rename").assert(hasText("改名"))
         compose.onNodeWithTag("drawer-menu-delete").assert(hasText("删除"))
         compose.onNodeWithText("取消置顶").assertDoesNotExist()
-        // 菜单开着时后面的内容不给无障碍读,只剩抬起的那一行
+        // When the menu is open, the content behind it is not accessible and only the raised line is
+        // left.
         assertEquals(1, compose.onAllNodesWithText("天气").fetchSemanticsNodes().size)
         assertEquals("天气", store.title("a"))
         assertEquals(null, store.pinnedAt("a"))
     }
 
-    /** 点菜单外面收起菜单,什么都不改;侧栏里那一行还在。 */
+    /** When you click outside the menu and close the menu, nothing changes; the row in the sidebar is still there. */
     @Test fun tappingOutsideClosesTheMenu() {
         store.append("a", Turn("查天气", "晴", "succeeded"))
         store.setTitle("a", "天气")
@@ -143,7 +148,7 @@ class ChatDeleteAndSelectTest {
 
         compose.onNodeWithText("天气").performTouchInput { longClick() }
         compose.onNodeWithTag("drawer-menu-pin").assertExists()
-        // 右下角:菜单靠左接在那一行下面,碰不到
+        // Lower right corner: The menu is connected to the left below that line and cannot be touched.
         compose.onNodeWithTag("drawer-menu").performTouchInput { click(percentOffset(0.95f, 0.95f)) }
         compose.waitForIdle()
         compose.onNodeWithTag("drawer-menu").assertDoesNotExist()
@@ -154,7 +159,7 @@ class ChatDeleteAndSelectTest {
         assertEquals(null, store.pinnedAt("a"))
     }
 
-    /** 改名:输入框里是现在的标题,换成新的保存;列表当场换名字,存下的也是新的。 */
+    /** Rename: The current title in the input box is replaced with a new one and saved; the list is renamed on the spot, and the saved one is also new. */
     @Test fun renameUpdatesTheRow() {
         store.append("a", Turn("查天气", "晴", "succeeded"))
         store.setTitle("a", "天气")
@@ -171,11 +176,11 @@ class ChatDeleteAndSelectTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("上海出行").fetchSemanticsNodes().isNotEmpty() }
         assertEquals(0, compose.onAllNodesWithText("天气").fetchSemanticsNodes().size)
         assertEquals("上海出行", store.title("a"))
-        // 之后才到的起好的标题不盖掉
+        // The title I came up with later will not be overwritten.
         assertTrue(!store.setTitle("a", "天气"))
     }
 
-    /** 置顶:排到「置顶」一段最上面、带图钉;再取消置顶回到「最近」。 */
+    /** Pin: Arrange to the top of the "Pin" section with a thumbtack; then cancel pin and return to "Recent". */
     @Test fun pinMovesTheRowToTheTop() {
         store.append("a", Turn("查天气", "晴", "succeeded"))
         store.setTitle("a", "天气")
@@ -199,7 +204,8 @@ class ChatDeleteAndSelectTest {
         assertEquals(null, store.pinnedAt("a"))
     }
 
-    // 长按消息弹出菜单;选「选择文字」后那条换回系统的长按选中,侧栏不跟着打开
+    // Long-press the message to pop up the menu; after selecting "Select Text", the message returns to
+    // the system's long-press selection, and the sidebar does not open accordingly.
     @Test fun answerAndUserTextAreSelectableFromTheMenu() {
         store.append("s", Turn("今天天气怎么样", "上海今天**晴**,详见 [天气](https://example.com)", "succeeded"))
         val vm = vm()
@@ -223,7 +229,9 @@ class ChatDeleteAndSelectTest {
         compose.onNode(hasText("今天天气怎么样") and hasAnyAncestor(hasTestTag("selectable-user"))).assertExists()
     }
 
-    // 长按回答选「引用」:输入框上方出现引用小条,写一句发出去,引用跟着这句话交给任务,小条消失;气泡上方显示引的那条
+    // Long press the answer and select "Quote": a small quotation bar will appear above the input box.
+    // Write a sentence and send it. The quotation will be handed over to the task along with this
+    // sentence. The small bar will disappear; the quotation bar will be displayed above the bubble.
     @Test fun longPressQuoteThenSend() {
         store.append("q", Turn("今天天气怎么样", "上海今天**晴**", "succeeded"))
         val vm = vm()
@@ -244,7 +252,7 @@ class ChatDeleteAndSelectTest {
         compose.onNodeWithTag("quote-chip").assertDoesNotExist()
         compose.onNodeWithTag("sent-quote").assertExists()
 
-        // × 去掉引用
+        // × Remove citation
         compose.runOnUiThread { vm.quote(QuoteMessage.From.You, "今天天气怎么样") }
         compose.onNodeWithContentDescription("去掉引用").performClick()
         compose.onNodeWithTag("quote-chip").assertDoesNotExist()

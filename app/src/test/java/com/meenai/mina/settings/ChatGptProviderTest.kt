@@ -68,10 +68,11 @@ class ChatGptProviderTest {
         tmp.root.walk().filter(File::isFile).forEach { f -> assertFalse(f.name, f.readText().contains("secret-")) }
         store().listModels(p)
         assertEquals(Triple(ProviderConfig.Kind.ChatGpt, ChatGptAuth.API_BASE, "secret-access"), listCalls.single())
-        // 客户端标识照带;ChatGPT 没声明会话头,不发会话号
+        // The client identification is still there; ChatGPT does not declare the session header and does
+        // not send the session number.
         assertEquals(mapOf("User-Agent" to "Mina/1.2.3"), listHeaders.single())
         assertNull(p.sessionHeader)
-        // 再登录一次是更新同一家,不新添
+        // Logging in again will update the same store and not add new ones.
         s.connectChatGpt(session().copy(accessToken = "secret-2"), emptyList())
         assertEquals(1, s.providers.value.size)
         assertTrue(s.use(ModelRole.Main, p.id, "gpt-x", caps))

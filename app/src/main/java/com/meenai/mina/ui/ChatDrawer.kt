@@ -106,7 +106,7 @@ import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
 import com.meenai.mina.i18n.uiLocale
 
-/** 侧栏里的一条对话。[id] 为 null 是还没存进对话列表的当前对话。 */
+/** A conversation in the sidebar. [id] is null, which means the current conversation has not been saved in the conversation list. */
 data class DrawerConversation(
     val id: String?,
     val title: String,
@@ -114,28 +114,32 @@ data class DrawerConversation(
     val running: Boolean,
     val current: Boolean,
     val enabled: Boolean,
-    /** 最后改动的时间(写在标题右边);还没存进对话列表的为空。 */
+    /** The time of the last change (written to the right of the title); the time that has not been saved in the conversation list is empty. */
     val time: String = "",
-    /** 置顶了:标题前一个小图钉,长按菜单里是「取消置顶」。 */
+    /** Pinned: There is a small pushpin before the title, and the long-press menu shows "Unpin". */
     val pinned: Boolean = false,
-    /** 在浏览器页上对着一页开始的对话:那个网站(主机名),标题后面一个「网页」小标签;不是为 null。 */
+    /** Conversation started on the browser page facing one page: the website (host name), a small "web page" tag after the title; not null. */
     val site: String? = null,
 )
 
-/** 侧栏里的对话分段:进行中、置顶、最近。 */
+/** Conversation segments in the sidebar: ongoing, pinned, and recent. */
 data class DrawerSections(
     val running: List<DrawerConversation>,
     val recent: List<DrawerConversation>,
     val pinned: List<DrawerConversation> = emptyList(),
 )
 
-/** 当前对话在侧栏里的样子:有没有任务在跑、标题、副标题(在做什么)。 */
+/** How the current conversation looks in the sidebar: whether there are any tasks running, title, subtitle (what is being done). */
 data class CurrentConversation(val id: String?, val running: Boolean, val title: String, val subtitle: String)
 
 /**
- * 侧栏的三段:「进行中」是当前对话(有任务时)和别的有任务在跑的对话;「置顶」是其余置顶了的对话,最近置顶的在前;
- * 「最近」是剩下的对话,最近改过的在前。每个对话只出现在一段里:置顶的对话有任务在跑时列在进行中(带图钉),跑完回到置顶。
- * [canSwitch] 为假(任务进行中、没开并行)时只有当前对话可点。
+ * There are three sections in the sidebar: "In progress" refers to the current dialogue (when there is a
+ * task) and other dialogues with tasks running; "Top" refers to the other dialogues that are pinned to
+ * the top, with the most recently pinned dialogue first; "Recent" refers to the remaining dialogues,
+ * with the most recently modified dialogue first. Each dialogue only appears in one paragraph: the
+ * pinned dialogue has tasks listed as in progress (with push pins) when running, and returns to the top
+ * after running. When [canSwitch] is false (the task is in progress and parallelism is not enabled),
+ * only the current dialogue can be clicked.
  */
 fun drawerSections(
     all: List<ConversationSummary>,
@@ -168,7 +172,7 @@ fun drawerSections(
     return DrawerSections(running, recent, pinnedRows)
 }
 
-/** 对话的时间:今天写时刻,昨天写「昨天」,一周内写星期几,今年写几月几日,更早带年份。 */
+/** Time of conversation: write the time today, write "yesterday" yesterday, write the day of the week in a week, write the month and day this year, and add the year earlier. */
 fun conversationTime(at: Long, now: Long, zone: ZoneId = ZoneId.systemDefault()): String {
     val t = Instant.ofEpochMilli(at).atZone(zone)
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -183,7 +187,7 @@ fun conversationTime(at: Long, now: Long, zone: ZoneId = ZoneId.systemDefault())
     }
 }
 
-/** 侧栏顶上 Mina 名字下面那行状态,和它是不是好的(绿点)还是要处理(橙点)。 */
+/** The status line under Mina's name at the top of the sidebar, and whether it is good (green dot) or needs to be processed (orange dot). */
 fun readiness(check: Prerequisites.Check): Pair<String, Boolean> = when {
     !check.canStartTask -> tr(R.string.chat_cannot_start) to false
     !check.phoneReady -> tr(R.string.drawer_phone_not_ready) to false
@@ -193,8 +197,11 @@ fun readiness(check: Prerequisites.Check): Pair<String, Boolean> = when {
 private const val MAX_RECENT = 50
 
 /**
- * 侧栏:从左边滑出、右边圆角。顶部是标志和状态;四个入口;中间是进行中(段标题右边进「后台屏」页)和最近的对话;最底下设置和关于并排。
- * 打开和关上由外面的抽屉管,这里只摆内容,点了什么交给回调。
+ * Sidebar: Slide out from the left, rounded corners on the right. The top is the logo and status; the
+ * four entrances; the middle is ongoing (the right side of the section title enters the "Backstage
+ * Screen" page) and recent conversations; the bottom is settings and about side by side. The drawer tube
+ * is opened and closed by the outside. Only the content is placed here, and what is clicked is handed
+ * over to the callback.
  */
 @Composable
 fun ChatDrawer(
@@ -209,9 +216,9 @@ fun ChatDrawer(
     onSettings: () -> Unit,
     onOpen: (DrawerConversation) -> Unit,
     onAbout: () -> Unit = {},
-    /** 有新版本:「关于 Mina」带小红点。 */
+    /** There is a new version: "About Mina" with a little red dot. */
     aboutDot: Boolean = false,
-    /** 长按一条存过的对话:在它原地弹出操作菜单(置顶、改名、删除);带上那一行在窗口里的位置和大小。 */
+    /** Long press a saved conversation: the operation menu will pop up in its place (pin to top, rename, delete); the position and size of that line in the window will be displayed. */
     onActions: (DrawerConversation, Rect) -> Unit = { _, _ -> },
 ) {
     val c = MinaTheme.colors
@@ -242,7 +249,9 @@ fun ChatDrawer(
             NavEntry(MinaIcons.Heart, stringResource(R.string.memory_and_skills), onClick = onMemory)
             NavEntry(MinaIcons.Globe, stringResource(R.string.drawer_browser), onClick = onBrowser)
         }
-        // 侧栏关着时列表只剩末尾那一项;打开时对话插在它前面,列表会按原来那一项停在最底下。最上面一项变了就回到顶上
+        // When the sidebar is closed, only the last item is left in the list; when the sidebar is
+        // opened, the dialogue is inserted in front of it, and the list will stop at the bottom
+        // according to the original item. If the top item changes, go back to the top
         val list = rememberLazyListState()
         val first = when {
             sections.running.isNotEmpty() -> "h-running"
@@ -253,11 +262,13 @@ fun ChatDrawer(
         LaunchedEffect(first) { list.scrollToItem(0) }
         LazyColumn(Modifier.fillMaxWidth().weight(1f).lazyListScrollbar(list), state = list) {
             if (sections.running.isNotEmpty()) {
-                // 「进行中」这一段的右边进「后台屏」页:看每个在跑的任务正在用哪个 App、实时画面
+                // Go to the "Backstage Screen" page on the right side of the "In Progress" section: see
+                // which app and real-time screen are being used for each running task.
                 item("h-running") { RunningLabel(onScreens) }
                 items(sections.running, key = { "r-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
             }
-            // 换不了对话时的说明放在第一段存着的对话(置顶或最近)上面
+            // When the conversation cannot be changed, the explanation is placed above the first saved
+            // conversation (top or most recent).
             val busyNote: LazyListScope.() -> Unit = {
                 if (!canSwitch) {
                     item("busy") {
@@ -280,7 +291,9 @@ fun ChatDrawer(
             }
             item("end") { Box(Modifier.height(12.dp)) }
         }
-        // 设置和关于并排固定在侧栏最底下,对话再多也不被挤走:设置靠左,关于靠右,中间留空
+        // Settings and About are fixed side by side at the bottom of the sidebar. No matter how many
+        // conversations there are, they will not be squeezed out: Settings is on the left, About is on
+        // the right, and the middle is left blank.
         Row(
             Modifier.fillMaxWidth().drawBehind { drawLine(c.hair, Offset(0f, 0f), Offset(size.width, 0f), 0.5.dp.toPx()) }
                 .padding(horizontal = 12.dp, vertical = 6.dp).testTag("drawer-footer"),
@@ -314,7 +327,7 @@ private fun NavEntry(
     }
 }
 
-/** 「进行中」的段标题,右边一个「后台屏 ›」进后台屏页(只有有任务在跑时才有这一段)。 */
+/** For the "In Progress" section title, there is a "Backstage Screen ›" on the right to enter the background screen page (this section only exists when there is a task running). */
 @Composable
 private fun RunningLabel(onScreens: () -> Unit) {
     val c = MinaTheme.colors
@@ -342,8 +355,11 @@ private fun SectionLabel(text: String) {
 }
 
 /**
- * 一条对话:点开它;长按(带一下振动)在原地弹出它的操作菜单(置顶、改名、删除)。换不了对话时(任务进行中、没开并行)点不开,长按照样能用。
- * 还没存进对话列表的(没有编号)没东西可改,不响应长按。置顶了的标题前有个小图钉。
+ * A conversation: click on it; long press (with a vibration) to pop up its operation menu (pin to top,
+ * rename, delete). When the conversation cannot be changed (the task is in progress and parallelism is
+ * not enabled), the click cannot be opened, but it still works if you press and hold it. Those that have
+ * not been saved in the conversation list (without numbers) have nothing to change and will not respond
+ * to long presses. There is a small thumbtack in front of the pinned title.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -351,7 +367,9 @@ private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversat
     val c = MinaTheme.colors
     val deletable = item.id != null
     val haptic = LocalHapticFeedback.current
-    // 这一行在窗口里的位置和大小(不裁掉滚出列表的部分),菜单照它摆出抬起的那一行;只在回调里读,不引起重组
+    // The position and size of this line in the window (without cutting off the part that rolls out of
+    // the list), the menu will be placed as the raised line; it is only read in the callback, and does
+    // not cause reorganization.
     val bounds = remember { mutableStateOf(Rect.Zero) }
     Column(
         Modifier.padding(horizontal = 12.dp).fillMaxWidth()
@@ -362,7 +380,7 @@ private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversat
                 if (deletable) Modifier.combinedClickable(
                     onClickLabel = null,
                     onLongClickLabel = stringResource(R.string.drawer_actions),
-                    // 和系统里长按一样振一下
+                    // It vibrates like a long press in the system.
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onActions(item, bounds.value) },
                     onClick = { if (item.enabled) onOpen(item) },
                 ) else Modifier.clickable(enabled = item.enabled, onClick = { onOpen(item) }),
@@ -375,7 +393,7 @@ private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversat
     }
 }
 
-/** 一条对话里面的东西:进行中的小圆点、图钉、标题、时间,有副标题时下面一行。侧栏里那一行和长按抬起的那一张都用它。 */
+/** Things in a conversation: ongoing dots, thumbtacks, title, time, and the line below when there is a subtitle. Use it for both the row in the sidebar and the one raised by long pressing. */
 @Composable
 internal fun ConversationRowContent(item: DrawerConversation) {
     val c = MinaTheme.colors
@@ -402,7 +420,7 @@ internal fun ConversationRowContent(item: DrawerConversation) {
     }
 }
 
-/** 给对话改名:输入框里是现在的标题(整段选中,直接打字就替换);空的存不了,两头空白去掉。 */
+/** Rename the conversation: the current title is in the input box (select the entire paragraph and replace it by typing directly); empty spaces cannot be saved, and the blank spaces at both ends are removed. */
 @Composable
 internal fun RenameConversationDialog(title: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var value by remember(title) { mutableStateOf(TextFieldValue(title, TextRange(0, title.length))) }
@@ -432,8 +450,10 @@ internal fun RenameConversationDialog(title: String, onSave: (String) -> Unit, o
 }
 
 /**
- * 删对话前的确认:写明删的是哪个对话;有任务在跑、绑着定时任务时也写明会停掉、一起删掉。
- * 和别处删东西的确认一样:右边红字「删除」,左边「取消」。
+ * Confirmation before deleting a conversation: indicate which conversation is being deleted; if there is
+ * a task running or a scheduled task tied to it, also indicate that it will be stopped and deleted
+ * together. The confirmation for deleting something is the same as elsewhere: the red word "Delete" on
+ * the right and "Cancel" on the left.
  */
 @Composable
 internal fun DeleteConversationDialog(title: String, impact: DeleteImpact, onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -466,8 +486,10 @@ private val ConversationTime = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp)
 private val ConversationTag = TextStyle(fontSize = 10.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
 
 /**
- * 对话页和它的侧栏:左上角菜单从左边滑出侧栏,外面一层遮罩;点遮罩、往左滑、按返回都关上。
- * 侧栏打开时才去读对话列表。进了别的页面再回来,侧栏是关着的。[content] 拿到「打开侧栏」放到菜单按钮上。
+ * The conversation page and its sidebar: The menu in the upper left corner slides out of the sidebar
+ * from the left, with a layer of mask outside; click on the mask, slide to the left, and press return to
+ * close it. Read the conversation list only when the sidebar is open. When I go to another page and come
+ * back, the sidebar is closed. [content] Get "Open Sidebar" and put it on the menu button.
  */
 @Composable
 fun ChatWithDrawer(
@@ -475,9 +497,9 @@ fun ChatWithDrawer(
     check: Prerequisites.Check,
     reduceMotion: Boolean,
     conversations: () -> List<ConversationSummary>,
-    /** 存储里改过的对话(见 `ConversationStore.changes`);侧栏开着时别处存进来的对话也当场列出。 */
+    /** Modified dialogues in storage (see `ConversationStore.changes`); dialogues saved elsewhere when the sidebar is open are also listed on the spot. */
     conversationChanges: Flow<String> = emptyFlow(),
-    /** 对话起好的标题;当前对话还没存进列表时(任务刚开始)也能叫出名字。 */
+    /** Give the conversation a good title; you can also call out the name even when the current conversation has not been saved in the list (the task has just started). */
     conversationTitle: (String) -> String? = { null },
     onPlans: () -> Unit,
     onMemory: () -> Unit,
@@ -485,9 +507,9 @@ fun ChatWithDrawer(
     onScreens: () -> Unit = {},
     onSettings: () -> Unit,
     onAbout: () -> Unit = {},
-    /** 有新版本:侧栏「关于 Mina」带小红点。 */
+    /** There is a new version: "About Mina" in the sidebar has a little red dot. */
     updateAvailable: Boolean = false,
-    /** 从侧栏进去的页面刚退回来:当场打开侧栏,回到进去之前的样子。 */
+    /** The page entered from the sidebar has just returned: open the sidebar on the spot and return to the way it was before entering. */
     reopen: Boolean = false,
     onReopened: () -> Unit = {},
     content: @Composable (openDrawer: () -> Unit) -> Unit,
@@ -508,14 +530,16 @@ fun ChatWithDrawer(
         }
         then()
     }
-    /** 去别的页面:先当场关上侧栏,回来时就是关着的。 */
+    /** Go to another page: close the sidebar on the spot first, and it will be closed when you come back. */
     fun leave(go: () -> Unit) {
         scope.launch { drawer.snapTo(DrawerValue.Closed) }
         go()
     }
     val open = drawer.targetValue == DrawerValue.Open || drawer.isOpen
-    // 对话页上返回(侧滑)先打开侧栏;侧栏开着时再返回才离开 App(退到后台,和桌面返回一样)。
-    // 对话页里面板、画中画等自己的返回在内层,先于这里处理
+    // To return (swipe) on the conversation page, open the sidebar first; when the sidebar is open,
+    // return and then leave the app (retreat to the background, the same as returning to the desktop).
+    // The dialogue page panel, picture-in-picture and other own returns are in the inner layer and are
+    // processed here first.
     val activity = LocalContext.current.findActivity()
     BackHandler {
         if (open) activity?.moveTaskToBack(true)
@@ -524,16 +548,16 @@ fun ChatWithDrawer(
     var revision by remember { mutableIntStateOf(0) }
     LaunchedEffect(conversationChanges) { conversationChanges.collect { revision++ } }
     val deleted by vm.deleted.collectAsState()
-    /** 长按了的那条和它在窗口里的位置;菜单开着(收起的动画放完才清掉)。 */
+    /** The long-pressed item and its position in the window; the menu is open (the folding animation will not be cleared until it is played). */
     var acting by remember { mutableStateOf<Pair<DrawerConversation, Rect>?>(null) }
-    /** 菜单出现的进度:0 是没有,1 是完全出来;关了动画时直接到位。 */
+    /** The progress of the menu appearing: 0 means no, 1 means it is completely out; when the animation is turned off, it is directly in place. */
     val lift = remember { Animatable(0f) }
     LaunchedEffect(acting) {
         if (acting != null) {
             if (reduceMotion) lift.snapTo(1f) else lift.animateTo(1f, tween(MENU_IN_MS, easing = MinaMotion.Decelerate))
         }
     }
-    /** 收起菜单:倒着放一遍出现的动画,放完再清掉;[then] 当场做(改名、删除的弹窗不用等菜单收完)。 */
+    /** Collapse the menu: play the animation that appears backwards, and then clear it after playing; [then] does it on the spot (you don’t have to wait for the menu to be closed to change the name or delete the pop-up window). */
     fun closeMenu(then: () -> Unit = {}) {
         then()
         scope.launch {
@@ -541,14 +565,16 @@ fun ChatWithDrawer(
             acting = null
         }
     }
-    /** 正在改名的那条。 */
+    /** The one that is being renamed. */
     var renaming by remember { mutableStateOf<DrawerConversation?>(null) }
-    /** 要删的那条和删它会连带什么;确认弹窗开着。 */
+    /** The article you want to delete and what will happen if you delete it; the confirmation pop-up window is open. */
     var confirming by remember { mutableStateOf<Pair<DrawerConversation, DeleteImpact>?>(null) }
     val menuOpen = acting != null
     Box(Modifier.fillMaxSize()) {
         ModalNavigationDrawer(
-            // 菜单开着时后面整屏(对话页和侧栏)模糊(安卓 12 起;更早的只变暗),无障碍也只读菜单
+            // When the menu is open, the entire screen behind it (dialog page and sidebar) is blurred
+            // (from Android 12 onwards; earlier it only dimmed), and the menu is only readable when it
+            // is accessible.
             modifier = if (!menuOpen) Modifier else Modifier
                 .then(
                     if (GlassBlurSupported) Modifier.graphicsLayer {
@@ -558,7 +584,8 @@ fun ChatWithDrawer(
                 )
                 .clearAndSetSemantics {},
             drawerContent = {
-                // 只在打开时读盘;每次打开、开着时存储里有对话改过都重读一次
+                // The disk is only read when it is opened; it will be read again every time it is opened
+                // or if there is a dialogue change in the storage while it is open.
                 val all = remember(open, revision) { if (open) conversations() else emptyList() }
                 val stored = remember(open, revision, ui.conversationId) { if (open) ui.conversationId?.let(conversationTitle) else null }
                 val last = ui.exchanges.lastOrNull()
@@ -569,7 +596,8 @@ fun ChatWithDrawer(
                     if (running) ChatCopy.subtitle(last, last?.let(vm::livePlace))?.first.orEmpty() else "",
                 )
                 val canSwitch = vm.canSwitch()
-                // 删掉的对话当场不列,不等后台删完
+                // Deleted conversations will not be listed on the spot until they are deleted in the
+                // background.
                 val sections = remember(all, current, others, canSwitch, deleted) {
                     drawerSections(all.filter { it.id !in deleted }, current, others.filter { it !in deleted }, vm::runningGoal, canSwitch, System.currentTimeMillis())
                 }
@@ -597,8 +625,10 @@ fun ChatWithDrawer(
                 )
             },
             drawerState = drawer,
-            // 对话页上从左往右划拉出侧栏(拖着跟手);能左右滚的内容(宽表格、代码块等)先自己滚。
-            // 从左边缘往里滑是系统的返回手势,上面的返回处理同样是打开侧栏
+            // On the conversation page, swipe from left to right to pull out the sidebar (drag with your
+            // hand); content that can be scrolled left or right (wide tables, code blocks, etc.) is
+            // scrolled by itself first. Sliding in from the left edge is the system's return gesture.
+            // The return process above also opens the sidebar.
             gesturesEnabled = true,
             scrimColor = MinaTheme.colors.floatShadow.copy(alpha = 0.28f),
         ) {

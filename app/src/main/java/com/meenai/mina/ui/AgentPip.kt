@@ -73,11 +73,11 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.components.floatShadow
 
-/** 小窗宽度:收起 / 展开。高度按画面(没有画面时按主屏)的长宽比算,整屏完整显示、不裁底部。 */
+/** Small window width: collapse/expand. The height is calculated based on the aspect ratio of the screen (or the main screen when there is no screen), and the entire screen is displayed completely without cutting off the bottom. */
 private val CollapsedWidth = 96.dp
 private val ExpandedWidth = 220.dp
 
-/** 主屏的高宽比(按真实像素,含系统栏):虚拟屏按主屏尺寸建,还没有画面时小窗先按它定大小。 */
+/** The aspect ratio of the main screen (according to real pixels, including system bars): the virtual screen is built according to the size of the main screen, and the small window is sized according to it when there is no picture yet. */
 private fun mainScreenAspect(context: Context): Float {
     val m = DisplayMetrics()
     context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)?.getRealMetrics(m)
@@ -88,15 +88,18 @@ private const val DEFAULT_ASPECT = 2.2f
 private val Ease = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
 
 /**
- * 悬浮画中画:盖在对话上,只显示 Agent 虚拟屏的实时画面,只看不点;上面不放文字和按钮,要你做的事都在对话卡片里。
- * 状态只靠边框光:干活中细绿边,需要你时橙色呼吸光晕(接管开始时由 [ChatViewModel] 自动展开)。
- * 平时停在右下角、输入栏上方,不挡顶栏和最新的消息。
- * 拖动 1:1 跟手;松手按速度投射落点吸到最近的角(临界阻尼弹簧,见 [PipPhysics]);
- * 点一下展开,点 × 或外面收起;需要你时点一下交给 [onAttention](收起并滚到那张卡片)。
- * 展开时左上角「关掉小画面」([onClose]):这个任务结束前只剩右下角一个小按钮([PipUi.closed]),
- * 点它再打开([onReopen]);要你处理时小按钮变橙色、呼吸,点它同样交给 [onAttention]。
- * [reduceMotion] 时(系统关了动画)不做弹簧、缩放和呼吸,直接到位。
- * [topInset]/[bottomInset] 是顶栏和输入框占的像素高度,小窗不会停在它们下面。
+ * Suspended picture-in-picture: Covers the conversation, only displays the real-time picture of the
+ * Agent's virtual screen, and can only view clicks; no text or buttons are placed on it, and everything
+ * you are asked to do is in the conversation card. The status depends only on the frame light: a thin
+ * green edge when working, and an orange breathing halo when you need it (automatically expanded by
+ * [ChatViewModel] when the takeover starts). Usually it stops in the lower right corner, above the input
+ * "Turn off the small screen" in the upper left corner when expanding ([onClose]): before the end of
+ * this task, there is only a small button in the lower right corner ([PipUi.closed]), click it and open
+ * it again ([onReopen]); when you want to process it, the small button turns orange and breathes, click
+ * it and give it to [onAttention] as well. When [reduceMotion] (the system turns off the animation),
+ * there is no spring, scaling and breathing, and it goes directly to the position.
+ * [topInset]/[bottomInset] is the pixel height occupied by the top bar and input box, and the small
+ * window will not stop under them.
  */
 @Composable
 fun AgentPip(
@@ -114,7 +117,8 @@ fun AgentPip(
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fade = if (reduceMotion) tween<Float>(150) else tween(300)
-        // 关掉了:只留右下角的小按钮(任务做完那几秒不留)
+        // Turned off: Only the small button in the lower right corner is left (the few seconds after the
+        // task is completed are not left)
         AnimatedVisibility(
             pip.visible && pip.closed && pip.mode != PipMode.Done, Modifier.align(Alignment.BottomEnd),
             enter = fadeIn(fade), exit = fadeOut(fade),
@@ -137,8 +141,10 @@ fun AgentPip(
 }
 
 /**
- * 小画面关掉后剩下的小按钮:平时写「显示画面」,点了再打开;要你处理时橙色呼吸、写「等你处理」,
- * 点了滚到要你处理的那张卡片(小画面关着也不漏掉要你做的事)。
+ * The remaining small buttons after the small screen is turned off: usually write "show screen", click
+ * and open it; when you are asked to do something, breathe orange, write "Waiting for you to deal with",
+ * click and scroll to the card you want to deal with (the small screen is closed and the things you are
+ * asked to do are not missed).
  */
 @Composable
 private fun ClosedPip(needsYou: Boolean, reduceMotion: Boolean, modifier: Modifier, onReopen: () -> Unit, onAttention: () -> Unit) {
@@ -183,8 +189,10 @@ private fun PipWindow(
 ) {
     val density = LocalDensity.current
     val sizeSpec = if (reduceMotion) snap() else tween<androidx.compose.ui.unit.Dp>(350, easing = Ease)
-    // 大小跟着画面的长宽比走:手机画面是主屏的比例(不同手机略有长短),桌面网页是横向的,按固定的宽度定高度,
-    // 画面整张放得下;放不下时按比例整体缩小
+    // The size follows the aspect ratio of the screen: the mobile screen is the proportion of the main
+    // screen (different phones have slightly longer lengths), the desktop web page is horizontal, and
+    // the height is determined by a fixed width. The entire screen can fit; if it cannot fit, the entire
+    // screen will be reduced proportionally.
     val context = LocalContext.current
     val screenAspect = remember { mainScreenAspect(context) }
     val landscapeWeb = frame != null && webContent && frame.width > frame.height
@@ -213,12 +221,13 @@ private fun PipWindow(
     val attend by rememberUpdatedState(onAttention)
 
     var corner by rememberSaveable { mutableStateOf(Corner.BottomEnd) }
-    // 拖动或弹簧途中的位置;为空表示贴在 corner 上(展开收起时跟着大小一起贴角)
+    // The position during dragging or springing; if empty, it means sticking to the corner (when
+    // expanded and collapsed, the corner will be stuck along with the size)
     var free by remember { mutableStateOf<Offset?>(null) }
     val scope = rememberCoroutineScope()
     var settle by remember { mutableStateOf<Job?>(null) }
 
-    /** 从 [start] 以速度 (vx, vy) 弹到角 [c];关了动画时直接到位。 */
+    /** Bounce from [start] to the corner [c] at speed (vx, vy); directly in place when the animation is turned off. */
     fun springTo(c: Corner, start: Offset, vx: Float, vy: Float) {
         settle?.cancel()
         corner = c
@@ -250,7 +259,8 @@ private fun PipWindow(
         springTo(PipPhysics.snapCorner(start.x, start.y, vx, vy, currentBounds), start, vx, vy)
     }
 
-    // 完成时如果停在下方两个角,先挪到同侧上方,免得盖住刚出来的结果卡片
+    // If it stops at the lower two corners when you are done, move it to the top on the same side first
+    // so as not to cover the result card that just came out.
     LaunchedEffect(pip.mode) {
         if (pip.mode != PipMode.Done) return@LaunchedEffect
         val up = when (corner) {
@@ -272,7 +282,8 @@ private fun PipWindow(
 
     Box(Modifier.offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }) {
         if (pip.mode == PipMode.NeedsYou) {
-            // 橙色光晕:比窗口大一圈,模糊后透出边缘(安卓 12 以下不模糊,只是一圈淡橙色)
+            // Orange halo: a circle larger than the window, blurred and revealing the edge (no blur for
+            // Android 12 and below, just a circle of light orange)
             Box(
                 Modifier.offset((-5).dp, (-5).dp).size(w + 10.dp, h + 10.dp).alpha(breath)
                     .blur(10.dp).background(MinaTheme.colors.warnSolid.copy(alpha = 0.55f), outer),
@@ -286,8 +297,9 @@ private fun PipWindow(
                 .border(0.5.dp, MinaTheme.colors.glassEdge, outer)
                 .pointerInput(Unit) {
                     val tracker = VelocityTracker()
-                    // 自己数位移而不用 detectDragGestures:越过触摸阈值时把阈值内的那段也补上,
-                    // 窗口始终保持按下时的抓取位置,真正 1:1 跟手
+                    // Count the displacement by yourself instead of detectDragGestures: When the touch
+                    // threshold is crossed, the segment within the threshold is also added. The window
+                    // always maintains the grab position when pressed, truly 1:1 hand tracking.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val origin = free ?: currentBounds.position(corner).let { (x, y) -> Offset(x, y) }
@@ -323,7 +335,8 @@ private fun PipWindow(
                 }
             }
             if (pip.expanded) {
-                // 左上角:关掉这个任务的小画面(只剩右下角的小按钮);右上角 × 只是收起
+                // Upper left corner: Close the small screen of this task (only the small button in the
+                // lower right corner remains); Upper right corner × Just collapse
                 Box(
                     Modifier.align(Alignment.TopStart).padding(6.dp).size(26.dp)
                         .floatShadow(MinaTheme.colors, CircleShape).background(MinaTheme.colors.glass, CircleShape).clip(CircleShape)
@@ -339,7 +352,7 @@ private fun PipWindow(
                 ) { Icon(MinaIcons.Close, stringResource(R.string.collapse), Modifier.size(12.dp), tint = MinaTheme.colors.ink) }
             }
         }
-        // 边框光画在玻璃框外沿
+        // The border light is painted on the outer edge of the glass frame
         val glow = when (pip.mode) {
             PipMode.Running -> MinaTheme.colors.ok to 2.dp
             PipMode.NeedsYou -> MinaTheme.colors.warnSolid.copy(alpha = breath) to 2.dp

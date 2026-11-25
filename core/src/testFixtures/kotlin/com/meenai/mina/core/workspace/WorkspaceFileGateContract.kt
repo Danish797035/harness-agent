@@ -10,12 +10,13 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * 关口的规则:每个 [FdSys] 实现都跑同一套。JVM 上是按路径的 NioFdSys,真机上是按句柄的安卓实现
- * (app 的 WorkspaceFileGateDeviceTest,另加 FIFO 等只在真机上测得了的)。
+ * Rules for the gate: Every [FdSys] implementation runs the same set. The JVM is NioFdSys based on the
+ * path, and the Android implementation is based on the handle on the real machine (the app's
+ * WorkspaceFileGateDeviceTest, plus FIFO, etc. are only measured on the real machine).
  */
 abstract class WorkspaceFileGateContract {
     protected abstract val sys: FdSys
-    /** 一个空的临时目录;测试在里面建工作区和「外面」。 */
+    /** An empty temporary directory; tests build workspaces inside and "outside". */
     protected abstract fun tempDir(): File
 
     protected val tmp: File by lazy { tempDir() }
@@ -25,7 +26,7 @@ abstract class WorkspaceFileGateContract {
 
     protected fun code(block: () -> Unit): String = try { block(); fail("expected a refusal"); "" } catch (e: SandboxError) { e.code }
     protected fun link(at: File, to: File) { Files.createSymbolicLink(at.toPath(), to.toPath()) }
-    /** 系统不让建硬链接时跳过这条测试。 */
+    /** The system does not allow you to skip this test when creating hard links. */
     protected fun hardLink(at: File, to: File) {
         org.junit.Assume.assumeTrue("hard links not allowed here", runCatching { Files.createLink(at.toPath(), to.toPath()) }.isSuccess)
     }
@@ -43,7 +44,7 @@ abstract class WorkspaceFileGateContract {
     @Test fun linksAnywhereOnThePathAreRefused() {
         link(File(ws, "dir"), secret)
         link(File(ws, "f.txt"), File(secret, "key.txt"))
-        File(ws, "real").mkdirs(); link(File(ws, "inner"), File(ws, "real")) // 指向工作区里面的也不跟
+        File(ws, "real").mkdirs(); link(File(ws, "inner"), File(ws, "real")) // Pointing to the workspace does not follow.
         assertEquals("not_a_file", code { gate.openRead(ws, "dir/key.txt").close() })
         assertEquals("not_a_file", code { gate.openRead(ws, "f.txt").close() })
         assertEquals("not_a_file", code { gate.openRead(ws, "inner/x").close() })
@@ -57,7 +58,7 @@ abstract class WorkspaceFileGateContract {
         val target = File(secret, "db").apply { writeText("keep me") }
         hardLink(File(ws, "h.txt"), target)
         assertEquals("linked_file", code { gate.openRead(ws, "h.txt").close() })
-        // 截断在核实之后:链进来的文件不会被清空
+        // Truncate after verification: linked files will not be cleared
         assertEquals("linked_file", code { gate.openWrite(ws, "h.txt", append = false).close() })
         assertEquals("keep me", target.readText())
         assertEquals("linked_file", code { gate.delete(ws, "h.txt") })
@@ -79,7 +80,7 @@ abstract class WorkspaceFileGateContract {
         assertEquals("a (2).pdf", name)
         assertEquals("1", File(ws, "downloads/a.pdf").readText())
         assertEquals("2", File(ws, "downloads/a (2).pdf").readText())
-        // under 只认那一层目录本身
+        // under only recognizes the directory itself
         assertEquals("path_outside_workspace", code { gate.createNew(ws, "downloads/x/b.pdf", under = "downloads").close() })
     }
 
@@ -98,7 +99,7 @@ abstract class WorkspaceFileGateContract {
 
     @Test fun deleteOnlyRemovesTheVerifiedFile() {
         val g = gate.createNew(ws, "downloads/p.part")
-        // 核实之后名字被换成了别的文件:不删
+        // After verification, the name was changed to another file: do not delete it
         File(ws, "downloads/p.part").delete(); File(ws, "downloads/p.part").writeText("someone else")
         g.delete(); g.close()
         assertEquals("someone else", File(ws, "downloads/p.part").readText())
@@ -114,7 +115,7 @@ abstract class WorkspaceFileGateContract {
         gate.deleteTree(ws, "t")
         assertFalse(File(ws, "t").exists())
         assertEquals("private", File(secret, "key.txt").readText())
-        gate.deleteTree(ws, "never-was") // 不存在不报错
+        gate.deleteTree(ws, "never-was") // No error will be reported if it does not exist
     }
 
     @Test fun replaceSwapsOutLinksInsteadOfWritingThroughThem() {

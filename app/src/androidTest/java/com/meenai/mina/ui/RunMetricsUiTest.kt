@@ -16,7 +16,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 「查看过程」顶上的小结一行和开发者选项里的运行统计页(不用真机任务)。 */
+/** The summary line at the top of "View Process" and the running statistics page in the developer options (no real machine tasks are required). */
 @RunWith(AndroidJUnit4::class)
 class RunMetricsUiTest {
 

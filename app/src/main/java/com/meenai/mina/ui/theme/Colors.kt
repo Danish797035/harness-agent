@@ -5,59 +5,61 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * 界面用到的全部颜色。页面一律从 [MinaTheme.colors] 取,不写死色值。
- * 实色只用在强调(主按钮、选中、开关、用户消息)和状态(成功、需要你、出错);图标块一律中性。
+ * All colors used in the interface. The page is always taken from [MinaTheme.colors], no dead color
+ * value is written. Solid colors are only used for emphasis (main button, selection, switch, user
+ * message) and status (success, need you, error); icon blocks are always neutral.
  */
 @Immutable
 class HarnessColors(
-    /** 页面背景。 */
+    /** Page background. */
     val bg: Color,
-    /** 卡片、分组。 */
+    /** Cards, groups. */
     val surface: Color,
-    /** 浅填充:次按钮、分段控件底、代码块底。 */
+    /** Shallow fill: sub-button, segmented control bottom, code block bottom. */
     val fill: Color,
-    /** 文字三级:正文、次要、辅助。 */
+    /** Three levels of text: main text, secondary text, and auxiliary text. */
     val ink: Color,
     val ink2: Color,
     val ink3: Color,
-    /** 分隔线。 */
+    /** Divider. */
     val hair: Color,
-    /** 卡片描边。 */
+    /** Card strokes. */
     val edge: Color,
     val accent: Color,
     val accentSoft: Color,
-    /** 强调色上的文字和图标。 */
+    /** Text and icons on accent colors. */
     val onAccent: Color,
     val ok: Color,
     val okSoft: Color,
-    /** 「需要你」:[warn] 用于文字,[warnSolid] 用于圆点、描边。 */
+    /** "Need you": [warn] is used for text, [warnSolid] is used for dots and strokes. */
     val warn: Color,
     val warnSolid: Color,
     val warnSoft: Color,
     val bad: Color,
     val badSoft: Color,
-    /** 图标块的底。 */
+    /** The bottom of the icon block. */
     val neutralSoft: Color,
-    /** Mina 回答的底:比页面背景深一点点的灰,和用户的蓝色气泡区分开。 */
+    /** The bottom line of Mina's answer: a gray that is a little darker than the page background, and is distinguished from the user's blue bubble. */
     val answer: Color,
-    /** 灰色胶囊、关着的开关。 */
+    /** Gray capsule, closed switch. */
     val greySoft: Color,
-    /** 悬浮玻璃(输入栏、浮在内容上的按钮)的底和描边。 */
+    /** The bottom and stroke of floating glass (input fields, buttons floating on content). */
     val glass: Color,
     val glassEdge: Color,
-    /** 卡片阴影;深色下卡片只靠描边,为透明。 */
+    /** Card shadow; in dark colors, the card only relies on strokes and is transparent. */
     val cardShadow: Color,
-    /** 悬浮元素的阴影。 */
+    /** The shadow of the suspended element. */
     val floatShadow: Color,
-    /** 开关的圆钮。 */
+    /** Switch round button. */
     val thumb: Color,
     /**
-     * 图表里分类的颜色(例如每家服务商一种),按固定的先后取;超出的归到 [seriesOther]。
-     * 只给图形上色,文字一律用 ink 三级。
+     * The colors classified in the chart (for example, one for each service provider) are taken in a
+     * fixed order; any excess colors are classified into [seriesOther]. Only color the graphics, and use
+     * ink level 3 for all text.
      */
     val series: List<Color>,
     val seriesOther: Color,
-    /** 图表的网格线。 */
+    /** Chart grid lines. */
     val grid: Color,
     val isDark: Boolean,
 )

@@ -97,16 +97,19 @@ class RunTraceDeviceTest {
                 compose.waitUntil(30_000) { compose.onAllNodesWithText("查看过程").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithText("查看过程").performSemanticsAction(SemanticsActions.OnClick)
                 compose.waitUntil(15_000) { compose.onAllNodesWithText("运行过程").fetchSemanticsNodes().isNotEmpty() }
-                // 运行过程页先出标题、再读出这次运行的头部:等头部那一行出来
+                // On the running process page, the title will appear first, and then the header of this
+                // run will be read: wait for the header line to come out
                 compose.waitUntil(10_000) { compose.onAllNodesWithText("导出用量记录").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("详细 Trace"))
                 compose.onNodeWithText("详细 Trace").performScrollTo().performClick()
-                // 页面在任务刚开始时就打开了:请求那一行要等这次请求录完、页面重读之后才出来
+                // The page was opened at the beginning of the task: the requested line will not appear
+                // until the request is recorded and the page is reread.
                 val usage = "输入 1200 · 缓存读取 512 · 未命中 688"
                 compose.waitUntil(30_000) { compose.onAllNodesWithText(usage, substring = true).fetchSemanticsNodes().isNotEmpty() }
                 val run = com.meenai.mina.record.RunStore(app).list().first { "TRACE_FIXTURE" in it.goal }
                 compose.waitUntil(30_000) { !app.detailedTraces.store.recording(run.id) }
-                // 请求正文被截过,录完的整次 Trace 仍标「部分记录」
+                // The request body has been truncated, and the entire Trace after recording is still
+                // marked as "Partial Recording"
                 compose.waitUntil(5_000) { compose.onAllNodesWithText("部分记录").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithText(usage, substring = true).performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
                 compose.onNodeWithText("保存本次 Trace").assertExists()

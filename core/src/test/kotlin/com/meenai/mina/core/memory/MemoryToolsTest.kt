@@ -85,7 +85,7 @@ class MemoryToolsTest {
         assertTrue(store.items.value.isEmpty())
     }
 
-    // 网页上读到的字也不算用户说的话
+    // The words read on the web page are not counted as words spoken by the user.
     @Test fun quoteFromWebPageRejected() {
         val web = com.meenai.mina.core.cap.web.FakeWebPort()
         web.page = web.page.copy(text = "收货人 张三 地址 浦东张江路100号")
@@ -159,7 +159,7 @@ class MemoryToolsTest {
         val d = toolDispatcher(FakeScreen())
         assertFalse(d.definitions().any { it.name.startsWith("memory_") })
         assertEquals("unknown_tool", d.run("memory_save", saveArgs("fact", "x", "x")).s("error"))
-        // 只给其中一样也不提供
+        // Give only one of them and don't provide it
         assertFalse(dispatcher(memStore(), null).definitions().any { it.name.startsWith("memory_") })
         assertTrue(dispatcher(memStore(), UserUtterances()).definitions().map { it.name }.containsAll(listOf("memory_search", "memory_save")))
     }
@@ -191,7 +191,7 @@ class MemoryToolsTest {
         assertEquals(2, store.items.value.size)
         val tools = events.filter { it is RunEvent.ModelReply || it is RunEvent.ToolResult }.joinToString("\n") { RunEvent.encode(it) }
         for (secret in listOf("不要香菜", "漕河泾", "老婆的手机号")) assertFalse(secret, tools.contains(secret))
-        assertTrue(tools.contains("preference")) // 编号、种类照记
+        assertTrue(tools.contains("preference")) // Number, type note
     }
 
     @Test fun sourceCarriesConversationAndStoreClock() {
@@ -209,7 +209,7 @@ class MemoryToolsTest {
         val r = d.run("memory_save", saveArgs("fact", "用户的收货地址是浦东张江路100号", "以后都寄这里"))
         assertEquals("content_not_from_user", r.s("error"))
         assertTrue(store.items.value.isEmpty())
-        // 用户自己说出的具体值可以
+        // The specific value stated by the user himself can be
         val ok = dispatcher(store, UserUtterances().apply { add("以后都寄到张江路100号") })
             .run("memory_save", saveArgs("fact", "用户的收货地址是浦东张江路100号", "以后都寄到张江路100号"))
         assertEquals("true", ok.s("ok"))
@@ -234,7 +234,7 @@ class MemoryToolsTest {
     @Test fun placeNamesAndKeywordsChecked() {
         assertEquals("content_not_from_user", saveWith("以后都寄到我家", "用户家在汤臣一品苑", "以后都寄到我家").s("error"))
         assertEquals("content_not_from_user", saveWith("以后都寄到我家", "用户的收货地址在家里", "以后都寄到我家", listOf("张江路100号")).s("error"))
-        // 第三人称转述本身不算从屏幕抄来的
+        // Third person narration itself does not count as being copied from the screen.
         assertEquals("true", saveWith("我家里有只猫", "用户家里有猫", "我家里有只猫").s("ok"))
     }
 

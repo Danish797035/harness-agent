@@ -22,10 +22,10 @@ import com.meenai.mina.core.workspace.WorkspacePathCheck
 import com.meenai.mina.core.uistate.action
 import com.meenai.mina.core.uistate.session
 
-/** 页面脚本给文件选择控件(input type=file)的角色。 */
+/** The page script gives the file selection control (input type=file) the role. */
 private const val FILE_ROLE = "file"
 
-/** 把工作区里的文件交给页面上的文件控件;要点文件控件,和点击一样判不可逆。 */
+/** Pass the file in the workspace to the file control on the page; click on the file control, which is as irreversible as clicking. */
 internal object Upload : WebTool {
     override val verb = Verb.Upload
     override val label = "Upload file"
@@ -51,7 +51,8 @@ internal object Upload : WebTool {
         if (target != null && target.role != FILE_ROLE) {
             throw ArgError("ref", "${ref.first} is a ${target.role}, not a file control; pass the ref of the file input (role $FILE_ROLE)")
         }
-        // 没接工作区检查时一律当越界:宁可传不了,不能把工作区外的文件交给页面
+        // If the work area is not checked, it will be regarded as out of bounds: it would rather not be
+        // transmitted than the file outside the work area to the page.
         val pathCheck = ctx.workspacePath ?: { WorkspacePathCheck.Outside }
         for (p in paths) {
             val check = if (!workspaceShaped(p)) WorkspacePathCheck.Outside else pathCheck(p)
@@ -65,7 +66,7 @@ internal object Upload : WebTool {
         return ctx.action(ctx.web!!.upload(ref.first, ref.second, paths))
     }
 
-    /** /workspace/ 下、没有 . 和 .. 段、没有连续斜杠的路径;其余交给 app 侧规范化后再判。 */
+    /** /workspace/, no. and.. segments, and no path with consecutive slashes; the rest is left to the app side for normalization before judging. */
     private fun workspaceShaped(p: String): Boolean {
         if (!p.startsWith(WORKSPACE_PREFIX) || "//" in p) return false
         return p.removePrefix(WORKSPACE_PREFIX).split('/').none { it == "." || it == ".." || it.isEmpty() }

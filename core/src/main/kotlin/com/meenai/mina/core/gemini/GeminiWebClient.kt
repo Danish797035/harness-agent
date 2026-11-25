@@ -32,9 +32,9 @@ object GeminiWebClient {
     const val INIT_URL = "https://gemini.google.com/app"
     const val STREAM_GENERATE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     const val BATCH_EXECUTE_ENDPOINT = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
-    /** Gemini 网页 Usage limits 页的 GraphQL 执行端点(和网页发的是同一个请求)。 */
+    /** The GraphQL execution endpoint of the Gemini web page Usage limits page (sends the same request as the web page). */
     const val GRAPHQL_ENDPOINT = "https://gemini.google.com/_/BardChatUi/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery"
-    /** UsagePageQuery 的持久化查询 id(网页打包时固定)。 */
+    /** The persistent query id of UsagePageQuery (fixed when the web page is packaged). */
     const val USAGE_QUERY_ID = "2/yL2v1aYbA346hkaeglNZmTMJfO37mMT1xFprjCS/Pj4="
 
     const val CHROME_USER_AGENT =
@@ -404,19 +404,23 @@ object GeminiWebClient {
     }
 
     /**
-     * 读取 Gemini 账号自己的用量:和网页 Usage limits 页发同一个 GraphQL 请求
-     * (`GEMINI_WEB_GRAPHQL/executeQuery` + UsagePageQuery 的持久化 id)。
+     * Read the Gemini account's own usage: Send the same GraphQL request
+     * (`GEMINI_WEB_GRAPHQL/executeQuery` + persistence id of UsagePageQuery) as the Usage limits page of
+     * the web page.
      *
-     * 网页那边用 SNlM0e 当 XSRF token,body 是 `{querySignature, variables}`,
-     * 回复是一个 Relay 数组。这里照做;401/403 时用 Cookie 重新取一次 /app 换新 token 再试一次。
-     * 任何一步失败都返回 usage = null,调用方退回本机计数。
+     * The web page uses SNlM0e as XSRF token, the body is `{querySignature, variables}`, and the reply
+     * is a Relay array. Do the same here; when 401/403 occurs, use Cookie to retrieve /app again,
+     * replace it with a new token, and try again. If any step fails, usage = null is returned, and the
+     * caller returns to the native count.
      */
     suspend fun fetchUsage(http: OkHttpClient, session: GeminiWebSession): GeminiUsageFetch {
         var current = session
-        // 和聊天共用 cookie jar;只在它是空的时候种一次,免得把聊天刚轮换的新 cookie 覆盖回旧的
+        // Share the cookie jar with chat; only plant it once when it is empty, so as not to overwrite
+        // the new cookie that chat just rotated back to the old one
         if (cookieSnapshot().isBlank()) seedCookies(current.cookies)
         if (!current.signedIn) return GeminiUsageFetch(null, current)
-        // 聊天客户端读超时是 5 分钟;用量页不能卡这么久,单独给它 30 秒
+        // The chat client read timeout is 5 minutes; the usage page cannot be stuck for so long, give it
+        // 30 seconds alone
         val client = http.newBuilder()
             .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
@@ -434,7 +438,8 @@ object GeminiWebClient {
             if (refreshed != null) current = refreshed.copy(email = current.email.ifBlank { refreshed.email })
         }
         var attempt = requestUsage(client, current)
-        // 网页没登录时 HTTP 也是 200,只是 viewer 为 null;换一次新令牌再试
+        // When the web page is not logged in, HTTP is also 200, but the viewer is null; change the token
+        // and try again.
         if (attempt.usage == null && attempt.needsRefresh && !refreshedOnce) {
             val refreshed = runCatching {
                 fetchSessionFromCookies(
@@ -458,7 +463,7 @@ object GeminiWebClient {
         return GeminiUsageFetch(attempt.usage, next)
     }
 
-    /** 发一次 UsagePageQuery;[needsRefresh] 表示登录态/令牌可能过期,值得换新会话再试。 */
+    /** Sending UsagePageQuery;[needsRefresh] once indicates that the login status/token may have expired and it is worth changing to a new session and trying again. */
     private fun requestUsage(http: OkHttpClient, session: GeminiWebSession): UsageAttempt {
         val payload = buildJsonObject {
             put("querySignature", USAGE_QUERY_ID)
@@ -620,10 +625,10 @@ object GeminiWebClient {
     ): String = buildInnerRequestJson(prompt, modelNumber, if (extendedThinking) 2 else 1, uuid)
 }
 
-/** 一次用量读取的结果:[usage] 为空表示这次没读到,[session] 可能是刷新过的新会话。 */
+/** The result of a usage read: [usage] is empty, indicating that it was not read this time, and [session] may be a new session that has been refreshed. */
 data class GeminiUsageFetch(val usage: GeminiUsage?, val session: GeminiWebSession)
 
-/** 单次 GraphQL 尝试:没读到时 [needsRefresh] 说明该换 XSRF token 重试。 */
+/** Single GraphQL attempt: [needsRefresh] when not read indicates that it is time to change the XSRF token and try again. */
 private data class UsageAttempt(val usage: GeminiUsage?, val needsRefresh: Boolean)
 
 /** One model the signed-in Google account may actually use. */
@@ -661,4 +666,3 @@ data class GeminiProbe(
         else -> "Gemini account check returned status $status."
     }
 }
-

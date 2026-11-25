@@ -6,13 +6,17 @@ import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
 
 /**
- * 一轮对话:用户说了什么、结果如何。[outcome] 是成功时的答案或失败原因;
- * [status] 为 succeeded / unverified(办完了但没能核实,[note] 是原因,[unconfirmed] 是标成未确认的几处)/ failed / cancelled。
- * [runId] 是这轮的运行记录;没开起记录或更早的轮次为 null。
+ * A conversation: what the user said and what the outcome was. [outcome] is the answer when successful
+ * or the reason for failure; [status] is succeeded / unverified (it was completed but could not be
+ * verified, [note] is the reason, [unconfirmed] is several places marked as unconfirmed) / failed /
+ * canceled. [runId] is the running record of this round; if there is no record or earlier rounds, it is
+ * null.
  */
 /**
- * [memoryNotes]/[usedMemory]/[skillNotes]:结果卡片下的记忆与技能提示,任务结束后补上;不进给模型的上文。
- * [result]:交出回答后判的结局([RunOutcome.wire]),后台补上;没判过为 null。
+ * [memoryNotes]/[usedMemory]/[skillNotes]: The memory and skill tips under the result card will be added
+ * after the task is completed; the upper part of the model will not be fed. [result]: The ending that is
+ * judged after handing in the answer ([RunOutcome.wire]) is added in the background; if it is not
+ * judged, it is null.
  */
 data class Turn(
     val userText: String, val outcome: String, val status: String, val note: String? = null, val runId: String? = null,
@@ -21,33 +25,36 @@ data class Turn(
     val skillNotes: List<com.meenai.mina.core.skills.SkillNote> = emptyList(),
     val unconfirmed: List<String> = emptyList(),
     val result: String? = null,
-    /** 任务进行中用户插的、已交给这个任务的话(界面在那一轮下面显示)。 */
+    /** If the user inserts the task while the task is in progress and has handed over the task (the interface will be displayed under that round). */
     val steers: List<String> = emptyList(),
-    /** 和 [steers] 一一对应:每句插话打断的那段回复里用户已经看到的字,没打断的是空串。只给界面显示,不进给模型的上文。 */
+    /** One-to-one correspondence with [steers]: the words in the reply that are interrupted by each interruption are the words that the user has already seen, and the uninterrupted ones are empty strings. Only the interface is displayed, and the upper part of the model is not fed. */
     val interruptedReplies: List<String> = emptyList(),
-    /** 和 [steers] 一一对应:每句插话交给模型之前、已经说完显示出来的那段回复,没有的是空串。只给界面显示。 */
+    /** One-to-one correspondence with [steers]: before each interjection is handed over to the model, the reply that has been finished and displayed is an empty string. Only displayed on the interface. */
     val finishedReplies: List<String> = emptyList(),
-    /** 这一轮真的用过的能力组(手机、网页、沙箱……);下一轮开局预先展开,不进给模型的上文。 */
+    /** The ability groups that have been really used in this round (mobile phone, web page, sandbox...); the next round will be started in advance, and the upper part of the model will not be fed. */
     val groups: List<String> = emptyList(),
-    /** 任务结束后留在后台接着运行的那一页的站点(见 web_keep_open);没留为 null。 */
+    /** The page of the site that will be left in the background to continue running after the task is completed (see web_keep_open); if not left, it will be null. */
     val keptPage: String? = null,
-    /** 留下的那一页后来关掉的原因([com.meenai.mina.core.cap.web.KeptPageClose.wire]);还开着或没留为 null。 */
+    /** The reason why the page left was closed later ([com.meenai.mina.core.cap.web.KeptPageClose.wire]); it is still open or not left as null. */
     val keptPageClosed: String? = null,
 )
 
 object Conversation {
     const val HEADER = "Earlier turns of this conversation (for reference; what you read this time shows the current state):"
 
-    /** 停止的那一轮还没有交代(或没什么可交代)时记下的话。 */
+    /** What I wrote down when there was no explanation for the round that ended (or there was nothing to explain). */
     const val CANCELLED_OUTCOME = "已取消"
 
-    /** 停止的那一轮补上的交代;没有时为 null。 */
+    /** The account to be filled in the round that ended; null if there is none. */
     fun stopSummary(t: Turn): String? =
         t.outcome.trim().takeIf { t.status == "cancelled" && it.isNotEmpty() && it != CANCELLED_OUTCOME }
 
     /**
-     * 把之前的轮次做成一条用户角色的参考消息,最近的在最后;整条超过 [maxTokens](按 [TokenEstimate])就丢掉较早的轮次。
-     * 只剩一轮还超长时各字段分别截断(用户原话和结局都留一段),仍超长再整段截断。没有轮次返回 null。
+     * Make the previous rounds into a reference message for the user role, with the latest one at the
+     * end; if the entire message exceeds [maxTokens] (by [TokenEstimate]), discard the earlier rounds.
+     * If there is only one round left and it is too long, each field will be truncated separately (one
+     * paragraph will be left for the user's original words and the ending). If it is still too long, the
+     * entire paragraph will be truncated. Returns null if there are no rounds.
      */
     fun context(turns: List<Turn>, maxTurns: Int = 5, maxTokens: Int = 2_500): Message? {
         var recent = turns.takeLast(maxTurns.coerceAtLeast(0))
@@ -58,7 +65,8 @@ object Conversation {
         var body = render(recent, Int.MAX_VALUE)
         val room = (maxTokens - TokenEstimate.of(header)).coerceAtLeast(20)
         if (TokenEstimate.of(header + body) > maxTokens) {
-            // 只剩一轮还超长:各字段截断,原话和结局各留一段
+            // There is only one round left and it is too long: each field is truncated, leaving one
+            // paragraph each for the original story and the ending.
             body = render(recent, room / 3)
             if (TokenEstimate.of(header + body) > maxTokens) body = TokenEstimate.clip(body, room, "…")
         }
@@ -66,18 +74,22 @@ object Conversation {
     }
 
     private fun line(n: Int, t: Turn, clip: Int): String {
-        // 回答如实说没办成或只办了一部分:按交出后判的结局说,下一轮别当它办成了
+        // The answer is to tell the truth that it was not done or only partially done: According to the
+        // outcome of handing over the judgment, don’t treat it as done in the next round.
         val answered = t.status == "succeeded" || t.status == "unverified"
         val result = when {
             answered && t.result == RunOutcome.Partial.wire -> "only partly done: ${t.outcome.clip(clip)}"
             answered && t.result == RunOutcome.NotPossible.wire -> "not done: ${t.outcome.clip(clip)}"
             t.status == "succeeded" -> "result: ${t.outcome.clip(clip)}"
             t.status == "unverified" -> "result (could not be verified): ${t.outcome.clip(clip)}"
-            // 停止后补上的交代(做过什么、哪些没做完)带上,下一句「继续」才知道从哪接着做;旧记录里只有「已取消」
+            // Bring along the explanations you made up after you stopped (what you have done and what
+            // you have not done). Only when you say "Continue" will you know where to start; the old
+            // record only has "Cancelled"
             t.status == "cancelled" -> stopSummary(t)?.let { "the user stopped this task partway; before the stop: ${it.clip(clip)}" } ?: "the user cancelled this task"
             else -> "not finished, reason: ${t.outcome.clip(clip)}"
         }
-        // 任务结束后留下的那一页:下一轮被问到「还在播吗」时知道它还开着还是已经关了
+        // The page left after the mission is over: When you are asked "Is it still playing" in the next
+        // round, you will know whether it is still on or off.
         val kept = t.keptPage?.let { host ->
             if (t.keptPageClosed == null) "; after it Harness Agent kept the page on $host running in the background"
             else "; Harness Agent kept the page on $host running after it, and that page has since been closed"
@@ -85,6 +97,6 @@ object Conversation {
         return "$n. The user said: ${t.userText.clip(clip)}; $result$kept"
     }
 
-    /** 截到 [max] 个 token(含末尾的「…」)。 */
+    /** Up to [max] tokens (including the "..." at the end). */
     private fun String.clip(max: Int) = if (max == Int.MAX_VALUE || TokenEstimate.of(this) <= max) this else TokenEstimate.clip(this, max, "…")
 }

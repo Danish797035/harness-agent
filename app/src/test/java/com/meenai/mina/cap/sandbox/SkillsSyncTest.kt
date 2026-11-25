@@ -27,7 +27,8 @@ class SkillsSyncTest {
         SkillsSync.sync(dirs, v1)
         val py = File(dirs.skills, "skills/report/scripts/tabulate.py")
         assertEquals("print(1)", py.readText())
-        // 打包的脚本变了:整体换上新的,旧的不留
+        // The packaging script has changed: the whole thing has been replaced with a new one, and the
+        // old one has not been retained.
         val v2 = mapOf("skills/report/scripts/manifest.json" to "[]".toByteArray(), "skills/other/scripts/x.sh" to "echo".toByteArray())
         SkillsSync.sync(dirs, v2)
         assertFalse(py.exists())
@@ -37,15 +38,16 @@ class SkillsSyncTest {
     @Test fun tamperedFilesAreResynced() = runBlocking {
         SkillsSync.sync(dirs, v1)
         val py = File(dirs.skills, "skills/report/scripts/tabulate.py")
-        // 沙箱里的命令改了脚本:下次同步换回原样
+        // The command in the sandbox has changed the script: the next synchronization will be restored
+        // to the original state.
         py.writeText("import os; os.system('evil')")
         SkillsSync.sync(dirs, v1)
         assertEquals("print(1)", py.readText())
-        // 多出来的文件也清掉
+        // Also clear the extra files.
         val extra = File(dirs.skills, "skills/report/scripts/extra.py").apply { writeText("x") }
         SkillsSync.sync(dirs, v1)
         assertFalse(extra.exists())
-        // 换成链接的也算不一致
+        // Replacing it with a link is also considered inconsistent.
         py.delete()
         java.nio.file.Files.createSymbolicLink(py.toPath(), File(tmp, "elsewhere").toPath())
         SkillsSync.sync(dirs, v1)
@@ -68,14 +70,16 @@ class SkillsSyncTest {
         assertEquals(listOf("scripts/tabulate.py"), sb.scriptManifest("skills/report").map { it.file })
         assertTrue(sb.scriptManifest("skills/none").isEmpty())
         assertTrue(sb.scriptManifest("../../../etc").isEmpty())
-        // 沙箱里改了清单:不起作用,读的是打包的那份
+        // The list was changed in the sandbox: it didn't work, the packaged copy was read.
         File(dirs.skills, "skills/report/scripts/manifest.json").writeText("""[{"file":"scripts/evil.py","runnable":true}]""")
         assertEquals(listOf("scripts/tabulate.py"), sb.scriptManifest("skills/report").map { it.file })
-        // 改过的脚本:重新同步后与打包的一致,照常可跑
+        // Modified script: After resynchronization, it will be consistent with the packaged one and can
+        // run as usual.
         File(dirs.skills, "skills/report/scripts/tabulate.py").writeText("evil")
         assertTrue(sb.verifyScript("skills/report", "scripts/tabulate.py"))
         assertEquals("print(1)", File(dirs.skills, "skills/report/scripts/tabulate.py").readText())
-        // 恢复不了(同步不起作用)就拒绝;打包里没有的脚本也拒绝
+        // If it cannot be restored (synchronization does not work), it will be rejected; scripts that
+        // are not included in the package will also be rejected.
         val stuck = AndroidSandbox(dirs, { SandboxStatus.Ready(false) }, { emptyList() }, skillFiles = { v1 })
         File(dirs.skills, "skills/report/scripts/tabulate.py").writeText("evil")
         assertFalse(stuck.verifyScript("skills/report", "scripts/tabulate.py"))
@@ -87,7 +91,8 @@ class SkillsSyncTest {
         assertEquals("Working on files: ${"x".repeat(40)}… · online", com.meenai.mina.ui.StatusCopy.sandboxCommand("x".repeat(50), network = true))
         assertEquals("Running a script", com.meenai.mina.ui.StatusCopy.sandboxScript(network = false))
         assertEquals("第 3/10 页", com.meenai.mina.ui.StatusCopy.sandboxProgress("第 3/10 页", network = false))
-        // 命令里的零宽字符、改写方向的字符不上卡片
+        // Zero-width characters and characters in the rewriting direction in the command do not appear
+        // on the card.
         assertEquals("Working on files: rm a.txt", com.meenai.mina.ui.StatusCopy.sandboxCommand("rm \u202Ea\u200B.txt", network = false))
     }
 }

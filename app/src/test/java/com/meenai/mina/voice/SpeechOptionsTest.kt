@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-/** 「语音转文字」选择页的分组和设置卡片上的两行字。 */
+/** Two lines of text on the grouping and settings card of the "Speech to Text" selection page. */
 class SpeechOptionsTest {
     @get:Rule val texts = EnglishTexts()
 

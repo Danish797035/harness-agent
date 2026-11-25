@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** 录音器的最小接口:[PcmRecorder] 实现它,测试换成假的。 */
+/** The minimum interface of the recorder: [PcmRecorder] Implement it and replace the test with a fake one. */
 interface Recorder {
     val level: StateFlow<Float>
     fun start(): Boolean
@@ -20,10 +20,12 @@ interface Recorder {
 }
 
 /**
- * 服务商那条路:按着时录音、只发 [SpeechEvent.Level];松开后发 [SpeechEvent.Converting],
- * 把整段录音交给 [transcribe](WAV 进、文字出,失败抛 [ModelError]),给出 Final 或 Failed(Provider)。
- * 构造时就开始录;录音不足 [MIN_MS] 当没听清,不去调服务商。
- * 转写最多等 [timeoutMs](默认 [TRANSCRIBE_TIMEOUT_MS]),超时当网络不通给 Failed(Network),界面不会一直转圈。
+ * The service provider’s approach: record when pressed, and only send [SpeechEvent.Level]; release
+ * [SpeechEvent.Converting], give the entire recording to [transcribe] (WAV in, text out, [ModelError] on
+ * failure), and give Final or Failed (Provider). Start recording during construction; if the recording
+ * is insufficient, [MIN_MS], if you can’t hear it clearly, don’t call the service provider. The maximum
+ * transcribing method is [timeoutMs] (default [TRANSCRIBE_TIMEOUT_MS]). When the network is unavailable,
+ * it will be Failed (Network) after timeout, and the interface will not keep spinning.
  */
 class ProviderSpeech(
     private val recorder: Recorder,
@@ -52,7 +54,8 @@ class ProviderSpeech(
         if (released || out.finished || out.cancelled) return
         released = true
         levels?.cancel()
-        // stop 会等读循环退出(短暂阻塞),放到后台线程,别卡住主线程
+        // stop will wait for the read loop to exit (briefly blocked) and put it on the background
+        // thread. Don't block the main thread.
         work = scope.launch {
             val pcm = recorder.stop()
             if (pcm.size < Wav.RATE * MIN_MS / 1000) {
@@ -61,8 +64,10 @@ class ProviderSpeech(
             }
             out.send(SpeechEvent.Converting)
             val wav = Wav.encode(pcm)
-            // 连接一直不回(客户端只有很长的读超时、没有整体超时):到点就不等了。
-            // 出错在超时块里面就接住,原样的错误交出去(不跨协程边界,不会被换成拷贝)
+            // The connection never returns (the client only has a long read timeout and no overall
+            // timeout): it won't wait until the point is reached. Errors are caught in the timeout block
+            // and handed over as they are (does not cross the coroutine boundary and will not be
+            // replaced by a copy)
             val result = withTimeoutOrNull(timeoutMs) {
                 try {
                     SpeechEvent.Final(transcribe(wav))
@@ -87,10 +92,10 @@ class ProviderSpeech(
     }
 
     companion object {
-        /** 比这短的录音多半是误触,直接当没听清。 */
+        /** Recordings shorter than this are most likely caused by accidental contact, and are simply treated as if they were not heard clearly. */
         const val MIN_MS = 500
 
-        /** 松开后等服务商转写的上限;一段最多 60 秒的录音,正常几秒内转好。 */
+        /** The upper limit of waiting for the service provider to transcribe after releasing it; a recording of up to 60 seconds will normally be transcribed within a few seconds. */
         const val TRANSCRIBE_TIMEOUT_MS = 30_000L
     }
 }

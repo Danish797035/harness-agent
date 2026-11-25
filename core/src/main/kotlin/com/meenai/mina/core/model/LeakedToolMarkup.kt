@@ -11,26 +11,31 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * 有的模型会把本该走 `tool_calls` 通道的工具调用标记直接吐进正文:
- * DeepSeek V3.2 / V4 的 DSML(`<｜DSML｜invoke name="…">…`),以及 Qwen 一类的 `<tool_call>{…}</tool_call>`。
- * 原样交给界面上就是一堆 `<｜｜DSML｜｜ calls>` 乱码,而且会被当成正文记进历史。
+ * Some models spit out tool call markers that should go through the `tool_calls` channel directly into
+ * the text: DSML (`<｜DSML｜invoke name="…">…`) of DeepSeek V3.2 / V4, and `<tool_call>{…}</tool_call>`
+ * such as Qwen. If you hand it over to the interface as it is, there will be a bunch of `<｜｜DSML｜｜
+ * calls>` garbled characters, and it will be recorded in history as text.
  *
- * 这里做两件事,顺序是先还原、再剥离:
- * 1. 能还原成工具调用的就还原(参数按 `string` 标志转成字符串或 JSON 值),交给工具引擎照常执行;
- * 2. 还原不出来的 DSML 只把标记剥掉,留下标记之外的正文;还原不出来的 `<tool_call>` 块原样留着,
- *    由 AgentLoop 的漏调用检查(LeakedToolCall)退回一次,不当成回答交出。
+ * Two things are done here, the order is to restore first and then strip off: 1. Restore the ones that
+ * can be restored to the tool call (the parameters are converted into strings or JSON values according
+ * to the `string` flag), and hand them over to the tool engine for execution as usual; 2. For the DSML
+ * that cannot be restored, only the tags are stripped off, leaving the text outside the tags; the
+ * `<tool_call>` blocks that cannot be restored are left as they are, and are used by AgentLoop The
+ * missed call check (LeakedToolCall) is returned once and is not handed over as an answer.
  *
- * 只在正文里真的出现标记时才动,正常回答一个字符都不改(见 [repair] 的 changed 判断)。
- * 回答里成对写出、里面是合法调用 JSON 的 `<tool_call>` 块会被当成调用,这是有意的取舍:
- * 把乱码显示给用户的代价更大;调了不存在的工具时,工具引擎照常回报错误。
+ * It only changes when the mark actually appears in the text. Normal answers do not change a single
+ * character (see the changed judgment of [repair]). The `<tool_call>` blocks written in pairs in the
+ * answer and containing legal JSON calls will be treated as calls. This is an intentional trade-off: the
+ * cost of displaying garbled characters to the user is greater; when a tool that does not exist is
+ * adjusted, the tool engine will report an error as usual.
  */
 object LeakedToolMarkup {
     data class Invocation(val name: String, val argsJson: String)
 
-    /** [text] 是剥掉标记后剩下的正文;[calls] 是从标记里还原出来的工具调用(可能为空)。 */
+    /** [text] is the text remaining after stripping off the mark; [calls] is the tool call restored from the mark (may be empty). */
     data class Scan(val text: String, val calls: List<Invocation>)
 
-    /** 竖线有两种写法:全角 `｜` 和半角 `|`,泄漏时还会写成一到两根。 */
+    /** There are two ways to write vertical lines: full-width `｜` and half-width `|`. When leaked, it will be written as one or two. */
     private const val B = "[｜|]"
 
     private fun bars(prefix: String) = prefix + B + "{1,2}\\s*DSML\\s*" + B + "{1,2}"
@@ -45,10 +50,10 @@ object LeakedToolMarkup {
         RegexOption.DOT_MATCHES_ALL,
     )
 
-    /** 剩下的成对/落单标记(外层 `calls`、`function_calls` 之类)一律去掉。 */
+    /** The remaining pair/single marks (outer `calls`, `function_calls`, etc.) will be removed. */
     private val TAG = Regex("</?" + B + "{1,2}\\s*DSML\\s*" + B + "{1,2}[^>]*>")
 
-    /** Qwen 一类:`<tool_call>{"name":…,"arguments":…}</tool_call>`。 */
+    /** Qwen Category 1: `<tool_call>{"name":…,"arguments":…}</tool_call>`. */
     private val TOOL_CALL_BLOCK = Regex(
         "<tool_call>\\s*(.*?)\\s*</tool_call>",
         RegexOption.DOT_MATCHES_ALL,
@@ -69,21 +74,23 @@ object LeakedToolMarkup {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * 流式里常见:标记刚开了个头(`<｜`、`<｜｜DSML`、`<｜｜DSML｜｜ invoke name="pho`)。
-     * 只认竖线开头、接着是 DSML 前几个字母的半个标记,不匹配正常文字(`a<b 这段讲 DSML` 不算)。
+     * Common in streaming: the mark has just started (`<｜`, `<｜｜DSML`, `<｜｜DSML｜｜ invoke name="pho`).
+     * Only half tags starting with a vertical bar and followed by the first few letters of DSML are
+     * recognized, which do not match normal text (`a<b This paragraph talks about DSML` does not count).
      */
     private val PARTIAL_TAIL = Regex("^/?" + B + "{1,2}\\s*(?:D(?:S(?:M(?:L.*)?)?)?)?$", RegexOption.DOT_MATCHES_ALL)
 
-    /** 流式预览用:每来一帧就把已经收到的那部分标记剥掉,别让用户看着乱码闪过去。 */
+    /** For streaming preview: Every time a frame comes, peel off the part of the mark that has been received, so as not to let the user watch the garbled code flash past. */
     fun stripMarkup(text: String): String = scan(text).text
 
-    /** 扫一段正文:剥标记、还原调用。没有标记时原样返回,调用为空。 */
+    /** Scan a paragraph of text: peel off the mark and restore the call. If there is no mark, it will be returned as is and the call will be empty. */
     fun scan(text: String): Scan {
         if (text.isEmpty()) return Scan(text, emptyList())
         var rest = text
         val calls = mutableListOf<Invocation>()
 
-        // 1. DSML:先按 invoke 整块抽出来,参数按 parameter 抽
+        // 1. DSML: First press invoke to extract the whole block, and press parameter to extract the
+        // parameters.
         if (rest.contains("DSML", ignoreCase = true)) {
             for (m in INVOKE.findAll(rest)) {
                 val name = m.groupValues[1].trim()
@@ -94,7 +101,7 @@ object LeakedToolMarkup {
             rest = TAG.replace(rest, " ")
         }
 
-        // 2. <tool_call>{…}</tool_call>(里面是 JSON,可能是一个对象或一组)
+        // 2. <tool_call>{...}</tool_call> (it is JSON, which may be an object or a group)
         rest = extractJsonBlocks(rest, TOOL_CALL_BLOCK, calls)
         rest = extractJsonBlocks(rest, PIPE_TOOL_CALL_BLOCK, calls)
         rest = extractJsonBlocks(rest, FENCED_TOOL_CALLS_BLOCK, calls)
@@ -102,7 +109,8 @@ object LeakedToolMarkup {
             rest = extractJsonBlocks(rest, RAW_TOOL_CALLS_BLOCK, calls)
         }
 
-        // 流式预览:末尾还没收全的半个标记(<｜｜DSML｜、<｜…)也别显示出来
+        // Streaming preview: Don’t show the half-marks (<｜｜DSML｜, <｜...) that are not fully confiscated
+        // at the end.
         val lt = rest.lastIndexOf('<')
         if (lt >= 0) {
             val tail = rest.substring(lt + 1)
@@ -111,12 +119,13 @@ object LeakedToolMarkup {
             }
         }
         if (calls.isEmpty() && rest == text) return Scan(text, emptyList())
-        // 标记剥掉后留下的空行收拾干净;正文内部的换行不动
+        // The empty lines left after the mark is peeled off are cleaned up; the line breaks inside the
+        // text are not changed.
         rest = rest.lines().joinToString("\n") { it.trimEnd() }.replace(Regex("\n{3,}"), "\n\n").trim()
         return Scan(rest, calls)
     }
 
-    /** 把一个回复里的正文清洗掉;还原出调用时补上 [Part.ToolCall],结束时标成 ToolUse。 */
+    /** Clean the text in a reply; add [Part.ToolCall] when restoring the call, and mark it as ToolUse when it ends. */
     fun repair(reply: ModelReply): ModelReply {
         if (reply.parts.none { it is Part.Text || it is Part.Thinking }) return reply
         val out = mutableListOf<Part>()
@@ -124,7 +133,8 @@ object LeakedToolMarkup {
         var changed = false
         for (p in reply.parts) {
             if (p is Part.Thinking) {
-                // 思考内容里漏出来的标记只剥掉、不当成调用:调用只能从正文里认
+                // Marks leaked from the thinking content are only peeled off and not regarded as calls:
+                // calls can only be recognized from the text.
                 val cleaned = stripMarkup(p.text)
                 if (cleaned != p.text) changed = true
                 if (cleaned.isNotEmpty()) out += Part.Thinking(cleaned)
@@ -144,7 +154,7 @@ object LeakedToolMarkup {
         return ModelReply(out, if (calls.isEmpty()) reply.stopReason else StopReason.ToolUse, reply.usage)
     }
 
-    /** 参数块 → 工具参数 JSON。`string="false"` 的按 JSON 值收,其余按字符串。 */
+    /** ParameterBlock → ToolParameters JSON. `string="false"` is collected as JSON value, and the rest is collected as string. */
     private fun paramsJson(block: String): String {
         if (PARAM.find(block) == null) return "{}"
         return buildJsonObject {
@@ -164,13 +174,15 @@ object LeakedToolMarkup {
         JsonPrimitive(raw)
     }
 
-    /** 名字+参数做稳定的调用编号(同一条消息里再按序号区分),不引随机数,便于单测。 */
+    /** The name + parameters are used to create a stable call number (differentiated by serial number in the same message), without random numbers, which is convenient for single testing. */
     private fun callId(c: Invocation, index: Int): String =
         "leaked_" + Integer.toHexString((c.name + "\u0000" + c.argsJson).hashCode()) + "_" + index
 
     private fun extractJsonBlocks(text: String, block: Regex, calls: MutableList<Invocation>): String {
-        // 只剥能还原出调用的块;还原不了的原样留着,交给 AgentLoop 的漏调用检查(LeakedToolCall)退回重来,
-        // 免得剥掉之后只剩前面一句「我查一下」,被当成最终回答交出去
+        // Only peel off the blocks that can restore the call; leave the blocks that cannot be restored
+        // as they are, and return them to AgentLoop's leaked call check (LeakedToolCall) to avoid being
+        // handed over as the final answer after peeling off only the previous sentence "I'll check it
+        // out."
         return block.replace(text) { m ->
             val found = invocationsOf(m.groupValues[1])
             if (found.isEmpty()) m.value else " ".also { calls += found }

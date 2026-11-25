@@ -28,7 +28,7 @@ import org.junit.Test
 import com.meenai.mina.core.testing.TOOLS
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 每次读屏换下一份元素清单(读完最后一份就一直是它);同名元素位置不变。 */
+/** Each time the screen is read, the next list of elements is changed (it remains the same after reading the last one); the position of the element with the same name remains unchanged. */
 private class ListScreen(private vararg val screens: List<String>) : ScreenPort by FakeScreen() {
     val calls = mutableListOf<String>()
     var protectedPage = false
@@ -72,7 +72,7 @@ class ToolDispatcherDiffTest {
         assertEquals(listOf("新的"), screen["added"]!!.jsonArray.map { it.jsonObject.s("name") })
         val removed = screen["removed"]!!.jsonArray.single().jsonObject
         assertEquals("@e3", removed.s("ref")); assertEquals("项3", removed.s("name")); assertEquals("button", removed.s("role"))
-        // 下一个动作的编号来自 screen 里的这一屏
+        // The number of the next action comes from this screen in screen
         d.execute(call("phone_tap", """{"ref":"@e11","snapshotId":"p2"}"""))
         assertEquals("tapRef @e10 p2", s.calls[2])
     }
@@ -84,7 +84,7 @@ class ToolDispatcherDiffTest {
         val r = d.execute(call("phone_back")).content
         assertEquals("no_app_open", r.s("error")); assertNull(r["screen"])
         assertEquals(1, s.reads)
-        // 读屏类工具不带 screen
+        // Screen reading tools without screen
         assertNull(d.execute(call("phone_list_elements")).content["screen"])
     }
 
@@ -94,12 +94,13 @@ class ToolDispatcherDiffTest {
         d.execute(call("phone_observe"))
         val a = d.execute(call("phone_back")).content["screen"]!!.jsonObject
         assertFalse(a["full"]!!.jsonPrimitive.boolean)
-        // 模型看得到的读屏里没有上一屏(s2):发全量
+        // There is no previous screen in the reading screen visible to the model (s2): Send the full
+        // amount
         d.setVisibleObservations(setOf("p1"))
         val b = d.execute(call("phone_back")).content["screen"]!!.jsonObject
         assertTrue(b["full"]!!.jsonPrimitive.boolean)
         assertEquals(10, b["elements"]!!.jsonArray.size)
-        // 上一屏(s3,全量)看得到:又发差异
+        // Visible on the previous screen (s3, full size): Another difference is found
         d.setVisibleObservations(setOf("p3"))
         val c = d.execute(call("phone_back")).content["screen"]!!.jsonObject
         assertFalse(c["full"]!!.jsonPrimitive.boolean)
@@ -107,7 +108,8 @@ class ToolDispatcherDiffTest {
     }
 
     @Test fun sendsFullWhenLastFullScreenNotVisible() = runTest {
-        // 差异要靠最近一次全量读屏才看得懂:它被裁掉(或折叠)时,即使上一屏还在也发全量
+        // The difference can only be understood by reading the last full screen: when it is cropped (or
+        // folded), the full screen will be read even if the previous screen is still there.
         val s = ListScreen(ten)
         val d = toolDispatcher(s, inlineScreen = true)
         d.execute(call("phone_observe"))
@@ -121,7 +123,8 @@ class ToolDispatcherDiffTest {
         val d = toolDispatcher(s)
         d.execute(call("phone_observe"))
         assertNull(d.execute(call("phone_back")).content["screen"])
-        // 端口在动作里已等过界面(报了变没变):判效果时不再另等,也不另做动作
+        // The port has already waited for the interface in the action (reported but not changed): no
+        // longer waits for the effect or takes another action when judging the effect.
         assertEquals(listOf("back"), s.calls)
     }
 
@@ -132,7 +135,8 @@ class ToolDispatcherDiffTest {
         val r = d.execute(call("phone_back"))
         val id = r.content["screen"]!!.jsonObject.s("screenshotId")
         assertEquals("2", id)
-        // 能看图的主模型:动作之后这一屏的画面随结果发出,和回看是同一张
+        // The main model that can see the picture: after the action, the picture of this screen is sent
+        // with the result, and it is the same picture as the review
         assertTrue(r.frame != null); assertTrue(r.image != null); assertEquals(listOf<Int?>(2), r.imageIds)
         assertEquals(10, r.screenElements!!.size)
         val back = d.execute(call("view_past_screens", """{"ids":[$id]}"""))
@@ -145,7 +149,7 @@ class ToolDispatcherDiffTest {
         val r = d.execute(call("phone_back"))
         assertNull(r.frame); assertEquals(0, p.shots)
         assertEquals("true", r.content["screen"]!!.jsonObject.s("protected"))
-        // 付款页可以给模型读取、回看
+        // The payment page can be read and reviewed by the model.
         val pay = ListScreen(listOf("确认支付", "¥89.00"))
         val v = toolDispatcher(pay, visionEnabled = true, recordFrames = true, inlineScreen = true)
         val b = v.execute(call("phone_back"))
@@ -161,7 +165,9 @@ class ToolDispatcherDiffTest {
     }
 
     @Test fun sendsFullUnlessWholeChainVisible() = runTest {
-        // 真实裁剪:裁剪线前的差异 d1、d2 被裁,线前最近的全量 c1 保留,差异链断了;下一次必须发全量
+        // Real cutting: the differences d1 and d2 before the cutting line are cut, the nearest full
+        // amount c1 before the line is retained, the difference chain is broken; the full amount must be
+        // issued next time
         val s = ListScreen(ten)
         val d = toolDispatcher(s, inlineScreen = true)
         val h = mutableListOf(Message(Role.User, listOf(Part.Text("task")), Author.Mina))
@@ -173,7 +179,7 @@ class ToolDispatcherDiffTest {
         }
         step("c1", "phone_observe")
         (1..2).forEach { step("d$it", "phone_back") }
-        // 不带屏幕的往返把裁剪线推过 d2
+        // Round trip without screen pushes crop line past d2
         (1..4).forEach { step("w$it", "wait", """{"seconds":0.$it}""") }
         val visible = visibleReads(HistoryPruner.prune(h, TOOLS, HistoryPruner.Cut(2)))
         assertTrue("$visible", "p1" in visible && "p2" !in visible && "p3" !in visible)
@@ -200,7 +206,7 @@ class ToolDispatcherDiffTest {
         assertEquals("true", a.s("protected")); assertTrue("hand_to_user" in a.s("hint"))
         assertNull(a["elements"]); assertNull(a["added"])
         p.protectedPage = false
-        // 之后从全量重新开始
+        // Then start again from the full amount
         assertTrue(d.execute(call("phone_back")).content["screen"]!!.jsonObject["full"]!!.jsonPrimitive.boolean)
         val pay = toolDispatcher(ListScreen(listOf("确认支付", "¥89.00")), inlineScreen = true)
         val b = pay.execute(call("phone_back")).content["screen"]!!.jsonObject
@@ -219,7 +225,7 @@ class ToolDispatcherDiffTest {
         d.execute(call("phone_observe"))
         repeat(5) { d.execute(call("phone_back")) }
         val reads = d.evidence().read(ObsKind.Read, ObsKind.Reply)
-        // 同一屏连读五次只记一条
+        // Read the same screen five times and remember only one
         assertEquals(1, reads.count { "项1" in it })
     }
 

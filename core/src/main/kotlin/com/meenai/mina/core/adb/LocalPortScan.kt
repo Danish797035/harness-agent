@@ -16,10 +16,10 @@ import java.nio.channels.SocketChannel
 import java.util.TreeSet
 import java.util.concurrent.ConcurrentHashMap
 
-/** 连接端口的一个候选:本机的哪个地址、哪个端口。 */
+/** A candidate for the connection port: which address and port of the local machine. */
 data class AdbEndpoint(val host: String, val port: Int)
 
-/** Mina 自己在本机开着的监听端口(如登录回调):扫端口时跳过,免得连到自己。 */
+/** Mina's own listening port opened on the local machine (such as login callback): skip it when scanning the port to avoid connecting to herself. */
 object OwnListeningPorts {
     private val ports = ConcurrentHashMap.newKeySet<Int>()
     fun add(port: Int) { ports += port }
@@ -27,24 +27,26 @@ object OwnListeningPorts {
     fun snapshot(): Set<Int> = ports.toSet()
 }
 
-/** 扫本机端口的底层动作;测试里换成假的。 */
+/** Scan the underlying action of the local port; replace it with a fake one in the test. */
 interface LocalPortScanner {
-    /** [host] 上 [ports] 里哪些能建立 TCP 连接(升序),跳过 [skip];[budgetMs] 用完就停,已找到的照给。 */
+    /** Which ones in [ports] on [host] can establish TCP connections (in ascending order), skip [skip]; stop after [budgetMs], and use the ones found. */
     suspend fun openPorts(host: String, ports: IntRange, skip: Set<Int>, budgetMs: Long): List<Int>
 
-    /** 发 CNXN、对方回 STLS 才算无线调试的 adbd(别的服务、自己连自己都不会回 STLS)。 */
+    /** Only when you send CNXN and the other party responds to STLS is wireless debugging adbd (other services will not even respond to STLS themselves). */
     fun speaksAdbTls(host: String, port: Int, timeoutMs: Int): Boolean
 }
 
-/** 一次本机扫描的结果:几个端口开着、几个像 adbd(诊断信息只记个数)。 */
+/** The result of a local scan: several ports are open and several are like adbd (diagnostic information only records the number). */
 data class ScanResult(val endpoints: List<AdbEndpoint>, val open: Int, val adb: Int)
 
 /**
- * 找连接端口的最后一招:前面几个来源都没给出能连上的端口时,扫本机自己的地址。
- * 无线调试的 adbd 监听一个系统随手分配的端口,落在临时端口范围里([range],读不到就用 [FALLBACK_RANGE])。
- * 按 [hosts] 的顺序一个地址一个地址扫(先 127.0.0.1,再本机 Wi-Fi 地址;adbd 可能只绑其中一个),
- * 每个开着的端口发 CNXN 看回不回 STLS;一个地址上有像 adbd 的就不再扫下一个。只扫本机,不碰别的设备。
- * 扫描和核对合计不超过 [budgetMs]。
+ * The last resort to find the connection port: when the previous sources do not provide a port that can
+ * be connected, scan the machine's own address. The wireless debugging adbd monitors a port randomly
+ * allocated by the system, which falls within the temporary port range ([range], if it cannot be read,
+ * use [FALLBACK_RANGE]). Scan addresses one by one in the order of [hosts] (first 127.0.0.1, then the
+ * local Wi-Fi address; adbd may only bind one of them). Each open port sends CNXN to see if STLS is
+ * returned; if there is an address like adbd, it will not scan the next one. Only scan this machine and
+ * do not touch other devices. The total of scanning and verification does not exceed [budgetMs].
  */
 class LocalPortScan(
     private val scanner: LocalPortScanner,
@@ -55,7 +57,7 @@ class LocalPortScan(
     private val probeTimeoutMs: Int = 1_000,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    /** 扫一遍;[skip] 是前面来源已经试过的端口。 */
+    /** Scan it again; [skip] is the port that the previous source has tried. */
     suspend fun scan(skip: Set<Int>): ScanResult {
         val deadline = now() + budgetMs
         val ports = range()
@@ -77,11 +79,12 @@ class LocalPortScan(
     }
 
     companion object {
-        /** 读不到系统的临时端口范围时扫这一段(覆盖各版本常见的设置)。 */
+        /** Scan this section when you cannot read the system's temporary port range (covering common settings in each version). */
         val FALLBACK_RANGE = 30_000..65_535
 
         /**
-         * 解析 `/proc/sys/net/ipv4/ip_local_port_range`(两个数,空白分隔)。读不到、格式不对或范围不合理时用 [FALLBACK_RANGE]。
+         * Parse `/proc/sys/net/ipv4/ip_local_port_range` (two numbers, separated by blanks). Use
+         * [FALLBACK_RANGE] when it cannot be read, the format is wrong, or the range is unreasonable.
          */
         fun parseRange(text: String?): IntRange {
             val nums = text?.trim()?.split(Regex("\\s+"))?.mapNotNull { it.toIntOrNull() } ?: return FALLBACK_RANGE
@@ -93,8 +96,10 @@ class LocalPortScan(
 }
 
 /**
- * 真实的扫描:java.nio 非阻塞连接,同时最多 [concurrency] 个在连,每个最多等 [connectTimeoutMs]。
- * 本机地址连不上的端口会马上被拒,整段扫下来几秒钟。在 IO 线程上跑,协程取消时停下。
+ * Real scan: java.nio non-blocking connection, at most [concurrency] connections at the same time, each
+ * one can wait at most [connectTimeoutMs]. Ports that cannot be connected to the local address will be
+ * rejected immediately. Scan the entire section for a few seconds. Run on the IO thread and stop when
+ * the coroutine is cancelled.
  */
 class NioPortScanner(
     private val concurrency: Int = 200,
@@ -153,7 +158,7 @@ class NioPortScanner(
         return open.toList()
     }
 
-    /** 扫临时端口范围时,系统可能恰好给这条连接分到同一个本地端口,于是自己连上了自己。 */
+    /** When scanning the temporary port range, the system may happen to assign the same local port to this connection, so it connects itself. */
     private fun selfConnected(ch: SocketChannel, port: Int): Boolean = runCatching {
         val s = ch.socket()
         s.localPort == port && s.localAddress == s.inetAddress

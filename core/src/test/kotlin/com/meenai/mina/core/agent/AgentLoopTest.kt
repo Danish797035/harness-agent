@@ -43,8 +43,8 @@ import org.junit.Test
 import com.meenai.mina.core.testing.verb
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 按脚本回复;脚本项是回复或要抛出的异常。 */
-/** 当看图模型用时默认按定位准度已验证([groundingVerified]);没验证的情形单独测。 */
+/** Reply by script; the script item is the reply or exception to be thrown. */
+/** When viewing the model, the positioning accuracy will be verified by default ([groundingVerified]); if it is not verified, it will be measured separately. */
 class FakeModel(vararg script: Any, private val repeatLast: Boolean = false, contextTokens: Int = 128_000, groundingVerified: Boolean = true) : ChatModel {
     override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = contextTokens, reasoning = false, groundingVerified = groundingVerified)
     private val script = script.toMutableList()
@@ -72,12 +72,12 @@ private fun finish(answer: String = DONE) = com.meenai.mina.core.testing.answerR
 private fun Message.results() = parts.filterIsInstance<Part.ToolResult>()
 private fun Part.ToolResult.json() = Json.parseToJsonElement(content).jsonObject
 private fun JsonObject.s(k: String) = this[k]!!.jsonPrimitive.content
-/** 不抖动的重试:等待正好是退避的上限,虚拟时间可断言。 */
+/** Retries without jitter: The wait is exactly the upper limit of the backoff, and the virtual time can be asserted. */
 private val FIXED_RETRY = RetryPolicy(jitter = { 1.0 })
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AgentLoopTest {
-    /** 只有手机、展开了手机一组之后的系统提示词:几组的入口、交给用户的规矩、手机一段(去掉没提供的工具那几行)。 */
+    /** There is only a mobile phone, and the system prompts after opening a mobile phone group: the entrance of several groups, the rules given to the user, and a mobile phone section (remove the lines of tools that are not provided). */
     private fun phoneOpenedPrompt(base: String) = listOf(
         base, com.meenai.mina.core.capability.PromptEnv(setOf("phone_launch_app", "phone_set_alarm"), false).gate(SystemPrompt.read("groups")), SystemPrompt.read("handover"),
         SystemPrompt.read("phone").lines().filterNot { "<!-- needs: phone_open_link -->" in it || "<!-- needs: phone_find_visually -->" in it }.joinToString("\n"),
@@ -103,7 +103,9 @@ class AgentLoopTest {
         assertTrue(events.filterIsInstance<RunEvent.State>().any { it.name == "intent_gate" && it.detail == "Discuss" })
     }
 
-    // 判断不出意图(判断模型和兜底的主模型都没给出三个词之一)时照主模型原来的决定执行,不改成文字回答
+    // If the intention cannot be determined (neither the judgment model nor the master model gives one
+    // of the three words), follow the original decision of the master model and do not change it to a
+    // written answer.
     @Test fun unclearIntentKeepsProposedTool() = runTest {
         val main = FakeModel(tools(call("phone_list_apps")), finish("我觉得是要操作"), finish())
         val judge = FakeModel(finish("maybe"))
@@ -189,7 +191,8 @@ class AgentLoopTest {
         AgentLoop(off, toolDispatcher(FakeScreen()), SystemPrompt.identity()).run("t")
         assertEquals(phoneOpenedPrompt(SystemPrompt.identity()), off.system)
         assertTrue("You do not need to observe after every" !in off.system!!)
-        // 手机一组还收着时没有屏,也就没有动作自带屏幕的说明
+        // There is no screen when the mobile phone set is still stored, so there is no instructions for
+        // the action to come with the screen.
         val collapsed = FakeModel(finish())
         AgentLoop(collapsed, toolDispatcher(FakeScreen(), inlineScreen = true), SystemPrompt.identity(), flags = SpeedFlags(inlineScreen = true)).run("t")
         assertTrue("You do not need to observe after every" !in collapsed.system!!)
@@ -202,12 +205,15 @@ class AgentLoopTest {
     }
 
     @Test fun stuckGuardSeesInlineScreens() = runTest {
-        // 不 observe,反复点同一处、画面一直不变:靠动作结果带的屏幕也能认出没进展
+        // Without observing, if you click the same place repeatedly, the screen will remain unchanged:
+        // you can also recognize that there is no progress by relying on the screen displayed by the
+        // action results.
         val m = FakeModel(*Array(8) { reply(call("phone_back")) }, finish())
         AgentLoop(m, toolDispatcher(FakeScreen(), inlineScreen = true), "BASE", flags = SpeedFlags(inlineScreen = true)).run("t")
         val seen = m.requests.last().flatMap { it.parts }.filterIsInstance<Part.ToolResult>().map { it.content }
         assertTrue(seen.any { "no_progress" in it })
-        // 开关关着、也不 observe:动作自己报的效果(no_effect)也认得出没进展
+        // When the switch is turned off and the observe: action reports its own effect (no_effect), you
+        // can also recognize whether there is any progress.
         val off = FakeModel(*Array(8) { reply(call("phone_back")) }, finish())
         AgentLoop(off, toolDispatcher(FakeScreen()), "BASE").run("t")
         val offSeen = off.requests.last().flatMap { it.parts }.filterIsInstance<Part.ToolResult>().map { it.content }
@@ -231,14 +237,15 @@ class AgentLoopTest {
         val backs = { n: Int -> call("do_steps", """{"steps":[${List(n) { """{"tool":"phone_back","args":{}}""" }.joinToString(",")}]}""") }
         val m = FakeModel(reply(backs(3)), finish())
         val r = AgentLoop(m, toolDispatcher(FakeScreen().apply { result = ActionResult.Ok(changed = true) }), "BASE", maxSteps = 2, flags = SpeedFlags(batchSteps = true)).run("t")
-        // 整批对步数上限只算一步
+        // The entire batch only counts one step towards the upper limit of steps.
         assertTrue(r is TaskState.Succeeded)
-        // 一次多步跟着有屏幕的组走:手机一组收着时不给,批里的手机动作展开它之后才有
+        // Follow the group with the screen multiple steps at a time: mobile phones will not be given
+        // when the group is closed, only after the mobile phone movements in the batch are unfolded
         assertTrue("do_steps" !in m.offeredTools.first())
         assertTrue("do_steps" in m.offeredTools[1])
         val result = m.requests[1].withoutRuntime().last().results().single().json()
         assertEquals("true", result.s("ok"))
-        // 跨批累计相同动作也可继续执行
+        // The same actions can be continued to be executed even if they are accumulated across batches.
         val m2 = FakeModel(reply(backs(5)), reply(backs(5)), reply(backs(5)), finish())
         val r2 = AgentLoop(m2, toolDispatcher(FakeScreen().also { it.result = ActionResult.Ok(changed = true) }), "BASE", flags = SpeedFlags(batchSteps = true)).run("t")
         assertTrue(r2 is TaskState.Succeeded)
@@ -277,7 +284,8 @@ class AgentLoopTest {
         val second = m.requests[1].withoutRuntime()
         assertEquals(Role.User, second[0].role)
         assertEquals("帮我查", (second[0].parts.single() as Part.Text).text)
-        // 助手回复原样入历史(含 Thinking 与 ToolCall),然后是一条 Tool 消息。
+        // The assistant replies to the history (including Thinking and ToolCall) as it is, followed by a
+        // Tool message.
         assertEquals(Role.Assistant, second[1].role)
         assertTrue(second[1].parts.any { it is Part.Thinking })
         assertEquals(Role.Tool, second[2].role)
@@ -296,7 +304,7 @@ class AgentLoopTest {
         val m = FakeModel(tools(call("wait", """{"seconds":0.2}""")), repeatLast = true)
         val r = loop(m, maxSteps = 3).run("t")
         assertTrue(r is TaskState.Failed && "3" in r.reason && r.kind == FailKind.StepLimit)
-        // 3 步 + 最后一轮收尾(模型还想 wait,不算数)
+        // 3 steps + final round of closing (the model still wants to wait, so it doesn’t count)
         assertEquals(4, m.requests.size)
     }
 
@@ -314,20 +322,22 @@ class AgentLoopTest {
 
     @Test fun finalTurnTextIsTheAnswer() = runTest {
         com.meenai.mina.core.testing.assertAnswered("查过了,没找到", loop(FakeModel(*waits(3), finish("查过了,没找到")), maxSteps = 3).run("t"))
-        // 最后一轮回了空话或又想调别的工具:算步数用完
+        // The last round is empty talk or you want to adjust other tools: the number of steps is
+        // exhausted.
         val empty = loop(FakeModel(*waits(3), reply(Part.Text(""))), maxSteps = 3).run("t")
         assertTrue("$empty", empty is TaskState.Failed && empty.kind == FailKind.StepLimit)
     }
 
     @Test fun finalTurnUnreadValueIsLabelledNotRetried() = runTest {
-        // 最后一轮没有步数可退回了:没读到过的值直接标成未确认
+        // There are no steps to return in the last round: unread values are directly marked as
+        // unconfirmed
         val m = FakeModel(*waits(3), finish("结果是 3.6"))
         val r = loop(m, maxSteps = 3).run("t")
         assertEquals(listOf("3.6"), (r as TaskState.Succeeded).unconfirmed)
         assertEquals(4, m.requests.size)
     }
 
-    // 不带调用的回复就是回答,任务结束;不用再提醒
+    // A reply without a call is the answer, and the task is over; no need to remind again.
     @Test fun plainTextEndsTheTask() = runTest {
         val m = FakeModel(reply(Part.Text("我想想")), finish())
         com.meenai.mina.core.testing.assertAnswered("我想想", loop(m).run("t"))
@@ -388,7 +398,8 @@ class AgentLoopTest {
         assertEquals(5000, currentTime)
     }
 
-    // 一时的故障(限流、网络、5xx)共用一份重试次数,按指数退避等:1 s、2 s、4 s
+    // Temporary failures (current limiting, network, 5xx) share the same number of retries, with
+    // exponential backoff, etc.: 1 s, 2 s, 4 s
     @Test fun transientErrorsShareBoundedBackoff() = runTest {
         val m = FakeModel(ModelError.RateLimited(null), ModelError.Network(), ModelError.Server(503), finish())
         com.meenai.mina.core.testing.assertAnswered(DONE, loop(m).run("t"))
@@ -412,7 +423,8 @@ class AgentLoopTest {
         assertEquals(1, bad.requests.size)
     }
 
-    // 每次重试都进运行记录:故障名、第几次、等了多久
+    // Every time you retry, the running record is entered: the fault name, the number of times, and how
+    // long you waited.
     @Test fun retriesAreRecorded() = runTest {
         val events = mutableListOf<RunEvent>()
         val sink = object : RunSink {
@@ -424,7 +436,7 @@ class AgentLoopTest {
         assertEquals(listOf("main server_502 #1 1000ms", "main rate_limited #2 1500ms"), retries)
     }
 
-    // 退避等待中取消任务:不再发请求,任务按取消结束
+    // Canceling the task while waiting: no more requests will be sent, and the task will end with Cancel
     @Test fun cancelDuringBackoff() = runTest {
         val m = FakeModel(ModelError.Server(503), finish())
         val l = loop(m)
@@ -446,7 +458,9 @@ class AgentLoopTest {
         assertEquals(30_000, currentTime)
     }
 
-    // 流式回复没收尾连接就断了:回复还没进历史、也没执行工具,原样重发;界面上那半截字在重试前就清掉
+    // The streaming reply connection is disconnected before the end: the reply has not been entered into
+    // the history and the tool has not been executed, so it is resent as it is; the half-word on the
+    // interface is cleared before retrying.
     @Test fun streamCutIsRetriedWithoutKeepingPartialText() = runTest {
         lateinit var l: AgentLoop
         val previews = mutableListOf<String?>()
@@ -517,20 +531,21 @@ class AgentLoopTest {
         val l = loop(m, s) { gates++; open.await() }
         val run = async { l.run("t") }
         advanceUntilIdle()
-        // observe 不经过 gate;tap 前 gate 挂起,tap 尚未执行。
+        // observe does not pass through the gate; the gate hangs before tap, and tap has not yet been
+        // executed.
         assertEquals(1, gates)
         assertTrue(s.calls.isEmpty())
         open.complete(Unit)
         com.meenai.mina.core.testing.assertAnswered(DONE, run.await())
         assertEquals(1, s.calls.size)
-        assertEquals(1, gates) // finish 不是写操作
+        assertEquals(1, gates) // finish is not a write operation
     }
 
     @Test fun gateReportsWaitingUnlockThenRunning() = gateReports(TaskState.Held(GateReason("waiting_unlock")), clearWithNull = true)
 
     @Test fun gateReportsPausedAndRunningIsRestoredWithoutNull() = gateReports(TaskState.Held(GateReason("paused", "手机被拿走", resumable = true)), clearWithNull = false)
 
-    /** 挂起期间对外是 gate 报告的状态;放行后(无论是否传 null)执行工具时已恢复 Running。 */
+    /** During the suspension period, the external status is reported by the gate; after release (regardless of whether null is passed or not), Running has been resumed when executing the tool. */
     private fun gateReports(waiting: TaskState, clearWithNull: Boolean) = runTest {
         val open = CompletableDeferred<Unit>()
         var stateDuringTap: TaskState? = null
@@ -557,7 +572,7 @@ class AgentLoopTest {
     }
 
     @Test fun repeatedTapWithProgressCanExceedOldStepLimit() = runTest {
-        // 画面持续变化时，相同动作可超过旧的 60 步上限
+        // When the screen continues to change, the same action can exceed the old limit of 60 steps
         val s = FakeScreen().apply { result = ActionResult.Ok(changed = true) }
         val m = FakeModel(*(1..65).map { tools(call("phone_tap", """{"x":105,"y":106}""")) }.toTypedArray(), finish())
         loop(m, s, maxSteps = Int.MAX_VALUE).run("t")
@@ -597,11 +612,12 @@ class AgentLoopTest {
     }
 
     @Test fun progressCheckSuggestsGivingUpHonestlyHalfwayThrough() = runTest {
-        // 每步不同的等待,不会触发重复保护
+        // Different waits for each step will not trigger duplicate protection
         val m = FakeModel(*(1..20).map { tools(call("wait", """{"seconds":${1 + it / 10.0}}""")) }.toTypedArray())
         loop(m, maxSteps = 20).run("t")
         fun notes(i: Int) = m.requests[i].filter { it.role == Role.User }.flatMap { it.parts }.filterIsInstance<Part.Text>().map { it.text }
-        // requests[i] 是第 i+1 步发出的请求:用掉 10 步之前没有提醒,用掉 10 步、15 步时各出现一次
+        // requests[i] is a request issued at step i+1: there is no reminder before step 10 is used, and
+        // it appears once when steps 10 and 15 are used up.
         assertTrue(notes(9).none { "end_not_done" in it })
         val half = notes(10).filter { "end_not_done" in it }
         assertEquals(1, half.size)
@@ -611,7 +627,9 @@ class AgentLoopTest {
     }
 
     @Test fun giveUpRemindersTellAnAnswerFromAFailure() = runTest {
-        // 要的结果缺了要用的功能、条目或值是做不成;只有问「有没有」的题,App 的搜索明确说没有才是答案,直接回答并引用读到的原文
+        // The desired result cannot be obtained without the function, item or value to be used; the only
+        // question is "Is it available?", and the App's search clearly says that "No" is the answer.
+        // Answer directly and quote the original text you read.
         fun separates(s: String) = "feature" in s && "end_not_done" in s && "yes/no question about whether something exists" in s && "definitive" in s
         val taps = mutableListOf<Any>()
         repeat(6) { taps += tools(call("phone_tap", """{"x":105,"y":106}""")) }
@@ -632,7 +650,8 @@ class AgentLoopTest {
     }
 
     @Test fun unchangedElementListTripsNoProgress() = runTest {
-        // FakeScreen 每次返回相同元素:动作后再看画面不变即无进展。
+        // FakeScreen returns the same element every time: after the action, the screen remains unchanged
+        // and there is no progress.
         var i = 0
         val script = mutableListOf<Any>(tools(call("phone_observe")))
         repeat(12) {
@@ -666,7 +685,8 @@ class AgentLoopTest {
         assertEquals(Role.User, after.role)
         assertEquals(1, after.parts.count { it is Part.Image })
         assertTrue(after.parts.any { it is Part.Text && "earlier" in it.text })
-        // 回看补发的那张是最新的画面,留着;裁剪线还没前移(5 次往返),之前读屏的图也都在
+        // Looking back, the reissued picture is the latest picture, so keep it; the crop line has not
+        // moved forward (5 round trips), and the previous screen reading pictures are also there.
         assertEquals(4, msgs.take(at).sumOf { msg -> msg.parts.count { it is Part.Image } })
 
         val text = FakeModel(tools(call("phone_observe")), tools(call("view_past_screens", """{"ids":[1]}""")), finish())
@@ -674,7 +694,7 @@ class AgentLoopTest {
         val last = text.requests[2]
         assertTrue(last.none { msg -> msg.parts.any { it is Part.Image } })
         assertTrue("elementsText" in last.withoutRuntime().last().results().single().content)
-        // 回看是只读的诊断类工具,不算动作
+        // Review is a read-only diagnostic tool and does not count as an action.
         assertTrue(verb("view_past_screens") in DIAGNOSTIC_VERBS)
     }
 
@@ -703,19 +723,21 @@ class AgentLoopTest {
         val m = FakeModel(*script.toTypedArray())
         val r = AgentLoop(m, toolDispatcher(FakeScreen()), "BASE", 60, sink = sink).run("t")
         com.meenai.mina.core.testing.assertAnswered(DONE, r)
-        // 第 11 次调用报超长,压得更狠后重试一次:留最近 6 次往返,之前的 4 次折成摘要
+        // The 11th call reported an overlength error. Try again after pressing harder: keep the last 6
+        // round trips, and fold the previous 4 times into a summary.
         assertEquals(13, m.requests.size)
         assertEquals(21, m.requests[10].withoutRuntime().size)
         val retried = m.requests[11].withoutRuntime()
         assertEquals(1 + 1 + 6 * 2, retried.size)
         val summary = retried[1].plainText()
         assertTrue(summary, summary.startsWith(ContextCompressor.HEADER) && "Step 4 wait(0.4) → applied" in summary && "Step 5 " !in summary)
-        // 之后只追加:压缩的结果原样在前,多一次往返接在后面
+        // Only append after that: the compressed result is at the front as it is, and one more round
+        // trip is at the back.
         assertEquals(1 + 1 + 7 * 2, m.requests[12].withoutRuntime().size)
         assertEquals(retried, m.requests[12].withoutRuntime().take(retried.size))
         assertEquals(listOf(4), events.filterIsInstance<RunEvent.Compressed>().map { it.foldedSteps })
 
-        // 压过还超长就失败,不再重试
+        // If it exceeds the pressure and is too long, it will fail and will not be retried.
         val again = FakeModel(*distinctWaits(10).toTypedArray(), ModelError.ContextTooLong(), ModelError.ContextTooLong())
         val failed = loop(again).run("t")
         assertTrue(failed is TaskState.Failed && failed.kind == FailKind.Model)
@@ -723,7 +745,8 @@ class AgentLoopTest {
     }
 
     @Test fun secondContextTooLongAfterAggressiveCompactionRecompacts() = runTest {
-        // 狠压缩之后又跑了几步再次超长:从完整历史重新狠压一次再发,任务照常完成
+        // After compressing it hard, I ran a few steps and it became too long again: I compressed it
+        // hard again from the complete history and sent it again, and the task was completed as usual.
         val script = distinctWaits(10) + ModelError.ContextTooLong() + distinctWaits(4, from = 11) + ModelError.ContextTooLong() +
             distinctWaits(1, from = 15) + finish()
         val m = FakeModel(*script.toTypedArray())
@@ -746,8 +769,10 @@ class AgentLoopTest {
     @Test fun compressedEventOnlyWhenFoldingChanges() = runTest {
         val events = mutableListOf<RunEvent>()
         val sink = object : RunSink { override fun event(e: RunEvent) { events += e } }
-        // 上下文很小:基础提示词和工具定义就超出触发点,压到最轻也回不到触发点以下,每多一次往返就多折一步;
-        // 之后一轮回了空话(被提醒一次),折叠数不变,不再记事件
+        // The context is very small: the basic prompt words and tool definitions exceed the trigger
+        // point, and even the slightest pressure cannot return below the trigger point. Every additional
+        // round trip requires one more step; after that, there are empty words (reminded once), the
+        // number of folds remains unchanged, and no events are recorded.
         val m = FakeModel(*distinctWaits(13).toTypedArray(), reply(Part.Text("")), finish(), contextTokens = 100)
         AgentLoop(m, toolDispatcher(FakeScreen()), "BASE", 60, sink = sink).run("t")
         assertEquals(15, m.requests.size)
@@ -755,7 +780,9 @@ class AgentLoopTest {
     }
 
     @Test fun longTaskStaysUnderBudget() = runTest {
-        // 每次读屏约 6000 字;60 步,上下文 32000 token:每次发出的消息估算(乘还没校准时的比值)不超过可用窗口
+        // Each screen reading is about 6000 words; 60 steps, context 32000 tokens: the estimated message
+        // sent each time (multiplied by the ratio before calibration) does not exceed the available
+        // window
         var n = 0
         val screen = object : ScreenPort by FakeScreen() {
             override suspend fun snapshot(): ScreenSnapshot {
@@ -764,7 +791,7 @@ class AgentLoopTest {
                 return ScreenSnapshot("snap$n", "com.x", els, 1080, 2400)
             }
         }
-        // 两种读屏交替,避免触发重复操作保护
+        // Two kinds of screen reading alternate to avoid triggering repeated operation protection
         val script = (1..59).map { tools(call(if (it % 2 == 1) "phone_observe" else "phone_list_elements")) } + finish()
         val m = FakeModel(*script.toTypedArray(), contextTokens = 32_000)
         val l = AgentLoop(m, toolDispatcher(screen), "BASE", 60)
@@ -774,7 +801,8 @@ class AgentLoopTest {
         assertTrue("observation should be about 6000+ chars, was ${observation.length}", observation.length >= 6000)
         val worst = m.requests.maxOf { TokenEstimate.of(it) }
         assertTrue("sent about $worst tokens", worst * ContextCompressor.UNCALIBRATED_SCALE <= ContextLimits.of(32_000).usable)
-        // 只裁旧读屏已经超出预算(压缩器只在超出时才折叠),折叠后回到预算内
+        // Only crop the old reading screen if it has exceeded the budget (the compressor will only fold
+        // when it exceeds the limit), and then return to the budget after folding
         assertTrue(m.requests.last().any { msg -> msg.plainText().startsWith(ContextCompressor.HEADER) })
     }
 
@@ -796,7 +824,8 @@ class AgentLoopTest {
         val m = FakeModel(*Array(12) { tools(call("phone_observe")) }, finish())
         AgentLoop(m, toolDispatcher(FakeScreen()), "BASE").run("t")
         fun omitted(ms: List<Message>) = ms.flatMap { it.results() }.count { HistoryPruner.OMITTED in it.content }
-        // 没越过压缩触发点:旧读屏一次也不裁,每次请求都是下一次的前缀
+        // The compression trigger point has not been crossed: the old screen reading is not cut once,
+        // and each request is the prefix for the next time
         assertTrue(m.requests.all { omitted(it) == 0 })
         m.requests.zipWithNext().forEach { (a, b) -> assertEquals(a, b.subList(0, a.size)) }
     }

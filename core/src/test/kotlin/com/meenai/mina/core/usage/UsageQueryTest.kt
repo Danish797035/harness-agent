@@ -39,8 +39,8 @@ class UsageQueryTest {
     }
 
     @Test fun lastDaysCountTodayAndUseLocalDays() {
-        val now = Instant.parse("2026-10-27T03:00:00Z") // 上海 10-27 11:00,UTC 10-27 03:00
-        // UTC 10-26 17:00 是上海 10-27 01:00
+        val now = Instant.parse("2026-10-27T03:00:00Z") // Shanghai 10-27 11:00,UTC 10-27 03:00
+        // UTC 10-26 17:00 is Shanghai 10-27 01:00
         val s = snap(row(hourOf(Instant.parse("2026-10-26T17:00:00Z")), input = 5))
         val sh = UsageQuery.report(s, UsageRange.LastDays(7), now, shanghai, emptyMap())
         assertFalse(sh.hourly)
@@ -64,7 +64,9 @@ class UsageQueryTest {
     }
 
     @Test fun dstDaysStillSplitAtLocalMidnight() {
-        // 纽约 2026-03-08 凌晨 2 点进夏令时,那天只有 23 小时;11-01 出夏令时,那天 25 小时
+        // New York enters daylight saving time at 2 a.m. on March 8, 2026, and there are only 23 hours
+        // on that day; it goes out of daylight saving time on 11-01, and there are only 25 hours on that
+        // day.
         val now = LocalDateTime.of(2026, 3, 9, 12, 0).atZone(newYork).toInstant()
         val s = snap(
             row(hourOf(LocalDateTime.of(2026, 3, 6, 23, 0), newYork), input = 1000),

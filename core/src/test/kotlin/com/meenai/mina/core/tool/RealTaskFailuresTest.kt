@@ -23,13 +23,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 真机任务里几类失败的通用修法:读不到窗口不等于没打开、网页打不开照实报、搜索框里回车不算发送。 */
+/** Common methods for correcting several types of failures in real machine tasks: not being able to read the window does not mean it is not open, reporting the page as it is if it cannot be opened, and pressing Enter in the search box does not mean sending. */
 class RealTaskFailuresTest {
     private var n = 0
     private fun call(name: String, args: String = "{}") = Part.ToolCall("c${++n}", name, args)
     private fun JsonObject.s(k: String) = this[k]!!.jsonPrimitive.content
 
-    /** 打开了 App、窗口却读不到(安全窗口、启动画面):读屏只有包名,没有元素。 */
+    /** The app is opened, but the window cannot be read (security window, startup screen): the screen read only has the package name, but no elements. */
     private class UnreadableScreen(private val inner: FakeScreen = FakeScreen(), var unreadable: String? = "com.bank") : ScreenPort by inner {
         override suspend fun snapshot() = ScreenSnapshot("p${++reads}", null, emptyList(), 1080, 2400, unreadableApp = unreadable)
         override suspend fun peek() = snapshot()
@@ -43,7 +43,8 @@ class RealTaskFailuresTest {
         assertEquals("false", o.s("readable"))
         val hint = o.s("hint")
         assertTrue(hint, "do not launch it again" in hint && "back once" in hint && "hand_to_user" in hint)
-        // 启动后到了前台却读不到:照实说,不叫人再启动
+        // After starting it, I went to the front desk but could not read: To be honest, I didn’t ask
+        // anyone to start it again.
         val l = d.execute(call("phone_launch_app", """{"package":"com.bank"}""")).content
         assertEquals("true", l.s("ok")); assertEquals("false", l.s("readable"))
         assertTrue(l.s("hint"), "do not launch it again" in l.s("hint"))
@@ -100,17 +101,18 @@ class RealTaskFailuresTest {
     private val enter = args("""{"text":"耳机","pressEnter":true}""")
 
     @Test fun enterInASearchFieldIsReversibleByElementSemantics() {
-        // 打了字之后名字就是打的字:靠控件自己的提示语、角色或语义认出搜索框
+        // After typing, the name is what you typed: Rely on the control's own prompts, roles or
+        // semantics to recognize the search box
         assertNull(IrreversibleDetector.classify("phone_type_text", enter, snap(el("耳机", placeholder = "搜索商品"))))
         assertNull(IrreversibleDetector.classify("phone_type_text", enter, snap(el("耳机", role = "SearchView\$SearchAutoComplete"))))
         assertNull(IrreversibleDetector.classify("web_type_text", enter, snap(el("耳机", role = "searchbox"))))
         assertNull(IrreversibleDetector.classify("web_type_text", enter, snap(el("耳机", role = "textbox", search = true))))
-        // 别的输入框里回车照旧按发送
+        // In other input boxes, press Enter or press Send.
         assertEquals(IrrevAction.send, IrreversibleDetector.classify("phone_type_text", enter, snap(el("耳机", placeholder = "说点什么")))?.action)
         assertEquals(IrrevAction.send, IrreversibleDetector.classify("phone_type_text", enter, snap(el("帮我搜索一下")))?.action)
     }
 
-    /** 用错了屏的编号、被拒的调用不改「最近操作的屏」:之后不点名屏幕的确认、接管照旧说的是原来那块。 */
+    /** If the wrong screen number is used or the call is rejected, the "most recently operated screen" will not be changed: subsequent confirmation and acceptance without naming the screen will still refer to the original one. */
     @Test fun misaimedCallsDoNotMoveTheRememberedScreen() = runTest {
         val d = toolDispatcher(FakeScreen(), web = FakeWebPort())
         val ex = com.meenai.mina.core.action.ActionExecutor(d, com.meenai.mina.core.guard.OperationGuards(), null, gate = {},
@@ -119,7 +121,7 @@ class RealTaskFailuresTest {
         val webSid = d.execute(call("web_observe")).content.s("snapshotId")
         d.execute(call("phone_observe"))
         assertEquals("phone", d.surface)
-        // 交给另一块屏的工具:被拒,不改
+        // Tools handed over to another screen: rejected, not changed
         val wrong = ex.run(call("web_tap", """{"ref":"@e1","snapshotId":"${d.execute(call("phone_observe")).content.s("snapshotId")}"}"""), com.meenai.mina.core.action.Origin.Model(2))
         assertTrue(wrong.toString(), "wrong_surface" in wrong.toString())
         assertEquals("phone", d.surface)

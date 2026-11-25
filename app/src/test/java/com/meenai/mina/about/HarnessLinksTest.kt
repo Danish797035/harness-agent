@@ -23,12 +23,13 @@ class HarnessLinksTest {
         assertTrue(lines.contains("### What went wrong"))
         assertTrue(lines.contains("### Steps you took"))
         assertTrue(lines.contains("### What you expected"))
-        // 诊断信息不自动带上:只提示用户去哪里复制
+        // Diagnostic information is not automatically brought: the user is only prompted where to copy
+        // it.
         assertTrue(lines.contains("### Diagnostics"))
         assertTrue(lines.contains("(Optional) In Harness Agent, open About › Send feedback › Copy diagnostics, then paste it here"))
     }
 
-    /** 型号里已经带厂商名时不重复写。 */
+    /** If the manufacturer's name is already included in the model number, do not write it again. */
     @Test
     fun modelNotDoubled() {
         val body = HarnessLinks.issueBody(device.copy(manufacturer = "samsung", model = "SAMSUNG SM-S9180"))
@@ -42,7 +43,7 @@ class HarnessLinksTest {
         val query = url.substringAfter('?')
         assertFalse("no raw spaces or newlines", query.any { it == ' ' || it == '\n' || it == '+' })
         assertFalse("no raw non-ASCII", query.any { it.code > 127 })
-        // 能被当成合法 URI 解析,正文解码回原样
+        // Can be parsed as a legal URI and the text decoded back to its original form
         URI(url)
         val body = URLDecoder.decode(query.substringAfter("body="), "UTF-8")
         assertEquals(HarnessLinks.issueBody(device), body)

@@ -36,47 +36,54 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.meenai.mina.core.tool.ToolIndex
 
-/** 一次运行结束后,学东西要用的全部材料;由 [TaskRun] 在任务收尾时交出。 */
+/** After a run is completed, all the materials needed to learn something will be handed over by [TaskRun] at the end of the task. */
 data class RunAftermath(
     val conversationId: String,
     val runId: String?,
     val goal: String,
     val end: TaskState,
-    /** 用户本次说的话;记忆关着时为空。 */
+    /** What the user said this time; it is empty when the memory is turned off. */
     val utterances: List<String>,
-    /** 任务中 memory_save 存下的。 */
+    /** Saved by memory_save in the task. */
     val saved: List<Change>,
     val usedMemory: List<String>,
     val toolNames: Set<String>,
-    /** 按名字查工具做的动作。 */
+    /** Find the actions performed by the tool by name. */
     val tools: ToolIndex,
-    /** 这次运行的事件(从运行记录读);读不到为空。 */
+    /** The events of this run (read from the run record); if not read, it will be empty. */
     val events: suspend () -> List<RunEvent>,
     val origin: RunOrigin = RunOrigin.Ui,
     val knowledge: KnowledgeStore? = null,
-    /** 交出回答后判的结局;只从办成的学([LearnGate])。没判成、没判过为 [RunOutcome.Unknown]。 */
+    /** The outcome will be judged after handing in the answer; only learn from the completed ones ([LearnGate]). Failure or failure is [RunOutcome.Unknown]. */
     val outcome: RunOutcome = RunOutcome.Unknown,
 )
 
 /**
- * 任务结束后:记下用到的个人技能和试用中 App 知识的结果(可能自动停用、转正式或归档)、从用户的话里提取记忆、
- * 办成的任务起草技能;动过手的 App 从办成的、没办成的和磕磕绊绊的运行里起草知识补充的修订(见 [AppKnowledgeDrafter])。
- * 办成按交出回答后判的结局([RunAftermath.outcome])算,不按「交出了回答」,也不要求跑过最终核查([LearnGate])。
- * 全在结果通知发出之后的后台协程里做([launchAfter]);哪一步出错都不影响任务结局。
+ * After the task is completed: write down the personal skills used and the results of the App knowledge
+ * in the trial (which may be automatically deactivated, converted to official or archived), extract
+ * memories from the user's words, and draft skills for completed tasks; draft knowledge supplement
+ * revisions from the completed, failed and stumbling operations of the App (see [AppKnowledgeDrafter]).
+ * Success will be calculated based on the outcome of the judgment after handing in the answer
+ * ([RunAftermath.outcome]). There is no need to press "Submit Answer", and there is no requirement to
+ * pass the final verification ([LearnGate]). Everything is done in the background coroutine after the
+ * result notification is sent ([launchAfter]); any error in any step will not affect the outcome of the
+ * task.
  *
- * 不起草的情形另加一条:这次走的是回放的路线([RunEvent.Replay] 有对上的步)——路线已经记住了,
- * 再起草只会把同一条路线抄一遍。只走了几步批量(do_steps)的照常起草,那是模型自己规划的。
+ * There is another situation when not drafting: this time the route is taken in the replay
+ * ([RunEvent.Replay] has the corresponding steps) - the route has been memorized, and drafting again
+ * will only copy the same route again. Only a few batch steps (do_steps) were taken to draft as usual,
+ * which was planned by the model itself.
  */
 class RunLearning(
     private val switches: MemorySwitches,
-    /** 记忆总开关关着时为 null。 */
+    /** It is null when the memory master switch is turned off. */
     private val store: MemoryStore?,
     private val skills: PersonalSkills,
     private val catalog: GuideCatalog,
     private val extractor: MemoryExtractor?,
     private val drafter: SkillDrafter?,
     private val ids: () -> String,
-    /** 评测钩子:草稿起好直接收下(训练轮)。 */
+    /** Evaluation hook: Accept the draft immediately after you start it (training wheels). */
     private val autoApprove: Boolean = false,
     private val yieldToForeground: suspend () -> Unit = {},
     private val appDrafter: AppKnowledgeDrafter? = null,
@@ -87,7 +94,8 @@ class RunLearning(
         val events = guarded(emptyList()) { a.events() }
         val used = events.filterIsInstance<RunEvent.SkillUsed>()
         val skillNotes = recordOutcomes(used, a.end, a.outcome).toMutableList()
-        // 试用中的 App 知识和个人技能按同一种结果算:取消的、没判成的不记
+        // App knowledge and personal skills in the trial will be counted according to the same result:
+        // canceled and failed judgments will not be recorded.
         val trial = SkillOutcomes.resultOf(a.end, a.outcome)?.takeIf { it != SkillResult.unreviewed }
         val trialNames = events.filterIsInstance<RunEvent.State>().filter { it.name == "knowledge_trial_used" }.map { it.detail }.distinct()
         if (trial != null) trialNames.forEach { name -> guarded(null) { appDrafts?.recordTrial(name, trial == SkillResult.verified) } }
@@ -95,7 +103,8 @@ class RunLearning(
         val changes = a.saved.toMutableList()
         val store = store
         val extractor = extractor
-        // 没有运行编号就没处挂提示,用户看不到也撤销不了:不提取
+        // If there is no running number, there will be no prompt. The user cannot see it and cannot undo
+        // it: no extraction.
         val learnable = a.origin == RunOrigin.Ui && a.end is TaskState.Succeeded
         val readWeb = events.filterIsInstance<RunEvent.Observed>().any { it.place?.kind in setOf(PlaceKind.Site, PlaceKind.Page) }
         if (learnable && !readWeb && a.runId != null && store != null && extractor != null && switches.autoRemember && a.utterances.isNotEmpty()) {
@@ -108,15 +117,18 @@ class RunLearning(
             }
         }
 
-        // 做法只从办成的学:回答如实说没办成、只办了一部分,或没判成的,不起草
+        // Practice only from what has been accomplished: If the answer is truthfully it was not
+        // accomplished, only a part of it was accomplished, or it was not judged to be accomplished, no
+        // drafting will be done.
         val done = learnable && LearnGate.done(a.end, a.outcome)
         if (done) draft(a, events, used.map { it.name }.distinct())?.let(skillNotes::add)
-        // App 知识也从没办成、磕磕绊绊的运行里学(值不值得由 AppKnowledgeDrafter 按经过判)
+        // App knowledge is also learned through unfinished and stumbling operations (whether it is worth
+        // it or not will be judged by AppKnowledgeDrafter)
         if (a.origin == RunOrigin.Ui) skillNotes += draftApps(a, events)
         return RunNotes(a.conversationId, a.runId.orEmpty(), MemoryExtractor.notes(changes), a.usedMemory, skillNotes)
     }
 
-    /** 每份技能单独读改写(和别的任务同时记结果也不丢);一份出错不影响别的。 */
+    /** Read and rewrite each skill separately (note the results at the same time as other tasks without losing the results); mistakes in one will not affect the others. */
     private suspend fun recordOutcomes(used: List<RunEvent.SkillUsed>, end: TaskState, outcome: RunOutcome): List<SkillNote> {
         val result = SkillOutcomes.resultOf(end, outcome) ?: return emptyList()
         return used.groupBy { it.name }.mapNotNull { (name, uses) ->
@@ -136,7 +148,8 @@ class RunLearning(
         val runId = a.runId ?: return null
         if (!switches.learnSkills) return null
         if (events.any { it is RunEvent.Replay && it.matched }) return null
-        // 照着个人技能做成的只记一次结果,不再起草
+        // If you make it based on your personal skills, you will only record the result once and no
+        // longer draft it.
         val followed = used.firstOrNull().takeIf { SkillOutcomes.resultOf(a.end, a.outcome) == SkillResult.verified }
         val done = a.end as? TaskState.Succeeded
         if (Eligibility.check(events, followed, a.tools, done = LearnGate.done(a.end, a.outcome)) != null) return null
@@ -145,7 +158,7 @@ class RunLearning(
             d.draft(DraftInput(runId, a.goal, done?.answer.orEmpty(), done?.sources.orEmpty(), events, a.toolNames, a.tools), skills, catalog)
         }
         val draft = r as? DraftResult.Draft ?: return null
-        // 是对一份待确认草稿的更新:写回那份草稿,不另起一份
+        // An update to a pending draft: write back that draft, don’t start a new one
         val id = draft.replacesPending ?: ids()
         guarded(Unit) { skills.putPending(id, draft.skill) }
         if (autoApprove) {
@@ -156,7 +169,7 @@ class RunLearning(
         return SkillNote(tr(R.string.skill_learned, description), draftId = id)
     }
 
-    /** 这次动过手、有知识条目的每个 App 各判一次;同一个 App 已有待确认的修订就不再起草。 */
+    /** Each App that has been used this time and has knowledge entries will be judged once; if the same App has revisions that need to be confirmed, it will not be drafted again. */
     private suspend fun draftApps(a: RunAftermath, events: List<RunEvent>): List<SkillNote> {
         val drafter = appDrafter ?: return emptyList()
         val drafts = appDrafts ?: return emptyList()
@@ -176,7 +189,7 @@ class RunLearning(
         }
     }
 
-    /** 学的每一步出错都不影响别的步骤;取消照常往外抛。 */
+    /** Any mistakes made in each step of learning will not affect other steps; cancellations will be thrown out as usual. */
     private suspend fun <T> guarded(fallback: T, block: suspend () -> T): T = try {
         block()
     } catch (e: CancellationException) {
@@ -186,7 +199,7 @@ class RunLearning(
     }
 
     companion object {
-        /** 先发结果通知,再在后台学:用户先看到结果,学东西慢一点没关系。 */
+        /** Send the results notification first, and then learn in the background: users see the results first, and it doesn’t matter if they learn things slowly. */
         suspend fun launchAfter(scope: CoroutineScope, notify: suspend () -> Unit, learn: suspend () -> Unit): Job {
             notify()
             return scope.launch { learn() }

@@ -11,23 +11,25 @@ import com.meenai.mina.core.shell.SetupSuspect
 import com.meenai.mina.ui.components.ValueTone
 
 /**
- * 「手机操作」引导、设置页和通知上的文字(纯函数,便于测试)。
- * 用大白话:只出现手机设置里本来就有的词(开发者选项、USB 调试、无线调试、配对码),不说 adb、端口、shell 这类说法;
- * 例外是连不上时请用户照着「无线调试」页面填端口的那几句。
+ * Text on the "Mobile Operation" guide, settings page and notifications (pure functions, easy for
+ * testing). Use vernacular: only the words that are already in the phone settings (developer options,
+ * USB debugging, wireless debugging, pairing code) are displayed, and terms such as adb, port, and shell
+ * are not mentioned; the exception is the few words that ask the user to fill in the port according to
+ * the "Wireless Debugging" page when the connection cannot be connected.
  */
 object PhoneSetupCopy {
     val TITLE: String get() = tr(R.string.phone_title)
     val INTRO: String get() = tr(R.string.phone_intro)
     val DIAGNOSTICS: String get() = tr(R.string.diagnostics_copy)
     val LATER: String get() = tr(R.string.phone_later)
-    /** 引导页顶栏上的短标题。 */
+    /** A short title on the top bar of the lead page. */
     val BAR_TITLE: String get() = tr(R.string.phone_bar_title)
     val SKIP_NOTE: String get() = tr(R.string.phone_skip_note)
-    /** 这个环境设置不了手机操作(见 [com.meenai.mina.core.shell.PhoneSetupFlow.unavailable]):一句结论,一句原因。 */
+    /** This environment cannot be set up for mobile phone operation (see [com.meenai.mina.core.shell.PhoneSetupFlow.unavailable]): a conclusion and a reason. */
     val UNAVAILABLE: String get() = tr(R.string.phone_unavailable)
     val UNAVAILABLE_REASON: String get() = tr(R.string.phone_unavailable_reason)
 
-    /** [brief] 是清单里没轮到、或已做完时那一行的短说明;轮到时显示完整的 [body]。 */
+    /** [brief] is the short description of the line in the list when it is not the turn or has been completed; when it is the turn, the complete [body] is displayed. */
     data class StepCopy(val title: String, val body: String, val action: String?, val done: String, val brief: String)
 
     fun step(s: SetupStep): StepCopy = when (s) {
@@ -65,23 +67,23 @@ object PhoneSetupCopy {
 
     val ACCESSIBILITY_SKIP: String get() = tr(R.string.phone_a11y_skip)
     val ACCESSIBILITY_SKIPPED: String get() = tr(R.string.phone_a11y_skipped)
-    /** 系统拦着不让打开无障碍时(没从应用商店装的 App 常见)的去处。 */
+    /** The system blocks the place to go when opening accessibility (common for apps that have not been installed from the app store). */
     val APP_INFO: String get() = tr(R.string.phone_app_info)
 
-    /** 配对一步:无障碍开着时 Mina 自己读码。 */
+    /** One-step pairing: Mina reads the code by itself when barrier-free is on. */
     val AUTO_READ_HINT: String get() = tr(R.string.phone_auto_read)
-    /** 无障碍没开时的三步图示:点系统的配对按钮、看顶部弹出的通知、在通知里填码。 */
+    /** The three-step icon when accessibility is not turned on: click the pairing button of the system, see the notification that pops up at the top, and fill in the code in the notification. */
     val NOTIFY_GUIDE: List<String> get() = listOf(
         tr(R.string.phone_guide_1), tr(R.string.phone_guide_2), tr(R.string.phone_guide_3, NOTIFY_ACTION),
     )
 
-    /** 读开关的几步的兜底:有的手机读不到或读不准,用户确认打开了就往下走。 */
+    /** A brief introduction to the steps of reading the switch: Some mobile phones cannot read it or cannot read it accurately. The user confirms that it is turned on and goes down. */
     val TURNED_ON_NEXT: String get() = tr(R.string.phone_turned_on_next)
-    /** 点回前面某一步重做时,不改了就回去。 */
+    /** When you click to go back to a previous step and redo it, go back if you don’t change it. */
     val REVISIT_BACK: String get() = tr(R.string.phone_revisit_back)
     val REVISIT_NOTE: String get() = tr(R.string.phone_revisit_note)
 
-    /** 配对、连接没成功时,最可能要回去重做的那一步怎么说。 */
+    /** When pairing and connection fail, what is the most likely step to go back and redo? */
     fun suspect(s: SetupSuspect): String = when {
         s.step == SetupStep.DeveloperOptions -> tr(R.string.phone_suspect_dev)
         s.unreadable -> tr(R.string.phone_suspect_wireless_unreadable)
@@ -92,12 +94,12 @@ object PhoneSetupCopy {
     val PORT_FOUND: String get() = tr(R.string.phone_port_found)
     val NEED_NOTIFICATIONS: String get() = tr(R.string.phone_need_notif)
     val ALLOW_NOTIFICATIONS: String get() = tr(R.string.explain_notif)
-    /** 「配对」通知被关掉:配对码填不了,先打开它。 */
+    /** The "Pairing" notification is turned off: The pairing code cannot be filled in, please open it first. */
     val PAIRING_CHANNEL_OFF: String get() = tr(R.string.phone_pairing_channel_off, CHANNEL_NAME)
     val OPEN_PAIRING_CHANNEL: String get() = tr(R.string.phone_open_pairing_channel, CHANNEL_NAME)
-    /** 「配对」通知被用户调成不弹出:还能下拉去填,只提醒一句并给入口。 */
+    /** The "pairing" notification was adjusted by the user not to pop up: it can also be pulled down to fill in, and only a reminder and entry are provided. */
     val PAIRING_LOWERED: String get() = tr(R.string.phone_pairing_lowered, CHANNEL_NAME)
-    /** 通知允许了,但「需要你处理」「任务结果」被调成不弹出:不挡后面的步骤,但要说清楚。 */
+    /** Notifications are allowed, but "Requires your processing" and "Task results" are adjusted not to pop up: it does not block the subsequent steps, but it must be made clear. */
     val HEADS_UP_LOWERED: String get() = tr(R.string.phone_heads_up_lowered)
     val OPEN_HEADS_UP: String get() = tr(R.string.heads_up_action)
     val MANUAL_TOGGLE: String get() = tr(R.string.phone_manual_toggle)
@@ -110,28 +112,28 @@ object PhoneSetupCopy {
     val PORT_INVALID: String get() = tr(R.string.phone_port_invalid)
 
     val WORKING: String get() = tr(R.string.phone_working)
-    /** 前面几种办法都没找到端口,正在扫本机。 */
+    /** The port cannot be found through the previous methods, and the machine is being scanned. */
     val SCANNING_PORTS: String get() = tr(R.string.phone_scanning_ports)
-    /** 连接没成功时让用户自己填「无线调试」页面上的端口。 */
+    /** When the connection fails, let the user fill in the port on the "Wireless Debugging" page. */
     val CONNECT_PORT_LABEL: String get() = tr(R.string.phone_connect_port_label)
     val CONNECT_PORT_HINT: String get() = tr(R.string.phone_connect_port_hint)
     val CONNECT_PORT_SUBMIT: String get() = tr(R.string.phone_connect_port_submit)
     val SUCCESS_LINE: String get() = tr(R.string.phone_success)
-    /** 成功页底部的提醒:手机重启后怎么让助手回来,看它上次是怎么起的。 */
+    /** Reminder at the bottom of the success page: How to bring the assistant back after restarting the phone? See how it started last time. */
     fun successNote(restart: HelperRestart): String =
         if (restart == HelperRestart.UsbCommand) tr(R.string.phone_success_note_usb) else tr(R.string.phone_success_note)
-    /** 首次上手最后一步成功后的底部按钮;从设置进来的是 [SUCCESS_DONE]。 */
+    /** The bottom button after the last step of getting started for the first time is successful; the one that comes in from the settings is [SUCCESS_DONE]. */
     val START_USING: String get() = tr(R.string.phone_start_using)
     val SUCCESS_DONE: String get() = tr(R.string.done)
 
-    /** 另一条路:用电脑经 USB 数据线起助手(命令本身不翻译)。只在需要时出现;[USB_ASK] 是无线调试一步里让用户自己叫出它的那一行。 */
+    /** Another way: Use a computer to start the assistant via a USB data cable (the command itself is not translated). Appears only when needed; [USB_ASK] is the line that allows the user to call it out in the wireless debugging step. */
     val USB_ASK: String get() = tr(R.string.phone_usb_ask)
     val USB_TITLE: String get() = tr(R.string.phone_usb_title)
     val USB_BODY: String get() = tr(R.string.phone_usb_body)
     val USB_COPY: String get() = tr(R.string.phone_usb_copy)
     val USB_COPIED: String get() = tr(R.string.phone_usb_copied)
 
-    /** 「改用电脑启动」卡片的标题和说明:助手本来就是用这条命令起的,就说再运行一次,不说「打不开无线调试」。 */
+    /** The title and description of the "Start with computer instead" card: The assistant was originally started with this command, and it just said to run it again, not "Cannot open wireless debugging". */
     fun usbCard(restart: HelperRestart): Pair<String, String> =
         if (restart == HelperRestart.UsbCommand) tr(R.string.phone_usb_again_title) to tr(R.string.phone_usb_again_body)
         else USB_TITLE to USB_BODY
@@ -189,17 +191,17 @@ object PhoneSetupCopy {
         BuiltinShellFix.RunUsbCommand -> USB_COPY
     }
 
-    // ---------- 设置页 ----------
+    // ---------- Setting page ----------
 
     val RECONNECT: String get() = tr(R.string.phone_reconnect)
 
-    /** 已配对、只是没连上或助手掉了:点一下用已配对的钥匙再连一次就行,不必回引导页。 */
+    /** Already paired, just not connected or the assistant is lost: just click and use the paired key to connect again without going back to the boot page. */
     fun canReconnect(s: BuiltinShellStatus): Boolean = s is BuiltinShellStatus.Failed && s.fix == BuiltinShellFix.Retry
 
     val ROW_TITLE: String get() = tr(R.string.settings_phone_ops)
     val ROW_SUBTITLE: String get() = tr(R.string.phone_row_sub)
 
-    /** 设置 › 手机操作页底部的完整说明:只用 USB 启动命令起过助手时,说重启后要再运行命令,不说打开无线调试。 */
+    /** Settings › Full instructions at the bottom of the phone operation page: When starting the assistant using only the USB startup command, it says to run the command again after restarting, but does not say to turn on wireless debugging. */
     fun usageNote(restart: HelperRestart): String =
         if (restart == HelperRestart.UsbCommand) tr(R.string.phone_usage_note_usb) else tr(R.string.phone_usage_note)
 
@@ -211,7 +213,7 @@ object PhoneSetupCopy {
         is BuiltinShellStatus.Failed -> tr(R.string.phone_error) to ValueTone.Bad
     }
 
-    /** 「高级」里状态那一行的说明。[usbDebugging] 关着时,在运行也提醒一句:断了 Wi-Fi 就会停。 */
+    /** Description of the status line in "Advanced". [usbDebugging] When it is turned off, there is a reminder when it is running: it will stop when the Wi-Fi is disconnected. */
     fun statusLine(s: BuiltinShellStatus, usbDebugging: Boolean = true): String = when (s) {
         BuiltinShellStatus.Running ->
             if (usbDebugging) tr(R.string.phone_line_running) else tr(R.string.phone_line_running_no_usb)
@@ -221,7 +223,7 @@ object PhoneSetupCopy {
         is BuiltinShellStatus.Failed -> when (s.reason) {
             BuiltinShellFailure.NoWifi -> NO_WIFI_LINE
             BuiltinShellFailure.WifiNotAllowed -> tr(R.string.phone_line_joined, failure(s.reason).title, WIFI_NOT_ALLOWED_LINE)
-            // 停了要用户动手:直接说怎么再起
+            // Stopped and asked users to take action: tell them directly how to start again
             BuiltinShellFailure.UsbHelperStopped -> failure(s.reason).body
             else -> failure(s.reason).title
         }
@@ -238,21 +240,21 @@ object PhoneSetupCopy {
     val UNPAIR_BODY: String get() = tr(R.string.phone_unpair_body)
     val UNPAIR_CONFIRM: String get() = tr(R.string.phone_unpair_confirm)
 
-    // ---------- 对话页(手机操作不可用时) ----------
+    // ---------- Conversation page (when mobile operation is unavailable) ----------
 
     val DEGRADED_LINE: String get() = tr(R.string.phone_degraded)
     val DEGRADED_ACTION: String get() = tr(R.string.chat_go_settings)
 
-    // ---------- 通知 ----------
+    // ---------- notify ----------
 
     val CHANNEL_NAME: String get() = tr(R.string.phone_channel)
     val NOTIFY_ENTER_TITLE: String get() = tr(R.string.phone_notify_enter_title)
     val NOTIFY_ENTER_TEXT: String get() = tr(R.string.phone_notify_enter_text)
     val NOTIFY_WINDOW_FOUND: String get() = tr(R.string.phone_notify_window_found)
-    /** 填的不是 6 位数字:当场在通知里说,不去试。 */
+    /** The number you filled in was not a 6-digit number: I said in the notice on the spot that I would not try. */
     val NOTIFY_CODE_INVALID: String get() = tr(R.string.phone_notify_code_invalid)
 
-    /** 配对阶段没成功时通知里怎么说:码不对、过期、窗口关了都要去拿新码再填。 */
+    /** What does the notification say when the pairing phase is unsuccessful: the code is incorrect, expired, or the window is closed, you have to get a new code and fill it in again. */
     fun notifyRetry(f: BuiltinShellFailure): String = when (f) {
         BuiltinShellFailure.WrongCode -> tr(R.string.phone_notify_retry_code)
         BuiltinShellFailure.PairingWindowClosed -> tr(R.string.phone_notify_retry_window)

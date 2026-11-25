@@ -10,11 +10,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 /**
- * 一个任务里在 App 里按 [AppPacing] 停留:每个改动屏幕的动作做完记下([after]),下一个之前补足没停够的时间([before])。
- * [pace] 按包名给出 App 知识对这个 App 浏览快慢的说法。
- * 给了 [idle]、这次的范围允许、且调用方交了屏幕端口(接下来的动作不按屏上的位置做)时,停留里按它的安排轻轻滚几下([ScreenPort.idleScroll])。
- * 限制浏览快慢的 App 本任务里换屏到了上限,[before] 不再等,抛 [PageLimitReached](和网页同一个结果 page_limit);
- * 停留中用户插了话([waitOrSteer]),抛 [DwellInterrupted]:调用方不做这个动作,没停够的部分下次照样补足。
+ * Press [AppPacing] to pause in the App during a task: write down each action to change the screen
+ * ([after]), and make up for the unsatisfied time before the next one ([before]). [pace] gives the app
+ * knowledge’s opinion on the browsing speed of this app based on the package name. When [idle] is given,
+ * this time the range is allowed, and the caller hands over the screen port (the next action is not
+ * based on the position on the screen), lightly roll a few times according to its arrangement during the
+ * stay ([ScreenPort.idleScroll]). this action, and the insufficient part will be made up next time.
  */
 internal class AppDwell(
     private val pacing: AppPacing,
@@ -23,25 +24,27 @@ internal class AppDwell(
     private val clock: () -> Long = System::currentTimeMillis,
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
-    /** 停了多久、停留里轻轻滚了几下。 */
+    /** It stopped for a long time and rolled a few times during the stay. */
     class Dwelt(val waitMs: Long, val idleScrolls: Int)
 
-    /** 停留里轻轻滚了一下之后调用(模型手里那一屏的位置已不准)。 */
+    /** After staying there, roll it slightly and then call it (the position of the screen in the model's hand is no longer accurate). */
     var onIdleScroll: () -> Unit = {}
 
     private val paces = HashMap<String, PlacePace>()
 
     val paced: Boolean get() = pacing.paced
 
-    /** 在 [app] 里做完了一个改动屏幕的动作:[newScreen] 换到了新的一屏,[counts] 时算进屏数(见 [AppPacing.noteAction])。 */
+    /** An action of changing the screen is completed in [app]: [newScreen] is changed to a new screen, and the number of screens entered is counted in [counts] (see [AppPacing.noteAction]). */
     fun after(app: String?, newScreen: Boolean, counts: Boolean = newScreen) {
         if (!paced) return
         pacing.noteAction(app, clock(), newScreen, app?.let(::paceOf) ?: PlacePace.NORMAL, counts)
     }
 
     /**
-     * 在 [app] 里要做下一个改动屏幕的动作之前:没停够就补足。[textChars] 是此刻这一屏上的字数(新的一屏按它加读的时间)。
-     * [gate] 时先看屏数上限,到了抛 [PageLimitReached]。[port] 给了时停留里可以轻轻滚几下。
+     * Before making the next action to change the screen in [app]: make up for it if it has not stopped
+     * enough. [textChars] is the number of words on this screen at the moment (press the new screen to
+     * add the reading time). When [gate], first check the upper limit of the number of screens, and then
+     * throw [PageLimitReached]. [port] You can roll it gently a few times while holding it.
      */
     suspend fun before(app: String?, textChars: Int, gate: Boolean, port: ScreenPort? = null): Dwelt {
         if (!paced) return Dwelt(0, 0)
@@ -54,20 +57,20 @@ internal class AppDwell(
         return Dwelt(wait, scrolls)
     }
 
-    /** 用户答过话:各 App 的屏数重新算。 */
+    /** Users have answered: The number of screens for each App will be recalculated. */
     fun userAnswered() = pacing.userAnswered()
 
-    /** 在 [app] 里的对外动作做完;[done](做成了)时这个 App 不再设屏数上限。 */
+    /** After the external actions in [app] are completed; when [done] (made), the App no longer sets an upper limit on the number of screens. */
     fun outwardEnd(app: String, done: Boolean) {
         if (done) pacing.outwardDone(app)
     }
 
-    /** 停 [ms] 毫秒;用户插了话就不再停,抛 [DwellInterrupted]。 */
+    /** Stop [ms] milliseconds; stop when the user interrupts, throw [DwellInterrupted]. */
     private suspend fun pause(ms: Long) {
         waitOrSteer { sleep(ms) } ?: throw DwellInterrupted()
     }
 
-    /** 停 [wait] 毫秒,其间按 [plan] 轻轻滚几下;端口说这会儿不便滚(弹框、输入法、焦点)就不再滚,照样停够。返回滚了几下。 */
+    /** Stop for [wait] milliseconds, during which time press [plan] and scroll lightly a few times; if the port says it is inconvenient to scroll (pop-up box, input method, focus) at this time, it will stop scrolling, and it is still enough. Go back and roll a few times. */
     private suspend fun idleWait(port: ScreenPort, plan: IdleScroll, wait: Long): Int {
         val start = clock()
         var done = 0

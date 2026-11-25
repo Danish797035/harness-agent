@@ -14,7 +14,8 @@ class EvalTaskVariantsTest {
          ]}
     """.trimIndent()
 
-    // 变体没写核对项就沿用原题的;写了就用自己的;编号接在原题后面
+    // If you don’t write the check items in the variant, use the original question; if you write the
+    // check items, use your own; the number will follow the original question.
     @Test fun parsesVariantsAndInheritsChecks() {
         val t = EvalTasks.parse(json)
         assertEquals(2, t.variants.size)
@@ -26,7 +27,7 @@ class EvalTaskVariantsTest {
         assertEquals(t.apps, vs[1].apps)
         assertTrue(vs.all { it.variants.isEmpty() })
         assertTrue(EvalTasks.validate(t).isEmpty())
-        // 没有变体的题照旧
+        // Questions without variations remain the same
         assertEquals(emptyList<EvalTask>(), EvalTasks.variantsOf(t.copy(variants = emptyList())))
     }
 

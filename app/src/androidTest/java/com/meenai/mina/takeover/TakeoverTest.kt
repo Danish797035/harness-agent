@@ -35,9 +35,12 @@ import com.meenai.mina.task.testTasks
 import com.meenai.mina.task.TaskEnvironment
 
 /**
- * 真机测试:脚本模型在虚拟屏的设置子页面上请求接管;「我来处理」把设置挪到主屏并恢复声音,
- * 「处理好了」挪回虚拟屏、重新静音,Agent 下一轮先 observe。
- * 会短暂占用主屏(专用测试机),结束时把设置从主屏关掉。需要内置助手在运行、Mina 无障碍服务已开启。
+ * Real machine test: The script model requests takeover on the settings subpage of the virtual screen;
+ * "I'll handle it" moves the settings to the home screen and restores the sound, "Handles it" moves back
+ * to the virtual screen, mutes the sound again, and the Agent observes first in the next round. It will
+ * temporarily occupy the main screen (dedicated test machine), and when it is finished, turn off the
+ * settings from the main screen. Requires the built-in assistant to be running and the Mina
+ * accessibility service to be turned on.
  */
 @RunWith(AndroidJUnit4::class)
 class TakeoverTest {
@@ -63,7 +66,8 @@ class TakeoverTest {
     fun tearDown() {
         TaskService.cancel(context)
         pollUntil(10_000) { DeviceTaskState.state.value.takeIf { !it.running() } }
-        // 取消时 App 留在主屏(不从用户眼前抽走);测试机上由测试自己关掉
+        // When canceling, the App remains on the home screen (not taken away from the user's eyes); the
+        // test machine can be closed by the tester himself
         if (settingsTask >= 0 && shell.topTaskId(Display.DEFAULT_DISPLAY) == settingsTask) sh("am force-stop $SETTINGS")
         testTasks.modelFactory = TaskEnvironment.defaultModelFactory
         testTasks.lightModelFactory = TaskEnvironment.defaultLightModelFactory
@@ -76,8 +80,9 @@ class TakeoverTest {
         pollUntil(10_000) { DeviceTaskState.state.value.takeIf(predicate) } ?: error("state never matched: ${DeviceTaskState.state.value}")
 
     /**
-     * 本 App 通知多了时系统会自动加一条组摘要(没有标题和按钮),它可能沿用同一个频道,要跳过;
-     * 之前「排在别的测试后面就拿到空标题」就是拿到了这条摘要。
+     * When there are too many notifications in this App, the system will automatically add a group
+     * summary (without title and button). It may use the same channel and needs to be skipped.
+     * Previously, "I got an empty title after being queued behind other tests" and I got this summary.
      */
     private fun attentionRecord() = context.getSystemService(NotificationManager::class.java).activeNotifications
         .firstOrNull { it.notification.channelId == TaskService.CHANNEL_ATTENTION && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
@@ -87,9 +92,11 @@ class TakeoverTest {
     private fun attentionActions(): List<String>? = attention()?.actions?.map { it.title.toString() }
 
     /**
-     * 点通知按钮:按钮应打开不显示界面的 [TakeoverActivity](这样通知栏会收起),由它转给任务服务。
-     * 测试进程自己 send 按钮的 PendingIntent 会被后台启动 Activity 的限制拦下(从通知栏点击不受限),
-     * 所以这里检查按钮的目标后,用同样的 Intent 直接启动它。
+     * Click the notification button: The button should open [TakeoverActivity] (so the notification bar
+     * will be closed) without displaying the interface, which will transfer it to the task service. The
+     * PendingIntent of the send button of the test process itself will be blocked by the restriction of
+     * starting Activity in the background (clicking from the notification bar is not restricted), so
+     * checking after the target of the button, use the same Intent to start it directly.
      */
     private fun tapAttentionAction(title: String, action: String) {
         val a = attention()?.actions?.firstOrNull { it.title.toString() == title } ?: error("no action $title: ${attentionActions()}")
@@ -110,8 +117,10 @@ class TakeoverTest {
         val appTask = shell.topTaskId(displayId)
         assertTrue(appTask >= 0)
         assertEquals("ignore", pollUntil(5_000) { shell.getAudioMode(SETTINGS)?.takeIf { it == "ignore" } })
-        // 打开设置的子页面后在上面请求接管。有的系统把子页面开在另一个任务里(App 的登录、付款页也常这样),
-        // 接管挪的应是虚拟屏最上面、用户要处理的那个任务
+        // Open the settings subpage and request takeover on it. Some systems open subpages in another
+        // task (the login and payment pages of Apps often do this), and the task that should be taken
+        // over and moved should be the task that the user wants to process at the top of the virtual
+        // screen.
         sh("am start --display $displayId -a android.settings.DISPLAY_SETTINGS")
         settingsTask = pollUntil(3_000) { shell.topTaskId(displayId).takeIf { it != appTask } } ?: appTask
         android.util.Log.i("TakeoverTest", "app task $appTask, sub-page task $settingsTask")
@@ -121,23 +130,26 @@ class TakeoverTest {
         assertEquals("需要你处理:验证码", pollUntil(5_000) { attentionTitle() })
         assertEquals(listOf("我来处理", "跳过", "取消任务"), pollUntil(5_000) { attentionActions() })
 
-        // 「我来处理」:设置到了主屏最上面,能出声;这次挪动是有意的,不算被用户拿走
+        // "I'll handle it": It is set to the top of the home screen and can make a sound; this move is
+        // intentional and does not count as being taken away by the user.
         tapAttentionAction("我来处理", TaskService.ACTION_TAKE_OVER)
         assertEquals(settingsTask, pollUntil(5_000) { shell.topTaskId(Display.DEFAULT_DISPLAY).takeIf { it == settingsTask } })
         assertEquals(priorAudio, pollUntil(5_000) { shell.getAudioMode(SETTINGS)?.takeIf { it == priorAudio } })
         assertEquals(listOf("处理好了", "我自己做完了", "取消任务"),
             pollUntil(5_000) { attentionActions()?.takeIf { it.size == 3 } })
-        Thread.sleep(1_500) // 让「被挪走」的轮询至少跑两轮
+        Thread.sleep(1_500) // Let the "removed" poll run for at least two rounds
         assertTrue(DeviceTaskState.state.value.toString(), DeviceTaskState.state.value is TaskState.WaitingTakeover)
         assertEquals(Takeover.Stage.HandedOver, DeviceTaskState.takeoverStage.value)
 
-        // 「处理好了」(界面上的按钮走同一个入口):回到虚拟屏、重新静音,Agent 收到先核实的提示
+        // "Processed" (the buttons on the interface go to the same entrance): Return to the virtual
+        // screen, mute the sound again, and the Agent receives a prompt to verify first.
         TaskService.handBack(context)
         val history = model.awaitCall().messages
         assertEquals(settingsTask, pollUntil(5_000) { shell.topTaskId(displayId).takeIf { it == settingsTask } })
         assertTrue(shell.topTaskId(Display.DEFAULT_DISPLAY) != settingsTask)
         assertEquals("ignore", shell.getAudioMode(SETTINGS))
-        // 交回结果就是 hand_to_user 的工具结果:complete,并要求先核实
+        // The return result is the tool result of hand_to_user: complete, and requires verification
+        // first.
         val last = history.last()
         assertEquals(Role.Tool, last.role)
         val text = last.parts.filterIsInstance<Part.ToolResult>().single().content
@@ -149,19 +161,21 @@ class TakeoverTest {
         val result = afterObserve.last { it.role == Role.Tool }.parts.filterIsInstance<Part.ToolResult>().single()
         assertTrue(result.content, "\"currentApp\":\"$SETTINGS\"" in result.content)
 
-        // 回答引用刚读到的一个元素名:它真读到过,字面核对对得上,结局是已核实的完成
+        // The answer quotes an element name that I just read: it has been really read, the literal
+        // verification is correct, and the ending is verified and completed.
         val quote = Regex("\"name\":\"([^\"\\\\]{2,40})\"").findAll(result.content).map { it.groupValues[1] }
             .firstOrNull { n -> n.count { it.isLetter() } >= 2 && n.none { it.isDigit() } } ?: error("no element name on screen: ${result.content}")
         val answer = "done,设置里有「$quote」"
         model.answer(answer)
         val end = pollUntil(15_000) { DeviceTaskState.state.value.takeIf { !it.running() } }
         assertTrue("$end", end is TaskState.Succeeded && end.answer == answer && end.verified)
-        // 状态先一步变成结束,恢复声音在收尾里做,等 busy 变回 false 再看
+        // The status changes to end first, and the sound is restored in the ending. Wait until busy
+        // changes back to false and then look again.
         pollUntil(10_000) { DeviceTaskState.busy.value.takeIf { !it } }
         assertEquals(priorAudio, shell.getAudioMode(SETTINGS))
     }
 
-    /** 打开设置并请求接管,等到通知出现;返回 Agent 的虚拟屏编号。 */
+    /** Open settings and request takeover, wait until the notification appears; return the Agent's virtual screen number. */
     private fun requestTakeover(): Int {
         TaskService.start(context, "测试接管")
         model.awaitCall()
@@ -183,7 +197,7 @@ class TakeoverTest {
         return last.parts.filterIsInstance<Part.ToolResult>().single().content
     }
 
-    /** 主屏上设置窗口里第一个可点、不是开关的条目的中心;点它只会进子页面。 */
+    /** The center of the first clickable item in the settings window on the home screen that is not a switch; clicking it will only lead to the sub-page. */
     private fun clickableOnMainScreen(): Rect? = DeviceSupport.service().windowsOn(Display.DEFAULT_DISPLAY)
         .mapNotNull { it.root }.firstOrNull { it.packageName?.toString() == SETTINGS }
         ?.let { root ->
@@ -202,7 +216,7 @@ class TakeoverTest {
         tapAttentionAction("跳过", TaskService.ACTION_SKIP)
         val text = lastToolResult(model.awaitCall().messages)
         assertTrue(text, "\"outcome\":\"skipped\"" in text && "\"reason\":\"takeover_skipped\"" in text)
-        // 没接手过,App 一直在虚拟屏上
+        // I haven’t taken it over yet, and the App is always on the virtual screen.
         assertTrue(shell.topTaskId(Display.DEFAULT_DISPLAY) != settingsTask)
     }
 
@@ -213,7 +227,7 @@ class TakeoverTest {
         assertEquals(settingsTask, pollUntil(5_000) { shell.topTaskId(Display.DEFAULT_DISPLAY).takeIf { it == settingsTask } })
         assertEquals(Takeover.Stage.HandedOver, pollUntil(5_000) { DeviceTaskState.takeoverStage.value.takeIf { it == Takeover.Stage.HandedOver } })
 
-        // 用户在主屏上点该 App 两次:进一个条目,返回,再进一次
+        // The user taps the app twice on the home screen: enter an entry, return, and enter again
         repeat(2) { i ->
             val target = pollUntil(5_000) { clickableOnMainScreen() } ?: error("nothing clickable in settings on the main screen")
             sh("input -d ${Display.DEFAULT_DISPLAY} tap ${target.centerX()} ${target.centerY()}")

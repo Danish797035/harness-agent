@@ -5,7 +5,7 @@ import org.junit.Test
 import kotlin.math.abs
 import kotlin.random.Random
 
-/** 停留时顺手滚几下的安排:够长才滚,下数、幅度、净移动都有界,时刻落在停留里。 */
+/** The arrangement for rolling a few times when staying: roll only when it is long enough, the number of rolls, amplitude, and net movement are all bounded, and always stay within the pause. */
 class IdleScrollTest {
     private val l = IdleScroll.Limits()
 
@@ -27,12 +27,12 @@ class IdleScrollTest {
             assertTrue("$seed $plan", plan.sumOf { abs(it.fraction) } <= l.maxTotal + 1e-9)
             val net = plan.sumOf { it.fraction }
             assertTrue("$seed $plan", net >= -1e-9 && net <= l.maxNet + 1e-9)
-            // 第一下总往下;往回拨不超过之前往下滚的
+            // The first scroll always goes down; scroll back no further than the previous scroll.
             assertTrue("$seed $plan", plan.first().fraction > 0)
             var pos = 0.0
             plan.forEach { pos += it.fraction; assertTrue("$seed $plan", pos >= -1e-9) }
             plan.forEach { assertTrue("$seed $plan", abs(it.fraction) <= l.stepFraction.endInclusive + 1e-9) }
-            // 时刻在停留里,前后留出余地,两下之间隔得开
+            // Always stay in the pause, leaving room before and after, and space between two strokes
             plan.forEach { assertTrue("$seed $plan", it.atMs >= l.leadMs && it.atMs <= wait - l.tailMs) }
             plan.zipWithNext().forEach { (a, b) -> assertTrue("$seed $plan", b.atMs - a.atMs >= l.gapMs) }
             ups += plan.count { it.fraction < 0 }

@@ -5,9 +5,13 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 依赖方向:能力 → 核心;核心不引用任何能力,能力之间不互相引用;只有装配层同时认识几种能力。
- * 工具引擎(core/tool)不引用界面状态(core/uistate):界面状态属于有界面的能力,引擎只经 SurfaceLayer 用到它。
- * App 里 cap/ 下各能力的目录同样互不引用(core 里对应能力的包除外)。按源码里的 import 和写全的名字查,整行注释不算。
+ * Dependency direction: capability → core; the core does not reference any capabilities, and
+ * capabilities do not reference each other; only the assembly layer recognizes several capabilities at
+ * the same time. The tool engine (core/tool) does not reference the interface state (core/uistate): the
+ * interface state belongs to the interface capability, and the engine only uses it through SurfaceLayer.
+ * The capability directories under cap/ in the App also do not reference each other (except for the
+ * corresponding capability packages in core). Search according to the import and complete name in the
+ * source code. The entire line of comments does not count.
  */
 class PackageDependencyTest {
     private val core = File("src/main/kotlin/com/meenai/mina/core")
@@ -16,7 +20,7 @@ class PackageDependencyTest {
 
     private class Use(val file: File, val line: Int, val text: String, val target: String)
 
-    /** [root] 下源码里引用到的能力包与装配层([Use.target] 是 cap.<能力> 或 core.assembly 一类)。 */
+    /** The capability package and assembly layer referenced in the source code under [root]([Use.target] is cap.<capability> or core.assembly). */
     private fun uses(root: File): List<Use> = root.walkTopDown().filter { it.isFile && it.extension == "kt" }.flatMap { f ->
         f.readLines().asSequence().mapIndexedNotNull { i, line ->
             val t = line.trim()
@@ -26,7 +30,7 @@ class PackageDependencyTest {
         }.toList()
     }.toList()
 
-    /** [f] 所在的能力目录名;不在 cap/ 下为 null。 */
+    /** The capability directory name where [f] is located; if not under cap/, it is null. */
     private fun capOf(root: File, f: File): String? {
         val rel = f.relativeTo(root).invariantSeparatorsPath
         return if (rel.startsWith("cap/")) rel.removePrefix("cap/").substringBefore('/') else null

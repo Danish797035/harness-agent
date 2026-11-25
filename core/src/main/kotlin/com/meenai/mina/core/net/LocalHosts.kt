@@ -3,12 +3,17 @@ package com.meenai.mina.core.net
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
- * 地址是不是在本机或局域网里。只看地址本身,不做域名解析。
- * - [isLocal](严格):本机(localhost、127.0.0.0/8、::1)、私有网段(10/8、172.16/12、192.168/16、IPv6 的 fc00::/7)、
- *   链路本地(169.254/16、fe80::/10)和 `.local` 名字。用来判断明文 http 安不安全这类事。
- * - [bypassesProxy](宽一些):走网络代理时照旧直连的地址——[isLocal] 之外,还有不带点的主机名(局域网里的机器名)、
- *   局域网常用的后缀(`.lan`、`.home.arpa`、`.internal`)和运营商级 NAT 的共享网段 100.64/10(组网工具常给设备分这段)。
- *   本机、局域网里跑的模型服务代理多半到不了,所以直连。
+ * Is the address on the local machine or local area network? Only look at the address itself, without
+ * domain name resolution.
+ * - - [isLocal] (strict): This machine (localhost, 127.0.0.0/8,::1), private network segment (10/8,
+ * 172.16/12, 192.168/16, IPv6 fc00::/7), Link local (169.254/16, fe80::/10) and `.local` name. Used to
+ * determine whether plaintext http is safe or not.
+ * - - [bypassesProxy] (wider): The address that is still directly connected when using a network proxy -
+ * in addition to [isLocal], there are also host names without dots (machine names in the LAN), Commonly
+ * used suffixes for LAN (`.lan`, `.home.arpa`, `.internal`) and the shared network segment of
+ * carrier-grade NAT 100.64/10 (networking tools often divide devices into this segment). Most of the
+ * model service agents running on this machine and LAN cannot reach them, so they are connected
+ * directly.
  */
 object LocalHosts {
     fun isLocal(host: String): Boolean {
@@ -26,7 +31,7 @@ object LocalHosts {
         return false
     }
 
-    /** 走网络代理时这个主机照旧直连。 */
+    /** When using a network proxy, the host is still directly connected. */
     fun bypassesProxy(host: String): Boolean {
         if (isLocal(host)) return true
         val h = normalize(host)
@@ -37,7 +42,7 @@ object LocalHosts {
         return '.' !in h
     }
 
-    /** 明文 http、又不在本机或局域网的地址:Key 和对话会在网上不加密地传。认不出的地址不算。 */
+    /** Plain text http, address that is not on the local machine or LAN: Key and conversation will be transmitted unencrypted on the Internet. Addresses you don't recognize don't count. */
     fun unencryptedRemote(url: String): Boolean {
         val u = url.trim().toHttpUrlOrNull() ?: return false
         return !u.isHttps && !isLocal(u.host)
@@ -46,8 +51,9 @@ object LocalHosts {
     private val PROXY_SUFFIXES = listOf(".lan", ".home.arpa", ".internal")
 
     /**
-     * 浏览器的直连规则([bypassesProxy] 的同一套,写成浏览器内核认的格式);本机地址内核本来就直连,
-     * 不带点的主机名另由「简单主机名直连」管。
+     * The browser's direct connection rules (the same set of [bypassesProxy], written in a format
+     * recognized by the browser kernel); the local address kernel is originally directly connected, and
+     * the host name without a dot is managed by "simple host name direct connection".
      */
     val BYPASS_RULES: List<String> = listOf(
         "localhost", "*.localhost", "*.local", "*.lan", "*.home.arpa", "*.internal",
@@ -55,13 +61,13 @@ object LocalHosts {
         "fc00::/7", "fe80::/10",
     )
 
-    /** 给命令行工具的 no_proxy:逗号分隔的主机、后缀和网段(不认网段的工具也至少认得前三个)。 */
+    /** No_proxy for command line tools: host, suffix and network segment separated by commas (tools that do not recognize network segments will recognize at least the first three). */
     const val NO_PROXY = "localhost,127.0.0.1,::1,127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10," +
         "fc00::/7,fe80::/10,.localhost,.local,.lan,.home.arpa,.internal"
 
     private fun normalize(host: String) = host.trim().trimStart('[').trimEnd(']').trimEnd('.').lowercase()
 
-    /** 点分四段的 IPv4 的前两段;不是 IPv4 为 null。 */
+    /** The first two segments of IPv4 dotted into four segments; null if not IPv4. */
     private fun ipv4(h: String): Pair<Int, Int>? {
         val parts = h.split('.')
         if (parts.size != 4) return null

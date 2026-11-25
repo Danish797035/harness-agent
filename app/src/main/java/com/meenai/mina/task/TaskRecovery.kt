@@ -23,14 +23,14 @@ import kotlinx.serialization.json.put
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
-/** 持久化的一组「原值」;值为 null 表示原本没有这一项。没有记录时 [load] 返回 null。 */
+/** A persistent set of "original values"; a value of null indicates that this item did not originally exist. [load] returns null when there is no record. */
 interface MarkerStore {
     fun load(): Map<String, String?>?
     fun save(values: Map<String, String?>)
     fun clear()
 }
 
-/** 存在 SharedPreferences 里,同步提交:必须先落盘再去改系统状态。 */
+/** Exists in SharedPreferences, synchronous submission: must be placed first before changing the system status. */
 class PrefsMarker(private val prefs: SharedPreferences, private val name: String) : MarkerStore {
     override fun load(): Map<String, String?>? {
         val keys = prefs.getStringSet("$name.keys", null) ?: return null
@@ -54,9 +54,9 @@ class PrefsMarker(private val prefs: SharedPreferences, private val name: String
     }
 }
 
-/** 静音所需的 shell 能力。参数是静音的键(见 [AppAudioKey]):本来那份是包名,另一份用户里的那份带上用户编号。 */
+/** Shell capabilities required for muting. The parameter is the mute key (see [AppAudioKey]): the original copy is the package name, and the copy in the other user contains the user number. */
 interface AudioPort {
-    /** 当前 PLAY_AUDIO 模式;读不到返回 null。 */
+    /** Current PLAY_AUDIO mode; returns null if not read. */
     fun mode(packageName: String): String?
     fun mute(packageName: String): Boolean
     fun setMode(packageName: String, mode: String): Boolean
@@ -74,15 +74,16 @@ class ShellAudio(private val shell: IHarnessShell) : AudioPort {
     }.getOrDefault(false)
 
     override fun setMode(packageName: String, mode: String): Boolean = runCatching {
-        // 不合格式的键当作已恢复:留着也恢复不了
+        // Unformatted keys are treated as recovered: they cannot be recovered even if they are left.
         val (pkg, user) = AppAudioKey.parse(packageName) ?: return true
         if (user == null) shell.setAudioMode(pkg, mode) else shell.setAudioModeInUser(pkg, user, mode)
     }.getOrDefault(false)
 }
 
 /**
- * 任务期间关掉目标 App 的声音。静音前把原模式写进持久化记录:shell 服务随 Mina 进程一起结束,
- * 它内存里的原值会丢,只有这份记录能让下次启动时恢复。
+ * Turn off the target app's sound during the task. Write the original mode into the persistent record
+ * before muting: the shell service ends with the Mina process, and the original value in its memory will
+ * be lost. Only this record can be restored at the next startup.
  */
 class AudioMute(private val port: AudioPort, private val store: MarkerStore) {
     @Synchronized
@@ -95,7 +96,7 @@ class AudioMute(private val port: AudioPort, private val store: MarkerStore) {
         return port.mute(packageName)
     }
 
-    /** 只恢复一个 App(用户接管时让它能出声);恢复不了就留在记录里。没静音过的视为已恢复。 */
+    /** Only restore one App (make it sound when the user takes over); if it cannot be restored, leave it in the record. Those that have not been muted are considered restored. */
     @Synchronized
     fun restore(packageName: String): Boolean {
         val saved = store.load().orEmpty()
@@ -106,7 +107,7 @@ class AudioMute(private val port: AudioPort, private val store: MarkerStore) {
         return true
     }
 
-    /** 恢复记录里的全部 App;恢复不了的留在记录里下次再试。 */
+    /** Restore all apps in the record; keep those that cannot be restored in the record and try again next time. */
     @Synchronized
     fun restoreAll(): Boolean {
         val saved = store.load() ?: return true
@@ -117,8 +118,10 @@ class AudioMute(private val port: AudioPort, private val store: MarkerStore) {
 }
 
 /**
- * Mina 借剪贴板粘贴期间用户原来的剪贴板文字(和 Mina 放进去的文字)的加密留底:外壳进程随 Mina 一起被杀时,
- * 它内存里的原剪贴板就没了,下次启动只能靠这份把用户的内容还回去。用 [cipher] 加密后存成一段文字,还原后删掉。
+ * When Mina uses the clipboard to paste, the user's original clipboard text (and the text Mina put in)
+ * is encrypted and left behind: when the shell process is killed along with Mina, the original clipboard
+ * in its memory is gone, and the next startup can only rely on this to return the user's content. Use
+ * [cipher] to encrypt and save it as a piece of text, then delete it after restoration.
  */
 class ClipBackup(private val read: () -> String?, private val write: (String?) -> Unit, private val cipher: KeyCipher) {
     fun save(original: String, ours: String) {
@@ -126,7 +129,7 @@ class ClipBackup(private val read: () -> String?, private val write: (String?) -
         write(Base64.getEncoder().encodeToString(cipher.encrypt(plain)))
     }
 
-    /** (原来的文字, Mina 放进去的文字);没有留底、或解不开(密钥已换)时为 null。 */
+    /** (Original text, text put in by Mina); null when there is no bottom left, or it cannot be solved (the key has been changed). */
     fun load(): Pair<String, String>? = runCatching {
         val data = read() ?: return null
         val o = Json.parseToJsonElement(String(cipher.decrypt(Base64.getDecoder().decode(data)))).jsonObject
@@ -137,27 +140,30 @@ class ClipBackup(private val read: () -> String?, private val write: (String?) -
 }
 
 /**
- * Mina 异常退出后留下的系统改动(App 静音、粘贴期间暂时换掉的剪贴板),在下次启动时恢复。
- * 静音记录每个任务一份(按 [TaskRun.key]),几个任务同时跑时各记各的包。
- * 任务期间的改动由任务自己收尾,恢复只处理没人收尾的那些:还在跑的任务([live])的记录不动,
- * 有任务在跑时也不还原剪贴板(那时它可能正借着剪贴板粘贴)。
- * 由 App 建一份、经 [Owner] 给出([live] 要在各任务间共用);等助手时用进程里共用的那条 [sharedShell]。
+ * System changes left after Mina exits abnormally (App mute, clipboard temporarily replaced during
+ * pasting) will be restored the next time it is started. Record one copy of each task silently (press
+ * [TaskRun.key]). When several tasks are run at the same time, each package will be recorded. Changes
+ * during the task are completed by the task itself, and restoration only processes those that no one has
+ * completed: the records of the task that is still running ([live]) are not moved, and the clipboard is
+ * not restored when there is a task running (it may be pasting through the clipboard at that time).
+ * Create a copy from the App and give it via [Owner] ([live] should be shared between tasks); use the
+ * [sharedShell] shared in the process when waiting for the assistant.
  */
 class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
     private val app = context.applicationContext
     private val clipCipher by lazy { KeystoreKeyCipher(CLIP_KEY_ALIAS) }
 
-    /** 恢复与任务开工时的登记共用,保证二者不交错。 */
+    /** The restoration is shared with the registration when the task is started to ensure that the two do not overlap. */
     val lock = Mutex()
 
-    /** 还在跑的任务;进程被杀后为空,所有记录都归恢复处理。 */
+    /** Tasks that are still running; after the process is killed, it will be empty, and all records will be restored. */
     private val live = ConcurrentHashMap.newKeySet<String>()
 
     fun audioMute(shell: IHarnessShell, runKey: String) = AudioMute(ShellAudio(shell), marker(runKey))
 
     private fun marker(runKey: String) = PrefsMarker(prefs(), "${MUTED}_$runKey")
 
-    /** 现有的全部静音记录名(含旧版的那一份)。 */
+    /** Names of all existing silent records (including the old version). */
     private fun markerNames(): List<String> =
         prefs().all.keys.filter { it.startsWith(MUTED) && it.endsWith(".keys") }.map { it.removeSuffix(".keys") }
 
@@ -166,18 +172,18 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
     fun pending(): Boolean =
         markerNames().any { it !in liveNames() } || (live.isEmpty() && prefs().getBoolean(CLIP_HELD, false))
 
-    /** 任务开工:先恢复没人收尾的遗留,再登记为在跑。 */
+    /** Task start: first restore the legacy that no one has finished, and then register it as running. */
     suspend fun beginRun(shell: IHarnessShell, runKey: String) = lock.withLock {
         withContext(Dispatchers.IO) { recoverWith(shell) }
         live += runKey
     }
 
-    /** 任务收尾(自己的静音已恢复)之后调用;没恢复成的留在记录里,下次由恢复处理。 */
+    /** Called after the task ends (your own mute has been restored); those that have not been restored are left in the record and will be restored next time. */
     fun endRun(runKey: String) {
         live -= runKey
     }
 
-    /** 粘贴期间剪贴板是 Mina 的;进程在这期间结束,下次启动让 shell 把用户原来的剪贴板还回去。 */
+    /** During the pasting process, the clipboard belongs to Mina; the process ends during this period, and the next time it is started, the shell will return the user's original clipboard. */
     fun markClipHeld(held: Boolean) {
         prefs().edit().putBoolean(CLIP_HELD, held).apply { if (!held) remove(CLIP_BACKUP) }.commit()
     }
@@ -188,26 +194,30 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
         clipCipher,
     )
 
-    /** 换剪贴板成功后留底;加密失败就不留(只是少了进程被杀后的还原)。 */
+    /** After successfully changing the clipboard, the bottom will be retained; if the encryption fails, it will not be retained (just without the restoration after the process is killed). */
     fun saveClip(original: String, ours: String) {
         runCatching { clipBackup().save(original, ours) }.onFailure { Log.w(TAG, "clipboard backup not saved", it) }
     }
 
-    /** 已持有 [lock] 时调用。 */
+    /** Called when [lock] is already held. */
     fun recoverWith(shell: IHarnessShell) {
         val records = markerNames().associateWith { PrefsMarker(prefs(), it) }
         if (!restoreRuns(records, ShellAudio(shell), liveNames())) Log.w(TAG, "muted apps not restored yet")
         if (live.isNotEmpty()) return
-        // shell 进程还在就还原它记着的原剪贴板(剪贴板已被用户换掉时它不会动);
-        // shell 也被杀过就按加密留底还原,两步都只在剪贴板仍是 Mina 的时才换
+        // While the shell process is still there, restore the original clipboard it remembers (it will
+        // not move when the clipboard has been replaced by the user); if the shell has been killed, just
+        // restore it by encrypting the original clipboard. In both steps, the clipboard will only be
+        // replaced when it is still Mina's.
         val inShell = runCatching { shell.restoreClip() }.isSuccess
         val fromBackup = restoreClip(clipBackup()) { o, u -> shell.restoreClipText(o, u) }
         if (inShell && fromBackup) markClipHeld(false)
     }
 
     /**
-     * 启动时调用:有遗留改动就等内置助手连上后恢复;等不到就留到下次。
-     * 等助手时不占锁,免得新任务跟着等;拿到锁后再确认一次还有没有遗留。
+     * Called at startup: If there are any remaining changes, wait until the built-in assistant is
+     * connected to restore them; if not, leave them until next time. Do not occupy the lock while
+     * waiting for the assistant to avoid new tasks waiting; after obtaining the lock, confirm again
+     * whether there is anything left.
      */
     suspend fun recover() {
         if (!pending()) return
@@ -222,7 +232,7 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
 
     private fun prefs() = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 给出进程里那一份的 Application。 */
+    /** Give the application in the process. */
     interface Owner {
         val taskRecovery: TaskRecovery
     }
@@ -234,17 +244,17 @@ class TaskRecovery(context: Context, private val sharedShell: SharedShell) {
         private const val CLIP_HELD = "clip_held"
         private const val CLIP_BACKUP = "clip_backup"
         private const val CLIP_KEY_ALIAS = "mina-clip-backup"
-        /** 每个任务的静音记录名是 muted_<任务 key>;旧版只有一份,名为 muted,照样恢复。 */
+        /** The mute record name of each task is muted_<task key>; the old version only has one copy, named muted, and can be restored as usual. */
         private const val MUTED = "muted"
 
         fun of(context: Context): TaskRecovery = (context.applicationContext as? Owner)?.taskRecovery
             ?: error("the Application (${context.applicationContext.javaClass.name}) must implement TaskRecovery.Owner to give the task recovery")
 
-        /** 恢复 [records](记录名 → 记录)里不属于 [live] 的全部静音;都恢复了返回 true。 */
+        /** Restore all mutes in [records] (record name → record) that do not belong to [live]; return true when restored. */
         fun restoreRuns(records: Map<String, MarkerStore>, port: AudioPort, live: Set<String>): Boolean =
             records.filterKeys { it !in live }.values.map { AudioMute(port, it).restoreAll() }.all { it }
 
-        /** 按留底把用户原来的剪贴板还回去([restore] 只在剪贴板仍是 Mina 的时才换);还原了或没有留底返回 true,并删掉留底。 */
+        /** Press Leave to return the user's original clipboard ([restore] only changes when the clipboard is still Mina's); returns true if restored or there is no retain, and deletes the retain. */
         fun restoreClip(backup: ClipBackup, restore: (original: String, ours: String) -> Unit): Boolean {
             val (original, ours) = backup.load() ?: return true.also { backup.clear() }
             return runCatching { restore(original, ours) }.onSuccess { backup.clear() }.isSuccess

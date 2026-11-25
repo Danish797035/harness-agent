@@ -8,14 +8,15 @@ import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
 
 /**
- * 让视觉模型看图回答一个问题。只在设置里有能看图的模型时才建;
- * 调用方负责不把受保护页面、付款页的画面传进来。
+ * Let the visual model look at the picture and answer a question. It is only built when there is a model
+ * that can view images in the settings; the caller is responsible for not passing in the images of
+ * protected pages and payment pages.
  */
 class VisionService(private val model: ChatModel, val ops: ImageOps) {
-    /** 这个模型的看图定位准度验证过;没验证时 find_visually 对只靠看图框出来的点要求另有佐证。 */
+    /** The positioning accuracy of this model has been verified; if it has not been verified, find_visually has additional supporting evidence for the points that can only be obtained by looking at the picture frame. */
     val groundingVerified: Boolean get() = model.capabilities.groundingVerified
 
-    /** 不带工具的一次调用;失败抛 [ModelError]。 */
+    /** A call without tools; failure throws [ModelError]. */
     suspend fun ask(system: String, text: String, images: List<ByteArray>): String {
         val parts = listOf(Part.Text(text)) + images.map { ModelImage.part(it, ops) }
         val reply = model.complete(system, listOf(Message(Role.User, parts, Author.Mina)), emptyList())

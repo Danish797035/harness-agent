@@ -3,21 +3,33 @@ package com.meenai.mina.core.agent
 import java.lang.Character.UnicodeScript
 
 /**
- * 最终回答的语言是不是跟着用户:按字母所属的书写系统(Unicode 文字)数,不看模型、不看词表。纯函数。
+ * The final answer is whether the language follows the user: according to the writing system (Unicode
+ * text) to which the letters belong, without looking at the model or vocabulary. Pure function.
  *
- * 文字归成语族:汉字和假名一起数,假名够多(至少占这两种的 [KANA_SHARE])算日文,否则算中文;谚文是韩文;
- * 拉丁、西里尔、阿拉伯等其他文字各自一族。数字、标点、空白、markdown 符号都不算字母。
+ * The writing is classified into the idiom family: Chinese characters and kana are counted together. If
+ * there are enough kana (at least [KANA_SHARE] of these two), it is counted as Japanese, otherwise it is
+ * counted as Chinese; proverb is Korean; Latin, Cyrillic, Arabic and other other scripts are in their
+ * own family. Numbers, punctuation, white space, and markdown symbols are not letters.
  *
- * 跨文字要公平:中文、日文不用空格分词,一个汉字(假名)大致是一个词,按字数;其余按空格分词的文字按词数
- * (同一文字的字母连在一起算一个词),不按字母数,否则一个英文词要顶好几个汉字。拉丁、西里尔里没有小写字母的词
- * (GB、OS、型号缩写)多是单位和缩写,不算。
+ * Cross-texts must be fair: Chinese and Japanese do not use spaces to segment words. One Chinese
+ * character (kana) is roughly one word, and the number of words is calculated; other words that use
+ * spaces to segment words are based on the number of words (letters of the same character are connected
+ * together as one word), not the number of letters. Otherwise, one English word will be divided into
+ * several Chinese characters. Words without lowercase letters in Latin and Cyrillic (GB, OS, model
+ * abbreviations) are mostly units and abbreviations and do not count.
  *
- * 回答里不算的部分:各种引号里的(「」『』“”"" 《》)、括号里的(() 和 ()),反引号里的代码,网址,尖括号标签。
- * 这些多是照抄的原文或标注的原文,本来就该保留。另外,一行(或用 |、、 分开的一格)里只有一串同一语族的字、
- * 而且不超过 [NAME_UNITS] 个单位时,当成名字或标签(列表里的 App 名、表格里的一格),也不算:只列外文名字的回答不会被判成换了语言。
+ * Parts that are not included in the answer: various quotation marks (""""""""""), brackets (() and ()),
+ * codes in backticks, URLs, and angle bracket tags. Most of these are copied from the original text or
+ * marked-up original text, which should have been preserved. In addition, if there is only a string of
+ * words of the same language family in a row (or a cell separated by |,,) and does not exceed
+ * [NAME_UNITS] units, it will not be counted as a name or label (an App name in a list, a cell in a
+ * table): answers that only list foreign names will not be judged as language changes.
  *
- * 判换了语言要同时满足:用户那句至少 [MIN_USER_UNITS] 个单位,回答剩下的正文至少 [MIN_ANSWER_UNITS] 个单位,
- * 回答里最多的语族至少占 [MISMATCH_SHARE],而且不是用户那句里最多的语族。
+ * To judge whether the language has been changed, the following conditions must be met at the same time:
+ * the user's sentence must be at least [MIN_USER_UNITS] units, the remaining text of the answer must be
+ * at least [MIN_ANSWER_UNITS] units, and the language family with the most answers must account for at
+ * least [MISMATCH_SHARE], and it must not be the language family with the most words in the user's
+ * sentence.
  */
 internal object ReplyLanguage {
     const val MIN_USER_UNITS = 3
@@ -26,17 +38,17 @@ internal object ReplyLanguage {
     const val NAME_UNITS = 6
     const val KANA_SHARE = 0.1
 
-    /** 语族;[display] 是写给模型的说法。 */
+    /** Language family; [display] is the statement written to the model. */
     data class Family(val display: String)
 
     val CHINESE = Family("Chinese")
     val JAPANESE = Family("Japanese")
     val KOREAN = Family("Korean")
 
-    /** 回答 [answer] 的语族和用户那句 [user] 的语族。 */
+    /** Answer the language family of [answer] and the user's language family of [user]. */
     data class Mismatch(val answer: Family, val user: Family)
 
-    /** 回答的正文明显不是用户那句的语言时返回两边的语族;否则(或字太少判不了)为 null。 */
+    /** When the text of the answer is obviously not in the language of the user's sentence, the language families on both sides are returned; otherwise (or there are too few words to judge), it is null. */
     fun mismatch(user: String, answer: String): Mismatch? {
         val u = units(user, skipNames = false)
         val a = units(stripQuoted(answer), skipNames = true)
@@ -49,7 +61,7 @@ internal object ReplyLanguage {
         return Mismatch(answerFamily, userFamily)
     }
 
-    /** 文字 [text] 里各语族的单位数(见类说明);[skipNames] 时不算只有一串短字的行或格。 */
+    /** The number of units of each language family in the text [text] (see class description); when [skipNames], it does not count lines or cells with only a string of short words. */
     fun units(text: String, skipNames: Boolean): Map<Family, Int> {
         val cells = text.split(CELL).map { cell -> runsOf(cell).filter { it.units > 0 } }
         val counted = (if (skipNames) cells.filterNot { it.size == 1 && it[0].units <= NAME_UNITS } else cells).flatten()
@@ -68,7 +80,7 @@ internal object ReplyLanguage {
         return out
     }
 
-    /** 去掉回答里引号、括号、反引号里的内容和网址、标签(括号可以套着,里外都去掉)。 */
+    /** Remove the content, URL, and tags in the quotes, brackets, and backtick marks in the answer (the brackets can be enclosed, and both inside and outside are removed). */
     fun stripQuoted(text: String): String {
         var s = FENCE.replace(text, " ")
         for (r in listOf(INLINE_CODE, URL, TAG, QUOTES)) s = r.replace(s, " ")
@@ -79,12 +91,14 @@ internal object ReplyLanguage {
         }
     }
 
-    /** 一串连着的同一文字的字:[key] 是文字(汉字、假名合并前分开记),[units] 是单位数。 */
+    /** A series of connected characters of the same character: [key] is the character (kanji and kana are separated before merging), [units] is the unit number. */
     private data class Run(val key: String, var units: Int)
 
     /**
-     * 把一格切成串:同一文字的字母之间只隔着空格、连字符、撇号、组合符号(或不属于哪种文字的字母)时算同一串。
-     * 汉字、假名每个字一个单位;其他文字每个词一个单位,没有小写字母的拉丁、西里尔词不算。
+     * Divide a grid into strings: letters of the same text are counted as the same string if they are
+     * separated only by spaces, hyphens, apostrophes, and combining symbols (or letters that do not
+     * belong to any type of text). Each word of Kanji and Kana has one unit; each word of other
+     * characters has one unit. Latin and Cyrillic words without lowercase letters are not counted.
      */
     private fun runsOf(cell: String): List<Run> {
         val out = mutableListOf<Run>()
@@ -101,7 +115,8 @@ internal object ReplyLanguage {
             i += Character.charCount(cp)
             val type = Character.getType(cp)
             if (type == Character.NON_SPACING_MARK.toInt() || type == Character.COMBINING_SPACING_MARK.toInt()) continue
-            // 不属于哪种文字的字母(长音符「ー」等)跟着前后的字,自己不算
+            // Characters with different characters (long note "-", etc.) before and after falling,
+            // self-counting
             if (Character.isLetter(cp) && UnicodeScript.of(cp).let { it == UnicodeScript.COMMON || it == UnicodeScript.INHERITED }) continue
             if (Character.isLetter(cp)) {
                 val key = keyOf(cp)
@@ -133,13 +148,13 @@ internal object ReplyLanguage {
     private const val HAN = "HAN"
     private const val KANA = "KANA"
 
-    /** 行、表格的格、顿号分开的并列项各是一格。 */
+    /** Rows, table cells, and parallel items separated by commas each have one cell. */
     private val CELL = Regex("[\\n|、]")
     private val FENCE = Regex("```[\\s\\S]*?```")
     private val INLINE_CODE = Regex("`[^`\\n]*`")
     private val URL = Regex("(?i)\\b(?:https?://|www\\.)\\S+")
     private val TAG = Regex("<[^<>\\n]*>")
     private val QUOTES = Regex("「[^」\\n]*」|『[^』\\n]*』|“[^”\\n]*”|\"[^\"\\n]*\"|《[^》\\n]*》")
-    /** 只配最里层的一对括号,反复去掉直到没有;半角、全角括号可以混着配。 */
+    /** Only match the innermost pair of brackets, and remove them repeatedly until there are no more; half-width and full-width brackets can be mixed. */
     private val PARENS = Regex("[(（][^()（）\\n]*[)）]")
 }

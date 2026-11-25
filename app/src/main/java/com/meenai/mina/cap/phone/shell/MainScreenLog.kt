@@ -1,14 +1,17 @@
 package com.meenai.mina.cap.phone.shell
 
 /**
- * 主屏(0 号屏)上「冒到最上面」的任务的记录,内置助手每看一次任务列表就喂一次([scan])。
- * 只记事实,不判是不是 Agent 的动作引起的(那在 Mina 一侧,见 MainScreenSpill):
- * 主屏最上面换了一个任务记一条;还是那个任务、但它最上面的页面换了也记一条([Arrival.sameTask])。
- * 每条带上这个任务上一次被看到时在哪块屏([Arrival.from],之前没见过为 [NEW]),从别的屏挪过来的(接管)据此认出。
- * 纯逻辑,时钟由调用方给。
+ * The record of tasks that "popped to the top" on the home screen (screen 0) is fed by the built-in
+ * assistant every time it views the task list ([scan]). Only record the facts, without judging whether
+ * it is caused by the Agent's action (on the Mina side, see MainScreenSpill): If a task is changed at
+ * the top of the main screen, an entry will be recorded; it is still the same task, but if the top page
+ * of the main screen is changed, an entry will be recorded ([Arrival.sameTask]). On each strip, which
+ * screen the task was last seen on ([Arrival.from], [NEW] if it has not been seen before) is recognized
+ * based on the screen it was moved from other screens (takeover). Pure logic, the clock is given by the
+ * caller.
  */
 internal class MainScreenLog(private val keepMs: Long = KEEP_MS) {
-    /** 看到的一个任务:[topActivity] 是它最上面页面的完整类名,[standard] 是普通 App 的页面(不是桌面、最近任务、助理一类)。 */
+    /** I saw a task: [topActivity] is the complete class name of its top page, [standard] is the page of an ordinary App (not the desktop, recent tasks, assistants, etc.). */
     data class Task(
         val taskId: Int,
         val displayId: Int,
@@ -34,8 +37,10 @@ internal class MainScreenLog(private val keepMs: Long = KEEP_MS) {
     private val arrivals = ArrayDeque<Arrival>()
 
     /**
-     * 喂一次任务列表([tasks]:所有屏上的任务,按最近使用排,和系统 getTasks 的顺序一样)。
-     * [record] 为 false 时只记下此刻的样子当底,不记冒出来的(没盯着的这段时间里换的,说不清是什么时候)。
+     * Feed the task list once ([tasks]: all tasks on the screen, sorted by recent use, in the same order
+     * as the system getTasks). When [record] is false, only the current appearance is recorded, and the
+     * appearance is not recorded (it was changed during the period when I was not staring at it, I can’t
+     * tell when).
      */
     fun scan(tasks: List<Task>, now: Long, record: Boolean) {
         val mainTop = tasks.firstOrNull { it.displayId == MAIN }
@@ -55,13 +60,13 @@ internal class MainScreenLog(private val keepMs: Long = KEEP_MS) {
         arrivals.addLast(Arrival(t.taskId, t.packageName, t.userId, now, from, sameTask, t.standard, t.topActivity))
     }
 
-    /** 主屏此刻最上面的任务;还没看过或主屏没有任务为 -1。 */
+    /** The topmost task on the home screen at the moment; it is -1 if it has not been viewed or there is no task on the home screen. */
     val topTaskId: Int get() = top?.taskId ?: -1
 
-    /** [since](含)之后的记录,先后排。 */
+    /** Records after [since] (inclusive) are arranged in sequence. */
     fun since(since: Long): List<Arrival> = arrivals.filter { it.at >= since }
 
-    /** 这个任务最近一次被看到时在哪块屏;不在了为 -1。 */
+    /** The screen on which this task was last seen; -1 when it is no longer visible. */
     fun displayOf(taskId: Int): Int = displays[taskId] ?: -1
 
     companion object {

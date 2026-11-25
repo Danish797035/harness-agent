@@ -51,11 +51,12 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 import androidx.compose.runtime.getValue
 
-// ---------- 开关 ----------
+// ---------- switch ----------
 
 /**
- * 开关:44×26,打开时强调蓝。动画 200ms 减速,系统关了动画时直接到位。
- * [onCheckedChange] 为空时只显示(整行可点时用)。
+ * Switch: 44×26, emphasizes blue when turned on. The animation is decelerated by 200ms, and it will go
+ * directly to the position when the system turns off the animation. [onCheckedChange] is only displayed
+ * when it is empty (used when the entire line can be clicked).
  */
 @Composable
 fun HarnessSwitch(
@@ -99,11 +100,11 @@ fun MinaSwitch(
     enabled: Boolean = true,
 ) = HarnessSwitch(checked, onCheckedChange, modifier, enabled)
 
-// ---------- 胶囊 ----------
+// ---------- Capsules ----------
 
 enum class PillTone { Ok, Warn, Neutral, Accent }
 
-/** 状态胶囊:可用、需要你、已停用;强调色的标明「在用」(例如模型在给哪个用途干活)。 */
+/** Status capsule: available, needed, deactivated; the accent color indicates "in use" (for example, which purpose the model is working for). */
 @Composable
 fun StatusPill(text: String, tone: PillTone = PillTone.Neutral, modifier: Modifier = Modifier) {
     val c = MinaTheme.colors
@@ -121,19 +122,19 @@ fun StatusPill(text: String, tone: PillTone = PillTone.Neutral, modifier: Modifi
 
 private val PillText = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
 
-// ---------- 按钮 ----------
+// ---------- Button ----------
 
-/** 主按钮(强调蓝实底)、浅色次按钮(白底蓝字)、浅填充按钮、文字按钮。 */
+/** Primary button (emphasis on solid blue background), light secondary button (blue text on white background), light fill button, and text button. */
 enum class ButtonKind { Primary, Secondary, Tonal, Text }
 
-/** 大:页面底部 52;中:卡片里并排 42;小:行内 32 的胶囊。 */
+/** Large: 52 at the bottom of the page; Medium: 42 side by side in the card; Small: 32 capsules in the row. */
 enum class ButtonSize(val height: Dp, val shape: RoundedCornerShape, val text: TextStyle, val padding: Dp) {
     Large(MinaSize.Button, MinaShapes.Button, TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold), 20.dp),
     Medium(42.dp, RoundedCornerShape(12.dp), TextStyle(fontSize = 14.5.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold), 14.dp),
     Small(32.dp, RoundedCornerShape(16.dp), TextStyle(fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold), 14.dp),
 }
 
-/** 按钮。宽度由 [modifier] 定(铺满、按权重分或包住文字)。 */
+/** button. The width is determined by [modifier] (fill, divide by weight or wrap text). */
 @Composable
 fun HarnessButton(
     text: String,
@@ -175,9 +176,9 @@ fun MinaButton(
     enabled: Boolean = true,
 ) = HarnessButton(text, onClick, modifier, kind, size, enabled)
 
-// ---------- 分段控件 ----------
+// ---------- Segmented Control ----------
 
-/** 分段控件:浅填充底,选中的一段是白色浮起。[tags] 是各段的测试标签。 */
+/** Segmented control: shallow filled bottom, selected section is white floated. [tags] is the test label of each segment. */
 @Composable
 fun SegmentedControl(
     options: List<String>,
@@ -212,11 +213,12 @@ private val SegmentOuter = RoundedCornerShape(10.dp)
 private val SegmentInner = RoundedCornerShape(8.dp)
 private val SegmentText = TextStyle(fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
 
-// ---------- 顶栏 ----------
+// ---------- Top bar ----------
 
 /**
- * 顶栏上的圆形图标按钮,40dp。[glass] 为真时是浮在内容上的白色玻璃圆。
- * [badge] 为真时右上角一个强调色小圆点(有别的事在进行);[enabled] 为假时变淡、不可点。
+ * Round icon button on top bar, 40dp. When [glass] is true, it is a white glass circle floating on the
+ * content. When [badge] is true, there is an accent color dot in the upper right corner (something else
+ * is going on); when [enabled] is false, it becomes faded and cannot be clicked.
  */
 @Composable
 fun BarIconButton(
@@ -246,8 +248,9 @@ fun BarIconButton(
 }
 
 /**
- * 顶栏:56 高,左右各一个图标按钮位,标题居中,可带一行副标题。
- * 底色默认是页面底色,内容在它下面滚动时不透字。
+ * Top column: 56 meters high, with an icon button on the left and right, the title in the center, and a
+ * line of subtitles. The background color defaults to the page background color, and the text will not
+ * show through when the content is scrolled under it.
  */
 @Composable
 fun TopBar(
@@ -255,7 +258,7 @@ fun TopBar(
     left: ImageVector? = null,
     onLeft: () -> Unit = {},
     leftLabel: String = "",
-    /** 左边按钮上的小圆点,见 [BarIconButton]。 */
+    /** The small dot on the left button, see [BarIconButton]. */
     leftBadge: Boolean = false,
     right: (@Composable RowScope.() -> Unit)? = null,
     subtitle: String? = null,
@@ -285,9 +288,9 @@ fun TopBar(
     }
 }
 
-// ---------- 选择胶囊 ----------
+// ---------- Select Capsule ----------
 
-/** 可选的胶囊(服务商、接口类型):34 高,白卡底;选中时深色实底、反色字。[small] 是行内的小号。 */
+/** Optional capsules (service provider, interface type): 34 height, white card base; dark solid base, inverted text when selected. [small] is the trumpet number in the industry. */
 @Composable
 fun SelectChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, small: Boolean = false) {
     val c = MinaTheme.colors
@@ -318,11 +321,11 @@ private val SmallChipShape = RoundedCornerShape(8.dp)
 private val ChipText = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
 private val SmallChipText = TextStyle(fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
 
-// ---------- 小标签 ----------
+// ---------- Small label ----------
 
 enum class TagTone { Neutral, Accent }
 
-/** 能力小标签(工具调用、看图、64K):11 / 600,圆角 7。 */
+/** Capability small labels (tool calling, picture viewing, 64K): 11 / 600, rounded corners 7. */
 @Composable
 fun CapabilityTag(text: String, tone: TagTone = TagTone.Neutral) {
     val c = MinaTheme.colors
@@ -333,9 +336,9 @@ fun CapabilityTag(text: String, tone: TagTone = TagTone.Neutral) {
 private val TagShape = RoundedCornerShape(7.dp)
 private val TagText = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold)
 
-// ---------- 分页点 ----------
+// ----------Page break ----------
 
-/** 上手流程底部的分页点:当前一步是 18 宽的强调色短条,其余是 6 的灰点。 */
+/** Pagination points at the bottom of the onboarding process: The current step is an 18-wide short strip of accent color, and the rest are 6 gray dots. */
 @Composable
 fun ProgressDots(count: Int, current: Int, modifier: Modifier = Modifier) {
     val c = MinaTheme.colors

@@ -35,7 +35,7 @@ import com.meenai.mina.core.assembly.toolDispatcher
 private fun el(ref: String, role: String, name: String, b: List<Int>, editable: Boolean = false, secret: Boolean = false) =
     UiElement(ref, role, name, 0, 0, b, null, !editable, editable, false, secret = secret)
 
-/** 和 [title] 的聊天页:标题、输入框、「发送」,另有「卸载」按钮、密码框、一个普通按钮和一行「删除」。 */
+/** The chat page with [title]: title, input box, "Send", an "Uninstall" button, a password box, a normal button and a line of "Delete". */
 private fun chatPage(title: String = "张三") = listOf(
     el("@e1", "text", title, listOf(0, 0, 999, 80)),
     el("@e2", "edit", "明天见", listOf(0, 900, 790, 999), editable = true),
@@ -46,7 +46,7 @@ private fun chatPage(title: String = "张三") = listOf(
     el("@e7", "button", "删除", listOf(800, 500, 990, 560)),
 )
 
-/** 结算页:店名、合计金额和「提交订单」「立即支付」。 */
+/** Checkout page: store name, total amount, "Submit order" and "Pay now". */
 private val checkoutPage = listOf(
     el("@e1", "text", "耳机店", listOf(0, 0, 999, 80)),
     el("@e2", "text", "合计 ¥25", listOf(0, 800, 600, 860)),
@@ -100,7 +100,7 @@ private class Settable(var auto: Boolean = false) : ApprovalSettings {
     override fun autonomous() = auto
 }
 
-/** 询问时只有花钱的那一步先问用户;别的(发送、删除、卸载、密码框、一般改动)都直接做。 */
+/** When asking, only ask the user first about the step of spending money; do everything else (send, delete, uninstall, password box, general changes) directly. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PaymentOnlyAskTest {
     private fun loop(
@@ -164,7 +164,8 @@ class PaymentOnlyAskTest {
     }
 
     @Test fun confirmationIsOnlyForSpendingMoney() = runTest {
-        // 写不出金额的申请(发消息)不交给用户,直接告诉模型去做
+        // If the amount cannot be written (send a message), the application will not be handed over to
+        // the user, and the model will be directly told to do it.
         val s = Chat()
         val send = tools(call("request_confirmation", """{"action":"send","target":"张三","content":"明天见","app":"com.chat"}"""))
         val m = FakeModel(OBSERVE, send, tap("@e3"), FINISH)
@@ -180,7 +181,8 @@ class PaymentOnlyAskTest {
         val s = Chat(page = checkoutPage)
         val approvals = Settable()
         val m = FakeModel(OBSERVE, tap("@e3"), tap("@e3"), FINISH)
-        // 第一次点提交订单时还在询问:被拦下;模型再点之前用户换成了自主
+        // When I clicked to submit the order for the first time, I was still asking: I was stopped;
+        // before clicking the model again, the user switched to autonomous.
         val flipping = object : ChatModel by m {
             override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
                 if (m.requests.size == 2) approvals.auto = true
@@ -214,13 +216,13 @@ class PaymentOnlyAskTest {
     }
 
     @Test fun minaNeverOperatesItself() = runTest {
-        // 屏上是 Mina 自己:不点
+        // On the screen is Mina herself: No click
         val s = Chat(app = "com.mina")
         val m = FakeModel(OBSERVE, tap("@e6"), GIVE_UP)
         loop(m, s, self = "com.mina").run("t")
         assertTrue(s.taps.isEmpty())
         assertEquals("own_app", m.result(2).s("error"))
-        // 从别的 App 打开 Mina、打开它的应用详情:不做
+        // Open Mina from other apps and open its app details: Do not do this
         s.app = "com.chat"
         val m2 = FakeModel(OBSERVE, tools(call("phone_launch_app", """{"package":"com.mina"}""")), tools(call("phone_open_link", """{"uri":"package:com.mina"}""")), GIVE_UP)
         loop(m2, s, self = "com.mina").run("t")

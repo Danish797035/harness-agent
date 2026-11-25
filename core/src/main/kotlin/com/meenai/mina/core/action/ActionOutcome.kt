@@ -12,23 +12,28 @@ import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 一次动作走完执行入口的结局。 */
+/** The ending of the execution entrance is completed in one action. */
 sealed interface ActionOutcome {
-    /** 执行前的守卫结论。 */
+    /** Guard conclusion before execution. */
     val before: List<GuardVerdict>
 
     /**
-     * 没有执行。[code]:guard_stopped / guard_warning / confirmation_required / confirmation_mismatch / approval_unavailable / target_unresolved / own_app。
-     * [content] 是交给这次调用方的结果(脚本子步、模型单步照它回;批和回放按 [code] 自己说明)。
+     * Not implemented. [code]: guard_stopped / guard_warning / confirmation_required /
+     * confirmation_mismatch / approval_unavailable / target_unresolved / own_app. [content] is the
+     * result handed over to the caller this time (script sub-steps and model steps are returned
+     * according to it; batch and playback are described by [code]).
      */
     data class Refused(
         val code: String, val content: JsonObject, override val before: List<GuardVerdict>, val hit: Irreversible? = null,
     ) : ActionOutcome
 
     /**
-     * 执行了。[exec] 是最终结果(模型单步可能已换成等用户之后的结果或核查退回);[after] 是执行后的守卫结论
-     * (页面脚本的子步结论排在前面);[content] 是交给模型、也记进运行记录的内容。
-     * [shotId]、[picture]:[Frames.Caller] 时留给调用方存的画面;[seen] 是记路线锚点时动作后读的一屏(没读为 null)。
+     * Executed. [exec] is the final result (the model step may have been replaced by waiting for the
+     * user's subsequent results or verification and return); [after] is the guard conclusion after
+     * execution (the sub-step conclusions of the page script are ranked first); [content] is the content
+     * handed over to the model and recorded in the running record. [shotId], [picture]: [Frames.Caller]
+     * is a screen left for the caller to save; [seen] is a screen read after the action when recording
+     * the route anchor point (nothing is read as null).
      */
     data class Ran(
         val exec: ToolExecution, override val before: List<GuardVerdict>, val after: List<GuardVerdict>, val content: JsonObject,
@@ -37,18 +42,18 @@ sealed interface ActionOutcome {
         val verdicts: List<GuardVerdict> get() = before + after
     }
 
-    /** 等用户时任务被取消了。 */
+    /** The task was canceled while waiting for the user. */
     data class Cancelled(override val before: List<GuardVerdict>) : ActionOutcome
 }
 
-/** 这次调用对调用方的结果:执行了就是执行结果,没执行就是拒绝说明。 */
+/** The result of this call to the caller: if it is executed, it is the execution result, if it is not executed, it is a rejection statement. */
 fun ActionOutcome.execution(): ToolExecution = when (this) {
     is ActionOutcome.Ran -> exec
     is ActionOutcome.Refused -> ToolExecution(content)
     is ActionOutcome.Cancelled -> ToolExecution(buildJsonObject { put("ok", false); put("error", "cancelled"); put("executed", false) })
 }
 
-/** 被拦下时交给调用方的说明,按来源的说法写。 */
+/** Instructions given to the caller when stopped, written as the source says. */
 internal object Refusals {
     const val SINGLE_USE = "One approval lets through only the next matching action, and that action uses it up whether it succeeds or not."
     const val OWN_APP = "own_app"
@@ -56,7 +61,8 @@ internal object Refusals {
         "with item as the product (variant, quantity), amount as the amount due shown on screen, and address as the delivery address."
 
     fun content(code: String, style: RefusalStyle, before: List<GuardVerdict>, hit: Irreversible?, reason: String?): JsonObject = when (style) {
-        // 模型单步被守卫叫停时任务就此结束,用不到说明
+        // The task ends when the model is stopped by a guard in a single step, and no explanation is
+        // needed.
         RefusalStyle.Model -> if (hit == null) notRun(code, if (code == OWN_APP) Feedback["own_app"] else code) else {
             val blocked = if (reason != null) mismatch(hit, reason) else required(hit)
             if (before.isEmpty()) blocked else JsonObject(blocked + ("guard" to JsonArray(before.map { it.toJson() })))

@@ -27,12 +27,13 @@ class CommandSteerTest {
         assertEquals(CommandSteer.Purpose.Launch, CommandSteer.purpose("am start --display 7 -n com.example/.Main"))
         assertEquals(CommandSteer.Purpose.Launch, CommandSteer.purpose("monkey -p com.example -c android.intent.category.LAUNCHER 1"))
         assertEquals(CommandSteer.Purpose.Launch, CommandSteer.purpose("cmd activity start-activity -n com.example/.Main"))
-        // 分享文字:动作写全或简写都认;分享文件按一般的启动算
+        // Share text: Actions written in full or abbreviated are accepted; shared files are calculated
+        // as normal startup
         assertEquals(CommandSteer.Purpose.Share, CommandSteer.purpose("am start --display 7 -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT 'hi' -p com.example.chat"))
         assertEquals(CommandSteer.Purpose.Share, CommandSteer.purpose("am start -a SEND -t text/plain --es android.intent.extra.TEXT hi"))
         assertEquals(CommandSteer.Purpose.Launch, CommandSteer.purpose("am start -a android.intent.action.SENDTO -d smsto:10086"))
         assertEquals(CommandSteer.Purpose.Launch, CommandSteer.purpose("am start -a android.intent.action.SEND -t image/png --eu android.intent.extra.STREAM content://x/1"))
-        // 查询类命令照常
+        // Query commands are as usual
         assertNull(CommandSteer.purpose("pm list packages"))
         assertNull(CommandSteer.purpose("dumpsys input_method | grep mInputShown"))
         assertNull(CommandSteer.purpose("settings get system screen_off_timeout"))
@@ -68,7 +69,8 @@ class CommandSteerTest {
         val screen = Counting()
         val d = toolDispatcher(screen)
         assertTrue(d.run("input -d 7 tap 500 900").ok())
-        // 提醒过了:换一类模仿的命令也不执行,只说该用哪个工具
+        // Already reminded: I won’t execute another type of imitated command, I will just tell you which
+        // tool to use.
         for ((command, key) in listOf(
             "input -d 7 text hi" to "system_command.use_type",
             "input -d 7 keyevent 66" to "system_command.use_key",
@@ -79,7 +81,7 @@ class CommandSteerTest {
             assertEquals("use_phone_tool", r.error())
             assertEquals(Feedback.format("system_command.refused", "use" to Feedback[key]), r.hint())
         }
-        // 查状态、读设置的命令照常
+        // The commands to check status and read settings are as usual.
         assertTrue(d.run("settings get system screen_off_timeout").ok())
         assertTrue(d.run("dumpsys window | grep mCurrentFocus").ok())
         assertEquals(listOf("input -d 7 tap 500 900", "settings get system screen_off_timeout", "dumpsys window | grep mCurrentFocus"), screen.ran)
@@ -97,7 +99,7 @@ class CommandSteerTest {
 
     @Test fun refusalStateIsPerRun() = runTest {
         toolDispatcher(Counting()).run("input -d 7 tap 1 1")
-        // 新任务新的计数:第一次照样执行、只提醒
+        // New task with new count: execute as usual for the first time, only remind
         val fresh = toolDispatcher(Counting()).run("input -d 7 tap 1 1")
         assertTrue(fresh.ok())
         assertEquals(Feedback["system_command.use_tap"], fresh.hint())
@@ -107,10 +109,11 @@ class CommandSteerTest {
         val d = toolDispatcher(screen(1, 2, 0, 1))
         assertNull(d.run("pm path x").hint())
         assertEquals(Feedback["system_command.failed_again"], d.run("pm path y").hint())
-        // 成功一次清零
+        // Clear once successfully
         assertNull(d.run("pm path z").hint())
         assertNull(d.run("pm path w").hint())
-        // 模仿专门工具又失败了:两句都说(第一次就执行;之后的不执行)
+        // Imitation of specialized tools failed again: both sentences were said (executed the first
+        // time; not executed after that)
         val d2 = toolDispatcher(screen(1, 1))
         d2.run("pm path x")
         val both = d2.run("input -d 7 keyevent 66").hint()!!

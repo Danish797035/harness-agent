@@ -48,7 +48,7 @@ class SystemActionToolsTest {
     }
 
     @Test fun earlierAlarmHidesTheNewOne() = runTest {
-        // 一分钟后就有一个闹钟;要设的是两小时后的
+        // There will be an alarm in one minute; the one you want to set is for two hours later.
         val earlier = System.currentTimeMillis() + 60_000
         val later = java.time.Instant.ofEpochMilli(System.currentTimeMillis() + 2 * 3_600_000).atZone(zone)
         val screen = SystemScreen { SystemActionResult(ActionResult.Ok(), "com.example.clock", alarmReadable = true, nextAlarmBefore = earlier, nextAlarmAfter = earlier) }
@@ -139,7 +139,8 @@ class SystemActionToolsTest {
         assertEquals(AlarmCheck.Status.NOT_SEEN, AlarmCheck.of(9, 40, ok(at(10, 0)), zone, now))
         assertEquals(AlarmCheck.Status.NOT_SEEN, AlarmCheck.of(9, 40, ok(null), zone, now))
         assertEquals(AlarmCheck.Status.UNKNOWN, AlarmCheck.of(9, 40, SystemActionResult(ActionResult.Ok()), zone, now))
-        // 7 点的闹钟在早上 8 点设:下一次是明天 7 点,今天 23 点那个在它前面
+        // The alarm clock for 7 o'clock is set at 8 o'clock in the morning: the next time is tomorrow at
+        // 7 o'clock, and the one in front of it at 23 o'clock today is
         assertEquals(AlarmCheck.Status.EARLIER_FIRST, AlarmCheck.of(7, 0, ok(at(23, 0)), zone, now))
     }
 

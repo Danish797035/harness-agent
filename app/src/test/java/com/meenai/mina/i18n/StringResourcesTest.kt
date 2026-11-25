@@ -8,11 +8,14 @@ import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * 英文(默认)、简体和繁体三份界面文字要一一对上:同样的条目、同样的占位符(繁体对照简体);英文里不该留着没翻的中文。
- * 其他语言([others])也要和英文一一对上,复数按各自语言的数量词写全。
+ * The three interface texts in English (default), Simplified Chinese and Traditional Chinese must be
+ * matched one by one: the same entries, the same placeholders (Traditional Chinese versus Simplified
+ * Chinese); there should not be any untranslated Chinese in English. Other languages ([others]) should
+ * also match English one by one, and the plurals should be written in full according to the numerals of
+ * the respective languages.
  */
 class StringResourcesTest {
-    /** 中英以外的一种界面语言:资源文件夹,和这种语言的复数要写哪几个数量词(按 CLDR 的复数规则)。 */
+    /** An interface language other than Chinese and English: resource folder, and which quantifiers should be written in the plural of this language (according to the plurality rules of CLDR). */
     private class Other(val folder: String, val locale: Locale, val quantities: Set<String>) {
         val texts by lazy { ResFileTexts(folder, locale) }
     }
@@ -23,7 +26,7 @@ class StringResourcesTest {
 
     private val en = ResFileTexts.english
 
-    /** 标了 translatable="false" 的条目只在默认文件里。 */
+    /** Entries marked with translatable="false" are only in the default file. */
     private val fixed: Set<String> = ResFileTexts.resFiles("values").flatMap { f ->
         val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(f).getElementsByTagName("string")
         (0 until nodes.length).map { nodes.item(it) as Element }.filter { it.getAttribute("translatable") == "false" }.map { it.getAttribute("name") }
@@ -67,7 +70,7 @@ class StringResourcesTest {
         }
     }
 
-    /** 不用汉字的语言里不该留着没翻的中文;日语本来就用汉字,不查。 */
+    /** There should be no untranslated Chinese in a language that does not use Chinese characters; Japanese uses Chinese characters to begin with, so there is no need to look them up. */
     @Test
     fun otherLanguagesHaveNoChineseLeftOver() {
         val cjk = Regex("[\\u4e00-\\u9fff]")
@@ -78,7 +81,7 @@ class StringResourcesTest {
         }
     }
 
-    /** 每种界面语言在资源里都有对应的文件夹,ui_locale 写的就是这种语言。 */
+    /** Each interface language has a corresponding folder in the resources, and ui_locale is written in this language. */
     @Test
     fun everyAppLanguageHasItsTexts() {
         val byLanguage = others.associateBy { AppLanguage.modernCode(it.locale.language) }
@@ -93,7 +96,7 @@ class StringResourcesTest {
 
     @Test
     fun englishHasNoChineseLeftOver() {
-        // 例子里的博主名本来就是中文
+        // The blogger’s name in the example is originally in Chinese.
         val allowed = fixed + "chat_example_creator"
         val cjk = Regex("[\\u4e00-\\u9fff]")
         val left = en.strings.filter { (k, v) -> k !in allowed && cjk.containsMatchIn(v) }.keys +
@@ -103,7 +106,8 @@ class StringResourcesTest {
 
     @Test
     fun languageFromTag() {
-        // 单测里没有安卓的 ICU:补文字体系这一步换成假的,只认一个私用标签是繁体
+        // There is no Android ICU in the single test: the step of supplementing the text system is
+        // replaced with a fake one, and only one private label is recognized as Traditional Chinese
         val likely = { tag: String -> if (tag == "zh-x-hant") "Hant" else "Hans" }
         fun of(tag: String?) = AppLanguage.fromTag(tag, likely)
         assertEquals(AppLanguage.System, of(null))

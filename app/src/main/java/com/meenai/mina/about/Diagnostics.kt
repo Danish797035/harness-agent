@@ -17,9 +17,11 @@ import com.meenai.mina.settings.ChatGptSignInFailureRecord
 import java.net.URI
 
 /**
- * 「复制诊断信息」那一刻读到的状态。只放排查要用的:版本、机型、手机操作每一步的状态、模型的接口类型和地址、
- * 最近几次运行的结局;不放 Key、登录、聊天内容、任务目标和屏幕内容,也不放 IP、端口和 Wi-Fi 名。
- * 引导页的几项直接是引导页自己的输入 [setup](同一份状态机算出步骤),不另算一遍。
+ * The status read at the moment of "copying diagnostic information". Only include what is needed for
+ * troubleshooting: version, model, status of each step of mobile phone operation, model interface type
+ * and address, and the results of recent runs; do not include Key, login, chat content, task target and
+ * screen content, nor IP, port and Wi-Fi name. Several items on the boot page are directly the input of
+ * the boot page itself, [setup] (same state machine calculation step), and are not counted again.
  */
 data class DiagnosticsSnapshot(
     val generatedAtMs: Long,
@@ -31,7 +33,7 @@ data class DiagnosticsSnapshot(
     val models: Models,
     val runs: List<Run>,
     val update: Update,
-    /** 语音转文字:选了什么、手机自带识别的情况;旧的调用处不给就不写这一段。 */
+    /** Speech to text: What is selected, the situation is recognized by the mobile phone; if the old call center does not give it, I will not write this paragraph. */
     val speech: Speech? = null,
 ) {
     data class App(val versionName: String, val build: String, val installer: String?, val language: String)
@@ -42,41 +44,42 @@ data class DiagnosticsSnapshot(
         val androidRelease: String,
         val sdk: Int,
         val abis: List<String>,
-        /** 沙箱(运行环境)的状态:不支持时写原因。 */
+        /** The status of the sandbox (running environment): Write the reason when it is not supported. */
         val sandbox: String,
     )
 
     data class Phone(
         val accessibility: AccessibilityState,
-        /** 系统设置里「无线调试」那一项;这一项读不到为 null。 */
+        /** The "Wireless Debugging" item in the system settings; this item cannot be read as null. */
         val wirelessDebuggingSetting: Boolean?,
         val connect: ConnectCandidates?,
-        /** 系统里已有的配对码通知频道(id 到重要程度);一个都没建为空。是否可用以 [SetupInputs.pairingChannel] 为准。 */
+        /** There are existing pairing code notification channels in the system (id to the most important level); none of them are empty. Whether it is available is subject to [SetupInputs.pairingChannel]. */
         val pairingChannels: Map<String, Int>,
         val attentionChannelImportance: Int?,
         val wifiConnected: Boolean?,
-        /** 最近一次配对或连接失败的原文(渲染时脱敏)。 */
+        /** Original text of the most recent pairing or connection failure (desensitized when rendered). */
         val lastError: String?,
         /**
-         * 另一份用户里的 App(分身、工作资料):内置助手对每份别的用户的判定(编号、标记、类型、资料组,不含名字)和能打开的另一份有几个;
-         * 助手没连着或问不到为 null。
+         * App in another user (available, work data): The built-in assistant determines each user's copy
+         * (number, tag, type, data group, excluding name) and how many other copies can be opened; null
+         * if the assistant is not connected or cannot be asked.
          */
         val appCopies: String? = null,
-        /** 配对钥匙在这个进程里的状况(没用过、读回、新建、读不出及原因);读不到为 null。 */
+        /** The status of the paired key in this process (unused, read back, new, unreadable and reasons); if not read, it is null. */
         val adbKey: String? = null,
-        /** 这个进程里最近一次任务结束时 Mina 屏上的 App 留下、关掉了几个(只有个数,不列包名);还没有过为 null。 */
+        /** At the end of the most recent task in this process, a few apps on Mina's screen were left or closed (only the number, not the package name); the remaining ones are null. */
         val appsAfterTask: String? = null,
     )
 
     data class Recovery(
         val consent: RecoveryConsent,
         val writeSecureSettings: Boolean,
-        /** 系统电池优化里 Mina 是不是不受限制;读不到为 null。 */
+        /** Is Mina unrestricted in system battery optimization? If not read, it is null. */
         val ignoringBatteryOptimizations: Boolean?,
         val lastRestore: String?,
-        /** 内置助手在 Mina 被杀后把它拉起来的记录(助手交接时报来);没有为 null。 */
+        /** Record of the built-in assistant pulling Mina up after it was killed (the assistant handover timer comes); not null. */
         val helperRestores: HelperRestoreReport? = null,
-        /** 上一次 Mina 启动时发现无障碍服务被拿掉或没绑定;没有为 null。 */
+        /** The last time Mina was started, it was found that the accessibility service was removed or not bound; if not, it is null. */
         val lastA11yLoss: A11yLossRecord? = null,
     )
 
@@ -86,25 +89,27 @@ data class DiagnosticsSnapshot(
         val vision: RoleModel?,
         val light: RoleModel?,
         val chatGptSignedIn: Boolean,
-        /** 这次运行以来最近一次用 ChatGPT 登录失败(说明已脱敏);没有为 null。 */
+        /** The most recent login using ChatGPT failed since this run (indicating that it has been desensitized); if not, it is null. */
         val chatGptLastFailure: ChatGptSignInFailureRecord? = null,
-        /** 账号登录(xAI)最近一次登录失败;没有为 null。 */
+        /** Account login (xAI) The latest login failed; if not, it is null. */
         val accountLastFailure: ChatGptSignInFailureRecord? = null,
     )
 
-    /** 一个服务商:接口类型、地址(只取主机名)、列过几个模型(没列过为 null)。 */
+    /** A service provider: interface type, address (only the host name is taken), several models listed (null if not listed). */
     data class Provider(val kind: String, val baseUrl: String, val listedModels: Int?)
 
     data class RoleModel(val model: String, val baseUrl: String)
 
-    /** 一次运行:开始时间、结局、失败的类别(不是原话)、走了几步、用的模型。 */
+    /** A run: start time, ending, failure category (not the original words), steps taken, model used. */
     data class Run(val startedAtMs: Long, val outcome: String, val failKind: String?, val judged: String?, val steps: Int, val model: String?)
 
     data class Update(val status: String, val latest: String?, val available: String?)
 
     /**
-     * [choice] 是用户的选择(auto、system、off,或服务商模型「模型 @ 地址」);[systemAvailable]、[onDevice] 是系统说的能力,
-     * [silent] 是记成了不响应;[remembered] 是点名试通过的识别服务;[services] 是手机上登记的识别服务,每个一行。
+     * [choice] is the user's choice (auto, system, off, or service provider model "model @ address");
+     * [systemAvailable] and [onDevice] are the capabilities of the system, [silent] is recorded as not
+     * responding; [remembered] is the identification service that passed the roll call test; [services]
+     * is the identification service registered on the mobile phone, one line for each.
      */
     data class Speech(
         val choice: String,
@@ -116,7 +121,7 @@ data class DiagnosticsSnapshot(
     )
 }
 
-/** 把 [DiagnosticsSnapshot] 写成一段纯文本:分段顺序固定,英文键,发到微信或 GitHub 都好读。最后整段再过一遍脱敏。 */
+/** Write [DiagnosticsSnapshot] as a piece of plain text: the segment order is fixed, and the English key is used. It can be easily read when sent to WeChat or GitHub. Finally, go through the entire section again for desensitization. */
 object Diagnostics {
     const val HEADER = "Harness Agent diagnostics"
 
@@ -271,14 +276,14 @@ object Diagnostics {
 
     private fun role(r: DiagnosticsSnapshot.RoleModel) = "${r.model} @ ${host(r.baseUrl)}"
 
-    /** 地址只留主机名(路径、查询里可能有别的东西);解析不了就不写。 */
+    /** Only the host name is left in the address (there may be other things in the path and query); if it cannot be parsed, it will not be written. */
     fun host(url: String): String = runCatching { URI(url.trim()).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: "(unparsed host)"
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
     private fun yes(b: Boolean) = if (b) "yes" else "no"
 
-    /** 通知频道的重要程度,按系统的取值:0 关、1 最低、2 低、3 默认、4 高。 */
+    /** The importance of the notification channel, according to the system's values: 0 off, 1 lowest, 2 low, 3 default, 4 high. */
     private fun importance(i: Int?) = when (i) {
         null -> "not created"
         0 -> "off"
@@ -302,13 +307,13 @@ object Diagnostics {
     private const val MAX_ERROR = 200
 
     private val IP = Regex("""\b\d{1,3}(\.\d{1,3}){3}\b(:\d{1,5})?""")
-    /** 完整写法(至少五段)或带「::」的缩写;时间里的 12:30:05 不算。 */
+    /** Written in full (at least five paragraphs) or abbreviated with "::"; 12:30:05 in the time does not count. */
     private val IPV6 = Regex("""\[?(?:\b(?:[0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}\b|[0-9A-Fa-f]{0,4}::[0-9A-Fa-f:]*[0-9A-Fa-f])(?:%\w+)?\]?(:\d{1,5})?""")
     private val PORT = Regex("""(?i)\bport\s*[=:]?\s*\d{2,5}\b""")
     private val EMAIL = Regex("""[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}""")
     private val SECRET_PAIR = Regex("""(?i)\b(api[_-]?key|key|token|secret|password|passwd|authorization|cookie)\b(\s*[=:]\s*)\S+""")
 
-    /** 最后一遍:IP(带端口)、IPv6、端口号、邮箱、像凭据的「名=值」,再交给 [Redactor](Key、JWT、又长又杂的串)。 */
+    /** The last pass: IP (with port), IPv6, port number, email, "name=value" like credentials, and then give it to [Redactor] (Key, JWT, long and complex string). */
     fun sanitize(text: String): String {
         var out = IP.replace(text, "<ip>")
         out = IPV6.replace(out, "<ip>")

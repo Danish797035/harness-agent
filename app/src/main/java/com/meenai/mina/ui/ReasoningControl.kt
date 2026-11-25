@@ -26,7 +26,7 @@ import com.meenai.mina.settings.RoleChoice
 import com.meenai.mina.ui.components.FooterNote
 import com.meenai.mina.ui.components.SelectChip
 
-/** 每个用途自己的档位;跟随主模型时说明继承,显式选同一个模型仍能独立设置。 */
+/** Each purpose has its own gear; inheritance is explained when following the main model, and the same model can still be set independently if you explicitly select the same model. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ReasoningControl(ui: ModelSetupUi, role: ModelRole, onSelect: (String?) -> Unit) {

@@ -4,8 +4,10 @@ import kotlin.math.ln
 import kotlin.math.max
 
 /**
- * 本机词法切词:汉字取相邻两字(单个汉字成词时保留单字),英文和数字按单词、小写。
- * [withUnigrams] 另外给出每个汉字的单字(查询用,让「辣」这类单字检索词能对上)。
+ * The machine's lexical segmentation: Chinese characters are divided into two adjacent characters (when
+ * a single Chinese character is formed into a word, a single character is retained), and English and
+ * numbers are divided into words and lowercase. [withUnigrams] also gives the single word of each
+ * Chinese character (for query, so that single-word search terms such as "spicy" can be matched).
  */
 object Tokenize {
     private val WORD = Regex("[A-Za-z0-9]+")
@@ -41,24 +43,27 @@ object Tokenize {
 }
 
 /**
- * content + keywords 建倒排,BM25 打分(k1=1.2,b=0.75;检索词 tf 计两倍)。
- * 记忆条数少时 IDF 按至少 [MIN_CORPUS] 条平滑,否则一两条记忆时什么都过不了阈值。
- * 只返回「相关」的条目:检索词对上了,或至少两个不同的查询词(两字/单词)命中,
- * 或唯一命中的词只有这一条有、且是它的检索词。
- * 单字只参与打分,不算进这三条判断。
+ * Content + keywords are built in inversion, and BM25 is scored (k1=1.2, b=0.75; the search term tf
+ * counts twice). When the number of memory items is small, the IDF should be smoothed by at least
+ * [MIN_CORPUS] items, otherwise nothing will pass the threshold when one or two items are memorized.
+ * Only "relevant" entries are returned: the search terms match, or at least two different query terms
+ * (two characters/words) are hit, or the only hit term is only this one and is its search term. Single
+ * words only participate in scoring and do not count in these three judgments.
  */
 class MemoryIndex(private val items: List<MemoryItem>) {
     private val docs: List<Map<String, Int>> = items.map { item ->
         val counts = HashMap<String, Int>()
         Tokenize.terms(item.content).forEach { counts.merge(it, 1, Int::plus) }
-        // 单字检索词(「辣」)本身就切成单字;多字检索词不另拆单字,免得单字噪声盖过两字命中
+        // Single-word search terms ("spicy") are themselves broken into single words; multi-word search
+        // terms are not separated into single words to prevent single-word noise from overshadowing
+        // two-word hits.
         item.keywords.flatMap { Tokenize.terms(it) }.forEach { counts.merge(it, KEYWORD_TF, Int::plus) }
         counts
     }
     private val lengths = docs.map { d -> d.values.sum() }
     private val keywordTerms: List<Set<String>> = items.map { it.keywords.flatMap { k -> Tokenize.terms(k.lowercase()) }.toSet() }
 
-    /** 按分数从高到低。 */
+    /** Sort by score from high to low. */
     fun search(query: String, limit: Int, includePending: Boolean = false): List<Pair<MemoryItem, Double>> {
         val eligible = items.indices.filter { includePending || items[it].status == MemoryStatus.active }
         if (eligible.isEmpty() || limit <= 0) return emptyList()
@@ -81,7 +86,8 @@ class MemoryIndex(private val items: List<MemoryItem>) {
                 val kt = Tokenize.terms(k)
                 q.contains(k) || (kt.isNotEmpty() && kt.all { it in termSet })
             }
-            // 只撞上一个词:这个词要只此一条有,而且是这条的检索词(「以后」这类常用词撞上不算)
+            // Only hit one word: This word must only exist in this article and be the search term of
+            // this article (common words such as "later" will not be counted)
             val relevant = keywordHit || multi.size >= 2 ||
                 (multi.size == 1 && df.getValue(multi.single()) == 1 && multi.single() in keywordTerms[i])
             if (!relevant) return@mapNotNull null
@@ -99,7 +105,8 @@ class MemoryIndex(private val items: List<MemoryItem>) {
         const val B = 0.75
         const val KEYWORD_TF = 2
         const val MIN_CORPUS = 50
-        // 只作用于查询词:口头的虚词两字组合,几乎每句话都有,不能单凭它们算相关
+        // Only applies to query words: verbal function word combinations, which are found in almost
+        // every sentence. They cannot be considered relevant alone.
         val STOP_TERMS = setOf(
             "帮我", "给我", "一下", "我的", "不要", "这个", "那个", "可以", "一个", "用户",
             "今天", "这次", "现在", "什么", "怎么", "我们", "一些", "看看",

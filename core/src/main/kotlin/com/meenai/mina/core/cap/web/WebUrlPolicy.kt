@@ -5,17 +5,17 @@ import java.net.URI
 import java.net.URLDecoder
 import com.meenai.mina.core.net.UrlHost
 
-/** 页面想跳去 App 的链接;[packageName] 能从链接里解析出来、且是合法包名时才有。 */
+/** The page wants to jump to the link of the App; [packageName] is only available if it can be parsed from the link and is a legal package name. */
 data class ExternalLink(val url: String, val packageName: String?)
 
-/** 网址规则:能打开什么、哪些是跳 App 的链接、两个地址是否同一站点。 */
+/** URL rules: what can be opened, which are links to jump to the app, and whether the two addresses are the same site. */
 object WebUrlPolicy {
-    /** 浏览器自身协议:既不能导航,也不是跳 App。 */
+    /** Browser's own protocol: neither navigation nor app jumping. */
     private val BROWSER_SCHEMES = setOf("http", "https", "file", "content", "javascript", "data", "about", "blob")
 
     private val SCHEME_RE = Regex("^[A-Za-z][A-Za-z0-9+.-]*$")
 
-    /** 应用商店的网页地址(主机, 路径前缀):打开它们的用意是装或开 App。 */
+    /** The web address of the app store (host, path prefix): the purpose of opening them is to install or open apps. */
     private val STORE_PAGES = listOf(
         "play.google.com" to "/store/apps",
         "market.android.com" to "/details",
@@ -23,7 +23,7 @@ object WebUrlPolicy {
         "itunes.apple.com" to "/",
     )
 
-    /** null = 可以打开;否则是给模型的 invalid_arguments 说明。 */
+    /** null = can be opened; otherwise it is an invalid_arguments description given to the model. */
     fun checkNavigable(url: String): String? {
         val u = url.trim()
         if (u.isEmpty()) return "the URL is empty"
@@ -34,7 +34,7 @@ object WebUrlPolicy {
         return null
     }
 
-    /** intent:、自定义协议、应用商店链接(含商店网页) → 跳 App 的链接;普通网页与浏览器自身协议为 null。 */
+    /** intent:, custom protocol, app store link (including store web page) → link to jump to App; the protocol between ordinary web pages and the browser itself is null. */
     fun external(url: String): ExternalLink? {
         val u = url.trim()
         val scheme = scheme(u) ?: return null
@@ -55,16 +55,16 @@ object WebUrlPolicy {
         return if (scheme in BROWSER_SCHEMES) null else ExternalLink(u, null)
     }
 
-    /** 小写 ASCII 域名(国际化域名转成 xn-- 形式),去掉端口和开头的 www.;解析不出为 null。 */
+    /** Lowercase ASCII domain name (internationalized domain name converted to xn-- form), remove the port and the www. at the beginning; if not parsed, it will be null. */
     fun host(url: String): String? = UrlHost.of(url)
 
-    /** 两个地址是否同一站点,见 [UrlHost.sameSite]。 */
+    /** Whether the two addresses are on the same site, see [UrlHost.sameSite]. */
     fun sameSite(a: String, b: String): Boolean = UrlHost.sameSite(a, b)
 
-    /** 可注册域名,见 [UrlHost.registrable]。 */
+    /** Registerable domain name, see [UrlHost.registrable]. */
     fun registrable(host: String): String? = UrlHost.registrable(host)
 
-    /** 同源:协议、主机名、端口都相同(缺省端口按协议补齐)。 */
+    /** Same source: the protocol, host name, and port are all the same (the default port is completed according to the protocol). */
     fun sameOrigin(a: String, b: String): Boolean {
         val oa = origin(a) ?: return false
         return oa == origin(b)
@@ -86,7 +86,7 @@ object WebUrlPolicy {
         return p.takeIf(PACKAGE_NAME_RE::matches)
     }
 
-    /** 协议名(小写);「example.com:8080」「localhost:3000」这类没写协议的不算。 */
+    /** Protocol names (lowercase); "example.com:8080" and "localhost:3000" that do not include protocols are not counted. */
     private fun scheme(url: String): String? {
         val i = url.indexOf(':')
         if (i <= 0) return null

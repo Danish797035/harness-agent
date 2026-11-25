@@ -3,7 +3,7 @@ package com.meenai.mina.core.prompt
 import com.meenai.mina.core.model.ToolSpec
 import java.security.MessageDigest
 
-/** 本任务提示词的版本:系统提示词加工具定义的摘要,写进运行记录;对比评测时据此区分提示词版本。 */
+/** The version of the prompt word for this task: the system prompt word plus a summary of the tool definition are written into the running record; this can be used to distinguish the prompt word version during comparison and evaluation. */
 object PromptVersion {
     fun of(system: String, tools: List<ToolSpec>): String {
         val text = system + tools.joinToString("") { "\n\n" + it.name + "\n" + it.description + "\n" + it.parametersJsonSchema }

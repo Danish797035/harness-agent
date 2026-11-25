@@ -21,25 +21,30 @@ import kotlin.math.hypot
 import com.meenai.mina.core.tool.Verb
 
 sealed interface ReplayOutcome {
-    /** 走完(或核对通过)的步数。 */
+    /** The number of steps completed (or checked). */
     val done: Int
 
     data class Completed(override val done: Int) : ReplayOutcome
     /**
-     * [executed]:第 done+1 步真的执行了(界面可能已经动过);执行前就被拒的(参数、链接、编号过期、App 被占等)为 false。
-     * [error] 是那一步工具结果的错误码,交还时一并告诉模型。
+     * [executed]: Step done+1 is really executed (the interface may have been moved); those that were
+     * rejected before execution (parameters, links, expired numbers, App occupied, etc.) are false.
+     * [error] is the error code of the tool result at that step, which will be told to the model when it
+     * is returned.
      */
     data class Diverged(
         override val done: Int, val expected: String, val seen: String, val executed: Boolean = false, val error: String? = null,
     ) : ReplayOutcome
-    /** 下一步是不可逆操作(或判不清),停在它之前交还模型走正常确认流程。 */
+    /** The next step is an irreversible operation (or it is unclear), stop before it and return the model to go through the normal confirmation process. */
     data class StoppedForConfirmation(override val done: Int) : ReplayOutcome
 }
 
 /**
- * 不调模型地照路线一步步做。每步:锁屏关卡 → 读屏 → 轻量核对(前台包名、动作前锚点、选择器唯一命中)→
- * 经 [ActionExecutor] 执行(守卫一有提示就停;不可逆或判不清都停,回放从不认为用户已同意)→ 核对动作后的变化。
- * 任何一处对不上就停,交还模型。输入的字只来自路线里的固定文字和本次原话里的槽值。
+ * Follow the route step by step without adjusting the model. Each step: Lock screen level → Read screen
+ * → Light verification (front package name, anchor point before action, unique hit of selector) →
+ * Executed by [ActionExecutor] (stop as soon as the guard prompts; stop if it is irreversible or
+ * unclear, playback never considers the user to have agreed) → Check the changes after the action. If
+ * any part does not match, stop and return the model. The words entered only come from the fixed text in
+ * the route and the slot value in the original story.
  */
 class Replayer(
     private val tools: ToolDispatcher,
@@ -62,7 +67,9 @@ class Replayer(
                 return ReplayOutcome.Diverged(i, describe(step, choice.slots) + " ($why)", seen, executed, error)
             }
             val verb = tools.index[step.tool]?.takeIf { it.routable }?.verb ?: return diverged("not a replayable action", "")
-            // 锁屏、被拿走时先等;等完再读屏,核对和执行都按等完之后的一屏(执行入口不再等第二次)
+            // Wait first when the screen is locked or taken away; read the screen after waiting, check
+            // and execute on the screen after waiting (no need to wait for the second time for execution
+            // entry)
             gate()
             val snap = read() ?: return diverged("the screen could not be read", "")
             if (snap.protected) return diverged("the page is protected", PROTECTED_SEEN)
@@ -77,7 +84,8 @@ class Replayer(
                 find(snap, sel, choice.slots) ?: return diverged("the target element is not unique or not found", seen)
             }
             if (verb == Verb.Tap && target == null) return diverged("the tap has no target to check", seen)
-            // 链接只开参考资料里此刻还在的:资料改过,路线里记着的链接就不再放行
+            // Only the links that are still in the reference materials will be opened: if the
+            // information is changed, the links recorded in the route will no longer be released.
             if (verb == Verb.OpenLink) {
                 fun arg(k: String) = (args[k] as? JsonPrimitive)?.contentOrNull
                 if (!tools.linkAllowed(arg("action"), arg("uri"), arg("package"))) return diverged("the link is no longer in the reference material", seen)
@@ -100,7 +108,8 @@ class Replayer(
                 is ActionOutcome.Cancelled -> return diverged("cancelled", seen)
             }
             val exec = out.exec
-            // 动作后只读一屏:路线锚点和「有没有出现预期文字」都用它
+            // Only one screen is read after the action: it is used for route anchor points and "whether
+            // the expected text appears"
             val fresh = out.seen ?: tools.interfaces.peek()
             val effective = effectiveWrite(verb, exec.content)
             val now = fresh?.let { if (it.protected) PROTECTED_SEEN else summary(it) } ?: seen
@@ -119,7 +128,7 @@ class Replayer(
     }
 
     private suspend fun read(): ScreenSnapshot? = try {
-        // 读路线此刻所在的那块屏(最近一步动作的那块)
+        // Read the screen where the route is at the moment (the screen with the most recent action)
         val dump = tools.index.nameOf(Verb.ListElements, tools.surface)!!
         val r = tools.executeRead(Part.ToolCall("replay-read-${++seq}", dump, "{}"), 0)
         (r.content["snapshotId"] as? JsonPrimitive)?.contentOrNull?.let { tools.interfaces.snapshotFor(tools.declared(dump), JsonObject(mapOf("snapshotId" to JsonPrimitive(it)))) }
@@ -129,7 +138,7 @@ class Replayer(
         null
     }
 
-    /** 去掉编号;每个字符串参数里的 `{n}` 都换成槽值。槽号超出范围、或非字符串参数里带着槽,为 null。 */
+    /** Remove the number; `{n}` in each string parameter is replaced with the slot value. The slot number is out of range, or the non-string parameter contains a slot, so it is null. */
     private fun build(step: RouteStep, slots: List<String>): JsonObject? {
         val o = try { Json.parseToJsonElement(step.argsJson) as? JsonObject } catch (e: Exception) { null } ?: return null
         val out = mutableMapOf<String, JsonElement>()
@@ -145,9 +154,12 @@ class Replayer(
     }
 
     /**
-     * 在当前屏里按选择器找唯一的目标。名字为空不比名字;`{n}` 先换成槽值。
-     * 记录时唯一、现在却不止一个:页面已不是那时的样子(如列表里多了同名条目),不认。
-     * 记录时就不唯一:取同序号的那个,且只有它离记录时的位置不超过屏宽 15% 才认。
+     * Press the selector to find the only target in the current screen. If the name is empty, it will
+     * not be replaced by the name; `{n}` will be replaced with the slot value first. There was only one
+     * at the time of recording, but now there are more than one: the page is no longer what it was then
+     * (for example, there are more entries with the same name in the list), so it is not recognized. It
+     * is not unique during recording: the one with the same serial number will be recognized only if its
+     * position from the time of recording does not exceed 15% of the screen width.
      */
     private fun find(s: ScreenSnapshot, sel: Selector, slots: List<String>): UiElement? {
         val name = fill(sel.name, slots) ?: return null
@@ -170,26 +182,26 @@ class Replayer(
     }
 
     companion object {
-        /** 这些错误在动作执行之前就拒了,界面没被动过。 */
+        /** These errors are rejected before the action is executed and the interface is untouched. */
         private val NOT_EXECUTED = setOf(
             "invalid_arguments", "unknown_tool", "invalid_link", "link_unresolved", "ref_expired", "app_in_use_by_other_task",
             "app_wait_would_deadlock", "app_wait_timed_out",
             "app_in_use_by_user", "app_not_found", "no_app_open", "confirmation_required", "batch_stopped",
         )
 
-        /** 屏宽 15%(0–999 坐标)。 */
+        /** Screen width 15% (0–999 coordinates). */
         private const val NEAR = 150.0
         private const val PROTECTED_SEEN = "a protected page"
         private val SLOT = Regex("\\{(\\d+)\\}")
 
-        /** 把 `{n}` 换成第 n 个槽值;槽号不存在为 null。 */
+        /** Replace `{n}` with the nth slot value; if the slot number does not exist, it is null. */
         internal fun fill(s: String, slots: List<String>): String? {
             var bad = false
             val out = SLOT.replace(s) { m -> slots.getOrNull(m.groupValues[1].toInt() - 1) ?: run { bad = true; "" } }
             return out.takeUnless { bad }
         }
 
-        /** 给模型看的一步说明。 */
+        /** Step-by-step instructions for viewing the model. */
         fun describe(step: RouteStep, slots: List<String>): String {
             val o = try { Json.parseToJsonElement(step.argsJson) as? JsonObject } catch (e: Exception) { null }
             val what = listOfNotNull(

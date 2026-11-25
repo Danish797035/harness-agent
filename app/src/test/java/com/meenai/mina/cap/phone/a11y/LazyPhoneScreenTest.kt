@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Proxy
 
-/** 没有内置助手/无障碍时:不用手机的步骤照常,用到手机才报 phone_unavailable(带怎么弄好),之后还能再试。 */
+/** When there is no built-in assistant/barrier-free: The steps for not using a mobile phone are as usual. Phone_unavailable will be reported only after using the mobile phone (how to fix it), and you can try again later. */
 class LazyPhoneScreenTest {
     private var attempts = 0
     private var available = false

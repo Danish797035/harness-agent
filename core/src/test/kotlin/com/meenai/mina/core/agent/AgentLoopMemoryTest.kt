@@ -50,7 +50,9 @@ class AgentLoopMemoryTest {
         val msgs = model.requests.first().withoutRuntime().map { it.text() }
         assertTrue(msgs[0].startsWith(Conversation.HEADER))
         assertTrue(msgs[1].startsWith("Memories about the user"))
-        // 记忆总量装得下就全量注入:与本次任务词面无关的「公司在张江」也在(以前会被 BM25 检索丢掉)
+        // Inject as much memory as you can fit: "The company is in Zhangjiang" that has nothing to do
+        // with the word of this task is also there (it would have been discarded by BM25 retrieval in
+        // the past)
         assertTrue(msgs[1].contains("用户点外卖不要香菜"))
         assertTrue(msgs[1].contains("张江"))
         assertEquals("帮我点个外卖", msgs[2])
@@ -79,7 +81,9 @@ class AgentLoopMemoryTest {
         assertEquals(listOf(ids), events.filterIsInstance<RunEvent.MemoryUsed>().map { it.ids })
     }
 
-    // 浏览器页上问:页面说明里的标题、网址、选中的字是网页上的,不算用户说的话;记忆的引文出自它们时不收
+    // Question on the browser page: The title, URL, and selected words in the page description are from
+    // the web page and are not counted as words spoken by the user; memorized quotes are not included
+    // when they come from them.
     @Test fun pageDescriptionIsNotTheUserWords() {
         val s = store()
         val said = UserUtterances()
@@ -97,17 +101,20 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("这一页的地址对不对"), said.all)
     }
 
-    // 浏览器页上插话带着新选中的字:只收插话里打的字,页面说明不收
+    // The insert on the browser page contains the newly selected words: only the words typed in the
+    // insert will be accepted, not the page description.
     @Test fun pageSteerAddsOnlyTheTypedWords() = runBlocking {
         assertEquals(listOf("这一页的地址对不对", "改成这个"), saidWithPageSteer("改成这个"))
     }
 
-    // 插话只选了字、没打字:这一句什么也不收
+    // I just selected words and didn’t type anything when I interrupted: nothing is included in this
+    // sentence.
     @Test fun selectionOnlySteerAddsNothing() = runBlocking {
         assertEquals(listOf("这一页的地址对不对"), saidWithPageSteer(""))
     }
 
-    // 浏览器页上回答追问也一样:回答带着页面说明和选中的字时只收打的字
+    // The same goes for answering follow-up questions on the browser page: when answering with page
+    // description and selected words, only the typed words will be included.
     @Test fun pageAnswerAddsOnlyTheTypedWords() = runBlocking {
         val s = store()
         val said = UserUtterances()
@@ -121,7 +128,7 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("这一页的地址对不对", "就这个"), said.all)
     }
 
-    /** 在浏览器页上开局,插话带着新选中的字和 [words];返回这次记下的用户的话。 */
+    /** Start on the browser page, insert the words with the newly selected word and [words]; return the user's words recorded this time. */
     private suspend fun saidWithPageSteer(words: String): List<String> {
         val s = store()
         val said = UserUtterances()
@@ -132,7 +139,8 @@ class AgentLoopMemoryTest {
         return said.all
     }
 
-    // 引了 Mina 的回答:引的那段是 Mina 说的,记忆的引文不认,只收用户打的字
+    // Quoted Mina's answer: The quoted paragraph was said by Mina. The memorized quotation will not be
+    // recognized. Only the words typed by the user will be accepted.
     @Test fun quotedReplyIsNotTheUserWords() {
         val s = store()
         val said = UserUtterances()
@@ -149,7 +157,8 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("这个地址对不对"), said.all)
     }
 
-    // 引了自己说过的话:对话页引的是他当时打的字,连那段一起收,记忆的引文照样认
+    // Quoting what he said: The dialogue page quotes are what he typed at the time. Even that paragraph
+    // is included, and the memorized quotation is still recognized.
     @Test fun ownQuoteIsTheUserWords() {
         val s = store()
         val said = UserUtterances()
@@ -163,7 +172,8 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("我家猫叫团子\n这个记一下"), said.all)
     }
 
-    // 带了附件:附件那几行是 App 写的路径和大小,不收
+    // Attachment is attached: The lines in the attachment are the path and size written by the App and
+    // will not be collected.
     @Test fun attachmentLinesAreNotTheUserWords() {
         val s = store()
         val said = UserUtterances()
@@ -174,7 +184,8 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("总结一下"), said.all)
     }
 
-    // 插话引了 Mina 的回答:只收插话里打的字
+    // The interjection prompted Mina's answer: Only the words typed in the interjection will be
+    // accepted.
     @Test fun quotedSteerAddsOnlyTheTypedWords() = runBlocking {
         val s = store()
         val said = UserUtterances()
@@ -184,7 +195,8 @@ class AgentLoopMemoryTest {
         assertEquals(listOf("帮我下单", "换成这个"), said.all)
     }
 
-    // 回答追问时引了 Mina 的回答:也只收打的字
+    // When answering a follow-up question, Mina was quoted as saying: Only typed words will be
+    // collected.
     @Test fun quotedAnswerAddsOnlyTheTypedWords() = runBlocking {
         val s = store()
         val said = UserUtterances()
@@ -208,7 +220,7 @@ class AgentLoopMemoryTest {
     }
 
     private companion object {
-        /** 用户引的 Mina 之前的一句回答。 */
+        /** The user quoted Mina's previous answer. */
         const val MINA_ADDRESS = "你常用的收货地址是幸福路 8 号"
     }
 }

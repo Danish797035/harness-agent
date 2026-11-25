@@ -19,7 +19,7 @@ import kotlinx.serialization.json.put
 import java.io.File
 import java.io.FileOutputStream
 
-/** 送达账本持久化；Attempting 在进程重启后是结果不明，不能自动重发。 */
+/** The delivery ledger is persisted; the result of Attempting is unknown after the process is restarted and cannot be automatically resent. */
 class FileOutboxStore(private val file: File) : OutboxStore {
     private val records = linkedMapOf<String, DeliveryRecord>()
 

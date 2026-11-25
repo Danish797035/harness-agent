@@ -37,8 +37,10 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * 技能相关的两块内容。[pending] 为假是「技能」段:已收下的个人技能(开关即启用/停用)和在用的 App 知识;
- * 为真是「待确认」段里的部分:新技能草稿(看全文、改一改再收下、收下、不要)和 App 知识草稿。
+ * Two pieces of content related to skills. If [pending] is false, it is the "Skills" section: accepted
+ * personal skills (switch to enable/disable) and App knowledge in use; if it is True, it is the part in
+ * the "To be confirmed" section: new skill draft (read the full text, change it before accepting,
+ * accept, don't) and App knowledge draft.
  */
 @Composable
 internal fun SkillsSection(vm: MemoryViewModel, ui: SkillsUi, pending: Boolean) {
@@ -120,7 +122,7 @@ internal fun SkillsSection(vm: MemoryViewModel, ui: SkillsUi, pending: Boolean) 
     }
 }
 
-/** 一条 App 知识:点开看全文;草稿可收下试用,没核实的可归档;被试用中的修订暂时顶替的那份只看不动。 */
+/** A piece of App knowledge: Click to see the full text; drafts can be accepted for trial use, and unverified ones can be archived; the copy temporarily replaced by the revision in trial cannot be viewed. */
 @Composable
 private fun AppKnowledgeItem(vm: MemoryViewModel, row: AppKnowledgeRow, first: Boolean, expanded: Boolean, onToggle: () -> Unit) {
     val stage = if (row.replaced) tr(R.string.skills_app_replaced) else when (row.stage) {
@@ -140,11 +142,11 @@ private fun AppKnowledgeItem(vm: MemoryViewModel, row: AppKnowledgeRow, first: B
     }
 }
 
-/** 技能行下面:更新草稿改了哪几行,展开时再加全文。 */
+/** Below the skill line: update which lines have been changed in the draft, and add the full text when expanded. */
 @Composable
 private fun SkillBody(r: SkillRow, expanded: Boolean) = ChangesAndText(r.changedLines, r.markdown, expanded)
 
-/** 一行下面:这份草稿改了哪几行([changed]),展开时再加全文。 */
+/** Below the line: Which lines have been changed in this draft ([changed]), and add the full text when expanded. */
 @Composable
 private fun ChangesAndText(changed: List<String>, markdown: String, expanded: Boolean) {
     val c = MinaTheme.colors

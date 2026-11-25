@@ -28,7 +28,7 @@ class UserScreenTest {
         val text = "看看这张图\n附件:/workspace/inbox/a.jpg(12 KB)"
         assertFalse(UserScreenMessage.has(text))
         assertEquals(text, UserScreenMessage.parse(text).words)
-        // 句子中间写着这几个字不算
+        // These words written in the middle of the sentence do not count
         assertFalse(UserScreenMessage.has("我打了 [[screen:s1]] 这几个字"))
     }
 
@@ -60,7 +60,7 @@ class UserScreenTest {
         assertNull(UserScreenJson.decode("not json"))
     }
 
-    /** 和读屏端口给的一样:中心是像素(按 1080×2400),bounds 已归一到 0–999;[x]/[y]/[w]/[h] 都按 0–999 给。 */
+    /** It is the same as what is given by the screen reading port: the center is a pixel (based on 1080×2400), and the bounds has been normalized to 0–999; [x]/[y]/[w]/[h] are all given as 0–999. */
     private fun el(name: String, x: Int, y: Int, secret: Boolean = false, w: Int = 100, h: Int = 20) =
         UiElement("r", "TextView", name, Math.round(x * 1079 / 999.0).toInt(), Math.round(y * 2399 / 999.0).toInt(),
             listOf(x - w / 2, y - h / 2, x + w / 2, y + h / 2), null, false, false, false, secret = secret)
@@ -73,7 +73,7 @@ class UserScreenTest {
         )
         val (lines, fromOcr) = UserScreenText.lines(snap, ocr, top = 30, bottom = 960)
         assertEquals(listOf("左边的话", "右边的话", "图片里的字"), lines.map { it.text })
-        // 交给模型的中心点是 0–999,不是像素
+        // The center point given to the model is 0–999, not pixels
         assertEquals(200, lines[0].x)
         assertEquals(302, lines[0].y)
         assertTrue(fromOcr)
@@ -83,7 +83,9 @@ class UserScreenTest {
     }
 
     @Test fun rowThatOnlyJoinsItsChildrenIsLeftOut() {
-        // 一行设置项:整行的名字是里面两段字连起来,只留里面那两段(各有各的位置);整行名字里有自己的字时照留
+        // A row of setting items: the name of the whole row is the two paragraphs inside connected
+        // together, leaving only the two paragraphs inside (each has its own position); if the name of
+        // the whole row has its own characters, it is still retained
         val snap = ScreenSnapshot("u", "com.example.settings", listOf(
             el("WLAN 家里的网络", 500, 400, w = 900, h = 60), el("WLAN", 250, 400), el("家里的网络", 800, 400),
             el("移动网络", 500, 500, w = 900, h = 60), el("移动网络", 280, 500),

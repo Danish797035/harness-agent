@@ -46,7 +46,7 @@ class GeminiUsageParserTest {
 
     @Test
     fun readsRelayArrayResponseFromTheWeb() {
-        // 网页的回复带防 XSSI 前缀,并且是数组
+        // The web page's reply has an anti-XSSI prefix and is an array.
         val relay = ")]}'\n[$body]"
         val usage = GeminiUsageParser.parse(relay)!!
         assertEquals(0, usage.daily?.percentUsed)

@@ -6,16 +6,20 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** OCR 只补无障碍树没有的可见文字，不把图上的字误认为可点击控件。 */
+/** OCR only compensates for visible text that is not available in the accessibility tree, and does not mistake the text on the image for clickable controls. */
 internal object VisibleText {
-    /** ML Kit 给了置信度、又低于这个值的行不要;没给的照留。 */
+    /** Rows that ML Kit has given a confidence level but are lower than this value will be discarded; rows that are not given a confidence level will be retained. */
     private const val MIN_CONFIDENCE = 0.4f
-    /** 以中文为主的屏上,不含中文、字母数字不超过这么多个的零碎串才可能是认错的。 */
+    /** On a screen that is mainly in Chinese, only fragmentary strings that do not contain Chinese characters and do not exceed this number of letters and numbers are likely to be mistaken. */
     private const val FRAGMENT = 4
 
     /**
-     * 去掉认错的行:置信度低的;一个字母或数字也没有的;符号比字还多的;以中文为主的屏上不含中文的零碎串
-     * (单个字母,或 [FRAGMENT] 个以内、字母和数字或符号混在一起的,多半是头像、图标被认成了字)。纯数字(时间、数量)和完整的短词照留。
+     * Remove the misidentified lines: those with low confidence; those that do not contain a single
+     * letter or number; those that have more symbols than words; and fragmentary strings that do not
+     * contain Chinese characters on screens that are mainly Chinese (a single letter, or within
+     * [FRAGMENT], letters and numbers or symbols mixed together, most of which are avatars and icons
+     * that are recognized as words). Pure numbers (time, quantity) and complete short words are
+     * retained.
      */
     fun legible(lines: List<VisibleTextLine>): List<VisibleTextLine> {
         val letters = lines.flatMap { line -> line.text.filter(Char::isLetter).toList() }
@@ -67,7 +71,8 @@ internal object VisibleText {
         for (line in lines) add(buildJsonObject {
             put("text", line.text)
             put("bounds", JsonArray(line.bounds.map(::JsonPrimitive)))
-            // 和 tap 的 x/y 同一套 0–999 坐标,模型不用自己换算
+            // The same set of 0-999 coordinates as tap's x/y, the model does not need to be converted by
+            // itself.
             put("center", JsonArray(listOf(JsonPrimitive((line.bounds[0] + line.bounds[2]) / 2), JsonPrimitive((line.bounds[1] + line.bounds[3]) / 2))))
             put("source", "ocr")
         })
@@ -77,7 +82,7 @@ internal object VisibleText {
 
     private fun same(a: String, b: String) = a == b || a.length >= 3 && b.contains(a) || b.length >= 3 && a.contains(b)
 
-    /** 交集占 OCR 行本身面积的比例；大容器节点不会靠面积相等掩盖行文字。 */
+    /** The intersection accounts for the proportion of the area of the OCR line itself; large container nodes will not obscure line text by equal areas. */
     private fun overlap(a: List<Int>, b: List<Int>): Double {
         if (b.size != 4) return 0.0
         val width = (minOf(a[2], b[2]) - maxOf(a[0], b[0])).coerceAtLeast(0)

@@ -8,11 +8,16 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * docs/readme/ 下的几份译文跟得上仓库首页的英文 README.md:
- *  - 每份译文开头有 `<!-- translated-from: README.md @ <指纹> -->`,指纹是翻译时 README.md 的 [fingerprint];
- *    README.md 改了而译文没跟着改,这里失败并列出哪几份过期了;
- *  - 译文和 README.md 的 `## ` 小节一样多,用到的本地图片一样(各自按所在目录解析成仓库里的路径再比);网上的徽章图各语言自己写,不比。
- * 生成段落只在 README.md 和简体中文 [ReadmeSections.README_ZH] 里,由 [ReadmeSectionsTest] 守着;其他译文不能有。
+ * Several translations under docs/readme/ can keep up with the English on the warehouse homepage
+ * README.md:
+ * - - Each translation begins with `<!-- translated-from: README.md @ <fingerprint> -->`, and the fingerprint is
+ * [fingerprint] from README.md at the time of translation; README.md has been changed but the
+ * translation has not been changed accordingly. This fails and lists the expired copies;
+ * - - The translations have the same number of sections as README.md and `## `, and the local images
+ * used are the same (each is parsed into the path in the warehouse according to the directory where it
+ * is located and then compared); the badge images on the Internet are written in each language, so there
+ * is no comparison. The generated paragraph is only in README.md and Simplified Chinese
+ * [ReadmeSections.README_ZH], guarded by [ReadmeSectionsTest]; other translations cannot have it.
  */
 class ReadmeTranslationsTest {
     private val root = File("..").canonicalFile
@@ -58,14 +63,14 @@ class ReadmeTranslationsTest {
     }
 
     companion object {
-        /** 译文都在 docs/ 下,core/build.gradle.kts 里测试的 docsDir 输入已经盖住;放到别处要另加输入。 */
+        /** The translations are all under docs/, and the docsDir input for testing in core/build.gradle.kts has been covered; if you put it elsewhere, you need to add additional input. */
         val TRANSLATIONS = listOfNotNull(
             ReadmeSections.README_ZH.takeIf { File(File("..").canonicalFile, it).exists() },
         )
         private val MARKER = Regex("""<!-- translated-from: README\.md @ ([0-9a-f]+) -->""")
         private val GENERATED = Regex("""<!-- generated:([\w-]+):start -->.*?<!-- generated:\1:end -->""", RegexOption.DOT_MATCHES_ALL)
 
-        /** README.md 去掉生成段落(连同标记)、统一换行后的 SHA-256,取前 12 位十六进制。生成段落随代码变,不算译文要跟的改动。 */
+        /** README.md removes SHA-256 after generating paragraphs (together with markers) and uniform line breaks, and takes the first 12 hexadecimal digits. The generated paragraphs change with the code, not the translation. */
         fun fingerprint(readme: String): String {
             val text = GENERATED.replace(readme.replace("\r\n", "\n"), "")
             return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(12)
@@ -82,7 +87,7 @@ class ReadmeTranslationsTest {
 
         private val IMAGE = Regex("""<img\s[^>]*\bsrc="([^"]+)"|!\[[^\]]*]\(([^)\s]+)""")
 
-        /** [text] 里的本地图片,按所在文件 [path](相对仓库根目录)的目录解析成仓库里的路径,各语言的相对写法不同也能比。 */
+        /** The local pictures in [text] are parsed into the paths in the warehouse according to the directory of the file [path] (relative to the warehouse root directory). The relative writing methods in each language are different and can be compared. */
         private fun localImages(text: String, path: String): Set<String> {
             val dir = File(path).parentFile
             return IMAGE.findAll(prose(text).joinToString("\n")).map { it.groupValues[1].ifEmpty { it.groupValues[2] } }

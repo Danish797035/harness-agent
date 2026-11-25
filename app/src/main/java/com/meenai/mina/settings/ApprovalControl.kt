@@ -4,11 +4,12 @@ import com.meenai.mina.core.action.ApprovalSettings
 import com.meenai.mina.core.gate.ConfirmationGate
 
 /**
- * 一个任务自己的审批设置:自主与否是开工时取全局的,之后跟着开发者选项里的「自主模式」变([set])。
- * 询问时只有付款先问;自主时连付款也不问。
+ * A task's own approval setting: whether it is autonomous or not is determined globally when starting
+ * work, and then changes with the "autonomous mode" in the developer options ([set]). When asking, you
+ * only ask for payment first; when you are independent, you don’t even ask for payment.
  */
 class RunApproval(startAutonomous: Boolean) : ApprovalSettings {
-    /** 开工时就是自主:这个任务没有确认关卡,也不给 request_confirmation;中途关掉自主留给下一个任务。 */
+    /** It is autonomous when starting work: there is no confirmation level for this task, and no request_confirmation is given; the autonomy is turned off midway and left to the next task. */
     val startedAutonomous: Boolean = startAutonomous
     @Volatile private var auto = startAutonomous
 
@@ -18,20 +19,24 @@ class RunApproval(startAutonomous: Boolean) : ApprovalSettings {
         auto = autonomous
     }
 
-    /** 这个任务(和它的子任务)用的付款确认关卡:开工时是询问才有,每次一份新的。 */
+    /** The payment confirmation level used by this task (and its subtasks) is only available upon request when starting work, and it is a new one each time. */
     fun gate(): ConfirmationGate? = if (startedAutonomous) null else ConfirmationGate()
 }
 
 /**
- * 询问 / 自主是一个全局开关,存在 [ApprovalStore.autonomous],默认询问。每个任务开工时拿一份自己的([start]);
- * 换开关([setAutonomous]):存下来管之后的任务,正在跑的任务也跟着换(从询问换成自主,下一步起付款也不再问)。
+ * Query / Autonomy is a global switch, exists [ApprovalStore.autonomous], default query. When each task
+ * starts, get your own copy ([start]); change the switch ([setAutonomous]): save it to manage the
+ * subsequent tasks, and change the tasks you are running (change from inquiry to autonomy, and you will
+ * no longer ask for payment from the next step).
  */
 class ApprovalControl(private val store: ApprovalStore) {
     private val runs = mutableSetOf<RunApproval>()
 
     /**
-     * [remote] 为 true 是电脑经 MCP 交来的任务:不管开关,一律按询问开工、也不跟着开关变,
-     * 付款这一步在这类任务里永远不做(审批判定对非手机发起的一律拒绝),远端没有办法让它放行。
+     * When [remote] is true, it is a task handed over by the computer through MCP: regardless of the
+     * switch, it will always start according to the query, and will not change according to the switch.
+     * The payment step will never be done in this type of task (the review will reject all requests
+     * initiated by non-mobile phones), and the remote end has no way to let it go.
      */
     @Synchronized fun start(remote: Boolean = false): RunApproval =
         if (remote) RunApproval(false) else RunApproval(store.autonomous.value).also { runs += it }

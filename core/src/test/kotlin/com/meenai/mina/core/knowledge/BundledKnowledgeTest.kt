@@ -14,7 +14,7 @@ import com.meenai.mina.core.tool.FakeScreen
 import java.io.File
 import com.meenai.mina.core.assembly.toolDispatcher
 
-/** 随 App 打包的知识与技能:构建期校验在测试里再跑一遍,并核对运行时读到的内容。 */
+/** Knowledge and skills packaged with the app: Build-time verification runs through the test again and checks what it reads during runtime. */
 class BundledKnowledgeTest {
     private val bundled by lazy { KnowledgeStore.loadBundled() }
     private val catalog by lazy { GuideCatalog.loadBundled() }
@@ -24,7 +24,7 @@ class BundledKnowledgeTest {
         val r = KnowledgeIndex.build(resources)
         assertTrue(r.errors.joinToString("\n"), r.errors.isEmpty())
         assertEquals(mapOf("app" to 25, "site" to 18, "skill" to 7), r.entries.groupingBy { it.kind }.eachCount())
-        // 类路径上的索引就是按当前文件生成的那份
+        // The index on the classpath is the one generated based on the current file.
         assertEquals(r.entries, catalog.rows)
     }
 
@@ -33,7 +33,8 @@ class BundledKnowledgeTest {
         assertEquals(null, catalog.sitePace("example.com"))
     }
 
-    // App 的 pace 按包名查 App 知识:限制浏览快慢的那几个内置 App 是 careful,别的没有说法
+    // Check the app's pace by package name. Knowledge: Which built-in apps limit the browsing speed?
+    // Careful. There is no other explanation.
     @Test fun appPaceFollowsTheAppKnowledgeByPackage() {
         val careful = listOf("xiaohongshu", "wechat", "douyin", "kuaishou", "weibo", "boss-zhipin", "xianyu")
         val apps = catalog.rows.filter { it.kind == KnowledgeIndex.APP }
@@ -55,7 +56,7 @@ class BundledKnowledgeTest {
         val roots = listOf("knowledge/apps", "knowledge/sites", "skills").map { File(resources, it) }
         val others = roots.flatMap { r -> r.walkTopDown().filter { it.isFile && it.extension !in setOf("md", "json") }.toList() }
         assertTrue(others.toString(), others.all { it.parentFile.name == "scripts" && File(it.parentFile, "manifest.json").isFile })
-        // 英文副本不再随 App 打包
+        // The English copy is no longer packaged with the app
         assertTrue(roots.none { r -> r.walkTopDown().any { it.name.endsWith(".en.md") } })
     }
 
@@ -66,7 +67,8 @@ class BundledKnowledgeTest {
     }
 
     @Test fun longBodyTruncatedWithHint() {
-        // 上限按 token:截后连同截断说明不超过上限,且几乎用满
+        // The upper limit is according to token: after truncation, the truncation description does not
+        // exceed the upper limit and is almost full.
         val clipped = clipKnowledge("字".repeat(KNOWLEDGE_BODY_LIMIT * 2))
         assertTrue(clipped.startsWith("字".repeat(KNOWLEDGE_BODY_LIMIT)))
         assertTrue(clipped.endsWith("\n" + KNOWLEDGE_TRUNCATED_HINT))

@@ -47,9 +47,9 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 import com.meenai.mina.core.cap.phone.OperatingPace
 
-// ---------- 手机操作 ----------
+// ---------- Mobile phone operation ----------
 
-/** 设置 › 手机操作:权限与配对的状态,以及重新配对、解除配对。点哪一项的处理方式和从前一样,交给 [onProblem]。 */
+/** Settings › Phone operations: Permissions and pairing status, as well as re-pairing and unpairing. Which item to click is handled in the same way as before, leaving it to [onProblem]. */
 @Composable
 fun PhoneOpsScreen(
     status: SystemStatus,
@@ -70,7 +70,8 @@ fun PhoneOpsScreen(
                 MinaIcons.Hand, stringResource(R.string.settings_a11y), stringResource(R.string.settings_a11y_sub), first = true,
                 onClick = check.problems.firstOrNull { it is Problem.Accessibility }?.let { { onProblem(it) } },
             ) { RowValue(a11yText, a11yTone) }
-            // 安卓 12 以下手机功能不可用,不列这一行(系统版本那一行已说明)
+            // The functions of mobile phones below Android 12 are not available and are not listed in
+            // this row (the system version row has been explained)
             if (status.sdkInt >= Prerequisites.MIN_SDK) {
                 val helper = status.builtinShell
                 val (hText, hTone) = PhoneSetupCopy.statusValue(helper)
@@ -135,11 +136,14 @@ fun PhoneOpsScreen(
     }
 }
 
-// ---------- 通知 ----------
+// ---------- notify ----------
 
 /**
- * 设置 › 通知:只看状态、去系统里改。顶上是 App 通知总开关,下面三个任务通知频道各一行(什么时候发 + 现在会不会弹出),
- * 点哪一行都由 [onFix] 打开对应的系统设置页(总开关没开时先请求权限或打开应用通知页)。
+ * Settings › Notifications: Just view the status and change it in the system. The top is the App
+ * notification master switch, and the three task notification channels below have one line each (when
+ * will it be sent + will it pop up now). Whichever line is clicked will open the corresponding system
+ * settings page by [onFix] (if the master switch is not turned on, first request permission or open the
+ * application notification page).
  */
 @Composable
 fun NotificationsScreen(status: SystemStatus, onFix: (Fix) -> Unit, onBack: () -> Unit) {
@@ -178,14 +182,16 @@ private fun ChannelRowItem(title: String, whenText: String, row: ChannelRow, fix
     }
 }
 
-// ---------- 干活时 ----------
+// ---------- While working ----------
 
-/** 并行任务的设置:用户设的上限 [max](1–3),和设备此刻允许的 [limit]。 */
+/** Parallel task settings: the upper limit set by the user, [max] (1–3), and the [limit] allowed by the device at the moment. */
 data class ParallelSetting(val max: Int, val limit: ParallelLimit)
 
 /**
- * 设置 › 干活时:屏幕常亮、被操作的 App 静音(默认都开,可以关);[parallel] 不为空(实验开关打开了)时多一行同时进行的任务数。
- * 下面一组是操作节奏:快 / 标准(默认) / 像人,选了下一个任务起生效。
+ * Settings › When working: the screen is always on, the operated App is muted (both are on by default,
+ * and can be turned off); when [parallel] is not empty (the experiment switch is on), there is one more
+ * line for the number of tasks being performed simultaneously. The following group is the operating
+ * rhythm: fast / standard (default) / human-like, which will take effect after selecting the next task.
  */
 @Composable
 fun DuringWorkScreen(
@@ -205,7 +211,8 @@ fun DuringWorkScreen(
             }
             parallel?.let { ParallelRow(it, onParallelMax) }
         }
-        // 允许 Mina 改自己的设置:默认关,打开后任务里才有 settings_list、settings_set
+        // Allow Mina to change its own settings: off by default. Only after turning it on will there be
+        // settings_list and settings_set in the task.
         GroupCard {
             ListRow(
                 MinaIcons.Spark, stringResource(R.string.settings_self_config),
@@ -244,7 +251,7 @@ private fun paceDetail(p: OperatingPace): String = stringResource(
     },
 )
 
-/** 同时进行几个任务:设备不支持时灰掉、写明原因,上限固定为 1。 */
+/** Perform several tasks at the same time: if the device does not support it, it will be grayed out and the reason will be written. The upper limit is fixed at 1. */
 @Composable
 private fun ParallelRow(p: ParallelSetting, onMax: (Int) -> Unit) {
     val supported = p.limit.reason == null
@@ -269,14 +276,14 @@ private fun ParallelRow(p: ParallelSetting, onMax: (Int) -> Unit) {
     }
 }
 
-// ---------- 悬浮胶囊 ----------
+// ---------- Suspension Capsule ----------
 
-/** 设置 › 悬浮胶囊的文字。 */
+/** Settings › Suspended capsule text. */
 object CapsuleSettingsCopy {
     val TITLE: String get() = tr(R.string.capsule_settings_title)
     val SUBTITLE: String get() = tr(R.string.capsule_settings_sub)
     val FOOTNOTE: String get() = tr(R.string.capsule_settings_foot)
-    /** 系统可能关掉后台的 App,胶囊跟着不见:请用户在系统设置里放行。 */
+    /** The system may close the background app and the capsule disappears: please allow the user to disable it in the system settings. */
     val BACKGROUND: String get() = tr(R.string.capsule_settings_background)
 
     fun label(mode: CapsuleMode): String = when (mode) {
@@ -292,7 +299,7 @@ object CapsuleSettingsCopy {
     }
 }
 
-/** 设置 › 悬浮胶囊:关闭 / 有任务时显示(默认) / 一直显示,选了当场生效。 */
+/** Settings › Suspension Capsule: Off / Show when there is a task (default) / Always show, it will take effect on the spot if selected. */
 @Composable
 fun CapsuleScreen(mode: CapsuleMode, onMode: (CapsuleMode) -> Unit, onBack: () -> Unit) {
     PageScaffold(CapsuleSettingsCopy.TITLE, onBack) {
@@ -309,15 +316,15 @@ fun CapsuleScreen(mode: CapsuleMode, onMode: (CapsuleMode) -> Unit, onBack: () -
     }
 }
 
-/** 设置 › 语言:跟随系统、简体中文、繁體中文、English;选了马上换,界面跟着重建。 */
+/** Settings › Language: Follow the system, Simplified Chinese, Traditional Chinese, English; change it immediately after selecting it, and the interface will be rebuilt accordingly. */
 @Composable
 fun LanguageScreen(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val flags = remember { FeatureFlags.get(context) }
-    // 跟着设置走:任务里改了外观,这页也对得上
+    // Follow the settings: the appearance has been changed in the task, and this page also matches
     val themeMode by remember(flags) { flags.themeModeChanges() }.collectAsState(flags.themeMode())
     PageScaffold(stringResource(R.string.appearance_title), onBack) {
-        // 语言和外观放在同一页:都是「界面长什么样」
+        // Language and appearance are put on the same page: both are "what does the interface look like"
         GroupLabel(stringResource(R.string.appearance_group))
         GroupCard {
             ThemeMode.entries.forEachIndexed { idx, m ->
@@ -325,7 +332,8 @@ fun LanguageScreen(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, onB
                     appearanceLabel(m), selected = m == themeMode, first = idx == 0,
                     subtitle = if (m == ThemeMode.System) stringResource(R.string.appearance_system_detail) else null,
                     onClick = {
-                        // 界面跟着设置当场换颜色,不重建,页面和滚动位置都不丢
+                        // The interface changes color on the spot according to the settings, without
+                        // rebuilding, and the page and scroll position are not lost.
                         if (m != themeMode) flags.setThemeMode(m)
                     },
                 )
@@ -343,7 +351,7 @@ fun LanguageScreen(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, onB
     }
 }
 
-/** 语言的名字:每种语言总用它自己的写法(日本語、Español…),「跟随系统」按当前语言写。 */
+/** The name of the language: Each language always uses its own writing method (Japanese, Español...), and the "following system" is written according to the current language. */
 @Composable
 fun languageLabel(l: AppLanguage): String = stringResource(
     when (l) {
@@ -353,23 +361,23 @@ fun languageLabel(l: AppLanguage): String = stringResource(
     },
 )
 
-// ---------- 隐私与数据 ----------
+// ---------- Privacy and Data ----------
 
-/** 设置 › 网站登录。 */
+/** Settings › Website Login. */
 @Composable
 fun WebSitesScreen(state: WebSitesState, onBack: () -> Unit) {
     PageScaffold(stringResource(R.string.settings_web_logins), onBack) { WebSitesSection(state, labeled = false) }
 }
 
-// ---------- 高级 ----------
+// ---------- Advanced ----------
 
-/** 设置 › 文件与计算环境:允许脚本联网、网络代理、已用空间(按对话清理工作区)、重置运行环境。 */
+/** Settings › Files and Computing Environment: Allow script networking, network proxy, used space (clean workspace by conversation), reset running environment. */
 @Composable
 fun SandboxScreen(onBack: () -> Unit) {
     PageScaffold(stringResource(R.string.settings_sandbox), onBack) { AdvancedSettings() }
 }
 
-/** 设置 › 记住的操作路线:[count] 条,可以全部清除(先确认);[count] 为空表示还没读出来。 */
+/** Settings › Remembered operation routes: [count], all can be cleared (confirm first); [count] is empty, which means it has not been read out yet. */
 @Composable
 fun RoutesScreen(count: Int?, onClear: () -> Unit, onBack: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
@@ -397,7 +405,7 @@ fun RoutesScreen(count: Int?, onClear: () -> Unit, onBack: () -> Unit) {
     }
 }
 
-/** 设置 › 恢复与修复:手机操作的几个授权开关,下面是兼容性自检的入口。 */
+/** Settings › Recovery and Repair: Several authorization switches for mobile phone operation. Below is the entrance to compatibility self-check. */
 @Composable
 fun RecoveryScreen(onBack: () -> Unit, onOpenSelfCheck: () -> Unit = {}) {
     PageScaffold(stringResource(R.string.settings_recovery), onBack) {
@@ -411,7 +419,7 @@ fun RecoveryScreen(onBack: () -> Unit, onOpenSelfCheck: () -> Unit = {}) {
     }
 }
 
-/** 外观的当前说法(设置页和这一行都用)。 */
+/** The current representation of the appearance (used both on the settings page and on this line). */
 fun appearanceLabel(mode: ThemeMode): String = tr(
     when (mode) {
         ThemeMode.System -> R.string.appearance_system

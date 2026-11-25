@@ -3,15 +3,17 @@ package com.meenai.mina.core.prompt
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 随 App 发布的提示词,都在资源目录 prompts/ 下,分层见 prompts/README.md:
- * system/ 身份(L0)、capabilities/ 各能力一段(L1)、tools/ 每个工具的说明、feedback/ 工具与主循环给模型的反馈、
- * roles/ 内部角色(列标准、核查、描述、定位……)。
- * 文字里的 {{name}} 由调用方填;漏填的直接报错,不把占位符发给模型。
+ * The prompt words released with the App are all under the resource directory prompts/. See
+ * prompts/README.md for hierarchy: system/identity (L0), capabilities/one section of each capability
+ * (L1), tools/description of each tool, feedback/feedback to the model from the tool and the main loop,
+ * roles/internal roles (list standards, verification, description, positioning...). {{name}} in the text
+ * is filled in by the caller; if it is omitted, an error will be reported directly and the placeholder
+ * will not be sent to the model.
  */
 object Prompts {
     private val cache = ConcurrentHashMap<String, String>()
 
-    /** 资源原文(去掉首尾空白)。 */
+    /** Original text of the resource (remove leading and trailing blanks). */
     fun read(path: String): String = cache.getOrPut(path) {
         checkNotNull(Prompts::class.java.getResourceAsStream("/prompts/$path")) { "missing prompts/$path" }
             .bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
@@ -23,13 +25,13 @@ object Prompts {
 
     fun role(name: String): String = read("roles/$name.md")
 
-    /** 入口工具那一组收着时的短说明(prompts/entries/<工具名>.md)。 */
+    /** A short description of the set of entrance tools when it is closed (prompts/entries/<tool name>.md). */
     fun entry(tool: String): String = read("entries/$tool.md")
 
-    /** 一个工具发给模型的说明(prompts/tools/<file>.md),填好占位符。 */
+    /** A tool sends a description of the model (prompts/tools/<file>.md) and fills in the placeholders. */
     fun tool(file: String, vararg vars: Pair<String, Any?>): String = fill(read("tools/$file.md"), vars.toMap())
 
-    /** 一遍替换:填进去的值(屏上的字、用户的话)里即使有 {{…}} 也原样保留。 */
+    /** One-pass replacement: Even if there are {{...}} in the filled-in value (words on the screen, user’s words), they will remain unchanged. */
     fun fill(template: String, vars: Map<String, Any?>): String = PLACEHOLDER.replace(template) { m ->
         val k = m.groupValues[1]
         check(k in vars) { "unfilled placeholder {{$k}} in: ${template.take(80)}" }

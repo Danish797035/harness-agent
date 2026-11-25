@@ -6,22 +6,24 @@ import com.meenai.mina.core.action.Risk as ApprovalRisk
 import kotlinx.serialization.json.JsonObject
 
 /**
- * 工具自己声明会对外部世界做什么。
- * Read:只读(读屏、读网页、查记忆、报失败一类),只读调用可以直接做;
- * Write:改变屏幕、页面或沙箱,只能经执行入口;
- * External:除了改变界面,还可能按目标元素发出、付款、提交(不可逆判定要看它的目标)。
+ * The tool itself declares what it will do to the outside world. Read: read-only (read screen, read web
+ * page, check memory, report failure, etc.), read-only calls can be made directly; Write: change the
+ * screen, page or sandbox, only through the execution entrance; External: in addition to changing the
+ * interface, it is also possible to issue, pay, and submit according to the target element (the
+ * determination of irreversibility depends on its target).
  */
 enum class Risk { Read, Write, External }
 
-/** 入口工具:[Opens] 调用后展开它那一组;[Alone] 单用就够(列出 App、读一个网址的正文),调用不展开。 */
+/** Entry tool: [Opens] expands its group after being called; [Alone] alone is enough (listing Apps, reading the text of a URL), and the call does not expand. */
 enum class Entry { Opens, Alone }
 
-/** 能不能和别的调用同时做;默认一次一个。 */
+/** Can it be done at the same time as other calls? The default is one at a time. */
 enum class Concurrency { Serial, ParallelSafe }
 
 /**
- * 工具做的是什么动作。按动作做判断的地方(守卫、裁剪、路线、批量、模型分工……)都看它,不看工具名;
- * 屏幕上的动作与读屏在几种界面上各有一个同动词的工具。
+ * What action does the tool do? Where judgments are made based on actions (guarding, cropping, routing,
+ * batching, model division of labor...), all look at it, not the tool name; on-screen actions and screen
+ * reading each have a tool with the same verb on several interfaces.
  */
 enum class Verb {
     Observe, ListElements, Query, Collect, PhoneRun, PhoneFind, PhoneExtract, PhoneDialog, PhoneEvent, PhoneGesture, PhoneCommand, Screenshot, ViewPastScreens, ViewUserScreen, Describe, FindVisually, Diagnose,
@@ -36,25 +38,26 @@ enum class Verb {
     GenerateImage, EditImage,
 }
 
-/** 按名字查得到的工具声明。 */
+/** Tool declarations retrieved by name. */
 interface ToolInfo {
     val name: String
     val verb: Verb
-    /** 所属能力的 id;核心自己的工具为 null。 */
+    /** The id of the ability to which it belongs; null for core's own tools. */
     val capability: String?
-    /** 能放进一次多步(do_steps)。 */
+    /** Multiple steps (do_steps) can be entered at once. */
     val batchable: Boolean
-    /** 经验路线记它、回放它。 */
+    /** Record it and replay it through the experience route. */
     val routable: Boolean
-    /** 界面上的说法;没有时显示工具名。 */
+    /** It is said on the interface; when it is not available, the tool name is displayed. */
     val label: String?
-    /** 沙箱里的 `mina phone <操作>` 能调它(手机能力、结果是文字);其余一律拒绝。 */
+    /** `mina phone <operation>` in the sandbox can adjust it (mobile phone capabilities, the result is text); the rest are rejected. */
     val sandboxCallable: Boolean get() = false
 }
 
 /**
- * 按名字查工具声明;不认识的名字为 null。[former] 把改名前的名字认成现在的(读旧的运行记录时用,见 LegacyNames);
- * [names] 只有现在登记的名字。
+ * Search tool declarations by name; unknown names are null. [former] recognizes the name before the name
+ * change as the current one (used when reading old running records, see LegacyNames); [names] only has
+ * the currently registered name.
  */
 class ToolIndex(tools: Collection<ToolInfo>, private val former: (String) -> String? = { null }) {
     private val byName: Map<String, ToolInfo> = tools.associateBy { it.name }
@@ -65,17 +68,18 @@ class ToolIndex(tools: Collection<ToolInfo>, private val former: (String) -> Str
 
     fun verb(name: String?): Verb? = get(name)?.verb
 
-    /** 做这个动作的工具名:[capability] 给了时只找那个能力的(核心的工具为 null 的那组),没给时取先登记的。 */
+    /** The name of the tool that performs this action: [capability]. If it is given, only the one with that ability will be found (the group whose core tool is null). If it is not given, the first registered one will be taken. */
     fun nameOf(verb: Verb, capability: String? = null): String? =
         byName.values.firstOrNull { it.verb == verb && (capability == null || it.capability == capability) }?.name
 
-    /** 屏幕能力 [from] 那一套里做同一动作的工具在 [to] 那一套里叫什么;没有为 null。 */
+    /** Screen capability [from] What is the name of the tool that performs the same action in the [to] set? If not, it is null. */
     fun counterpart(name: String, to: String): String? = get(name)?.let { nameOf(it.verb, to) }
 }
 
 /**
- * 一个工具:定义(名字、说明、参数)+ 声明的风险 + 执行。新工具 = 新增一个实现并在所属能力里登记,分发器不认识具体工具。
- * 状态都在 [ToolContext] 里,工具本身无状态。
+ * A tool: definition (name, description, parameters) + declared risk + execution. New tool = Add an
+ * implementation and register it in the corresponding capability. The distributor does not know the
+ * specific tool. The status is all in [ToolContext], and the tool itself has no status.
  */
 internal interface AgentTool : ToolInfo {
     val def: ToolDef
@@ -83,78 +87,87 @@ internal interface AgentTool : ToolInfo {
     override val batchable: Boolean get() = false
     override val routable: Boolean get() = false
     override val label: String? get() = null
-    /** 不动屏幕(沙箱一类):不过锁屏关卡、不进屏幕守卫,结果里的图是文件不是屏幕画面。 */
+    /** Do not move the screen (sandbox type): However, the screen is locked and the screen guard is not entered. The pictures in the results are files and not screen images. */
     val offScreen: Boolean get() = false
     val risk: Risk
-    /** 非界面能力可直接声明审批风险；界面工具仍按目标和当前观察判。 */
+    /** Non-interface capabilities can declare approval risks directly; interface tools are still judged by the target and current observation. */
     val approvalRisk: ApprovalRisk? get() = null
     val concurrency: Concurrency get() = Concurrency.Serial
-    /** 不可逆判定按什么看这次调用的目标;External 的工具必须给,其余为 null(不判)。 */
+    /** Irreversible judgment depends on the target of this call; the External tool must be given, and the rest are null (no judgment). */
     val gateTarget: GateTarget? get() = null
-    /** 自己不动界面,里面的动作一个个经执行入口回来(页面脚本):不过锁屏关卡,也不能作为只读调用。 */
+    /** If you don't move the interface, the actions inside it will be returned one by one through the execution entrance (page script): However, the lock screen level cannot be called as a read-only call. */
     val composite: Boolean get() = false
     /**
-     * 能力那一组收着时也提供的入口(见 [ToolGroups]):收着时用短说明(prompts/entries/<工具名>.md),展开后换回全文。
-     * 不是入口为 null。
+     * The entrance to the ability group is also provided when closed (see [ToolGroups]): use a short
+     * description (prompts/entries/<tool name>.md) when closed, and return to the full text after expansion.
+     * Not the entry is null.
      */
     val entry: Entry? get() = null
-    /** 不属于哪个能力、只在有屏幕的那几组展开时才提供的通用工具(接管、报障碍、回看画面)。 */
+    /** It is a general tool that does not belong to any ability and is only provided when the groups with screens are expanded (taking over, reporting obstacles, and reviewing the screen). */
     val withScreens: Boolean get() = false
     /**
-     * 撤掉也什么都不丢的调用(只是等待,或只问看图模型、不动界面):用户插话一到就撤掉,
-     * 结果报 [com.meenai.mina.core.run.SKIPPED_FOR_NEW_MESSAGE],模型先读这句话,还要的话再调一次。
+     * Cancel the call without losing anything (just wait, or just ask to see the graph model, without
+     * moving the interface): cancel it as soon as the user interrupts, and the result will be reported
+     * as [com.meenai.mina.core.run.SKIPPED_FOR_NEW_MESSAGE]. The model will read this sentence first,
+     * and call it again if it is needed.
      */
     val yieldsToSteer: Boolean get() = false
 
     override val name: String get() = def.name
-    /** 发给模型的定义;按本任务有几块屏另加参数的工具(surface)覆盖它。 */
+    /** The definition sent to the model; according to this task, there are several screens and additional parameter tools (surface) to cover it. */
     fun def(ctx: ToolContext): ToolDef = def
-    /** 说明出自哪个文件(prompts/tools/<file>.md);默认同名,几个工具共用一份模板时另写。 */
+    /** Indicate which file it comes from (prompts/tools/<file>.md); the default name is the same, if several tools share a template, write it separately. */
     val promptFile: String get() = name
     val description: String get() = def.description
-    /** 参数的 JSON schema(发给模型的那份)。 */
+    /** The JSON schema of the parameters (the one sent to the model). */
     val params: String get() = def.spec().parametersJsonSchema
 
     /**
-     * 这次调用作用在哪块屏上(屏幕能力的 id):屏幕工具是自己那块;说的是哪块屏由参数定的通用工具看参数;其余为 null(不变)。
-     * 分发器据此在调用前记下在操作哪块屏。
+     * Which screen this call works on (the id of the screen capability): the screen tool is your own; it
+     * refers to which screen is determined by the parameters of the general tool to see the parameters;
+     * the rest are null (unchanged). Based on this, the dispatcher remembers which screen it is
+     * operating on before calling.
      */
     fun aimAt(o: JsonObject): String? = capability
 
-    /** 本任务能不能调用(看配置:有没有看图模型、技能目录、网页端口……)。 */
+    /** Whether this task can be called (look at the configuration: whether there is a graph model, skill catalog, web port...). */
     fun available(ctx: ToolContext): Boolean = true
 
-    /** 此刻放不放进发给模型的工具列表;默认同 [available]。 */
+    /** Whether to enter the tool list sent to the model at this time; the default is the same as [available]. */
     fun offered(ctx: ToolContext): Boolean = available(ctx)
 
     suspend fun execute(a: Args, ctx: ToolContext): ToolExecution
 
-    /** 成功后结果里带动作之后的屏幕(动作自带屏幕开着时),能看图的主模型另附一帧画面。 */
+    /** After success, the result will include the screen after the action (when the screen with the action is on), and a separate frame of the main model that can be viewed. */
     val showsScreenAfter: Boolean get() = false
 
     /**
-     * 改变界面的动作(点、输入、清空、按键、返回、滑动……):分发器在动作前后各看一眼屏幕(元素表 + 画面),
-     * 把实际效果写进结果的 effect 字段(见界面状态一侧的 ActionEffect)。只读屏,不另做动作。
+     * Actions that change the interface (click, enter, clear, key, return, slide...): The distributor
+     * looks at the screen (element table + screen) before and after the action, and writes the actual
+     * effect into the effect field of the result (see ActionEffect on the interface status side). Only
+     * reads the screen, no other actions are taken.
      */
     val reportsEffect: Boolean get() = false
 
-    /** 进动作清单(手机、网页、沙箱里会改变什么或去到哪里的动作);[wideTarget] 时对象留长一点。 */
+    /** Enter the action list (actions that will change something or go to where in the mobile phone, web page, or sandbox); the object will be longer when [wideTarget]. */
     val logged: Boolean get() = false
     val wideTarget: Boolean get() = false
-    /** 动作清单里写的对象;要按编号写出元素的名字时从 [ctx] 取这块屏最近一次读屏。 */
+    /** The object written in the action list; when writing the name of the element by number, take the latest screen read of this screen from [ctx]. */
     fun logTarget(o: JsonObject, r: ToolExecution, ctx: ToolContext): String? = null
-    /** 动作清单里写出的输入文字(只有确定不是密码框时)。 */
+    /** The input text written in the action list (only when you are sure it is not a password box). */
     fun logTyped(o: JsonObject, r: ToolExecution): String? = null
 
     /**
-     * 结果里模型可能在最终回答里引用、执行时没有另给的观察(打开了哪个网页、命令的输出……);分发器把它们和结果里的
-     * [ToolExecution.observations] 一起记进核查材料。[log] 里是跨工具的少量状态(列出过的 App 名字、写过的文件)。
+     * The model in the result may be referenced in the final answer, and no other observations are given
+     * during execution (which web page was opened, the output of the command...); the distributor
+     * records them in the verification material together with [ToolExecution.observations] in the
+     * result. [log] contains a small amount of cross-tool status (listed App names, written files).
      */
     fun observations(o: JsonObject, r: ToolExecution, log: EvidenceLog): List<Observation> = emptyList()
 }
 
-/** 会改变屏幕、页面状态的工具:要过锁屏/暂停关卡。由声明的风险推出,不动屏幕的与页面脚本不在其中。 */
+/** Tools that will change the status of the screen and page: pass the lock screen/pause level. Following the stated risks, non-screen and page scripts are not among them. */
 internal val AgentTool.writesScreen: Boolean get() = risk != Risk.Read && !offScreen && !composite
 
-/** 只读调用能不能做:只读、动屏幕(不动屏幕的另有守卫)、不是页面脚本。 */
+/** Can read-only calls be made: read-only, move the screen (there are guards for those that don’t move the screen), and not page scripts. */
 internal val AgentTool.readOnly: Boolean get() = risk == Risk.Read && !offScreen && !composite

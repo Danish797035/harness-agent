@@ -39,7 +39,7 @@ private const val MB = 1L shl 20
 private const val GB = 1L shl 30
 internal const val DEFAULT_TIMEOUT_SEC = 60
 internal const val MAX_READ_BYTES = 262_144
-/** 运行环境没准备好时,工具最多等这么久(首次启动解包约一两分钟)。 */
+/** When the operating environment is not ready, the tool can wait for this long at most (about one or two minutes when unpacking is started for the first time). */
 internal const val PREPARE_WAIT_MS = 120_000L
 private const val MIN_FREE = 500 * MB
 private const val WORKSPACE_WARN = 2 * GB
@@ -50,7 +50,7 @@ private const val MAX_IMAGE = 5 * MB
 private const val MAX_SCRIPT_ARGS = 50
 private const val MAX_MATCHES = 100
 private const val MATCH_TEXT = 300
-/** 搜索时跳过比这大的文件。 */
+/** Files larger than this are skipped when searching. */
 private const val SEARCH_FILE_MAX = 8 * MB
 
 private val IMAGE_TYPES = mapOf("png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "webp" to "image/webp")
@@ -69,13 +69,13 @@ private const val HINT_TIMED_OUT = "The command hit its time limit and was stopp
 private const val HINT_KILLED = "Killed by the system (out of memory): the system killed the command, most likely for lack of memory. Use a lighter approach (smaller inputs, process in parts)."
 private const val HINT_WORKSPACE_BIG = "The workspace uses more than 2 GB; delete files you no longer need (over 4 GB, writing is refused)."
 
-/** 六个沙箱工具的执行;文件类工具由 Kotlin 直接读写宿主目录,不起沙箱进程。 */
-/** search_files 的上限:最多搜多少个文件、读多少字节、用多久。 */
+/** Execution of six sandbox tools; file tools directly read and write the host directory by Kotlin and cannot run the sandbox process. */
+/** The upper limit of search_files: the maximum number of files to search, how many bytes to read, and how long it takes. */
 internal data class SearchLimits(val maxFiles: Int = 5000, val maxBytes: Long = 64 * MB, val timeMs: Long = 10_000)
 
 private class SearchTimeout : RuntimeException(null, null, false, false)
 
-/** 正则每读一个字都看一眼时间:写坏的正则(灾难性回溯)到点就停。 */
+/** Check the time every time you read a word in the regex: a bad regex (catastrophic backtracking) will stop at the right time. */
 private class Deadlined(private val s: CharSequence, private val deadline: Long) : CharSequence {
     override val length get() = s.length
     override fun get(index: Int): Char {
@@ -93,19 +93,19 @@ internal class SandboxTools(
     private val search: SearchLimits = SearchLimits(),
     private val onCommand: (String) -> Unit = {},
     private val onProgress: (String) -> Unit = {},
-    /** 运行环境还没准备好、工具在等它时(任务卡片显示「正在准备」)。 */
+    /** When the runtime environment is not ready yet and the tool is waiting for it (the task card shows "Preparing"). */
     private val onPreparing: () -> Unit = {},
-    /** 开始跑技能脚本时(参数:技能目录/脚本 与参数);不给就按命令报。 */
+    /** When starting to run the skill script (parameters: skill directory/script and parameters); if not given, press the command to report. */
     private val onScript: ((String) -> Unit)? = null,
     private val prepareWaitMs: Long = PREPARE_WAIT_MS,
 ) {
-    /** 设备支持就提供工具:运行环境首次启动时在后台准备,工具调用时等它。 */
+    /** Device support provides tools: the running environment is prepared in the background when it is first started, and waits for it when the tool is called. */
     fun available(): Boolean = sandbox.status() !is SandboxStatus.Unsupported
 
-    /** 沙箱目录的树锁。 */
+    /** Tree lock for sandbox directory. */
     val tree get() = sandbox.tree
 
-    /** 等运行环境就绪后在本任务的工作区里做 [op];联网设置在任务中途变了时结果里另说一句。 */
+    /** After the running environment is ready, do [op] in the workspace of this task; if the networking settings change midway through the task, add another sentence in the results. */
     suspend fun run(op: suspend SandboxTools.(ws: String, ready: SandboxStatus.Ready) -> ToolExecution): ToolExecution {
         var status = sandbox.status()
         if (status !is SandboxStatus.Ready && status !is SandboxStatus.Unsupported) {
@@ -120,7 +120,8 @@ internal class SandboxTools(
         val result = try { op(ws, ready) } catch (e: SandboxError) {
             fail(e.code, e.message ?: e.code, e.recoverable)
         }
-        // 任务中途用户在设置里开关了联网:下一个沙箱工具的结果里说一句,模型别按旧的状态做
+        // In the middle of the task, the user turned on and off the Internet in the settings: the next
+        // sandbox tool result will say, do not make the model in the old state.
         val before = lastNetwork
         lastNetwork = ready.network
         if (before == null || before == ready.network) return result
@@ -165,8 +166,10 @@ internal class SandboxTools(
         val rel = path.removePrefix("$skillDir/")
         val interpreter = ScriptManifest.interpreterFor(rel)
             ?: return unavailable("only .py, .mjs, .js and .sh scripts can be run.")
-        // 清单的 file 写技能目录下的路径;只写了文件名(相对 scripts/)的也认
-        // 先把技能目录核对成打包的那份:App 更新带来的新脚本立刻可用,被改过的换回原样
+        // In the file of the list, write the path under the skill directory; if you only write the file
+        // name (relative to scripts/), it will also be recognized. First, check the skill directory into
+        // the packaged copy: new scripts brought by App updates will be available immediately, and
+        // changed ones will be returned to their original state.
         sandbox.prepare()
         val entry = sandbox.scriptManifest(skillRel).firstOrNull { it.file == rel || "scripts/${it.file}" == rel }
             ?: return unavailable("$rel is not listed as a runnable script of $skillRel (knowledge_read or skill_read lists its scripts).")
@@ -174,14 +177,15 @@ internal class SandboxTools(
         if (!runnable) return unavailable("$rel is not runnable now: $why.")
         if (sandbox.hostPath(ws, path, forWrite = false)?.isFile != true) return unavailable("$rel is missing from the source directory.")
         storageLow()?.let { return it }
-        // /opt/mina/skills 在沙箱里写得动(PRoot 的绑定可写),所以跑之前逐字节核对打包的那份
+        // /opt/mina/skills can be written in the sandbox (the binding of PRoot can be written), so check
+        // the packaged copy byte by byte before running.
         if (!sandbox.verifyScript(skillRel, rel)) return unavailable("$rel differs from the copy that comes with Harness Agent and could not be restored, so it was not run.")
         (onScript ?: onCommand)((listOf("$skillRel/$rel") + args).joinToString(" "))
         return commandResult(sandbox.runWithPhone(ws, listOf(interpreter, path) + args, null, timeout * 1000L, onProgress,
             phoneHandler(callId, sub, tools)), ws)
     }
 
-    /** 能调哪些由工具自己声明([com.meenai.mina.core.tool.ToolInfo.sandboxCallable]);没给工具表时一个都不开放。 */
+    /** Which ones can be adjusted are declared by the tool itself ([com.meenai.mina.core.tool.ToolInfo.sandboxCallable]); if the tool list is not given, none of them will be opened. */
     private fun phoneHandler(callId: String, sub: SubActions?, tools: ToolIndex?): PhoneCommandHandler? = sub?.let { runner ->
         val sequence = AtomicInteger()
         PhoneCommandHandler { requested, args ->
@@ -216,7 +220,7 @@ internal class SandboxTools(
     private suspend fun commandResult(r: CommandResult, ws: String): ToolExecution {
         val (shown, clipped) = OutputClip.clip(r.output)
         val truncated = clipped || r.droppedBytes > 0
-        // 存不下完整输出也照样交出结果
+        // Even if the complete output cannot be saved, the results will still be handed over.
         val full = if (clipped) runCatching { sandbox.tree.shared { sandbox.saveOutput(ws, r.output) } }.getOrNull() else null
         val hints = listOfNotNull(
             HINT_TIMED_OUT.takeIf { r.timedOut },
@@ -238,7 +242,7 @@ internal class SandboxTools(
 
     private fun workspaceHint(ws: String) = HINT_WORKSPACE_BIG.takeIf { sandbox.workspaceBytes(ws) > WORKSPACE_WARN }
 
-    /** 规范化后的沙箱路径与它在关口里的 (根目录, 相对路径);越界(含链接指到外面)为 null。 */
+    /** The normalized sandbox path is the same as the one in the gateway (root directory, relative path); out-of-bounds (including links pointing to the outside) are null. */
     private class Target(val path: String, val root: File, val rel: String) {
         val host: File get() = if (rel.isEmpty()) root else File(root, rel)
     }
@@ -246,13 +250,14 @@ internal class SandboxTools(
     private fun resolve(ws: String, raw: String, write: Boolean): Target? {
         val n = SandboxPaths.normalize(raw) ?: return null
         if (write && !SandboxPaths.isWritable(n)) return null
-        // 先按路径判断越界,给出清楚的错误;真正读写时关口在句柄上再核一次
+        // First, judge the out of bounds according to the path and give a clear error; when actually
+        // reading and writing, check the handle again.
         sandbox.hostPath(ws, n, write) ?: return null
         val (root, rel) = sandbox.hostRoot(ws, n, write) ?: return null
         return Target(n, root, rel)
     }
 
-    /** 关口拒绝时的工具结果:错误码原样,消息带上沙箱路径。 */
+    /** The tool result when the gate is rejected: the error code remains unchanged, and the message carries the sandbox path. */
     private fun refused(path: String, e: SandboxError): ToolExecution = when (e.code) {
         WorkspaceFileGate.FILE_NOT_FOUND -> fail(e.code, "$path does not exist.")
         WorkspaceFileGate.NOT_A_FILE -> fail(e.code, "$path is not a regular file (a directory, link or special file); list directories with run_command (ls). ${e.message}")
@@ -277,7 +282,7 @@ internal class SandboxTools(
             return ToolExecution(okObj { put("path", path); put("size", size); put("type", type) }, image = g.read(0, size.toInt()))
         }
         val bytes = if (offset >= size) ByteArray(0) else g.read(offset.toLong(), minOf(limit.toLong(), size - offset).toInt())
-        // 从字的中间开始读:跳过开头的残字节
+        // Start reading from the middle of the word: skip the remaining bytes at the beginning
         var skip = 0
         if (offset > 0) while (skip < 3 && skip < bytes.size && (bytes[skip].toInt() and 0xC0) == 0x80) skip++
         val eof = offset + bytes.size >= size
@@ -290,7 +295,7 @@ internal class SandboxTools(
         })
     }
 
-    /** 严格按 UTF-8 解码;不是文本(解不开或含 NUL)为 null。没读到文件末尾时,末尾不完整的字留给下一次。 */
+    /** Decoded strictly as UTF-8; not text (cannot be decoded or contains NUL) is null. When the end of the file is not read, the incomplete words at the end are left for next time. */
     private fun decodeUtf8(bytes: ByteArray, from: Int, eof: Boolean): Pair<String, Int>? {
         val dec = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
         val input = ByteBuffer.wrap(bytes, from, bytes.size - from)
@@ -310,7 +315,8 @@ internal class SandboxTools(
         val append = a.bool("append", false)
         if (content.size > MAX_WRITE) return fail("file_too_large", "content is ${content.size} bytes; at most 1 MB per write. Write in parts with append.")
         if (sandbox.workspaceBytes(ws) > WORKSPACE_MAX) return fail("storage_low", "The workspace uses more than 4 GB, so writing is refused. Delete files you no longer need.", recoverable = false)
-        // 已有的文件在句柄上核实(普通文件、一个硬链接、在工作区里)之后才截断或接着写
+        // Existing files are checked on the handle (regular file, a hard link, in the workspace) before
+        // being truncated or continued.
         val size = try {
             sandbox.files.openWrite(t.root, t.rel, append).use { g -> g.write(content); g.currentSize() }
         } catch (e: SandboxError) {
@@ -332,7 +338,8 @@ internal class SandboxTools(
         val glob = a.str("glob", max = 300)?.let { g -> FileSystems.getDefault().getPathMatcher("glob:$g") to ('/' in g) }
         val rootPath = t.host.toPath()
         if (!Files.exists(rootPath, LinkOption.NOFOLLOW_LINKS)) {
-            // 工作区本身还没建(读不建目录):就是空的,不算找不到
+            // The workspace itself has not been created (reading does not create a directory): it is
+            // empty, not found.
             if (t.rel.isEmpty() && SandboxPaths.isWritable(base)) return ToolExecution(okObj { put("matches", JsonArray(emptyList())); put("truncated", false) })
             return fail("file_not_found", "$base does not exist.")
         }
@@ -341,7 +348,8 @@ internal class SandboxTools(
         var files = 0
         var bytesRead = 0L
         val deadline = System.nanoTime() + search.timeMs * 1_000_000
-        // 不跟随符号链接:链接可能指到工作区外面;边走边搜,不先把整棵树列出来
+        // Not following symbolic links: links may point outside the workspace; search as you go without
+        // listing the entire tree first
         Files.walk(rootPath).use { stream ->
             val it = stream.iterator()
             while (it.hasNext()) {
@@ -349,7 +357,9 @@ internal class SandboxTools(
                 val p = it.next()
                 if (!Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)) continue
                 if (glob != null && !glob.first.matches(if (glob.second) p.relativeTo(rootPath) else p.fileName)) continue
-                // 列目录只用来找文件;读内容走关口,中途被换成链接的读不到
+                // Listing directories is only used to find files; reading the content has to go through
+                // the checkpoint, and the content that is changed to a link in the middle cannot be
+                // read.
                 val rel = listOf(t.rel, rootPath.relativize(p).joinToString("/") { it.name }).filter { it.isNotEmpty() }.joinToString("/")
                 val g = try { sandbox.files.openRead(t.root, rel) } catch (e: SandboxError) { continue }
                 val bytes = g.use {

@@ -17,7 +17,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 设置 › 恢复与修复:几项默认显示打开,拨动直接执行,不弹确认框。 */
+/** Settings › Recovery and Repair: Several items are turned on by default, and can be executed directly without popping up the confirmation box. */
 @RunWith(AndroidJUnit4::class)
 class RecoverySectionTest {
 

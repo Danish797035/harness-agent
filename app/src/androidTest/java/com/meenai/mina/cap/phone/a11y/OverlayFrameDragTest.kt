@@ -12,7 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** 浮层窗口根上的拖动:只有按在把手里才拖,拖动时里面的按钮收到取消、不算点按;把手外的滑动交给里面的内容。 */
+/** Dragging on the root of the floating layer window: Drag only when the handle is pressed. When dragging, the button inside is canceled and is not counted; sliding outside the handle is handed over to the content inside. */
 @RunWith(AndroidJUnit4::class)
 class OverlayFrameDragTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -23,7 +23,7 @@ class OverlayFrameDragTest {
         override fun end(dx: Float, dy: Float) { calls += "end" }
     }
 
-    /** 里面的内容(像卡片上的收起按钮和能滚的来回):记下收到的按下、抬起和取消。 */
+    /** What's inside (like the stow button on the card and the roll back and forth): Note the presses, lifts, and cancels received. */
     private inner class Content : View(context) {
         override fun onTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
@@ -35,7 +35,7 @@ class OverlayFrameDragTest {
         }
     }
 
-    /** 400×800 的窗口,整块都是内容。 */
+    /** The entire 400×800 window is filled with content. */
     private fun frame(handle: Rect?): OverlayFrame = OverlayFrame(context).apply {
         addView(Content(), FrameLayout.LayoutParams(400, 800))
         measure(View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
@@ -59,7 +59,8 @@ class OverlayFrameDragTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             frame(Rect(0, 0, 400, 60)).gesture(200f, 30f, far)
         }
-        // 移过阈值:开始拖,里面收到取消(不会当成点按),抬起只结束拖动
+        // Moved past the threshold: start dragging, cancel will be received (will not be regarded as
+        // click), lift only to end dragging
         assertEquals(listOf("down", "start", "cancel", "end"), calls)
     }
 
@@ -67,7 +68,8 @@ class OverlayFrameDragTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             frame(Rect(0, 0, 400, 60)).gesture(200f, 400f, far)
         }
-        // 没有拖动;整串触摸都交给了里面的内容(例如滚动)
+        // There is no dragging; the entire series of touches is given to the content inside (e.g.
+        // scrolling)
         assertEquals(listOf("down", "up"), calls)
     }
 

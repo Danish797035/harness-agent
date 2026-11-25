@@ -12,24 +12,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 任务进行中用户在同一对话里插的话:[Pending] 刚发出、还没送到任务,[Received] 任务的收件箱已收下(下一步就处理),
- * [Joined] 已交给当前任务的模型,[Next] 任务已收尾、作为下一件事,[Cancelled] 停止或当前任务收尾时没用上的远程插话,[Withdrawn] 用户已撤回。
+ * If the user interrupts in the same conversation while the task is in progress: [Pending] has just been
+ * sent and has not yet been sent to the task, [Received] has been accepted in the inbox of the task
+ * (processed in the next step), [Joined] has been handed over to the model of the current task, [Next]
+ * has ended the task, as the next thing, [Cancelled] has stopped or the remote interjection that was not
+ * used at the end of the current task, [Withdrawn] has been withdrawn by the user.
  */
 enum class SteerState { Pending, Received, Joined, Next, Cancelled, Withdrawn }
 
-/** 还没交给模型的插话(任务就此收尾时作为下一件事,停止时作废)。 */
+/** Interjections that have not yet been given to the model (when the task ends here, it will be regarded as the next thing, and when it is stopped, it will be discarded). */
 val SteerState.unconsumed: Boolean get() = this == SteerState.Pending || this == SteerState.Received
 
 /**
- * [interrupted] 是这句插话撤掉的那段回复里用户已经看到的字;[finished] 是这句插话交给模型之前、已经说完显示出来的回复。
- * 两者都显示在插话上方;没有时为 null。
+ * [interrupted] is the word that the user has seen in the reply after the interruption was removed;
+ * [finished] is the reply that was displayed before the interruption was handed over to the model. Both
+ * are displayed above the inset; null when not present.
  */
 data class SteerNote(
     val id: String, val text: String, val state: SteerState, val interrupted: String? = null, val finished: String? = null,
     val remote: Boolean = false,
 )
 
-/** 电脑只看到自己追加的消息去向,不带手机上插的话或正文;远程插话撤不回(`RunInbox.withdrawSteer`),[SteerState.Withdrawn] 只为穷举,按没用上报。 */
+/** The computer only sees the destination of the message added by itself, without the words or text inserted on the mobile phone; the remote interrupt cannot be undone (`RunInbox.withdrawSteer`), [SteerState.Withdrawn] is just for exhaustion, so report it as useless. */
 internal fun remoteSteers(notes: List<SteerNote>, finished: Boolean = false): List<RemoteSteer> = notes.filter { it.remote }.map {
     RemoteSteer(it.id, when (it.state) {
         SteerState.Pending, SteerState.Received -> if (finished) "not_applied" else "received"
@@ -39,8 +43,10 @@ internal fun remoteSteers(notes: List<SteerNote>, finished: Boolean = false): Li
 }
 
 /**
- * 运行事件里插话交给模型的先后:`reply_interrupted`([interrupted])或 `reply_finished_before_steer`([finished])先到,
- * 紧接着这一批插话逐句 `steer_received`,那段字只挂到其中第一句上([joined])。
+ * In the running event, the interrupts are delivered to the model in the order: `reply_interrupted`
+ * ([interrupted]) or `reply_finished_before_steer` ([finished]) comes first, followed by this batch of
+ * interrupts one by one, `steer_received`, and that paragraph is only linked to the first sentence
+ * ([joined]).
  */
 class SteerJoin {
     @Volatile private var cut: String? = null
@@ -50,7 +56,7 @@ class SteerJoin {
 
     fun finished(text: String) { done = text }
 
-    /** [id] 这句已交给模型:标成 [SteerState.Joined],有刚记下的那段字就挂上(用过即清)。 */
+    /** The sentence [id] has been given to the model: mark it as [SteerState.Joined], and hang it if you have the word you just wrote down (it will be cleared after use). */
     fun joined(notes: List<SteerNote>, id: String): List<SteerNote> {
         val c = cut.also { cut = null }
         val d = done.also { done = null }
@@ -60,7 +66,7 @@ class SteerJoin {
     }
 }
 
-/** 进程内 TaskCenter 的展示状态，由 App 容器持有，Service 只是写入它的宿主。 */
+/** The display status of TaskCenter in the process is held by the App container, and the Service only writes to its host. */
 class TaskCenterState {
     val shownLock = Any()
     @Volatile var shownRun: TaskRun? = null
@@ -101,13 +107,13 @@ class TaskCenterState {
     val endedRunId: StateFlow<String?> = _endedRunId.asStateFlow()
     val _endedRunIds = MutableStateFlow<Map<String, String?>>(emptyMap())
     val endedRunIds: StateFlow<Map<String, String?>> = _endedRunIds.asStateFlow()
-    /** 显示中的任务到此刻的活动(实际做过的事,来自运行事件)。 */
+    /** Displays the activities of the task up to this moment (actually done, from running events). */
     val _activities = MutableStateFlow<List<RunEvent.Activity>>(emptyList())
     val activities: StateFlow<List<RunEvent.Activity>> = _activities.asStateFlow()
-    /** 显示中的任务收到的插话和它们的去向。 */
+    /** Displays the interrupts received by the task in question and where they went. */
     val _steers = MutableStateFlow<List<SteerNote>>(emptyList())
     val steers: StateFlow<List<SteerNote>> = _steers.asStateFlow()
-    /** 停止之后正在写交代的那几次运行(运行编号);写好记进对话、或写不成,就拿掉。 */
+    /** The several runs (run numbers) in which instructions are being written after stopping; write them down in the dialog, or delete them if they cannot be written. */
     val _summarizing = MutableStateFlow<Set<String>>(emptySet())
     val summarizing: StateFlow<Set<String>> = _summarizing.asStateFlow()
     val _frames = MutableStateFlow<Bitmap?>(null)

@@ -24,12 +24,14 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** 手动检查更新这一次的结果;自动检查不改它(失败时不打扰)。 */
+/** The manual check updates the result this time; the automatic check doesn't change it (and doesn't bother if it fails). */
 enum class CheckStatus { Idle, Checking, Done, Failed }
 
 /**
- * 检查更新的状态。[latest] 是最近一次查到的版本(更新记录用),[update] 是比当前新的那个(有它才有红点)。
- * [manualRounds] 每完成一次手动检查加一,页面据此给出「已是最新」「连不上」之类的提示。
+ * Check the status of updates. [latest] is the latest version found (used for updating records), and
+ * [update] is the newer one (only if it has a red dot). [manualRounds] adds one each time a manual check
+ * is completed, and the page will give prompts such as "already up to date" and "unable to connect"
+ * accordingly.
  */
 data class UpdateState(
     val latest: ReleaseInfo? = null,
@@ -41,8 +43,10 @@ data class UpdateState(
 }
 
 /**
- * 每次打开 App 都自动查一次,只挡住连着来的:离上次自动检查不到 [MIN_GAP_MS](来回切几下、旋转屏幕)不再查。
- * 上次时间比现在还晚(改过系统时间)也算到期。
+ * It will automatically check every time you open the app, and only blocks consecutive ones:
+ * [MIN_GAP_MS] (switch back and forth a few times, rotate the screen) that is less than the last time it
+ * was automatically checked will not be checked again. If the last time is later than now (the system
+ * time has been changed), it is also considered expired.
  */
 object UpdateSchedule {
     const val MIN_GAP_MS = 6 * 60 * 60 * 1000L
@@ -51,9 +55,12 @@ object UpdateSchedule {
 }
 
 /**
- * 检查更新,没有自己的服务器:只问 GitHub 发布页接口;连不上、限流、读不懂都算这次没查到。
- * 查到的版本和上次自动检查的时间存在 [file],App 重开后红点还在;装了新版后当前版本不再落后,红点自然消失。
- * 这里只检查版本；用户主动下载、安装由 [ApkUpdater] 处理。
+ * Check for updates. If you don’t have your own server: just ask for the GitHub release page interface;
+ * if you can’t connect, have limited traffic, or can’t read it, it won’t be found this time. The version
+ * found and the time of the last automatic check exist [file], and the red dot is still there after the
+ * App is reopened; after installing the new version, the current version is no longer lagging behind,
+ * and the red dot disappears naturally. Only the version is checked here; user-initiated downloading and
+ * installation are handled by [ApkUpdater].
  */
 class UpdateChecker(
     private val file: File,
@@ -62,7 +69,7 @@ class UpdateChecker(
     private val releaseApi: String = HarnessLinks.LATEST_RELEASE_API,
     private val now: () -> Long = System::currentTimeMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    /** 本机支持的 ABI(Build.SUPPORTED_ABIS),用来挑发布里合适的 APK;为空时取全架构包。 */
+    /** The ABI (Build.SUPPORTED_ABIS) supported by this machine is used to select the appropriate APK in the release; when it is empty, the full architecture package is obtained. */
     private val deviceAbis: List<String> = emptyList(),
     private val currentVersionCode: Long = 0,
 ) {
@@ -73,22 +80,23 @@ class UpdateChecker(
     private var lastAttempt: Long? = null
     private var loaded = false
 
-    /** 每次打开 App 时调:到期就在后台查一次,失败不吭声。 */
+    /** Every time you open the app: it will check in the background once it expires, and if it fails, it will make no sound. */
     fun autoCheckInBackground() {
         scope.launch { autoCheck() }
     }
 
-    /** 用户点了「检查更新」。 */
+    /** The user clicked "Check for Updates". */
     fun checkInBackground() {
         scope.launch { check(manual = true) }
     }
 
-    /** 读出存着的结果(只读一次),红点不用等联网。 */
+    /** Read out the saved results (only read once), the red dots do not need to wait for the Internet connection. */
     suspend fun load() = mutex.withLock { loadLocked() }
 
     /**
-     * 到期就查一次,返回这次有没有真的去查。开查前先记下这次的时间:同时进来的第二次(查还没完)看到的是刚记的时间,
-     * 不会再查一遍。
+     * Check it once when it is due, and return whether you really checked it this time. Write down the
+     * time before starting the check: the second time you come in at the same time (before the check is
+     * finished), you will see the time you just recorded and will not check again.
      */
     suspend fun autoCheck(): Boolean {
         val due = mutex.withLock {
@@ -114,7 +122,7 @@ class UpdateChecker(
         }
     }
 
-    /** GitHub 上最新的发布;没查到为空。 */
+    /** Latest releases on GitHub; empty if not found. */
     internal fun fetchLatest(): ReleaseInfo? = runCatching { Releases.fromGitHub(get(releaseApi), deviceAbis) }.getOrNull()
 
     private fun get(url: String): String {
@@ -163,7 +171,7 @@ class UpdateChecker(
     }
 
     companion object {
-        /** 有的网络连 GitHub 时快时慢:超时放短,失败就换备用来源。走设置 › 网络代理。 */
+        /** Some networks are sometimes fast and sometimes slow when connecting to GitHub: shorten the timeout and switch to a backup source if it fails. Go to Settings › Network Proxy. */
         fun defaultClient(): OkHttpClient = NetProxy.shared.client(OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)

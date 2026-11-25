@@ -8,26 +8,37 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * 元素融合:页面脚本的元素表(看得见、没被盖住的才列)与 DevTools 无障碍树按 backendNodeId 合成一份元素列表。纯函数。
- * - 两边都有:名字、角色、禁用/焦点等状态取无障碍树,位置、可见、遮挡取页面脚本。无障碍树里被忽略的节点不采信。
- *   输入框、下拉框的名字里带着已填的值,保留页面脚本的;文件控件、内嵌页面占位的角色保留页面脚本的。
- * - 只有无障碍树有:只收可交互的角色。页面脚本读不到的跨源框架(它只列出一个「内嵌页面」占位)里的,
- *   框剪到占位的可见范围内,插在占位后面;页面脚本读得到的文档里的(如封闭的 shadow root),要命中检测确认在最上面才收。
- * - 只有页面脚本有:原样保留;元素自己挂着点击类监听器的纯文字/图片升为可点。
- * 顺序:文档顺序。超出 [Input.budget] 时先丢没信息量的,再丢纯文字,最后才丢可交互的,丢掉的个数记在 omitted。
- * 编号重新按顺序排成 @e1…;[Result.pageRefs] 是新编号 → 页面脚本编号表里的编号(只有无障碍树有的元素没有)。
+ * Element fusion: The element table of the page script (the visible and uncovered columns) and the
+ * DevTools accessibility tree are combined into one element list based on backendNodeId. Pure function.
+ * - - Both sides have: name, role, disabled/focus and other status to get the accessibility tree,
+ * position, visible, occlusion to get the page script. Ignored nodes in the accessibility tree are not
+ * considered.
+ * Input boxes and drop-down boxes with filled-in values in their names retain page scripts; file
+ * controls and embedded page placeholder roles retain page scripts.
+ * - - Only the accessibility tree has: only interactive characters are accepted. in a cross-origin
+ * framework that cannot be read by page scripts (it only lists an "embedded page" placeholder),
+ * The frame is cut into the visible range of the placeholder and inserted behind the placeholder; in the
+ * document that can be read by the page script (such as a closed shadow root), hit detection must be
+ * confirmed at the top before being closed.
+ * - - Only the page script has: keep it as it is; the plain text/image with the click listener attached
+ * to the element itself will be upgraded to clickable.
+ * Order: Document order. When it exceeds [Input.budget], the ones with no information will be discarded
+ * first, then the plain text, and finally the interactive ones. The number of discarded items will be
+ * recorded in omitted. The numbers are rearranged in order as @e1...;[Result.pageRefs] is the new number
+ * → the number in the page script number table (only the elements in the accessibility tree are not).
  */
 object ElementFusion {
     const val DEFAULT_BUDGET = 400
-    /** 只有无障碍树有的元素最多补这么多个(每个要一次取框、一次命中检测)。 */
+    /** Only the accessibility tree has a maximum of so many elements to fill in (each requires one frame removal and one hit check). */
     const val MAX_CANDIDATES = 60
-    /** 最多给这么多个页面脚本元素查监听器。 */
+    /** Check listeners for up to so many page script elements. */
     const val MAX_LISTENER_PROBES = 40
     private const val NAME_CHARS = 80
 
     /**
-     * 无障碍树的一个节点。[id]/[parent] 是本帧树里的节点号,[order] 是本帧树深度优先的先后;
-     * [states] 是为真的布尔/三态属性名(disabled、focused、readonly、editable、checked…)。
+     * A node in the accessibility tree. [id]/[parent] is the node number in the tree of this frame,
+     * [order] is the depth-first order of the tree in this frame; [states] is the true
+     * Boolean/three-state attribute name (disabled, focused, readonly, editable, checked...).
      */
     data class AxNode(
         val id: String,
@@ -41,7 +52,7 @@ object ElementFusion {
         val states: Set<String> = emptySet(),
     )
 
-    /** 顶层视口 CSS 像素的矩形。 */
+    /** A rectangle of top-level viewport CSS pixels. */
     data class Box(val l: Double, val t: Double, val r: Double, val b: Double) {
         val cx get() = (l + r) / 2
         val cy get() = (t + b) / 2
@@ -52,9 +63,11 @@ object ElementFusion {
     enum class Origin { PAGE, BOTH, AX }
 
     /**
-     * [page] 是 PageTree 的结果(视图像素),[pageIds] 与它按下标对齐;[owners] 是框架元素的 backendNodeId → 它里面文档的 frameId。
-     * [boxes]/[onTop] 给只有无障碍树有的候选节点(按 backendNodeId):框(已换成顶层视口坐标)与命中检测结果。
-     * [listeners] 是挂着点击类监听器的元素。[scale] 是 CSS 像素 → 视图像素的倍数。
+     * [page] is the result (view pixel) of PageTree, [pageIds] is subscript-aligned with it; [owners] is
+     * the backendNodeId of the frame element → the frameId of the document inside it. [boxes]/[onTop]
+     * gives only candidate nodes (by backendNodeId) in the accessibility tree: box (replaced with
+     * top-level viewport coordinates) and hit detection results. [listeners] is an element with a click
+     * listener attached. [scale] is a multiple of CSS pixels → view pixels.
      */
     class Input(
         val page: List<UiElement>,
@@ -76,26 +89,26 @@ object ElementFusion {
         val pageRefs: Map<String, String>,
         val backendIds: Map<String, Int>,
         val origins: Map<String, Origin>,
-        /** 只有无障碍树有的元素所在框架的占位元素(新编号 → 占位的 backendNodeId);在主文档的为空。 */
+        /** Only the placeholder element of the frame where the element in the accessibility tree is located (new number → backendNodeId of the placeholder); in the main document is empty. */
         val frameOwners: Map<String, Int>,
         val omitted: Int,
     )
 
-    /** 一个候选节点:[placeholder] 是它所在跨源框架在页面脚本元素表里的占位下标,在页面脚本读得到的文档里为 null。 */
+    /** A candidate node: [placeholder] is the placeholder subscript of the cross-source framework in which it is located in the page script element table, and is null in the document read by the page script. */
     class Candidate(val node: AxNode, val placeholder: Int?, val ownerId: Int?)
 
-    // ---------- 角色 ----------
+    // ---------- Role ----------
 
     private val CLICK_ROLES = setOf(
         "link", "button", "checkbox", "radio", "combobox", "switch", "tab", "menuitem", "option", "slider",
         "menuitemcheckbox", "menuitemradio", "treeitem", "listbox",
     )
     private val EDIT_ROLES = setOf("textbox")
-    /** 页面脚本给的这些角色不让无障碍树改:file 是上传要认的,frame 是跨源框架的占位。 */
+    /** These roles given by the page script do not allow accessibility changes: file is required for uploading, and frame is a placeholder for the cross-origin framework. */
     private val KEEP_PAGE_ROLES = setOf("file", "frame")
     private val NON_INTERACTIVE_ROLES = setOf("heading", "image")
 
-    /** 无障碍树的角色 → 和页面脚本同一套词;没有语义的(generic、StaticText…)为 null。 */
+    /** The role of the accessibility tree → is the same set of words as the page script; those without semantics (generic, StaticText...) are null. */
     fun role(ax: String): String? = when (ax) {
         "searchbox", "spinbutton" -> "textbox"
         "img" -> "image"
@@ -108,9 +121,9 @@ object ElementFusion {
 
     private fun interactive(role: String?) = role != null && (role in CLICK_ROLES || role in EDIT_ROLES)
 
-    // ---------- 第一步:要补框的候选 ----------
+    // ---------- Step 1: Candidates for frame filling ----------
 
-    /** 只有无障碍树有、可交互、值得补的节点;页面脚本读不到的跨源框架里的排前面。 */
+    /** Only the nodes in the accessibility tree that are interactive, worth adding; the first ones in the cross-origin framework that cannot be read by page scripts. */
     fun candidates(input: Input): List<Candidate> {
         val matched = input.pageIds.filterNotNull().toSet()
         val byFrame = input.ax.groupBy { it.frameId }.mapValues { (_, l) -> l.associateBy { it.id } }
@@ -122,7 +135,9 @@ object ElementFusion {
             if (n.ignored || id in matched || !interactive(role(n.role))) continue
             val ph = behind[n.frameId]
             if (ph == null) {
-                // 读得到的文档里,外层有页面脚本已列出的可交互元素:页面脚本看见了外层却没列它,多半被盖住或只是外层的一部分
+                // In the readable document, the outer layer contains interactive elements that the page
+                // script has listed: the page script sees the outer layer but does not list it, and it
+                // is probably covered or only part of the outer layer.
                 val nodes = byFrame[n.frameId].orEmpty()
                 var p = n.parent?.let(nodes::get)
                 var covered = false
@@ -138,7 +153,7 @@ object ElementFusion {
         return out.sortedBy { if (it.placeholder != null) 0 else 1 }.take(MAX_CANDIDATES)
     }
 
-    /** frameId → (占位在页面脚本元素表里的下标, 占位的 backendNodeId):占位框架本身及它里面套的框架。 */
+    /** frameId → (the subscript of the placeholder in the page script element table, the placeholder's backendNodeId): the placeholder frame itself and the frames inside it. */
     private fun placeholders(input: Input): Map<String, Pair<Int, Int>> {
         val direct = HashMap<String, Pair<Int, Int>>()
         input.pageIds.forEachIndexed { i, id ->
@@ -159,7 +174,7 @@ object ElementFusion {
         return out
     }
 
-    /** 一个节点在本帧无障碍树里的子孙(含自己)对应的 backendNodeId:命中检测落在这些节点上都算点到它。 */
+    /** The backendNodeId corresponding to a node's descendants (including itself) in the accessibility tree of this frame: any hit detection that falls on these nodes will count as hitting it. */
     fun subtreeIds(ax: List<AxNode>, node: AxNode): Set<Int> {
         val children = ax.filter { it.frameId == node.frameId }.groupBy { it.parent }
         val out = HashSet<Int>()
@@ -172,7 +187,7 @@ object ElementFusion {
         return out
     }
 
-    /** 候选节点可见的范围(CSS 像素):跨源框架里的是占位的可见部分,其余是视口。命中检测点取框与它相交部分的中心。 */
+    /** Visible range of candidate nodes (CSS pixels): The visible part of the cross-source frame is the placeholder, and the rest is the viewport. The hit detection point is the center of the intersection of the box and it. */
     fun clip(input: Input, c: Candidate): Box {
         val k = input.scale.takeIf { it > 0 } ?: 1.0
         val r = c.placeholder?.let { rectOf(input.page[it], input.width, input.height) }
@@ -180,7 +195,7 @@ object ElementFusion {
         return Box(r.l / k, r.t / k, r.r / k, r.b / k)
     }
 
-    /** 要查监听器的页面脚本元素下标:不可点的纯文字、图片,且无障碍树也没说它可交互。 */
+    /** Check the page script element subscript of the listener: plain text and pictures that cannot be clicked, and the accessibility tree does not say that it is interactive. */
     fun listenerProbes(input: Input): List<Int> {
         val axById = axByBackend(input.ax)
         return input.page.indices.filter { i ->
@@ -201,7 +216,7 @@ object ElementFusion {
         return m
     }
 
-    // ---------- 第二步:合并 ----------
+    // ---------- Step 2: Merge ----------
 
     fun fuse(input: Input): Result {
         val axById = axByBackend(input.ax)
@@ -210,7 +225,9 @@ object ElementFusion {
             Item(merge(e, id?.let(axById::get), id != null && id in input.listeners), id, e.ref, if (id?.let(axById::get) != null) Origin.BOTH else Origin.PAGE, null)
         }
         val extra = axOnly(input)
-        // 插入:跨源框架里的跟在占位后面;读得到的文档里的跟在同帧里无障碍树顺序在它前面的最后一个已对上的元素后面
+        // Insertion: in the cross-source frame, it follows the placeholder; in the readable document, it
+        // follows the same frame, and the accessibility tree order is after the last aligned element
+        // before it.
         val pageOrder = HashMap<Int, Pair<String, Int>>()
         input.pageIds.forEachIndexed { i, id -> id?.let(axById::get)?.let { pageOrder[i] = it.frameId to it.order } }
         val after = extra.groupBy { c ->
@@ -256,7 +273,8 @@ object ElementFusion {
             else -> base.role
         }
         val axName = cut(ax.name)
-        // 输入框、下拉框、滑块的名字里有值(密码框只说填了几位):保留页面脚本的
+        // There are values in the names of input boxes, drop-down boxes, and sliders (the password box
+        // only says how many people have been filled in): keep the page script
         val valued = base.editable || base.role in setOf("textbox", "combobox", "slider") || roleOut in EDIT_ROLES
         val name = when {
             valued -> base.name.ifBlank { axName }
@@ -287,7 +305,9 @@ object ElementFusion {
             val id = c.node.backendId ?: continue
             val box = input.boxes[id] ?: continue
             val top = input.onTop[id]
-            // 读得到的文档里:页面脚本没列它,要命中检测明说在最上面;跨源框架里:命中检测说被盖住才不收
+            // In the document that can be read: the page script does not list it, and the hit detection
+            // is clearly stated at the top; in the cross-origin framework: the hit detection says that
+            // it will not be collected unless it is covered.
             if (c.placeholder == null && top != true) continue
             if (c.placeholder != null && top == false) continue
             val clip = c.placeholder?.let { pageRects[it] } ?: view
@@ -296,7 +316,8 @@ object ElementFusion {
             if (vis.r - vis.l < 1 || vis.b - vis.t < 1) continue
             val roleOut = role(c.node.role) ?: continue
             val name = cut(c.node.name)
-            // 页面脚本那边没对上节点号、但其实是同一个元素(同名或可交互且大半重合):不重复列
+            // The page script does not match the node number, but it is actually the same element (same
+            // name or interactive and mostly overlapping): no duplicate columns
             val dup = input.page.indices.any { i ->
                 val e = input.page[i]
                 if (input.pageIds[i] != null || e.role == "frame") return@any false
@@ -304,7 +325,9 @@ object ElementFusion {
                 r.contains(vis.cx, vis.cy) && (e.name.equals(name, ignoreCase = true) || ((e.clickable || e.editable) && r.iou(vis) > 0.5))
             }
             if (dup) continue
-            // 无障碍树里套着的同名可交互节点(链接里的按钮)、同角色同名几乎同框的:只留外层/第一个
+            // Interactive nodes with the same name (buttons in links) nested in the accessibility tree,
+            // with the same name as the character and almost the same frame: only the outer/first one is
+            // left
             val nested = keptRects.any { (k, r) ->
                 val sameName = k.item.element.name.equals(name, ignoreCase = true)
                 (sameName || name.isBlank()) && isAncestor(nodesByFrame[c.node.frameId].orEmpty(), k.node, c.node) ||
@@ -329,7 +352,9 @@ object ElementFusion {
                 scrollable = false,
                 focused = "focused" in c.node.states,
                 states = c.node.states.filter { it in UiStates.ALL }.toSet(),
-                // 只有无障碍树看得到的输入框(跨源框架、读屏脚本没列的):看不出是不是密码框,按密码框算
+                // Only the input boxes visible in the accessibility tree (not listed in cross-source
+                // frameworks and screen reading scripts): It is not clear whether it is a password box,
+                // so it is counted as a password box.
                 secret = !disabled && "readonly" !in c.node.states && roleOut in EDIT_ROLES,
             )
             val x = Extra(c.node, c.placeholder, Item(el, id, null, Origin.AX, c.ownerId))
@@ -350,7 +375,7 @@ object ElementFusion {
         return false
     }
 
-    /** 超预算时按「没信息量 → 纯文字等不可交互 → 可交互」的次序、各自从后往前丢,保留的仍按原顺序。 */
+    /** When the budget exceeds the budget, the order of "no information → plain text and other non-interactive → interactive" will be thrown from back to front, and the remaining ones will still be in the original order. */
     private fun budget(all: List<Item>, budget: Int): List<Item> {
         if (all.size <= budget) return all
         fun tier(e: UiElement) = when {
@@ -390,7 +415,7 @@ object ElementFusion {
         }
     }
 
-    // 归一的 0–999 换回视图像素;误差不到一个像素
+    // Normalized 0–999 to return view pixels; the error is less than one pixel
     private fun rectOf(e: UiElement, w: Int, h: Int): Rect {
         fun dx(v: Int) = v * (w - 1).coerceAtLeast(1) / 999.0
         fun dy(v: Int) = v * (h - 1).coerceAtLeast(1) / 999.0

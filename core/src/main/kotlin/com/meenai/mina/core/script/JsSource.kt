@@ -1,21 +1,25 @@
 package com.meenai.mina.core.script
 
 /**
- * 模型或站点命令写的 JS 源码的词法检查。
+ * Lexical checking of JS source code written by model or site commands.
  *
- * [usesImport]:字符串、注释、正则字面量之外有没有 `import` 这个词(动态 import 会在全局作用域里跑模块,绕开只读包装)。
- * `/` 是除号还是正则的开头,有时只看词法分不清(`)`、`}`、`++` 之后,以及 of/yield/await 这类既可能是关键字也可能是变量名的词之后):
- * 这时两种读法都走一遍,任何一种读法在代码里读到 import 都算有。读法按 (位置, `/` 的读法, 括号栈) 去重,不会成倍增长;
- * 读不通的读法(正则或字符串没合上就到行尾)作废。宁可误拦,不漏。
+ * [usesImport]: Is there any word `import` besides strings, comments, and regular literals (dynamic
+ * import will run the module in the global scope, bypassing the read-only packaging). Whether `/` is a
+ * division sign or the beginning of a regular expression, sometimes it is not clear just by looking at
+ * the lexicon (after `)`, `}`, `++`, and after words such as of/yield/await, which may be keywords or
+ * variable names): At this time, go through both readings, and any reading of import in the code counts.
+ * The reading method is (position, reading method of `/`, bracket stack) to remove duplication and will
+ * not be doubled; the reading method that cannot be read (regular or the string is not closed and
+ * reaches the end of the line) is invalid. It is better to block by mistake than to miss.
  */
 object JsSource {
     private enum class Slash { Regex, Divide, Both }
 
     private data class State(val pos: Int, val slash: Slash, val stack: List<Char>)
 
-    /** 之后的 `/` 一定是正则开头的关键字。 */
+    /** The following `/` must be the keyword starting with the regular expression. */
     private val BEFORE_EXPRESSION = setOf("return", "typeof", "instanceof", "in", "new", "delete", "void", "throw", "case", "do", "else")
-    /** 可能是关键字也可能是变量名的词:之后的 `/` 两种读法都走。 */
+    /** It may be a keyword or a variable name: the following `/` can be read in both ways. */
     private val EITHER = setOf("of", "yield", "await", "let", "async", "get", "set", "static")
 
     fun usesImport(code: String): Boolean {
@@ -30,7 +34,7 @@ object JsSource {
         return false
     }
 
-    /** 从 [start] 起读一条读法,遇到两可的 `/` 就把两种读法交给 [fork] 并停下。读到 import 返回 true。 */
+    /** Start reading one reading from [start]. When encountering the ambiguous `/`, hand over the two readings to [fork] and stop. Read import returns true. */
     private class Lexer(private val code: String, start: State, private val fork: (State) -> Unit) {
         private var i = start.pos
         private var slash = start.slash
@@ -85,7 +89,7 @@ object JsSource {
         private fun identStart(c: Char) = c == '$' || c == '_' || c == '\\' || c.isLetter()
         private fun identPart(c: Char) = identStart(c) || c.isDigit() || c == '‌' || c == '‍'
 
-        /** 一个标识符;`\uXXXX`、`\u{…}` 转义解开后再比。 */
+        /** An identifier; `\uXXXX`, `\u{…}` is escaped and then compared. */
         private fun word(): String {
             val out = StringBuilder()
             while (i < n && identPart(code[i])) {
@@ -100,7 +104,7 @@ object JsSource {
             return out.toString()
         }
 
-        /** 字符串字面量;到行尾还没合上(且不是续行)为 false。 */
+        /** String literal; if it has not been closed to the end of the line (and is not a continuation of the line), it is false. */
         private fun string(q: Char): Boolean {
             i++
             while (i < n) {
@@ -115,7 +119,7 @@ object JsSource {
             return false
         }
 
-        /** 模板字符串的文字部分,从当前位置读到反引号(结束)或 `${`(压栈,回到代码)。 */
+        /** The text part of the template string is read from the current position to the backtick (end) or `${` (pushed on the stack and returned to the code). */
         private fun template(): Boolean {
             while (i < n) {
                 val c = code[i]
@@ -129,7 +133,7 @@ object JsSource {
             return false
         }
 
-        /** 正则字面量(含字符类里的 `/`)和标志;到行尾还没合上为 false。 */
+        /** Regular literals (including `/` in character classes) and flags; if not closed at the end of the line, it is false. */
         private fun regex(): Boolean {
             i++
             var inClass = false
@@ -153,3 +157,4 @@ object JsSource {
         }
     }
 }
+

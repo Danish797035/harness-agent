@@ -12,32 +12,36 @@ import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 内置助手里盯着主屏的那一份:Agent 的动作前后一小段时间里,主屏最上面换了哪些任务([MainScreenLog])。
- * App 不是从自己在 Mina 屏上的页面、而是从后台(服务、通知的跳转、系统的选择器)打开另一个 App 时,系统把它放到主屏;
- * Mina 一侧据这份记录认出来、挪回去。
+ * The part of the built-in assistant that stares at the home screen: in a short period of time before
+ * and after the Agent's action, what tasks were changed at the top of the home screen ([MainScreenLog]).
+ * When an App opens another App not from its own page on the Mina screen, but from the background
+ * (services, notification jumps, system selectors), the system puts it on the home screen; Mina
+ * recognizes it based on this record and moves it back.
  *
- * 任务一变就看一次:向系统登记任务栈的监听(ITaskStackListener,shell 有管理任务的权限),
- * 监听只当「变了」的信号用,不解析参数(各版本的方法顺序不同),收到就重看一遍任务列表;
- * 登记不上时退回在盯着的那段时间里每 [POLL_MS] 看一次。查询时([arrivals])再当场看一次,不漏最后的样子。
- * 不在盯着的时候不看任务列表。
+ * Watch it once when the task changes: register the task stack listener with the system
+ * (ITaskStackListener, the shell has the authority to manage tasks), the listener is only used as a
+ * "changed" signal, and does not parse the parameters (the method order of each version is different).
+ * After receiving it, read the task list again; if the registration fails, return to watch it every
+ * [POLL_MS] during the period of staring. When querying ([arrivals]), look at it again on the spot, so
+ * as not to miss the final appearance. Don’t look at the to-do list when you’re not staring.
  */
 internal class MainScreenWatch(
     private val taskManager: () -> Any,
-    /** 此刻所有屏上的任务,按最近使用排。 */
+    /** All tasks on the screen at the moment are arranged by most recently used. */
     private val tasks: () -> List<MainScreenLog.Task>,
 ) {
     private val log = MainScreenLog()
     private val thread = HandlerThread("mina-main-watch").apply { start() }
     private val handler = Handler(thread.looper)
-    /** 盯到什么时候(uptimeMillis)。 */
+    /** Watch until when (uptimeMillis). */
     @Volatile private var until = 0L
-    /** 任务栈监听登记上了为 true,登记不上为 false,还没试过为 null。 */
+    /** If the task stack listener is registered, it will be true, if it is not registered, it will be false, and if it has not been tried yet, it will be null. */
     @Volatile private var listening: Boolean? = null
     private val queued = AtomicBoolean(false)
     private val polling = AtomicBoolean(false)
     private val signal = StackSignal()
 
-    /** 从现在起盯 [windowMs];返回此刻主屏最上面的任务(没有为 -1)。 */
+    /** Stare at [windowMs] from now on; return to the top task on the home screen at the moment (-1 if not). */
     fun watch(windowMs: Int): Int {
         val now = SystemClock.uptimeMillis()
         val top = synchronized(log) {
@@ -51,8 +55,9 @@ internal class MainScreenWatch(
     }
 
     /**
-     * [since] 之后主屏冒到最上面的任务,先后排;每条另带此刻它在哪块屏(不在了为 -1),和这份记录是靠监听还是轮询得来的。
-     * 字段见 [toBundle]。
+     * [since] After that, the main screen pops up to the top tasks, arranged one after another; each
+     * item also shows which screen it is on at the moment (it is -1 if it is not there), and whether
+     * this record is obtained by monitoring or polling. See [toBundle] for fields.
      */
     fun arrivals(since: Long): Bundle = synchronized(log) {
         val now = SystemClock.uptimeMillis()
@@ -79,7 +84,7 @@ internal class MainScreenWatch(
         synchronized(log) { scanLocked(now, record = true) }
     }
 
-    /** 任务栈变了:合并一下再看,一连串变化只看一次。 */
+    /** The task stack has changed: combine them and look at them again, and only look at a series of changes once. */
     private fun onSignal() {
         if (SystemClock.uptimeMillis() >= until) return
         if (queued.compareAndSet(false, true)) handler.postDelayed({ queued.set(false); scan() }, COALESCE_MS)
@@ -106,8 +111,10 @@ internal class MainScreenWatch(
     }
 
     /**
-     * 系统按 ITaskStackListener 的接口回调过来的 Binder。只认「来了一次回调」,不读参数;
-     * 这些回调都是单向的,不用回话。描述符照接口的名字填,系统那边按它包装。
+     * The system calls back the Binder through the ITaskStackListener interface. It only recognizes "a
+     * callback has come" and does not read parameters; these callbacks are one-way and do not require a
+     * reply. The descriptor is filled in according to the name of the interface, and the system packages
+     * it according to it.
      */
     private inner class StackSignal : Binder() {
         init { attachInterface(null, DESCRIPTOR) }
@@ -126,7 +133,7 @@ internal class MainScreenWatch(
         private const val DESCRIPTOR = "android.app.ITaskStackListener"
         const val POLL_MS = 100L
         private const val COALESCE_MS = 30L
-        /** 窗口过了之后再查,仍当场看一次:Mina 那边判完要一点时间。 */
+        /** Check again after the window has passed, and still check on the spot: Mina will take a while to complete the judgment. */
         private const val GRACE_MS = 2_000L
         private const val MAX_WINDOW_MS = 30_000
 
@@ -141,7 +148,7 @@ internal class MainScreenWatch(
         const val KEY_NOW = "now"
         const val KEY_LISTENING = "listening"
 
-        /** 一组记录打成平行的数组(Bundle 里没有对象列表);[now] 是任务此刻在哪块屏。 */
+        /** A set of records is organized into a parallel array (there is no object list in the Bundle); [now] is which screen the task is on at the moment. */
         fun toBundle(list: List<MainScreenLog.Arrival>, now: (Int) -> Int, listening: Boolean): Bundle = Bundle().apply {
             putIntArray(KEY_TASK, list.map { it.taskId }.toIntArray())
             putStringArray(KEY_PACKAGE, list.map { it.packageName }.toTypedArray())

@@ -19,11 +19,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 主循环的各条策略:只看传进去的快照,返回决定。 */
+/** Each strategy of the main loop: only look at the passed snapshot and return to the decision. */
 class LoopPoliciesTest {
     private fun warn(code: String) = GuardVerdict(code, Severity.Warn, JsonObject(emptyMap()))
 
-    // ---- 回合 ----
+    // ---- Round ----
 
     @Test fun progressChecksAtHalfAndThreeQuarters() {
         val at = (1..21).filter { TurnPolicy.beforeStep(TurnSnapshot(it, 20)) != null }
@@ -63,7 +63,7 @@ class LoopPoliciesTest {
         assertEquals(Feedback["final_turn"], TurnPolicy.finalTurn().text)
     }
 
-    // ---- 停止 ----
+    // ---- stop ----
 
     @Test fun giveUpEndsBeforeGuardStop() {
         val stop = GuardVerdict("no_progress", Severity.Stop, JsonObject(emptyMap()))
@@ -82,7 +82,7 @@ class LoopPoliciesTest {
         assertEquals("Model call error: boom", StopRules.modelFailed(IllegalStateException("boom")).reason)
     }
 
-    // ---- 卡住提醒 ----
+    // ----Stuck Reminder----
 
     @Test fun giveUpAdviceFromSecondStuckWarning() {
         val (s1, a1) = StuckAdvice.next(StuckState(), StuckInput(listOf(warn("no_progress")), null, "com.x"))
@@ -90,7 +90,7 @@ class LoopPoliciesTest {
         val (s2, a2) = StuckAdvice.next(s1, StuckInput(listOf(warn("read_loop")), null, "com.x"))
         assertEquals(2, s2.warnings)
         assertEquals(Feedback.format("give_up_advice", "answer_or_failure" to ANSWER_OR_FAILURE), a2)
-        // 不是卡住类的结论不算
+        // Conclusions that are not stuck do not count.
         assertNull(StuckAdvice.next(StuckState(), StuckInput(listOf(warn("too_many_failures")), null, null)).second)
     }
 
@@ -127,7 +127,7 @@ class LoopPoliciesTest {
         assertNull(StuckAdvice.typedText(Verb.TypeText, args, null))
     }
 
-    // ---- 结果之后的说明 ----
+    // ---- Instructions after the results ----
 
     @Test fun imageNotes() {
         assertEquals(Feedback["recalled_note"], NoticePolicy.imageNote(Verb.ViewPastScreens, false))
@@ -141,7 +141,8 @@ class LoopPoliciesTest {
         assertEquals(listOf(KnowledgeLookup.Site("example.com")), NoticePolicy.knowledgeAfter(Verb.Observe, Place.site("WWW.Example.com"), true))
         assertEquals(listOf(KnowledgeLookup.Site("shop.example.com")), NoticePolicy.knowledgeAfter(Verb.Navigate, Place.site("shop.example.com"), true))
         assertEquals(emptyList<KnowledgeLookup>(), NoticePolicy.knowledgeAfter(Verb.Navigate, Place.site("shop.example.com"), false))
-        // 动作把任务带到了别处,只有看过那里才找资料;打开网页不算看了 App
+        // The action takes the task to another place, and you can only look for information after you
+        // have looked there; opening a webpage does not count as looking at the app.
         assertEquals(emptyList<KnowledgeLookup>(), NoticePolicy.knowledgeAfter(Verb.Tap, Place.app("com.x"), true))
         assertEquals(emptyList<KnowledgeLookup>(), NoticePolicy.knowledgeAfter(Verb.Navigate, Place.app("com.x"), true))
         assertEquals(emptyList<KnowledgeLookup>(), NoticePolicy.knowledgeAfter(Verb.Observe, null, true))
@@ -153,7 +154,7 @@ class LoopPoliciesTest {
         assertNull(placeAfter(Verb.Tap, nav))
     }
 
-    // ---- 压缩时机 ----
+    // ---- Compression timing ----
 
     @Test fun compressionReportedOnlyWhenFoldingChanges() {
         var s = CompactionState()
@@ -170,13 +171,15 @@ class LoopPoliciesTest {
         val (s, again) = CompactionPolicy.overflow(CompactionState(), retried = false) { true }
         assertTrue(again && s.aggressive)
         assertFalse(CompactionPolicy.overflow(CompactionState(), retried = false) { false }.second)
-        // 已是狠压缩的任务再次超长:历史长了、压得更小就再重发一次
+        // The already heavily compressed task is too long again: if the history is long and the
+        // compression is smaller, then resend it again.
         assertTrue(CompactionPolicy.overflow(s, retried = false) { true }.second)
-        // 同一次超长已经重发过:不再算、不再发
+        // The same super long item has been reissued: it will no longer be counted and will not be sent
+        // again.
         assertFalse(CompactionPolicy.overflow(s, retried = true) { error("不该再算") }.second)
     }
 
-    // ---- 重试 ----
+    // ---- Try again ----
 
     private val fixed = RetryPolicy(jitter = { 1.0 })
 

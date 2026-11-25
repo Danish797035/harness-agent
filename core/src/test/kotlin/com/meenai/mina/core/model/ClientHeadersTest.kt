@@ -18,7 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/** 每个请求都带的头:三种协议的适配器(一次性和流式)、列模型都带上,Key 的头不被盖掉;会话号由对话 id 推出。 */
+/** Each request carries headers: adapters for three protocols (one-time and streaming) and column models are carried, and the Key header is not covered; the session number is derived from the conversation id. */
 class ClientHeadersTest {
     private lateinit var server: MockWebServer
     private val caps = Capabilities(toolCalls = true, vision = false, contextTokens = 64_000, reasoning = false)

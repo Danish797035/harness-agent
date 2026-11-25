@@ -17,7 +17,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 回看之前的读屏(哪块屏的都行):能看图的主模型拿到当时的截图,其余给当时的元素文字。 */
+/** Look back at the previous screen reading (any screen will work): the main model that can see the picture will get the screenshot at that time, and the rest will be the element text at that time. */
 internal object ViewPastScreens : AgentTool {
     override val verb = Verb.ViewPastScreens
     override val risk = Risk.Read
@@ -51,7 +51,7 @@ internal object ViewPastScreens : AgentTool {
                 put("error", "screenshot_not_found")
                 put("message", Feedback.format("recall_not_found", "keep" to RECALL_KEEP))
                 put("recoverable", true)
-                // 找不到的是旧画面,不是手机操作失败
+                // What I can’t find is the old screen, not the phone operation failure.
                 put("counts_as_failure", false)
             }
         }

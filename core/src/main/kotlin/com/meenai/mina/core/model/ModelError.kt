@@ -8,24 +8,30 @@ sealed class ModelError(message: String, cause: Throwable? = null) : Exception(m
     class RateLimited(val retryAfterMs: Long?) : ModelError("Too many requests, try again later")
     class ContextTooLong : ModelError("The conversation exceeds the model's context length")
     /**
-     * 服务商那里没有这个模型(或地址不对,请求的接口不存在);[model] 是请求的模型名,不知道时为空。
-     * [detail] 是服务端 JSON 报错里的原话(截短),没有为空:网关、中转服务还会用 404 说别的情况(比如它的上游模型这会儿都不可用),
-     * 看原话才分得出是哪一种。
+     * The service provider does not have this model (or the address is wrong and the requested interface
+     * does not exist); [model] is the requested model name, and it is empty if it is not known. [detail]
+     * is the truncated original message from the server JSON error (empty if none): gateways and relay
+     * services also use 404 for other cases (such as their upstream models currently being unavailable),
+     * so inspecting the original message distinguishes which case it is.
      */
     class ModelNotFound(val model: String = "", val detail: String = "") :
         ModelError(if (model.isEmpty()) "Model not found" else "Model not found: “$model”")
     /**
-     * 服务商有这个模型,这个账号却用不了(没开通、没权限、没买);[detail] 是服务端的原话(截短),没有为空。
-     * 换一个模型或到服务商后台开通才行,重试没用。见 [ModelAccessErrors]。
+     * The service provider has this model, but this account cannot be used (not activated, not
+     * authorized, not purchased); [detail] is the original word of the server (truncated), and it is
+     * empty if not. Just change a model or go to the service provider's backend to activate it. Trying
+     * again is useless. See [ModelAccessErrors].
      */
     class ModelNotAvailable(val model: String = "", val detail: String = "") :
         ModelError(if (model.isEmpty()) "This account cannot use this model (not enabled or no permission)" else "This account cannot use model “$model” (not enabled or no permission)")
-    /** 服务端明说这个模型不支持调用工具(带工具的请求被拒)。Mina 干活靠工具,它当不了主模型。 */
+    /** The server clearly stated that this model does not support calling tools (requests with tools were rejected). Mina relies on tools to work, it cannot be used as a master model. */
     class ToolsUnsupported(val model: String = "") :
         ModelError(if (model.isEmpty()) "This model does not support tool calls" else "Model “$model” does not support tool calls")
     class Network(cause: Throwable? = null) : ModelError("Network connection failed", cause)
     /**
-     * 走网络代理时代理那一段出的错(连不上代理,或代理拒了账号密码),不是服务商的问题。见 [com.meenai.mina.core.net.NetProxy]。
+     * When using an online proxy, an error occurs on the proxy side (cannot connect to the proxy, or the
+     * proxy rejects the account and password), which is not a problem with the service provider. See
+     * [com.meenai.mina.core.net.NetProxy].
      */
     class Proxy(val failure: ProxyFailure, cause: Throwable? = null) : ModelError(
         when (failure) {
@@ -35,22 +41,26 @@ sealed class ModelError(message: String, cause: Throwable? = null) : Exception(m
         cause,
     )
     /**
-     * 流式回复还没收尾(没有结束标记,也没有结束原因)连接就关了:多半是途中的网关、代理空闲超时或网络切换把连接掐断。
-     * 回复不完整、不能用,重发同一个请求通常就好;和接口配置无关。
+     * The connection is closed before the streaming reply ends (there is no end mark and no end reason):
+     * most likely the gateway, proxy idle timeout or network switching on the way cuts off the
+     * connection. If the reply is incomplete and cannot be used, it is usually enough to resend the same
+     * request; it has nothing to do with the interface configuration.
      */
     class StreamCut : ModelError("The reply was cut off before it finished")
     class Server(val status: Int) : ModelError("Model service error (HTTP $status)")
     class ContentRefused : ModelError("The model refused this content")
-    /** ChatGPT 套餐给其他 App 用的额度到了上限:不重试,等额度恢复或换模型。 */
+    /** The quota of the ChatGPT package for other apps has reached the upper limit: do not try again, restore or change models when the quota is reached. */
     class ChatGptLimitReached : ModelError("The ChatGPT quota is used up")
-    /** 这个 ChatGPT 账号不能在其他 App 里用套餐额度(套餐不符、地区或账号策略不允许):不重试。 */
+    /** This ChatGPT account cannot use the package quota in other apps (package does not match, region or account policy does not allow): Do not try again. */
     class ChatGptNotEligible(val detail: String = "") :
         ModelError(if (detail.isEmpty()) "This account cannot use its ChatGPT quota in other apps" else "This account cannot use its ChatGPT quota in other apps: $detail")
-    /** 登录已失效(换新令牌被拒,或用户在账号里断开了这个 App),要重新登录。[account] 是哪一家的登录(界面上的名字)。 */
+    /** The login has expired (the new token was refused, or the user disconnected the app from the account), and you need to log in again. [account] Which company is the login (name on the interface). */
     class SignInExpired(val account: String = "ChatGPT") : ModelError("Sign-in has expired, please sign in again")
     /**
-     * 用账号登录的(如 xAI)接口回 HTTP 403:登录是成功的,这个订阅档位却不能调这个接口。不重试;
-     * 改用这家的 API Key 才行。[account] 是哪一家,[detail] 是服务端的原话(截短),没有为空。
+     * The interface for logging in with an account (such as xAI) returns HTTP 403: The login is
+     * successful, but this subscription level cannot adjust this interface. Do not retry; use this API
+     * Key instead. Which company does [account] belong to? [detail] is the original message (truncated)
+     * from the server, and is empty if not.
      */
     class AccountPlanNotAllowed(val account: String, val detail: String = "") :
         ModelError("Your ${account} plan cannot use this API")

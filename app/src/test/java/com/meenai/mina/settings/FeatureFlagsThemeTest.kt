@@ -8,7 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** 外观改了(设置页或任务里)界面当场跟着换,不靠重建界面。 */
+/** When the appearance is changed (in the settings page or in the task), the interface will be changed on the spot without having to rebuild the interface. */
 class FeatureFlagsThemeTest {
     @Test fun defaultsToSystemAndUnknownFallsBack() {
         val prefs = FeatureFlagsCapsuleTest.MemoryPrefs()

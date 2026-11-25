@@ -3,15 +3,17 @@ package com.meenai.mina.cap.web
 import android.content.Context
 import android.webkit.WebViewDatabase
 
-/** 站点登记表的设置页操作;登记表是进程里那一份(App 给出,设置页和标签池共用)。 */
+/** The setting page operation of the site registration form; the registration form is the one in the process (given by the App, shared by the setting page and the tag pool). */
 object WebSites {
     fun registry(context: Context): SiteRegistry = WebOwner.of(context).webSites
 
-    /** 设置页用的退出操作:mina 网页配置的 Cookie 与网页存储。主线程调用。 */
+    /** Exit operation for settings page: cookie and web page storage of mina web page configuration. Called by the main thread. */
     fun login(context: Context): WebLogin = WebLogin(WebTab.cookieManager(), WebTab.webStorage(), registry(context))
 
     /**
-     * 设置页的「全部退出并清除网页数据」:没有开着的标签也要清缓存,所以临时开一个同配置的看不见的标签来清,用完即关。主线程调用。
+     * "Exit all and clear web page data" on the settings page: The cache must be cleared even if the tab
+     * is not open, so temporarily open an invisible tab with the same configuration to clear it, and
+     * close it after use. Called by the main thread.
      */
     fun logoutAll(context: Context) {
         val tmp = WebTab(context.applicationContext, "clear", "settings")

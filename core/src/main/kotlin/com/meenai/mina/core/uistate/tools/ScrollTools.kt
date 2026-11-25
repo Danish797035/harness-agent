@@ -24,7 +24,7 @@ import com.meenai.mina.core.uistate.action
 import com.meenai.mina.core.uistate.lastOrSnapshot
 import com.meenai.mina.core.uistate.screen
 
-/** 滑动(横滑可能是「滑动删除」,要按目标判不可逆)。 */
+/** Sliding (horizontal sliding may be "sliding to delete", which must be determined by the target to determine whether it is irreversible). */
 internal class Scroll(f: ScreenFamily) : ScreenTool(f, "scroll") {
     override val verb = Verb.Scroll
     override val batchable = true
@@ -50,18 +50,21 @@ internal class Scroll(f: ScreenFamily) : ScreenTool(f, "scroll") {
         val x = a.coord("x"); val y = a.coord("y")
         if ((x == null) != (y == null)) throw ArgError("x", "give both x and y or neither")
         val cx = x ?: 500; val cy = y ?: 500
-        // direction 是内容移动方向,手指反向滑动。
+        // direction is the direction in which the content moves, and the finger slides in the opposite
+        // direction.
         val dist = min(650, amount * 100)
         val dx = when (dir) { "left" -> dist; "right" -> -dist; else -> 0 }
         val dy = when (dir) { "up" -> dist; "down" -> -dist; else -> 0 }
         fun bound(v: Double) = max(50, min(949, v.roundToInt()))
-        // 手机默认纵向滚动先让无障碍控件执行滚动;端口找不到可滚控件时自己退到手势。
+        // By default, vertical scrolling on mobile phones first allows accessibility controls to perform
+        // scrolling; when the port cannot find scrollable controls, it falls back to gestures.
         val r = if (family.id == "phone" && dir in setOf("up", "down") && x == null && amount == 3)
             ctx.action(ctx.screen.scroll(null, null, dir == "down"))
         else swipeNormalized(ctx, bound(cx - dx / 2.0), bound(cy - dy / 2.0), bound(cx + dx / 2.0), bound(cy + dy / 2.0))
         if (r.content["ok"] != JsonPrimitive(true)) return r
         val finger = when (dir) { "up" -> "down"; "down" -> "up"; "left" -> "right"; else -> "left" }
-        // 没动(多半到头了)由分发器按实际效果判,结果里另标 atEnd
+        // Not moving (most likely the end) will be judged by the distributor according to the actual
+        // effect, and the result will be marked as atEnd
         val content = r.content + mapOf("direction" to JsonPrimitive(dir), "fingerMoved" to JsonPrimitive(finger))
         return ToolExecution(JsonObject(content), changed = r.changed)
     }

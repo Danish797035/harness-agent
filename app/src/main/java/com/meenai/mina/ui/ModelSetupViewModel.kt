@@ -66,22 +66,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
-/** 列模型(「测试并保存」或刷新一个服务商)的进度。 */
+/** List the progress of a model ("Test and Save" or refresh a provider). */
 sealed interface ListState {
     data object Idle : ListState
     data object Running : ListState
     data class Failed(val message: String) : ListState
 }
 
-/** 用 ChatGPT 登录的账号:[email] 来自核对过的 ID 令牌(可能为空);退出登录后 [signedIn] 为假。 */
+/** Account logged in using ChatGPT: [email] comes from the verified ID token (may be empty); [signedIn] is false after logging out. */
 data class ChatGptAccount(val email: String, val signedIn: Boolean)
 
-/** 用 Google Gemini 登录的账号。 */
+/** Account logged in with Google Gemini. */
 data class GeminiWebAccount(val email: String, val signedIn: Boolean)
 
 /**
- * 除 ChatGPT 以外用账号登录的几家:xAI / Grok 走设备码(浏览器里核对短码),OpenRouter 走官方的 PKCE 授权(本机回调换 Key)。
- * ChatGPT 的登录另有一套(见 [ModelSetupViewModel.signInWithChatGpt]),界面上和它们并排。
+ * In addition to ChatGPT, there are several companies that use accounts to log in: xAI / Grok uses the
+ * device code (check the short code in the browser), and OpenRouter uses the official PKCE authorization
+ * (local callback to change the key). There is another set of logins for ChatGPT (see
+ * [ModelSetupViewModel.signInWithChatGpt]), which is side by side with them on the interface.
  */
 enum class AccountProvider(val target: SignInTarget) {
     Xai(SignInTarget.Xai), OpenRouter(SignInTarget.OpenRouter);
@@ -91,12 +93,14 @@ enum class AccountProvider(val target: SignInTarget) {
     }
 }
 
-/** 一家账号登录的账号。[label] 是给人看的账号名(邮箱等,可能为空);退出登录后 [signedIn] 为假。没有这家服务商时为 null。 */
+/** An account to log in to with one account. [label] is the account name shown to others (email, etc., which may be empty); [signedIn] is false after logging out. This is null if there is no such provider. */
 data class SubscriptionAccount(val label: String, val signedIn: Boolean)
 
 /**
- * 正在进行或刚失败的账号登录。没在登录、也没有失败时 [provider] 为 null。
- * 设备码登录时 [userCode] 是给用户看的短码,[openUrl] 是核对过主机的验证页,[expiresAtMs] 是短码失效的时间。
+ * An account login is in progress or has just failed. [provider] is null when there is no login or
+ * failure. When logging in with the device code, [userCode] is the short code shown to the user,
+ * [openUrl] is the verification page that has been checked against the host, and [expiresAtMs] is the
+ * time when the short code expires.
  */
 data class AccountSignInUi(
     val provider: AccountProvider? = null,
@@ -108,20 +112,24 @@ data class AccountSignInUi(
 )
 
 /**
- * 用账号登录要用到的系统能力:在浏览器里打开授权页、登录完回到 Mina、本机回调收到后浏览器里显示的网页。
- * 界面给出(要 Context);测试里不给,就不能登录。
+ * The system capabilities required to log in with an account: open the authorization page in the
+ * browser, return to Mina after logging in, and the web page displayed in the browser after the local
+ * callback is received. The interface is given (Context is required); if it is not given in the test,
+ * you cannot log in.
  */
 interface SignInBrowser {
     fun open(url: String)
     fun returnToApp()
-    /** 回调处理完之后回给浏览器的网页:[failure] 为 null 是登录成功,否则是失败的原因(和界面上同一句)。 */
+    /** The webpage returned to the browser after the callback is processed: [failure] is null, which means the login is successful, otherwise it is the reason for failure (the same sentence as on the interface). */
     fun page(failure: String?): String
 }
 
 /**
- * 「添加服务商」表单。[noList] 为真时上次测试没列出模型:要先填 [model](手填的模型名),再测试就用它试调用。
- * [manual] 为真是用户点了「手动填写模型名」(或列模型出错后自动展开):随时都能填,填了就用它试调用,列表有没有、
- * 列不列得出都不影响。[name] 是自定义服务商的名字(只有自定义才填,可不填,见 [providerName])。
+ * "Add Provider" form. When [noList] is true, the last test listed no models: fill in [model]
+ * (manually entered model name) first, and the next test call uses it. [manual] is true when the user
+ * tapped "Enter model name manually" (or auto-expanded after a listing error): can be filled anytime
+ * and used for the test call regardless of whether listing works, omits it, or fails. [name] is the
+ * custom provider name (only for custom providers, optional, see [providerName]).
  */
 data class AddForm(
     val preset: String,
@@ -134,18 +142,18 @@ data class AddForm(
     val name: String = "",
     val manual: Boolean = false,
 ) {
-    /** 显示「模型名」一栏:没列出模型,或用户要手填。 */
+    /** Display the "Model Name" column: No model is listed, or the user needs to fill it in manually. */
     val showModel: Boolean get() = noList || manual
 
-    /** 填了的模型名;没显示那一栏时不算。 */
+    /** The model name is filled in; it does not count when that column is not displayed. */
     val typedModel: String get() = if (showModel) model.trim() else ""
 
     val isCustom: Boolean get() = preset == ProviderPresets.custom.label
 
-    /** 跑在用户自己机器上的服务(见 [ProviderPreset.selfHosted]):地址预填了本机的默认端口,要能改成那台机器的。 */
+    /** Services running on the user's own machine (see [ProviderPreset.selfHosted]): The address is pre-filled with the default port of the machine and must be able to be changed to that machine. */
     val isSelfHosted: Boolean get() = presetFor(preset).selfHosted
 
-    /** 地址要用户填或改:自定义,和自己跑的服务。 */
+    /** The address needs to be filled in or changed by the user: customized, and a service run by oneself. */
     val urlEditable: Boolean get() = isCustom || isSelfHosted
 
     val urlProblem: String?
@@ -155,42 +163,44 @@ data class AddForm(
             else -> null
         }
 
-    /** 明文 http 又不在本机、局域网的地址:提醒一句,不拦着(见 [LocalHosts])。 */
+    /** Plain text http is not the address of this machine or LAN: a reminder, don’t block it (see [LocalHosts]). */
     val unencryptedWarning: String?
         get() = if (urlProblem == null && LocalHosts.unencryptedRemote(baseUrl)) tr(R.string.model_url_unencrypted) else null
 
-    /** 自己跑的服务和自定义的 OpenAI 兼容接口(多半是本地服务)可以不填 Key,其余都要。 */
+    /** You don’t need to fill in the Key for services you run and custom OpenAI compatible interfaces (mostly local services), but the rest are required. */
     val keyRequired: Boolean get() = !isSelfHosted && !(isCustom && kind == ProviderConfig.Kind.OpenAiCompat)
 
     val canTest: Boolean get() =
         urlProblem == null && (!keyRequired || apiKey.isNotBlank()) && test != ListState.Running && (!noList || model.isNotBlank())
 
-    /** 不测试也能存:地址格式对、该有 Key 的有 Key。和 [canTest] 不同,不看测试进度,也不要求填模型名。 */
+    /** It can be saved without testing: the address format is correct, and the key should be there. Different from [canTest], the test progress is not checked and the model name is not required. */
     val canSaveUntested: Boolean get() = urlProblem == null && (!keyRequired || apiKey.isNotBlank()) && test != ListState.Running
 
-    /** 自定义填的是某家服务商的官方地址(主机名对得上,见 [ProviderPresets.forHost]):建议改用那个预设。 */
+    /** The custom address is the official address of a certain service provider (the host name matches, see [ProviderPresets.forHost]): it is recommended to use that default instead. */
     val suggestedPreset: ProviderPreset? get() = if (isCustom && urlProblem == null) ProviderPresets.forHost(baseUrl) else null
 
-    /** 地址就是 [suggestedPreset] 的那个地址,选的接口类型却和它的不一样:照这样一定调不通。 */
+    /** The address is the one of [suggestedPreset], but the selected interface type is different from it: it will definitely not work in this way. */
     val presetKindMismatch: Boolean
         get() = suggestedPreset?.let { s -> ProviderPresets.forBaseUrl(baseUrl.trim()) == s && kind != s.kind } == true
 
-    /** 举模型名的例子按哪一类接口:地址对得上某个预设的按那个预设,否则按选的接口类型。 */
+    /** Take the example of model name, which type of interface to press: if the address matches a certain preset, press that preset, otherwise press the selected interface type. */
     val exampleKind: ProviderConfig.Kind get() = suggestedPreset?.kind ?: kind
 
-    /** 自定义没起名字时用的名字:地址的主机名(地址是某家预设的就用预设名)。 */
+    /** Customize the name used when no name is given: the host name of the address (if the address is preset by a certain company, use the default name). */
     val defaultName: String get() = ProviderConnection.nameForUrl(baseUrl)
 
     /**
-     * 存成服务商时用的名字:预设用预设名,自定义用填的名字、没填用 [defaultName]。
-     * 服务商按接口类型、地址和名字归组,同一个地址起不同的名字就是两家(例如同一个中转站的两个 Key)。
+     * The name used when saving as a service provider: use the default name for default, use the
+     * filled-in name for customization, and use [defaultName] if not filled in. Service providers are
+     * grouped according to interface type, address and name. If the same address has different names,
+     * then there are two providers (for example, two Keys for the same transfer station).
      */
     val providerName: String get() = if (isCustom) name.trim().ifEmpty { defaultName } else preset
 
-    /** 这家要放会话号的请求头名:选的预设声明了的用它;自定义的地址对得上某个预设也用那个预设的。 */
+    /** This company needs to put the session number in the request header: use it if the selected default is declared; if the customized address matches a certain default, use that default. */
     val sessionHeader: String? get() = presetFor(preset).sessionHeader ?: ProviderPresets.forBaseUrl(baseUrl.trim())?.sessionHeader
 
-    /** 这家自己的模型名里的词(见 [ProviderPreset.familyTokens]):选的预设给了的用它,否则按地址对得上的预设。 */
+    /** The word in this company's own model name (see [ProviderPreset.familyTokens]): Use it if the selected preset is given, otherwise use the preset with the matching address. */
     val familyTokens: List<String> get() = presetFor(preset).familyTokens.ifEmpty { ModelOptions.familyOf(baseUrl) }
 
     companion object {
@@ -200,9 +210,10 @@ data class AddForm(
 }
 
 /**
- * 配置模型(上手时)和设置 › 模型共用的全部状态:已连接的服务商、添加服务商表单、三个用途。
- * [providers]、[configs]、[roles] 是 [ProviderStore] 的快照,[keyed] 是存了 Key 的服务商 id;
- * [listing] 是各服务商刷新列表的进度(按服务商 id)。
+ * Configuring the model (when getting started) and setting › All states shared by the model: connected
+ * providers, add provider form, three uses. [providers], [configs], [roles] are snapshots of
+ * [ProviderStore], [keyed] is the service provider id where the Key is stored; [listing] is the progress
+ * of each service provider refreshing the list (according to service provider id).
  */
 data class ModelSetupUi(
     val form: AddForm,
@@ -212,96 +223,105 @@ data class ModelSetupUi(
     val roles: RoleChoices = RoleChoices(),
     val keyed: Set<String> = emptySet(),
     val listing: Map<String, ListState> = emptyMap(),
-    /** ChatGPT 服务商的账号;没有这家时为 null。 */
+    /** The account number of the ChatGPT service provider; if there is no such service provider, it will be null. */
     val chatGptAccount: ChatGptAccount? = null,
-    /** 用 ChatGPT 登录的进度。 */
+    /** Progress of logging in with ChatGPT. */
     val chatGptSignIn: ListState = ListState.Idle,
-    /** Google Gemini 服务商的账号;没有这家时为 null。 */
+    /** The account number of the Google Gemini service provider; if there is no such provider, it will be null. */
     val geminiWebAccount: GeminiWebAccount? = null,
-    /** 用 Gemini Web 登录的进度。 */
+    /** Progress of logging in with Gemini Web. */
     val geminiWebSignIn: ListState = ListState.Idle,
-    /** 是否打开 Gemini Web 登录弹窗。 */
+    /** Whether to open the Gemini Web login pop-up window. */
     val geminiWebLoginOpen: Boolean = false,
-    /** 第一次登录成功后说明一次「在用你的 ChatGPT 套餐」,点「知道了」收起。 */
+    /** After successfully logging in for the first time, state once "I am using your ChatGPT package" and click "I understand" to close it. */
     val chatGptWelcome: Boolean = false,
-    /** 退出登录时 ChatGPT 那边没确认注销(本机令牌已清)。 */
+    /** When logging out, ChatGPT did not confirm the logout (the local token has been cleared). */
     val chatGptRevokeUnconfirmed: Boolean = false,
-    /** 已连接的 Grok 订阅;没有这家时为 null。 */
+    /** The connected Grok subscription; null if there is no such home. */
     val xaiAccount: SubscriptionAccount? = null,
-    /** 用 OpenRouter 账号授权连上的那一家;没有时为 null。 */
+    /** The one to which the OpenRouter account is authorized to connect; if not, it is null. */
     val openRouterAccount: SubscriptionAccount? = null,
-    /** xAI、OpenRouter 的登录进度。 */
+    /** Login progress of xAI and OpenRouter. */
     val accountSignIn: AccountSignInUi = AccountSignInUi(),
-    /** 刚用账号登录成功的服务商 id:界面打开它的详情页(看账号和模型、设主模型),打开后清掉。 */
+    /** Open the details page of the service provider you just successfully logged in with your account ID: interface (see account and model, set master model), and clear it after opening. */
     val signedInProvider: String? = null,
     /**
-     * 刚存下服务商时的说明:试调用先试的模型没通过、主模型用了哪个,或一个都没通过、要用户自己选
-     * (见 [ModelSetupViewModel.testAndSave]);或这家是跳过测试存下的(见 [ModelSetupViewModel.saveWithoutTest])。
-     * 再测试、选了主模型时清掉。
+     * Instructions when just saving the service provider: The first tried model failed to pass the trial
+     * call, which one was used for the main model, or none of them passed, the user has to choose by
+     * himself (see [ModelSetupViewModel.testAndSave]); or this company skipped the test and saved (see
+     * [ModelSetupViewModel.saveWithoutTest]). Clear it when testing again and selecting the main model.
      */
     val probeNote: String? = null,
     /**
-     * 刚存下、还没有哪个模型试通过过的服务商 id:在它里面选主模型时先试调用(见 [probeBeforePick]);选好了清掉。
-     * 两个来源:试调用的模型一个都没通过,或用户跳过测试直接存下。
+     * The service provider ID that has just been saved and has not yet been tested by any model: when
+     * selecting the main model in it, try calling it first (see [probeBeforePick]); clear it after
+     * selecting it. Two sources: none of the models being tried passed, or the user skipped the test and
+     * saved it directly.
      */
     val pickToProbe: String? = null,
-    /** 选择页里手填模型名后试调用的进度(按服务商 id)。 */
+    /** The progress of the trial call after manually filling in the model name on the selection page (according to the service provider ID). */
     val manualPick: Map<String, ListState> = emptyMap(),
-    /** 服务商页「重新测试」的进度(按服务商 id)。 */
+    /** The progress of "Retest" on the service provider page (by service provider ID). */
     val retest: Map<String, ListState> = emptyMap(),
-    /** 语音转文字现在的选择,和这台手机自带识别的能力(给用途卡片和选择页用)。 */
+    /** Speech-to-text is now an option, and this phone comes with built-in recognition capabilities (for usage cards and selection pages). */
     val speech: SpeechChoice = SpeechChoice.Auto,
     val systemSpeech: SystemCapability = SystemCapability(available = false, onDevice = false),
-    /** 正在拿一小段录音试转的服务商 id;没有时为 null。 */
+    /** The ID of the service provider that is trying to transfer a short piece of recording; if not available, it will be null. */
     val speechTesting: String? = null,
 ) {
-    /** 还没有服务商时表单总是展开。 */
+    /** The form is always expanded when there is no service provider yet. */
     val showForm: Boolean get() = formOpen || providers.isEmpty()
 
     /**
-     * 在 [providerId] 里选 [role] 要先试调用(走 [ModelSetupViewModel.pickManual]):刚存下、没有一个模型试通过的那家,
-     * 或跳过测试存下、还没测过的那家([Provider.savedUntested],重开 App 后也算)选主模型。
+     * To select [role] in [providerId], you must first try to call it (go to
+     * [ModelSetupViewModel.pickManual]): choose the main model if you have just saved it and none of the
+     * models have passed the test, or if you skip the test and save the one that has not been tested yet
+     * ([Provider.savedUntested], it counts after reopening the app).
      */
     fun probeBeforePick(role: ModelRole, providerId: String): Boolean = role == ModelRole.Main &&
         (providerId == pickToProbe || providers.firstOrNull { it.id == providerId }?.savedUntested == true)
 
-    /** 选好了主模型就能「下一步」。 */
+    /** Once you have selected the main model, you can "next step". */
     val canNext: Boolean get() = roles.main != null
 
-    /** 这个用途实际用的配置(「用主模型」时是主模型的)。 */
+    /** The configuration actually used for this purpose (when "using the main model", it is the main model). */
     fun configFor(role: ModelRole): ProviderConfig? = roles.resolve(role)?.let { id -> configs.firstOrNull { it.id == id } }
 
     fun providerOf(cfg: ProviderConfig): Provider? = providers.firstOrNull { it.id == cfg.providerId }
 
-    /** 一个服务商可选的全部模型(记住的列表加已有配置)。 */
+    /** All models available for a provider (remembered list plus existing configurations). */
     fun options(p: Provider): List<ModelOption> = ModelOptions.ofProvider(p, configs)
 
-    /** 一个服务商的全部模型,在用的排前面,其余保持原来的顺序。 */
+    /** All models of a service provider are arranged first, and the others remain in their original order. */
     fun sortedOptions(p: Provider): List<ModelOption> = options(p).sortedBy { if (rolesOf(p.id, it.id).isEmpty()) 1 else 0 }
 
-    /** 实际在用这个模型的用途(含「用主模型」跟过来的),按主模型、看图、轻量的顺序。 */
+    /** The actual purpose of using this model (including "using the main model") is in the order of main model, viewing pictures, and lightweight. */
     fun rolesOf(providerId: String, model: String): List<ModelRole> =
         ModelRole.entries.filter { role -> configFor(role)?.let { it.providerId == providerId && it.model == model } == true }
 
-    /** 实际在用这个服务商的用途。 */
+    /** What are the actual uses of this service provider? */
     fun rolesOf(p: Provider): List<ModelRole> = ModelRole.entries.filter { configFor(it)?.providerId == p.id }
 
     /**
-     * 不提供列表的服务商里,在用、却没试调用通过过的模型名(见 [Provider.verifiedModels]):这些是手填的,填错了任务就会失败。
-     * 有列表的服务商,模型是从列表里选的,不算。
+     * For service providers that do not provide a list, the model names that have been used but have not
+     * been tried to be called (see [Provider.verifiedModels]): These are filled in by hand, and the task
+     * will fail if filled in incorrectly. For service providers with a list, the model is selected from
+     * the list and does not count.
      */
     fun unverified(p: Provider): List<String> =
         roles.referenced.mapNotNull { id -> configs.firstOrNull { it.id == id && it.providerId == p.id }?.model }
             .distinct().filter(p::untested)
 
     /**
-     * 这家是跳过测试直接存下的(见 [ModelSetupViewModel.saveWithoutTest]):既没列过模型、也没有一个模型试通过过。
-     * 服务商页据此说「还没测过」,而不是笼统的「不提供模型列表」——后者对它是错的。
-     * 之后列过一次模型、或试通过一次就不算(见 [ProviderStore.rememberModels]、[ProviderStore.markVerified])。
+     * This company skipped the test and saved it directly (see [ModelSetupViewModel.saveWithoutTest]):
+     * no model was listed, and none of the models passed the test. The service provider's page
+     * accordingly says "it hasn't been tested yet", rather than the general "no model list is provided"
+     * - the latter is wrong about it. After that, it will not be counted if the model is listed once or
+     * passed once (see [ProviderStore.rememberModels], [ProviderStore.markVerified]).
      */
     fun untested(p: Provider): Boolean = p.savedUntested
 
-    /** 用账号登录的这一家已经退出了登录(ChatGPT、xAI 的令牌清了,OpenRouter 的 Key 删了)。 */
+    /** The company that logged in with the account has logged out (the tokens of ChatGPT and xAI have been cleared, and the Key of OpenRouter has been deleted). */
     fun signedOut(p: Provider): Boolean = when {
         p.kind == ProviderConfig.Kind.ChatGpt -> chatGptAccount?.signedIn != true
         p.kind == ProviderConfig.Kind.Xai -> xaiAccount?.signedIn != true
@@ -309,7 +329,7 @@ data class ModelSetupUi(
         else -> false
     }
 
-    /** 这个用途明确选的是不是这个模型(「用主模型」不算)。 */
+    /** This purpose clearly selects whether this model is used ("use the main model" does not count). */
     fun picked(role: ModelRole, providerId: String, model: String): Boolean {
         val id = (roles[role] as? RoleChoice.Model)?.configId ?: return false
         return configs.firstOrNull { it.id == id }?.let { it.providerId == providerId && it.model == model } == true
@@ -317,22 +337,26 @@ data class ModelSetupUi(
 }
 
 /**
- * 配置模型的状态与动作。添加服务商:选预设 → 填 Key →「测试并保存」(列模型,再让会当主模型的那个回一句话,都成了才存下这家和列表,不成说原因、不存);
- * 改了服务商、地址或 Key,进行中的测试作废。用途:从所有已连接服务商记住的模型里选,选中即生效;
- * 看图还可以「用主模型」「不用」,轻量可以「用主模型」。连上第一家(还没有主模型)时自动选它的一个模型为主模型。
- * 首次上手和设置 › 模型共用。
+ * Configure the state and actions of the model. Add a service provider: Select Default → Fill in the Key
+ * → "Test and Save" (list the model, and then ask the one who will be the main model to reply, save this
+ * and the list only after it has been completed, do not say the reason, or not save); If the service
+ * provider, address or Key is changed, the ongoing test will be invalidated. Purpose: Select from the
+ * models remembered by all connected service providers, and the selection will take effect; you can also
+ * "use the main model" or "disable" when viewing pictures, and "use the main model" when lightweight.
+ * When connecting to the first one (which does not have a main model yet), one of its models is
+ * automatically selected as the main model. Getting started and setting up › Model sharing.
  */
 class ModelSetupViewModel(
     private val store: ProviderStore,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val browser: SignInBrowser? = null,
-    /** 登录跑在哪:界面给的是 App 那一份(退到后台、界面重建都不断,期间开前台服务);测试里就用 [scope]。 */
+    /** Where to log in and run: The interface is for the App (it goes back to the background and the interface is rebuilt continuously, and the front-end service is turned on during this period); [scope] is used in the test. */
     private val signIns: ChatGptSignIns = ChatGptSignIns(scope),
-    /** 语音转文字的选择;测试和上手流程不传,卡片就不出现。 */
+    /** Speech-to-text option; if the testing and getting started process is not transmitted, the card will not appear. */
     private val speech: SpeechSettings? = null,
     private val systemSpeech: () -> SystemCapability = { SystemCapability(available = false, onDevice = false) },
-    /** 选语音模型时试转用的转写器,和按住说话用的是同一种建法(带客户端标识头)。 */
+    /** The transcriber I tried to use when selecting the voice model is the same construction method (with client identifier) as the one used when pressing and speaking. */
     private val transcriber: (Provider) -> Transcriber = { p -> Transcriber(ProviderStore.modelHttp, store.clientHeaders(p)) },
     /**
      * Scope for the post-login test message. It has to outlive this screen:
@@ -352,17 +376,18 @@ class ModelSetupViewModel(
 
     private val _speechProbe = MutableStateFlow<Map<String, String>>(emptyMap())
 
-    /** 服务商 id -> 选它的语音模型时试转没通过的原因(用现有的说法);选通了或重新选时清掉。 */
+    /** Service provider id -> The reason why the trial transfer failed when selecting its voice model (using the current term); it is cleared when it is selected or re-selected. */
     val speechProbe: StateFlow<Map<String, String>> = _speechProbe.asStateFlow()
 
     private var testJob: Job? = null
     private val refreshJobs = mutableMapOf<String, Job>()
 
     init {
-        // 别处(开发者选项等)改了存储时跟着更新
+        // Update when storage is changed elsewhere (developer options, etc.)
         scope.launch { merge(store.providers, store.configs, store.roles).collect { sync() } }
         speech?.let { s -> scope.launch { s.choice.collect { sync() } } }
-        // 登录在别处结束(通知上取消了)或界面重建前就开始了:跟着它的进度
+        // Login ended elsewhere (cancelled on notification) or started before the interface was rebuilt:
+        // follow its progress
         scope.launch {
             signIns.running.collect { running ->
                 val prompt = signIns.devicePrompt
@@ -387,7 +412,7 @@ class ModelSetupViewModel(
                 }
             }
         }
-        // 设备码的短码可能在界面重建之后才来
+        // The short code of the device code may come after the interface is rebuilt.
         scope.launch {
             signIns.device.collect { prompt ->
                 if (prompt == null) return@collect
@@ -400,7 +425,8 @@ class ModelSetupViewModel(
                 }
             }
         }
-        // 账号登录的结果交给现在这个界面(登录可能是重建前的那个界面开始的)
+        // The result of account login is handed over to the current interface (the login may be started
+        // from the interface before reconstruction)
         scope.launch {
             signIns.outcome.collect { o ->
                 if (o == null) return@collect
@@ -436,7 +462,7 @@ class ModelSetupViewModel(
 
     private fun sync() = _state.update(::snapshot)
 
-    // ---------- 添加服务商 ----------
+    // ---------- Add service provider ----------
 
     fun openForm() = _state.update { it.copy(formOpen = true) }
 
@@ -452,41 +478,55 @@ class ModelSetupViewModel(
         edit { AddForm.of(p).copy(apiKey = key) }
     }
 
-    // 换了接口类型或地址,上次「没列出模型」就不作数了,要重新列
+    // If the interface type or address is changed, the "model not listed" last time will not be counted
+    // and needs to be listed again.
     fun setKind(kind: ProviderConfig.Kind) = edit { it.copy(kind = kind, noList = false) }
     fun setBaseUrl(url: String) = edit { it.copy(baseUrl = url, noList = false) }
     fun setApiKey(key: String) = edit { it.copy(apiKey = key) }
     fun setModel(model: String) = edit { it.copy(model = model) }
 
-    /** 「手动填写模型名」:打开时显示模型名一栏;收起时清掉填的(没列出模型时那一栏一直在)。 */
+    /** "Manually fill in the model name": Display the model name column when it is opened; clear it when it is closed (the column is always there when the model is not listed). */
     fun setManual(on: Boolean) = edit { it.copy(manual = on, model = if (on || it.noList) it.model else "") }
-    // 按字符(码点)截,不把 emoji 截成半个
+    // Cut by character (code point), do not cut emoji into half
     fun setName(name: String) = edit {
         val n = name.codePointCount(0, name.length)
         it.copy(name = if (n <= MAX_NAME) name else name.substring(0, name.offsetByCodePoints(0, MAX_NAME)))
     }
 
-    /** 连接信息变了:进行中的测试和上次的失败原因作废。 */
+    /** The connection information has changed: the ongoing test and the last failure reason are invalid. */
     private fun edit(change: (AddForm) -> AddForm) {
         testJob?.cancel()
         _state.update { it.copy(form = change(it.form).copy(test = ListState.Idle)) }
     }
 
     /**
-     * 测试并保存:列得出模型,再按 [ModelOptions.candidates] 的先后让模型调用一次工具(见 [probe]),成了就存下这家服务商、
-     * 拿通过的那个当主模型(还没有主模型时),表单清空收起。先试的没通过、是那个模型自己的问题(这个账号没开通或没权限、
-     * 没有这个模型、不会调用工具)时,接着试下一个,至多试 [PROBE_CANDIDATES] 个:Key 已经证明是对的,
-     * 通过了的当主模型并说一句先试的哪些没通过;都没通过也存下服务商、不定主模型,说明原因并请用户从列表里选
-     * ([ModelSetupUi.probeNote]、[ModelSetupUi.pickToProbe],选的时候先试调用)。
-     * 第一个就因为别的原因失败(Key、网络、地址、超时、服务端出错)说原因、不存。
+     * Test and save: List the model, then press the sequence of [ModelOptions.candidates] to let the
+     * model call the tool once (see [probe]), then save the service provider, use the passed one as the
+     * main model (when there is no main model), clear the form and close it. If the first test fails and
+     * it is a problem with the model itself (the account is not opened or has no permissions, the model
+     * does not exist, and the tool cannot be called), then try the next one, and try at most
+     * [PROBE_CANDIDATES] Keys. The key has been proven to be correct. The one that has passed will be
+     * the master model and say which of the first tests failed; if they have not passed, the service
+     * provider and the undetermined master model will be saved, explain the reasons, and ask the user to
+     * choose from the list. ([ModelSetupUi.probeNote], [ModelSetupUi.pickToProbe], try calling first
+     * when selecting). The first one failed due to other reasons (Key, network, address, timeout, server
+     * error) and the reason was that it did not exist.
      *
-     * 没列出模型(列表接口不存在,或列出来是空的):可能这家真不提供列表,也可能地址、接口类型填错了,单看列表分不出来。
-     * 所以不直接存,要用户填一个模型名([AddForm.noList]),再测试时用它试调用:通了才存成不提供列表的服务商,
-     * 不通说原因、不存。
+     * The model is not listed (the list interface does not exist, or the list is empty): maybe this
+     * company really does not provide a list, or maybe the address and interface type are filled in
+     * wrongly, and you can't tell the difference just by looking at the list. Therefore, instead of
+     * saving it directly, the user is required to fill in a model name ([AddForm.noList]), and use it to
+     * try to call it when testing: it will be saved as a service provider that does not provide a list.
+     * If it fails, explain the reason and it will not be saved.
      *
-     * 手填了模型名([AddForm.typedModel],随时可以点「手动填写模型名」填)就只试这一个:列表列得出、列不出、列表里有没有它都一样,
-     * 列表出了别的错(Key 不对、服务端出错、回的不是 JSON…)也不挡,试调用的结论说了算——Key、地址不对,试调用一样不通。
-     * 没手填时列表出了别的错照旧说原因,并展开模型名一栏:有的服务只是列表接口不好用,填一个模型名还能连上。
+     * After filling in the model name by hand ([AddForm.typedModel], you can click "Manually fill in the
+     * model name" at any time), just try this one: it will be the same whether it is listed in the list,
+     * not listed, or whether it is in the list. It does not matter if there are other errors in the list
+     * (the Key is wrong, the server has an error, the response is not JSON...), the conclusion of the
+     * trial call has the final say - the Key and address are incorrect, and the trial call will not
+     * work. If there are other errors in the list when I am not busy filling it in, I will still tell
+     * the reason and expand the model name column: some services just have a list interface that is not
+     * easy to use, but I can still connect by filling in a model name.
      */
     fun testAndSave() {
         val f = _state.value.form
@@ -511,7 +551,8 @@ class ModelSetupViewModel(
                 _state.update { it.copy(form = it.form.copy(test = ListState.Idle, noList = true)) }
                 return@launch
             }
-            // 手填了模型名:只试这一个,列表(有的话)照样存下
+            // The model name is filled in by hand: only try this one, the list (if any) will be saved as
+            // usual
             if (typed.isNotEmpty()) {
                 val listed = models.firstOrNull { it.id == typed }
                 val base = (ProviderPresets.forBaseUrl(baseUrl) ?: ProviderPresets.custom).capabilities
@@ -563,15 +604,22 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 不测试,直接保存:只按填的接口类型、地址和 Key 存下这家服务商,不列模型、不试调用(见 [AddForm.canSaveUntested])。
-     * 存下的这家带着 [Provider.savedUntested]:服务商页会说清它还没测过,并留着「重新测试」;
-     * 没有定主模型时还设 [ModelSetupUi.pickToProbe],之后从列表里选主模型会先试调用一次(见 [ModelSetupUi.probeBeforePick])。
+     * Do not test, save directly: only save the service provider according to the filled interface type,
+     * address and Key, do not list the model, do not try to call (see [AddForm.canSaveUntested]). The
+     * saved one has [Provider.savedUntested]: the service provider's page will clearly state that it has
+     * not been tested yet, and will leave "retest"; if the main model is not determined,
+     * [ModelSetupUi.pickToProbe] will be set, and then the main model selected from the list will be
+     * tried to call once (see [ModelSetupUi.probeBeforePick]).
      *
-     * 手填了模型名([AddForm.typedModel])时,只把它记为手填——列表里没有它、或这家列不出模型,刷新列表也不会丢。
-     * 没测过的模型不自动当主模型:没有主模型时用户去选,选的时候先试调用,通了才用。
+     * When the model name ([AddForm.typedModel]) is filled in by hand, it will only be recorded as
+     * hand-filled - it will not be lost if it is not in the list, or the model cannot be listed in this
+     * company, and the list will be refreshed. Models that have not been tested will not automatically
+     * become the main model: when there is no main model, the user has to select it. When selecting, try
+     * to call it first, and then use it after it works.
      *
-     * 列表参数给的是空列表(「列过但一个也没有」)而不是 null:这样「没列出模型」这件事和 [Provider.savedUntested]
-     * 一起把两种情形分清楚了——真的没有列表,还是这次没去列。旧的 [testAndSave] 一行都不动。
+     * The list parameter gives an empty list ("listed but not one") instead of null: so that "no model
+     * is listed" and [Provider.savedUntested] clearly distinguish the two situations - there is really
+     * no list, or it is not listed this time. The old [testAndSave] doesn't move a single line.
      */
     fun saveWithoutTest() {
         val f = _state.value.form
@@ -591,7 +639,8 @@ class ModelSetupViewModel(
                 snapshot(it.copy(
                     form = AddForm.of(ProviderPresets.all.first()), formOpen = false,
                     probeNote = tr(R.string.model_saved_untested, f.providerName),
-                    // 没有主模型时,在它里面选主模型会先试调用
+                    // When there is no main model, selecting the main model in it will try to call it
+                    // first.
                     pickToProbe = saved.id.takeIf { store.roles.value.main == null },
                 ))
             }
@@ -599,9 +648,12 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 试调用的结论:通过、[model] 没调用工具、失败([message] 是给人看的原因)。
-     * 失败是那个模型自己的问题(这个账号用不了、没有这个模型、不支持工具)时 [modelReason] 是短的原因,换一个模型可能就行;
-     * [notAvailable] 为真是没开通或没权限;[serverSide] 为真是服务端出错(5xx),可能只是这一个模型的上游挂了,见 [probe]。
+     * The conclusion of the trial call: passed, [model] did not call the tool, failed ([message] is the
+     * reason for showing it to others). If the failure is a problem with the model itself (this account
+     * cannot be used, does not have this model, does not support tools), [modelReason] is the cause of
+     * the failure, and it may be sufficient to change to another model; [notAvailable] is true that it
+     * is not activated or has no permission; [serverSide] is true that there is a server error (5xx), it
+     * may be that the upstream of this model is down, see [probe].
      */
     private sealed interface ProbeOutcome {
         data object Passed : ProbeOutcome
@@ -613,41 +665,55 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 先试、没通过的一个模型:[reason] 是短的原因;[serverSide] 为真是服务端出错(5xx),见 [probe]。
-     * [skipped] 为真是压根没试(接口写明了它不走这个接口类型),文案里不能说「试了」。
+     * A model that was tried first and failed: [reason] is short; [serverSide] is a true server error
+     * (5xx), see [probe]. [skipped] I haven’t tried it at all (the interface states that it does not use
+     * this interface type), so I can’t say “tried” in the copy.
      */
     private data class Rejected(
         val model: String, val reason: String, val notAvailable: Boolean, val serverSide: Boolean = false,
         val skipped: Boolean = false,
     )
 
-    /** 有列表时试调用的结果:[Blocked] 是第一个就因为模型以外的原因失败,不存;[Done] 见 [probe]。 */
+    /** The result of trying to call when there is a list: [Blocked] is the first one that fails due to reasons other than the model and does not exist; [Done] see [probe]. */
     private sealed interface ListProbe {
         data class Blocked(val message: String) : ListProbe
-        /** [main] 是通过了的模型;[rejected] 是在它之前试过、没通过的。都为空是没有可试的模型。 */
+        /** [main] is the model that passed; [rejected] was tried before but failed. All empty means there are no models to try. */
         data class Done(val main: String?, val rejected: List<Rejected>) : ListProbe
     }
 
     /**
-     * 列出模型后按 [ModelOptions.candidates] 的先后(没有就第一个)让模型调用一次工具(见 [probeModel]),至多试
-     * [PROBE_CANDIDATES] 个:通过就停;没通过、是那个模型自己的问题就试下一个。第一个因为别的原因失败为 [ListProbe.Blocked];
-     * 之后的因为别的原因失败就不再试(Key 已证明是对的),和都没通过一样处理。列表里一个能用的也没有时算通过、不试。
+     * After listing the models, press the order of [ModelOptions.candidates] (if not, use the first one)
+     * to let the model call the tool once (see [probeModel]), try at most [PROBE_CANDIDATES]: if it
+     * passes, stop; if it fails, if it is the problem of the model itself, try the next one. The first
+     * one that fails due to other reasons is [ListProbe.Blocked]; the subsequent ones that fail due to
+     * other reasons will not be tried again (the Key has been proven to be correct), and will be treated
+     * the same as if they failed. If there is no usable item in the list, it will be considered as
+     * passed and no attempt will be made.
      *
-     * 服务端出错(5xx)不一定整家不可用:聚合服务商把很多上游的模型放在同一个列表里,其中一个上游挂了也会这样。
-     * 所以 5xx 先按这个模型没通过记下、接着试下一个:后面有通过的,就说明是那个模型的问题,照常保存;
-     * 试的全都是这样,才当成整家不可用,不存。只碰到过 5xx 时 Key 还没证明是对的,这之后再碰到别的原因失败也照旧不存。
+     * A server-side error (5xx) does not necessarily mean that the entire company is unavailable: the
+     * aggregation service provider puts many upstream models in the same list, and this will happen if
+     * one of the upstreams is down. So 5xx first press this model and note it if it fails, and then try
+     * the next one: if there is a pass later, it means that the problem is with that model, so save it
+     * as usual; if all the tests are like this, it will be regarded as unavailable and will not be
+     * saved. The Key has not been proven to be correct when it has only encountered 5xx. After that, it
+     * will still not exist if it fails for other reasons.
      */
     private suspend fun probe(f: AddForm, baseUrl: String, key: String?, models: List<ListedModel>): ListProbe {
-        // 用 ChatGPT 登录不走这张表单(登录本身就核对过了);表单只给 Key 的接口类型,这里再挡一次
+        // You do not need to go through this form when logging in using ChatGPT (the login itself has
+        // been checked); the form only gives the interface type of Key, so block it again here.
         if (f.kind == ProviderConfig.Kind.ChatGpt || f.kind == ProviderConfig.Kind.Xai || f.kind == ProviderConfig.Kind.GeminiWeb) {
             return ListProbe.Done(null, emptyList())
         }
         val base = (ProviderPresets.forBaseUrl(baseUrl) ?: ProviderPresets.custom).capabilities
         val options = ModelOptions.merge(models, base)
-        // 接口写明了模型能走哪几种协议时,只试这个接口类型能走的:用不匹配的协议调用必然失败(如聚合服务把只支持
-        // /messages 的模型排在前面,而当前接口是 OpenAI 兼容),三个都撞墙就是白白干等 PROBE_TIMEOUT_MS × 3 分钟。
-        // 列表给某个模型单独指定了接口的(见 [ListedModel.endpoint]),调用按它自己说的协议走、与这里选的接口类型
-        // 无关,不能筛掉;协议未知的(没写这个字段)也照旧去试。
+        // When the interface states which protocols the model can use, only try the ones that can be
+        // used by this interface type: calling with a mismatched protocol will inevitably fail (for
+        // example, the aggregation service ranks models that only support /messages first, and the
+        // current interface is OpenAI compatible). If you hit a wall with all three, you will have to
+        // wait for PROBE_TIMEOUT_MS × 3 minutes. If the interface is separately specified for a model in
+        // the list (see [ListedModel.endpoint]), the call will be based on the protocol it says. It has
+        // nothing to do with the interface type selected here and cannot be filtered out; if the
+        // protocol is unknown (this field is not written), it will still be tried.
         val mismatched = mutableListOf<String>()
         val usable = ModelOptions.candidates(options, f.familyTokens).filter { m ->
             val listed = models.firstOrNull { it.id == m }
@@ -676,7 +742,8 @@ class ModelSetupViewModel(
                         rejected += Rejected(model, reason, notAvailable = true, serverSide = o.serverSide)
                         if (o.serverSide && firstServerError == null) firstServerError = o.message
                     }
-                    // 前面只有 5xx 时 Key 还没证明是对的:再碰到 Key、网络、地址、超时这类,照旧不存
+                    // When there is only 5xx in the front, the Key has not been proved to be correct:
+                    // when encountering Key, network, address, timeout, etc., they still do not exist.
                     firstServerError != null || i == 0 -> return ListProbe.Blocked(o.message)
                     else -> {
                         rejected += Rejected(model, o.message, notAvailable = false)
@@ -685,7 +752,8 @@ class ModelSetupViewModel(
                 }
             }
         }
-        // 试的全都是服务端出错:多半整家不可用,不存
+        // Everything I tried was an error on the server side: most of them were unavailable or not
+        // available.
         if (rejected.isNotEmpty() && rejected.all { it.serverSide }) {
             return ListProbe.Blocked(firstServerError ?: rejected.first().reason)
         }
@@ -693,8 +761,10 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 存下服务商后给人看的一句:先试的没通过、后面的通过了,说哪些没通过、主模型用了哪个;
-     * 都没通过,说第一个为什么没通过、试过哪些,请用户从列表里选。都顺利为 null。
+     * Save a sentence that the service provider will show to others: the first one failed, the later
+     * ones passed, tell which ones failed, and which one was used for the main model; if none of them
+     * passed, tell why the first one failed, which ones were tried, and ask the user to choose from the
+     * list. All successfully are null.
      */
     private fun probeNote(r: ListProbe.Done): String? {
         if (r.rejected.isEmpty()) return null
@@ -702,17 +772,22 @@ class ModelSetupViewModel(
         val first = r.rejected.first()
         if (r.main != null) return tr(R.string.model_probe_fallback, names, first.reason, r.main)
         val head = tr(R.string.model_probe_none_usable, first.model, first.reason)
-        // 一个都没试(接口写明了都不走这个接口类型):原因已经在 head 里说清,不能再写「试了」
+        // Haven’t tried any of them (even if the interface is clearly stated, I won’t use this interface
+        // type): the reason has been clearly stated in the head, and I can’t write “tried” anymore.
         if (r.rejected.size == 1 || r.rejected.all { it.skipped }) return head
         val tried = if (r.rejected.all { it.notAvailable }) tr(R.string.model_probe_tried_unavailable, names) else tr(R.string.model_probe_tried, names)
         return "$head\n$tried"
     }
 
     /**
-     * 让 [model] 调用一次工具,和真实任务走同一条建模型的路(请求头、会话号都一样):Key 不对、少了服务商要的请求头、
-     * 模型名不对、模型不会调用工具,这里就露出来,不等到第一个任务。超过 [PROBE_TIMEOUT_MS] 没回算失败,服务端的报错原样带上;
-     * 找不到模型时说清是哪个、模型名大概长什么样([exampleKind] 那一类的例子)。[listMissing] 为真时列表也没列出来,
-     * 那多半是地址或接口类型填错了,一并说。
+     * Let [model] call the tool once, and follow the same model building path as the real task (the
+     * request header and session number are the same): the key is wrong, the request header required by
+     * the service provider is missing, the model name is wrong, and the model does not call the tool, it
+     * is exposed here without waiting for the first task. If it exceeds [PROBE_TIMEOUT_MS], it will not
+     * be counted as a failure, and the error report from the server will be sent as it is; if the model
+     * cannot be found, please indicate which model it is and what the model name probably looks like (an
+     * example of [exampleKind]). The list is not listed even when [listMissing] is true. It's probably
+     * because the address or interface type is filled in incorrectly. Let's talk about it together.
      */
     private suspend fun probeModel(
         kind: ProviderConfig.Kind, baseUrl: String, key: String?, sessionHeader: String?,
@@ -740,19 +815,21 @@ class ModelSetupViewModel(
                     else tr(R.string.model_probe_not_found, model, ModelSetupCopy.modelExample(exampleKind)),
                     tr(R.string.model_reason_not_found),
                 )
-                // 5xx:可能只是这一个模型的上游挂了,先按它没通过算,由 [probe] 决定还试不试下一个
+                // 5xx: It may be that the upstream of this model is down. If it fails first, it will be
+                // considered as failed. It is up to [probe] to decide whether to try the next one.
                 is ModelError.Server -> ProbeOutcome.Failed(
                     tr(R.string.model_probe_failed, model, e.message.orEmpty()),
                     tr(R.string.model_reason_server, "HTTP ${e.status}"), serverSide = true,
                 )
-                // 代理那一段的问题:说是代理,不说成模型或服务商不行
+                // The problem with the agency part: It’s impossible to say it’s an agent, but not a
+                // model or service provider.
                 is ModelError.Proxy -> ProbeOutcome.Failed(tr(R.string.model_probe_failed, model, proxyReason(e)))
                 else -> ProbeOutcome.Failed(tr(R.string.model_probe_failed, model, e.message.orEmpty()))
             }
         }
     }
 
-    /** 已连上的服务商里试调用 [model]:用存着的 Key、请求头,能力按已有的配置或预设。 */
+    /** Try calling [model] from the connected service provider: use the saved Key and request header, and can be based on the existing configuration or default. */
     private suspend fun probeSaved(p: Provider, model: String): ProbeOutcome {
         val options = ModelOptions.ofProvider(p, store.list())
         val caps = options.firstOrNull { it.id == model }?.capabilities ?: ModelOptions.baseOf(p)
@@ -761,12 +838,15 @@ class ModelSetupViewModel(
         return probeModel(p.kind, p.baseUrl, store.providerKey(p.id), p.sessionHeader, model, endpoint, caps, example, listMissing = false)
     }
 
-    // ---------- 用 ChatGPT 登录 ----------
+    // ---------- Log in with ChatGPT ----------
 
     /**
-     * 打开浏览器登录 ChatGPT,回调后换令牌、核对,列出模型,存成(或更新)ChatGPT 服务商,回到 Mina。
-     * 还没有主模型时选它的一个模型为主模型。第一次注册成功后说明一次在用套餐额度。失败说原因(并记下给诊断信息)。
-     * 跑在 [signIns] 里:用户在浏览器里登录时 Mina 在后台,不能跟着界面走。
+     * Open the browser and log in to ChatGPT, change the token after the callback, check, list the
+     * model, save (or update) the ChatGPT service provider, and return to Mina. If there is no main
+     * model yet, select one of its models as the main model. After successful registration for the first
+     * time, the amount of the package currently used will be indicated. If it fails, state the reason
+     * (and write it down for diagnostic information). Running in [signIns]: When the user logs in in the
+     * browser, Mina is in the background and cannot follow the interface.
      */
     fun signInWithChatGpt() {
         val browser = browser ?: return
@@ -810,7 +890,7 @@ class ModelSetupViewModel(
         }
     }
 
-    /** 放弃正在进行的登录(本机回调随之关掉)。 */
+    /** Abort the ongoing login (the local callback is turned off). */
     fun cancelChatGptSignIn() {
         signIns.cancel()
         _state.update { it.copy(chatGptSignIn = ListState.Idle) }
@@ -819,10 +899,13 @@ class ModelSetupViewModel(
     fun dismissChatGptWelcome() = _state.update { it.copy(chatGptWelcome = false) }
 
     /**
-     * 用账号登录 xAI 或 OpenRouter:xAI 在浏览器里打开核对过的验证页、界面留下短码,等用户确认;
-     * OpenRouter 打开授权页,同意后回到本机回调、换到一把属于用户的 Key。
-     * 成功后列出模型、存下这一家,还没有主模型时选一个,再打开它的详情页([ModelSetupUi.signedInProvider])。
-     * 失败只说类别和错误代码(并记下给诊断信息)。和 ChatGPT 一样跑在 [signIns] 里:用户在浏览器里时 Mina 在后台。
+     * Log in to xAI or OpenRouter with an account: xAI opens the verified verification page in the
+     * browser, leaves a short code on the interface, and waits for the user to confirm; OpenRouter opens
+     * the authorization page, and after agreeing, returns to the local callback and changes to a key
+     * belonging to the user. After success, list the models, save this one, select one if there is no
+     * main model, and then open its details page ([ModelSetupUi.signedInProvider]). On failure just say
+     * the category and error code (and write it down for diagnostic information). Like ChatGPT, it runs
+     * in [signIns]: Mina is in the background when the user is in the browser.
      */
     fun signInWithAccount(provider: AccountProvider) {
         val browser = browser ?: return
@@ -862,7 +945,7 @@ class ModelSetupViewModel(
         if (!started) _state.update { it.copy(accountSignIn = AccountSignInUi()) }
     }
 
-    /** xAI 设备码登录,列出模型,存成(或更新)那一家。 */
+    /** Log in with xAI device code, list models, and save (or update) which one. */
     private suspend fun connectXai(browser: SignInBrowser): Pair<Provider, ModelListResult> {
         val session = store.xaiAuth.signIn(openBrowser = browser::open, onChallenge = ::publishDevice)
         val existing = store.xaiProvider()
@@ -870,7 +953,7 @@ class ModelSetupViewModel(
         return store.connectAccount(session, (listed as? ModelListResult.Ok)?.models ?: existing?.models.orEmpty()) to listed
     }
 
-    /** OpenRouter 授权换 Key,列出模型,按 OpenRouter 预设存下(或更新)那一家。 */
+    /** Change the OpenRouter authorization key, list the models, and click the OpenRouter default to save (or update) that one. */
     private suspend fun connectOpenRouter(browser: SignInBrowser): Pair<Provider, ModelListResult> {
         val key = signInWithOpenRouter(store.openRouterAuth, browser::open, page = { e -> browser.page(e?.let(ModelsCopy::accountFailure)) })
         val existing = store.openRouterAccount()
@@ -878,11 +961,12 @@ class ModelSetupViewModel(
         return store.connectOpenRouter(key, (listed as? ModelListResult.Ok)?.models ?: existing?.models.orEmpty()) to listed
     }
 
-    /** 把短码留在界面上。打开浏览器由登录流程自己做,这里不再开一次。 */
+    /** Leave the shortcode on the interface. Opening the browser is done by the login process, so I won’t open it again here. */
     private fun publishDevice(c: DeviceChallenge) {
         val openUrl = c.verificationUriComplete ?: c.verificationUri
         val expiresAt = System.currentTimeMillis() + c.expiresInSec * 1000
-        // 界面经 signIns.device 接着显示(重建后的界面也收得到)
+        // The interface is then displayed via signIns.device (the reconstructed interface can also be
+        // received)
         signIns.showDevice(DevicePrompt(c.userCode, openUrl, expiresAt))
     }
 
@@ -898,10 +982,10 @@ class ModelSetupViewModel(
         )
     }
 
-    /** 详情页打开过了。 */
+    /** The details page has been opened. */
     fun signedInShown() = _state.update { it.copy(signedInProvider = null) }
 
-    /** 退出账号登录:xAI 清本机令牌,OpenRouter 删本机的 Key;服务商和用途留着,再登录接着用。 */
+    /** Log out of the account and log in: xAI clears the local token, OpenRouter deletes the local Key; keep the service provider and purpose, log in again and continue using it. */
     fun signOutAccount(providerId: String) {
         scope.launch {
             withContext(io) {
@@ -912,7 +996,7 @@ class ModelSetupViewModel(
         }
     }
 
-    /** 把这家默认的那个模型(见 [ModelOptions.defaultMain])设为主模型。 */
+    /** Set the default model (see [ModelOptions.defaultMain]) as the main model. */
     fun useAsMain(providerId: String) {
         val p = store.provider(providerId) ?: return
         val options = ModelOptions.ofProvider(p, store.list())
@@ -920,7 +1004,7 @@ class ModelSetupViewModel(
         pick(ModelRole.Main, providerId, m)
     }
 
-    /** 退出 ChatGPT 登录:服务端注销、本机清令牌;服务商和用途不动,再登录就能接着用。 */
+    /** Exit ChatGPT and log in: log out of the server and clear the token locally; the service provider and purpose remain unchanged, and you can continue to use it by logging in again. */
     fun signOutChatGpt(providerId: String) {
         scope.launch {
             val revoked = withContext(io) { store.signOutChatGpt(providerId) }
@@ -928,7 +1012,7 @@ class ModelSetupViewModel(
         }
     }
 
-    // ---------- 用 Google Gemini 登录 ----------
+    // ---------- Log in with Google Gemini ----------
 
     fun signInWithGeminiWeb() {
         if (_state.value.geminiWebSignIn == ListState.Running) return
@@ -1041,7 +1125,7 @@ class ModelSetupViewModel(
         }
     }
 
-    // ---------- 用途 ----------
+    // ---------- Purpose ----------
 
     fun setReasoningEffort(role: ModelRole, effort: String?) {
         store.setReasoningEffort(role, effort)
@@ -1059,7 +1143,7 @@ class ModelSetupViewModel(
         sync()
     }
 
-    /** 把 [providerId] 下的 [model] 用作 [role](选择页和「用作」面板都走这里):没有配置的当场建一条。 */
+    /** Use [model] under [providerId] as [role] (Both the selection page and the "Use as" panel go here): If there is no configuration, create one on the spot. */
     fun pick(role: ModelRole, providerId: String, model: String) {
         val m = model.trim()
         if (m.isEmpty()) return
@@ -1068,12 +1152,12 @@ class ModelSetupViewModel(
                 val p = store.provider(providerId) ?: return@withContext
                 use(role, p, m, ModelOptions.ofProvider(p, store.list()))
             }
-            // 选好了主模型,试调用的说明就过去了
+            // After selecting the main model, the instructions for trial calling are over.
             _state.update { snapshot(if (role == ModelRole.Main) it.copy(probeNote = null, pickToProbe = null) else it) }
         }
     }
 
-    /** 看图、轻量的固定选项:「用主模型」或(只有看图)「不用」。 */
+    /** Viewing pictures, lightweight fixed options: "Use main model" or (only for viewing pictures) "Don't use". */
     fun choose(role: ModelRole, choice: RoleChoice) {
         scope.launch {
             withContext(io) { store.choose(role, choice) }
@@ -1082,9 +1166,12 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 选择页里给某家手填了模型名(每家都能填:不提供列表的,列表里没有要的),或在刚存下、没有一个模型试通过的那家选主模型
-     * (见 [ModelSetupUi.probeBeforePick]):先试调用一次,通了才用作 [role](记为核实过;列表里没有的记为手填),
-     * 然后调 [onPicked];不通说原因、不选。主模型还要会调用工具。
+     * On the selection page, you have manually filled in the model name for a certain company (each
+     * company can fill in the name: if it does not provide a list, there is nothing in the list), or you
+     * can choose the main model from the company that has just saved it and none of the models has
+     * passed the test (see [ModelSetupUi.probeBeforePick]): try calling it once, and then use it as
+     * [role] if it passes, and then call [onPicked]; if you don't know the reason, don't select it. The
+     * main model also calls tools.
      */
     fun pickManual(role: ModelRole, providerId: String, model: String, onPicked: () -> Unit = {}) {
         val m = model.trim()
@@ -1104,7 +1191,8 @@ class ModelSetupViewModel(
             }
             withContext(io) {
                 store.markVerified(p.id, m)
-                // 列表里没有的记为手填:刷新列表不丢,选的时候标出来
+                // Those that are not in the list are recorded as hand-filled: they will not be lost
+                // after refreshing the list, and mark them when selecting.
                 if (p.models.orEmpty().none { it.id == m }) store.markTyped(p.id, m)
                 store.provider(p.id)?.let { fresh -> use(role, fresh, m, ModelOptions.ofProvider(fresh, store.list())) }
             }
@@ -1116,9 +1204,9 @@ class ModelSetupViewModel(
         }
     }
 
-    // ---------- 语音转文字 ----------
+    // ---------- Speech to text ----------
 
-    /** 选「手机自带」或「不用」,当场生效。 */
+    /** Select "Comes with your phone" or "Don't use it", it will take effect immediately. */
     fun pickSpeech(choice: SpeechChoice) {
         if (choice is SpeechChoice.Provider) return
         speech?.set(choice)
@@ -1127,8 +1215,10 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 选某个服务商的语音模型:先拿一小段静音试转(顺便认出该用哪种接口),通了才存成选择并记为核实过,然后调 [onPicked];
-     * 不通就在那一组下面说原因([speechProbe]),不改现在的选择。
+     * Select the voice model of a certain service provider: first take a short period of silence and try
+     * to transfer it (by the way, you can identify which interface to use). If it works, save the
+     * selection and mark it as verified, and then adjust [onPicked]; if it doesn't work, just tell the
+     * reason under that group ([speechProbe]), and don't change the current selection.
      */
     fun pickSpeechModel(providerId: String, model: String, onPicked: () -> Unit = {}) {
         val m = model.trim()
@@ -1160,7 +1250,7 @@ class ModelSetupViewModel(
         }
     }
 
-    /** 试转没通过的原因:账号没开通、找不到模型用选主模型时同一套说法,其余照服务商回的原话。 */
+    /** The reasons why the trial transfer failed: the account has not been opened, and the model cannot be found. Use the same explanation as when selecting the main model, and the rest will follow the original words given by the service provider. */
     private fun speechFailure(model: String, p: Provider, e: ModelError): String = when (e) {
         is ModelError.ModelNotAvailable -> tr(R.string.model_probe_not_available, model, e.detail.ifEmpty { e.message.orEmpty() })
         is ModelError.ModelNotFound -> tr(R.string.model_probe_not_found, model, ModelSetupCopy.modelExample(ProviderPresets.forHost(p.baseUrl)?.kind ?: p.kind))
@@ -1172,15 +1262,16 @@ class ModelSetupViewModel(
         if (e.failure == ProxyFailure.AuthFailed) R.string.net_proxy_auth_failed else R.string.net_proxy_unreachable,
     )
 
-    /** 选择页打开时,上次试转的结果作废。 */
+    /** When the selection page is opened, the results of the last trial transfer will be invalidated. */
     fun clearSpeechProbe() { _speechProbe.value = emptyMap() }
 
-    /** 选择页打开时,上次手填试调用的结果作废。 */
+    /** When the selection page is opened, the results of the last manual test call are invalid. */
     fun clearManualPick() = _state.update { it.copy(manualPick = emptyMap()) }
 
     /**
-     * 「重新测试」:这家在用、没核实过的模型(见 [ModelSetupUi.unverified])逐个试调用,通了记为核实过;
-     * 有一个不通就停下说原因。
+     * "Re-test": Try calling the currently used but unverified models (see [ModelSetupUi.unverified])
+     * one by one. If the model passes, it will be recorded as verified; if there is a problem, stop and
+     * explain the reason.
      */
     fun retest(providerId: String) {
         val p = store.provider(providerId) ?: return
@@ -1205,9 +1296,9 @@ class ModelSetupViewModel(
         store.use(role, p.id, model, caps)
     }
 
-    // ---------- 一个服务商 ----------
+    // ---------- A service provider ----------
 
-    /** 重新列一次这个服务商的模型并记下;失败时记下原因。 */
+    /** Relist the provider's model and note it down; note the reason if it fails. */
     fun refresh(providerId: String) {
         val p = store.provider(providerId) ?: return
         if (refreshJobs[providerId]?.isActive == true) return
@@ -1224,19 +1315,19 @@ class ModelSetupViewModel(
         }
     }
 
-    /** 选择页、服务商页打开时:还没记住列表的服务商列一次。 */
+    /** When the selection page and service provider page are opened: the service providers that have not yet been memorized are listed once. */
     fun ensureListed() {
         _state.value.providers.filter { it.models == null && _state.value.listing[it.id] == null && listable(it) }.forEach { refresh(it.id) }
     }
 
-    /** 退出了登录的列不了模型,等再登录。 */
+    /** If you log out, the model cannot be listed. Please log in again. */
     private fun listable(p: Provider) = if (p.signIn != null) store.hasKey(p.id) else when (p.kind) {
         ProviderConfig.Kind.ChatGpt -> store.chatGptSession(p.id)?.signedIn == true
         ProviderConfig.Kind.Xai -> store.accountSession(p.id)?.signedIn == true
         else -> true
     }
 
-    /** 换 Key,然后用新 Key 重新列一次模型。 */
+    /** Change the Key, and then re-list the model with the new Key. */
     fun changeKey(providerId: String, apiKey: String) {
         val k = apiKey.trim()
         if (k.isEmpty()) return
@@ -1247,17 +1338,18 @@ class ModelSetupViewModel(
         }
     }
 
-    /** 删掉服务商和它的 Key;用着它的用途退回默认。 */
+    /** Delete the service provider and its Key; use its purpose and return to default. */
     fun removeProvider(providerId: String) {
         scope.launch {
             withContext(io) {
-                // ChatGPT 的先在服务端注销登录,再删
+                // For ChatGPT, log out and log in on the server first, and then delete it.
                 when (store.provider(providerId)?.kind) {
                     ProviderConfig.Kind.ChatGpt -> store.signOutChatGpt(providerId)
                     ProviderConfig.Kind.Xai -> store.signOutAccount(providerId)
                     else -> Unit
                 }
-                // OpenRouter 授权来的 Key 随服务商一起删;OpenRouter 那边的 Key 要用户自己到 Keys 页面删
+                // Keys authorized by OpenRouter will be deleted together with the service provider; Keys
+                // from OpenRouter must be deleted by the user on the Keys page.
                 store.removeProvider(providerId)
             }
             _state.update { snapshot(it.copy(listing = it.listing - providerId)) }
@@ -1265,13 +1357,13 @@ class ModelSetupViewModel(
     }
 
     companion object {
-        /** 「测试并保存」里试调用最多等多久。 */
+        /** How long should you wait for a test call in "Test and Save". */
         const val PROBE_TIMEOUT_MS = 20_000L
 
-        /** 「测试并保存」有列表时至多试几个模型:先试的那个,加没通过时接着试的 2 个。 */
+        /** When there is a list in "Test and Save", you can try at most a few models: the one you try first, plus the 2 more models you will try next if you fail. */
         const val PROBE_CANDIDATES = 3
 
-        /** 自定义服务商的名字最多几个字(服务商列表一行放得下)。 */
+        /** The name of the customized service provider can be up to a few words (the service provider list can fit in one line). */
         const val MAX_NAME = 32
     }
 }

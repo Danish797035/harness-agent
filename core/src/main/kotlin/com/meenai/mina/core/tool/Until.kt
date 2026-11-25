@@ -1,9 +1,12 @@
 package com.meenai.mina.core.tool
 
 /**
- * 一批动作里某一步做完之后,接着做下一步之前要等到的样子;几项都给了要同时成立。代码只做字面比较,不理解意思:
- * [appears] 屏上某个元素的名字含这段字;[gone] 屏上已没有元素含这段字;[place] 前台的 App 包名(手机)或页面地址、站点(网页)含这段字;
- * [stable] 界面停下不再变化。最多等 [timeoutMs]。
+ * After completing a certain step in a batch of actions, you have to wait before doing the next step;
+ * several items must be established at the same time. The code only performs literal comparison and does
+ * not understand the meaning: [appears] The name of an element on the screen contains this character;
+ * [gone] There is no element on the screen containing this character; [place] The front-end App package
+ * name (mobile phone) or page address or site (webpage) contains this character; [stable] The interface
+ * stops and does not change. The maximum waiting time is [timeoutMs].
  */
 data class Until(
     val appears: String? = null,
@@ -19,9 +22,12 @@ data class Until(
 }
 
 /**
- * 等的结局:[met] 条件成立;没成立时 [stopped] 说明为什么不再等——[TIMEOUT] 到了时限,或提前看出的意外:
- * [POPUP] 同一 App 多了一个窗口(弹框)或页面弹了框,[SYSTEM_DIALOG] 别的包的窗口盖了上来(权限、系统对话框),
- * [APP_SWITCHED] 前台换成了别的 App,[NEW_MESSAGE] 用户插了话。[waitedMs] 是等了多久。
+ * The outcome of waiting: [met] The condition is established; when it is not established, [stopped]
+ * explains why it is no longer waiting - [TIMEOUT] The time limit is reached, or an accident is seen in
+ * advance: [POPUP] The same App has an extra window (pop-up box) or the page pop-up box, [SYSTEM_DIALOG]
+ * The windows of other packages are covered (permissions, system dialog boxes), [APP_SWITCHED] The front
+ * desk is replaced by something else App,[NEW_MESSAGE] user chimed in. [waitedMs] is how long you have
+ * been waiting.
  */
 data class UntilOutcome(val met: Boolean, val stopped: String?, val waitedMs: Long) {
     companion object {

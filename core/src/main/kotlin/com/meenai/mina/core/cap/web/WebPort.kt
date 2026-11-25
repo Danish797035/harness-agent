@@ -9,11 +9,13 @@ import com.meenai.mina.core.uistate.PageDialog
 data class TabInfo(val tabId: String, val url: String, val title: String, val current: Boolean)
 
 /**
- * [externalLink]:页面要跳到 App(intent:/自定义协议/应用商店),没有跳。
- * [settled]:有 DevTools 时,加载后等到了网络空闲且页面安静为 true,等到上限还没静下来为 false;没有 DevTools 为 null。
- * [netError]:主文档没打开时浏览器给的错误码(如 net::ERR_NAME_NOT_RESOLVED);打开了为 null。
- * [upgradedFrom]:明文 http 被拒后改用 https 重试时,原来的 http 网址。
- * [download]:网址其实是个文件,这次打开变成了下载;它的下载记录。
+ * [externalLink]: The page wants to jump to App (intent:/custom protocol/app store), but there is no
+ * jump. [settled]: When there are DevTools, it is true when the network is idle and the page is quiet
+ * after loading, and it is false when the upper limit is not quiet; it is null when there is no
+ * DevTools. [netError]: The error code given by the browser when the main document is not opened (such
+ * as net::ERR_NAME_NOT_RESOLVED); when it is opened, it is null. [upgradedFrom]: After plaintext http is
+ * rejected, use https when retrying, the original http URL. [download]: The URL is actually a file, and
+ * this time it is opened and turned into a download; its download record.
  */
 data class NavResult(
     val tab: TabInfo,
@@ -25,13 +27,15 @@ data class NavResult(
     val netError: String? = null,
     val upgradedFrom: String? = null,
     val download: DownloadInfo? = null,
-    /** 加载中页面弹了框,还在等回话(加载等待在它出现时就停了)。 */
+    /** The loading page pops up and is still waiting for a reply (the loading wait stops when it appears). */
     val dialog: PageDialog? = null,
 )
 
 /**
- * 整页正文的一段;[links]、[images] 为 (文字或说明, 地址);[nextOffset] 为下一段的起点,读完为 null。
- * [quality] 是读页的质量信号(按 [PageRead] 读时有);[netError] 是在后台标签里打开网址失败时浏览器给的错误码。
+ * A paragraph of the whole page text; [links] and [images] are (text or description, address);
+ * [nextOffset] is the starting point of the next paragraph, and it is null after reading. [quality] is
+ * the quality signal of reading the page (it is present when pressing [PageRead] to read); [netError] is
+ * the error code given by the browser when opening the URL in the background tab fails.
  */
 data class PageText(
     val url: String,
@@ -45,12 +49,14 @@ data class PageText(
     val netError: String? = null,
 )
 
-/** [file] 为沙箱路径 /workspace/downloads/<名字>;[status] 为 done|failed|running。 */
+/** [file] is the sandbox path /workspace/downloads/<name>; [status] is done|failed|running. */
 data class DownloadInfo(val file: String, val bytes: Long, val mime: String?, val status: String, val error: String?)
 
 /**
- * web_keep_open 的结果:[keep] 为 true 时这一页([tabId]、[url]、[title]、站点 [host])在任务结束后留在后台接着运行,
- * 至多 [hours] 小时;[replaces] 是此刻留着的另一页的站点(任务结束时它会被关掉),没有为 null。[keep] 为 false 时撤销了这个任务里的留页。
+ * The result of web_keep_open: When [keep] is true, this page ([tabId], [url], [title], site [host])
+ * will remain in the background and continue to run after the task ends, up to [hours] hours; [replaces]
+ * is another page of the site left at the moment (it will be closed when the task ends), and is not
+ * null. When [keep] is false, the remaining pages in this task are cancelled.
  */
 data class KeepOpenResult(
     val keep: Boolean,
@@ -62,24 +68,26 @@ data class KeepOpenResult(
     val replaces: String? = null,
 )
 
-/** 当前标签是用户自己在 Mina 浏览器里看着的那一页(借来的):它本来就不随任务关,用不着留。 */
+/** The current tab is the page the user is looking at in the Mina browser (borrowed): it is not closed with the task and there is no need to keep it. */
 class WebTabIsUsers(val tabId: String) : Exception("tab $tabId is the user's own page")
 
-/** web_site_mode 的结果:[host] 当前页面的站点,[mobile] 现在用手机版,[reloaded] 当前页已按新版本重新加载。 */
+/** The result of web_site_mode: [host] is the site of the current page, [mobile] is now using the mobile version, [reloaded] the current page has been reloaded according to the new version. */
 data class SiteModeResult(val host: String, val mobile: Boolean, val reloaded: Boolean)
 
 sealed interface EvalJs {
-    /** [json] 是脱敏、截断后的结果;[fresh]:这次新建了标签的读取世界,之前存在 state 里的都没了。 */
+    /** [json] is the result after desensitization and truncation; [fresh]: This time, a new tag reading world is created, and the ones that previously existed in the state are gone. */
     data class Ok(val json: String, val truncated: Boolean, val fresh: Boolean = false) : EvalJs
 
     /**
-     * [error] 为 script_error|timeout|read_only(脚本想改页面)|invalid_selector|blocked_network|blocked_navigation|
-     * limit_exceeded|network_error|too_large|navigated(页面换了文档)|devtools_unavailable|no_tab_open。
+     * [error] is script_error|timeout|read_only (the script wants to change the
+     * page)|invalid_selector|blocked_network|blocked_navigation|
+     * limit_exceeded|network_error|too_large|navigated (the page has changed the
+     * document)|devtools_unavailable|no_tab_open.
      */
     data class Failed(val error: String, val message: String) : EvalJs
 }
 
-/** web_wait_for 的条件;[wire] 是工具参数里的写法。 */
+/** The condition of web_wait_for; [wire] is the way it is written in the tool parameters. */
 enum class WaitKind(val wire: String) {
     TEXT_PRESENT("text_present"), TEXT_ABSENT("text_absent"), NETWORK_IDLE("network_idle"), URL_CONTAINS("url_contains");
 
@@ -88,81 +96,90 @@ enum class WaitKind(val wire: String) {
     }
 }
 
-/** [met]:条件在时限内成立;[url] 为结束时的地址。 */
+/** [met]: The condition is established within the time limit; [url] is the address at the end. */
 data class WaitOutcome(val met: Boolean, val waitedMs: Long, val url: String?)
 
-/** 当前标签没有 DevTools 会话(系统不支持、连不上):要用网络记录的工具结果是 devtools_unavailable。 */
+/** There is no DevTools session for the current tag (the system does not support it and cannot be connected): The tool to be recorded using the network results in devtools_unavailable. */
 class DevtoolsUnavailable : Exception("devtools unavailable")
 
-/** 网页标签:在手机读屏/操作的同一套接口上,加网页独有的导航、读页、标签、下载上传。 */
+/** Web page tags: Add unique navigation, page reading, tags, downloading and uploading to the same set of interfaces used for mobile phone screen reading/operation. */
 interface WebPort : ScreenPort {
     suspend fun navigate(url: String, newTab: Boolean): NavResult
-    /** [scrollLazy]:读之前把懒加载内容滚动触发一遍(会动页面);核查取证时为 false,只读不滚。 */
+    /** [scrollLazy]: Trigger the lazy loading content scrolling once before reading (the page will move); it is false when verifying and collecting evidence, and it will only read without scrolling. */
     suspend fun readPage(maxChars: Int, offset: Int, scrollLazy: Boolean = true): PageText
 
     /**
-     * web_read_page 的读法:带质量信号、折叠列表块;[PageRead.url] 给了时在临时后台标签里打开、读完关掉,不动当前标签。
-     * 不支持后台读时给了 url 抛 [UnsupportedOperationException]。
+     * The reading method of web_read_page: with quality signal, folded list block; [PageRead.url] is
+     * opened in the temporary background tag when given, closed after reading, and the current tag is
+     * not moved. When background reading is not supported, the url throws
+     * [UnsupportedOperationException].
      */
     suspend fun read(req: PageRead): PageText =
         if (req.url == null) readPage(req.maxChars, req.offset, req.lazy) else throw UnsupportedOperationException("background reads are not available")
     /**
-     * 读脚本:在当前标签真实页面的读取世界里只读地跑 [script](见 [ReadScriptProtocol]),上限 [timeoutMs];
-     * [args] 是站点命令的参数(脚本里的 args)。同一标签同一文档上的几次调用共用 state。
-     * DevTools 用不了时报 devtools_unavailable,不退回别的做法。
+     * Read script: Run [script] (see [ReadScriptProtocol]) read-only in the reading world of the current
+     * tag's real page, the upper limit is [timeoutMs]; [args] is the parameter of the site command (args
+     * in the script). Several calls on the same document with the same tag share state. If DevTools
+     * cannot be used, it will report devtools_unavailable and other methods will not be returned.
      */
     suspend fun evaluate(script: String, timeoutMs: Long, args: JsonObject? = null): EvalJs
     suspend fun tabs(): List<TabInfo>
     suspend fun switchTab(tabId: String): TabInfo?
     suspend fun closeTab(tabId: String): Boolean
-    /** 下载功能还没接入时抛 [UnsupportedOperationException],工具结果是 downloads_unavailable。 */
+    /** [UnsupportedOperationException] is thrown when the download function is not connected, and the tool result is downloads_unavailable. */
     suspend fun downloads(): List<DownloadInfo>
     suspend fun upload(ref: String, snapshotId: String, paths: List<String>): ActionResult
     suspend fun historyBack(): ActionResult
     /**
-     * 当前标签的站点改用手机版或桌面版网页(默认桌面版),按站点记住,并重新加载当前页。
-     * 没有打开的网页为 null;不支持时抛 [UnsupportedOperationException]。
+     * The site of the current label uses the mobile version or desktop version of the web page (default
+     * desktop version), remember by site, and reload the current page. The webpage that is not opened is
+     * null; [UnsupportedOperationException] is thrown when it is not supported.
      */
     suspend fun setSiteMode(mobile: Boolean): SiteModeResult? = throw UnsupportedOperationException("site mode is not available")
 
     /**
-     * 任务结束后留下当前标签接着运行([keep] 为 false 时撤销这个任务里的留页)。默认任务结束时关掉全部标签;留下的那一页至多留
-     * [KeepOpenResult.hours] 小时,全局只留一页。没有打开的网页为 null;当前标签是用户自己的页面时抛 [WebTabIsUsers];
-     * 不支持时抛 [UnsupportedOperationException]。
+     * After the task ends, leave the current label and continue running (when [keep] is false, cancel
+     * the remaining page in this task). By default, all tabs are closed when the task ends; the
+     * remaining page will be left for at most [KeepOpenResult.hours] hours, and only one page will be
+     * left globally. If the web page is not opened, it is null; when the current tag is the user's own
+     * page, [WebTabIsUsers] is thrown; when [UnsupportedOperationException] is not supported,
+     * [UnsupportedOperationException] is thrown.
      */
     suspend fun keepOpen(keep: Boolean, reason: String): KeepOpenResult? = throw UnsupportedOperationException("keeping a page open is not available")
 
-    /** 当前标签此刻用的版本:`mobile` 或 `desktop`;没有打开的网页或不知道为 null。 */
+    /** The version used by the current tag at the moment: `mobile` or `desktop`; if there is no open web page or it is not known, it is null. */
     suspend fun siteMode(): String? = null
 
     /**
-     * 在当前标签真实页面的隔离世界里跑 [code](async 函数体),`mina.*` 的调用经 [bridge] 回到 Mina;上限 [timeoutMs]。
-     * DevTools 用不了时报 devtools_unavailable,不退回别的做法。
+     * Running [code](async function body) in the isolated world of the current label's real page, the call to
+     * `mina.*` returns to Mina via [bridge]; the upper limit is [timeoutMs]. If DevTools cannot be used,
+     * it will report devtools_unavailable and other methods will not be returned.
      */
     suspend fun runScript(code: String, timeoutMs: Long, bridge: ScriptBridge): ScriptRun =
         ScriptRun.Failed(DEVTOOLS_UNAVAILABLE, "Page scripts need the page's DevTools connection, which is not available here.")
 
-    // web_interact:需要 DevTools 会话的动作;连不上时返回 devtools_unavailable,不假装做了
+    // web_interact: An action that requires a DevTools session; returns devtools_unavailable when the
+    // connection is not available, and does not pretend to do it.
     suspend fun hover(at: WebPoint): ActionResult = ActionResult.Failed(DEVTOOLS_UNAVAILABLE)
     suspend fun drag(from: WebPoint, to: WebPoint, steps: Int): ActionResult = ActionResult.Failed(DEVTOOLS_UNAVAILABLE)
-    /** 原生下拉框选一项;[option] 是选项的显示文字或 value。 */
+    /** Native drop-down box selects an item; [option] is the display text or value of the option. */
     suspend fun selectOption(ref: String, snapshotId: String, option: String): ActionResult = ActionResult.Failed(DEVTOOLS_UNAVAILABLE)
-    /** 回答当前标签上等回话的页面弹框(见 [PageDialogs]);[text] 只给输入框弹框。没有弹框报 no_dialog。 */
+    /** The page pop-up box that answers the reply on the current label (see [PageDialogs]); [text] only gives the input box pop-up box. There is no pop-up box reporting no_dialog. */
     suspend fun answerDialog(accept: Boolean, text: String?): ActionResult = ActionResult.Failed(NO_DIALOG)
-    /** 对当前焦点按一次组合键。 */
+    /** Press the key combination once for the current focus. */
     suspend fun pressCombo(combo: KeyCombo): ActionResult = ActionResult.Failed(DEVTOOLS_UNAVAILABLE)
-    /** 当前标签记下的 XHR/fetch 响应(不带正文),旧的在前。没有 DevTools 时抛 [DevtoolsUnavailable]。 */
+    /** XHR/fetch responses (without body) recorded by the current tag, oldest first. Throws [DevtoolsUnavailable] when there are no DevTools. */
     suspend fun captures(urlContains: String?, method: String?, sinceLastAction: Boolean): List<CapturedResponse> = throw DevtoolsUnavailable()
 
-    /** 取一个响应,能取正文(JSON/文本、不太大)时带上;不在记录里为 null。没有 DevTools 时抛 [DevtoolsUnavailable]。 */
+    /** Get a response, if you can get the body (JSON/text, not too big), bring it; if not in the record, it will be null. Throws [DevtoolsUnavailable] when there are no DevTools. */
     suspend fun capture(id: String): CapturedResponse? = throw DevtoolsUnavailable()
 
-    /** 等 [kind] 成立,至多 [timeoutMs]。要看网络的条件在没有 DevTools 时抛 [DevtoolsUnavailable]。 */
+    /** Wait until [kind] is established, and at most [timeoutMs]. Depending on the network conditions, [DevtoolsUnavailable] will be thrown when there is no DevTools. */
     suspend fun waitFor(kind: WaitKind, value: String?, timeoutMs: Long): WaitOutcome = throw DevtoolsUnavailable()
 
 }
 
-/** web_interact 的落点:读屏编号,或 view 像素坐标。 */
+/** The landing point of web_interact: reading screen number, or view pixel coordinates. */
 sealed interface WebPoint {
     data class Ref(val ref: String, val snapshotId: String) : WebPoint
     data class Xy(val x: Int, val y: Int) : WebPoint
@@ -170,14 +187,14 @@ sealed interface WebPoint {
 
 const val DEVTOOLS_UNAVAILABLE = "devtools_unavailable"
 const val NO_DIALOG = "no_dialog"
-/** 页面有弹框在等回话:别的动作都不做,先回话。 */
+/** There is a pop-up box on the page waiting for a reply: don't do anything else, just reply first. */
 const val DIALOG_OPEN = "dialog_open"
 
-/** 当前标签正交给用户处理(接管中);返回非 ActionResult 的方法用它报,工具结果是 handed_over。 */
+/** The current label is being handed over to the user for processing (being taken over); methods that return non-ActionResult use it to report, and the tool result is handed_over. */
 class WebTabHandedOver(val tabId: String) : Exception("tab $tabId is with the user")
 
-/** 当前标签上页面弹框挂着(页面停着):要读页面、开网址的方法用它报,工具结果是 dialog_open。 */
+/** The page pop-up box on the current tab is hanging (the page is stopped): Use this method to read the page and open the URL. The tool result is dialog_open. */
 class WebDialogOpen(val tabId: String) : Exception("tab $tabId has a page dialog open")
 
-/** 标签的渲染进程崩溃(或被系统回收),标签已销毁;返回非 ActionResult 的方法用它报,工具结果是 tab_crashed。 */
+/** The label's rendering process crashes (or is recycled by the system), and the label has been destroyed; use this method to report non-ActionResult methods, and the tool result is tab_crashed. */
 class WebTabCrashed(val tabId: String) : Exception("tab $tabId crashed")

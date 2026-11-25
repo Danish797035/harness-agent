@@ -1,6 +1,6 @@
 package com.meenai.mina.core.agent
 
-/** 提速开关的显式全关值；App 的首次默认值由 FeatureFlags 决定。 */
+/** Explicit full off value for the speed-up switch; the app's first-time default value is determined by FeatureFlags. */
 data class SpeedFlags(
     val inlineScreen: Boolean = false,
     val batchSteps: Boolean = false,
@@ -8,9 +8,9 @@ data class SpeedFlags(
     val deepLinks: Boolean = false,
     val lightSteps: Boolean = false,
     val parallelTasks: Boolean = false,
-    /** 压缩时摘要写成结构化的四段并用真实用量校准估算(会改变模型所见,评测对比后再定)。 */
+    /** When compressing, write the summary into four structured paragraphs and calibrate the estimate with real usage (it will change what the model sees, and make a decision after evaluation and comparison). */
     val structuredCompaction: Boolean = false,
-    /** 元素优先,只有读不清或模型主动请求时才给主模型画面。 */
+    /** Elements take priority, and the main model screen will only be given if it is unclear or actively requested by the model. */
     val adaptiveVision: Boolean = false,
 ) {
     private fun on(): Map<String, Boolean> = mapOf(
@@ -20,17 +20,17 @@ data class SpeedFlags(
         "adaptiveVision" to adaptiveVision,
     )
 
-    /** 打开的开关名按字母序用逗号连接;全关为 "none"。[parse] 可读回。 */
+    /** Open switch names are concatenated with commas in alphabetical order; all off are "none". [parse] can be read back. */
     fun describe(): String = on().filterValues { it }.keys.sorted().joinToString(",").ifEmpty { NONE }
 
     companion object {
         private const val NONE = "none"
         val OFF = SpeedFlags()
         private val KEYS = OFF.on().keys
-        /** 已转正或撤掉的开关:存着的设置、评测参数里还可能有,读到就略过。 */
+        /** Switches that have been turned positive or removed: There may still be some in the saved settings and evaluation parameters, so just skip them if you read them. */
         private val RETIRED = setOf("cacheFriendlyPrune")
 
-        /** "none"(或空)= 全关;否则逗号分隔的 `键=on|off` 或只写键名(= on)。未知键或值抛 [IllegalArgumentException]。 */
+        /** "none" (or empty) = all off; otherwise comma separated `key=on|off` or just the key name (= on). Unknown key or value throws [IllegalArgumentException]. */
         fun parse(spec: String): SpeedFlags {
             val s = spec.trim()
             if (s.isEmpty() || s == NONE) return OFF

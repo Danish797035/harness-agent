@@ -39,15 +39,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 诊断信息的预览:整段文字先给用户看,点「复制」才进剪贴板,点「分享」才交给系统的分享面板;什么都不会自己发出去。
- * [load] 收集并写出那段文字(要读盘,放在后台线程跑);出错时只显示标题和异常类别。
+ * Preview of diagnostic information: The entire text is shown to the user first, then clicked "Copy" to
+ * enter the clipboard, and clicked "Share" to send it to the system's sharing panel; nothing will be
+ * sent out by itself. [load] Collect and write that text (to read the disk, run it on a background
+ * thread); when an error occurs, only the title and exception category are displayed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiagnosticsSheet(load: () -> String, onDismiss: () -> Unit) {
     val c = MinaTheme.colors
     val context = LocalContext.current
-    // 打开那一刻收一次;之后状态再变也不换,用户看到的就是要复制的
+    // Collect it once when it is opened; after that, the status will not change. What the user sees is
+    // what is to be copied.
     val text by produceState<String?>(null) {
         value = withContext(Dispatchers.IO) {
             runCatching(load).getOrElse { Diagnostics.sanitize("${Diagnostics.HEADER}\n(failed to collect: ${it.javaClass.simpleName})\n") }

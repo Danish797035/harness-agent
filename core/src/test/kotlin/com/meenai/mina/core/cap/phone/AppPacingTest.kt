@@ -9,8 +9,11 @@ import org.junit.Test
 import kotlin.random.Random
 
 /**
- * App 里的节奏:同一屏短停、新的一屏长停,限制浏览快慢的 App 按字数加读的时间、停得更久,都有上限;
- * 模型花掉的时间算在内;屏数上限只给限制浏览快慢的 App,用户答话后重来,做成对外动作后不再设;「快」从不等。
+ * Rhythm in the app: short pause on the same screen, long pause on the new screen, apps that limit the
+ * browsing speed, there are upper limits for the reading time and longer pauses based on the number of
+ * words; the time spent by the model is included; the upper limit for the number of screens is only for
+ * apps that limit the browsing speed. The user starts over after answering, and it is no longer set
+ * after making an external action; "fast" never varies.
  */
 class AppPacingTest {
     private val std = AppPacing.Limits()
@@ -29,10 +32,10 @@ class AppPacingTest {
             if (same > std.sameScreenMs.last) assertTrue(same <= std.sameScreenMs.last + std.pauseMs.last)
             p.noteAction("com.a", 2_000, newScreen = true)
             val fresh = p.waitBefore(2_000, textChars = 5_000)
-            // 标准的范围不按字数加读的时间
+            // The standard range does not add reading time based on the number of words.
             assertTrue("$fresh", fresh in std.newScreenMs.first..std.maxDwellMs)
         }
-        // 平均来说新的一屏停得比同一屏久
+        // On average, the new screen stays longer than the same screen.
         fun mean(newScreen: Boolean) = (0 until 200).map { s ->
             AppPacing.human(Random(s)).apply { noteAction("com.a", 0, newScreen) }.waitBefore(0)
         }.average()
@@ -52,10 +55,11 @@ class AppPacingTest {
         p.noteAction("com.slow", 0, newScreen = true, pace = PlacePace.CAREFUL)
         val empty = p.waitBefore(0, textChars = 0)
         assertTrue("$empty", empty in careful.newScreenMs.first..careful.newScreenMs.last + careful.pauseMs.last)
-        // 每个字加 readMsPerChar,读的时间至多 maxReadMs,整个停留至多 maxDwellMs
+        // Add readMsPerChar to each word, the reading time is at most maxReadMs, and the entire stay is
+        // at most maxDwellMs.
         assertEquals(empty + 100 * careful.readMsPerChar, p.waitBefore(0, textChars = 100))
         assertEquals((empty + careful.maxReadMs).coerceAtMost(careful.maxDwellMs), p.waitBefore(0, textChars = 1_000_000))
-        // 同一屏上接着做不加读的时间
+        // Continue on the same screen without reading time
         p.noteAction("com.slow", 0, newScreen = false, pace = PlacePace.CAREFUL)
         val same = p.waitBefore(0, textChars = 1_000)
         assertTrue("$same", same in careful.sameScreenMs.first..careful.sameScreenMs.last + careful.pauseMs.last)
@@ -83,12 +87,12 @@ class AppPacingTest {
     @Test fun carefulAppsHaveAScreenBudgetThatResetsWhenTheUserAnswers() {
         val p = AppPacing(Random(1), screenCap = 3)
         repeat(3) { p.noteAction("com.slow", 0, newScreen = true, pace = PlacePace.CAREFUL) }
-        // 同一屏上的动作、往下滚读余下的内容不算
+        // Actions on the same screen and scrolling down to read the rest of the content do not count
         p.noteAction("com.slow", 0, newScreen = false, pace = PlacePace.CAREFUL)
         p.noteAction("com.slow", 0, newScreen = true, pace = PlacePace.CAREFUL, counts = false)
         assertEquals(3, p.screensIn("com.slow"))
         assertTrue(p.capReached("com.slow", PlacePace.CAREFUL))
-        // 普通 App 没有上限
+        // Ordinary apps have no upper limit
         repeat(10) { p.noteAction("com.a", 0, newScreen = true) }
         assertFalse(p.capReached("com.a", PlacePace.NORMAL))
         p.userAnswered()
@@ -103,7 +107,7 @@ class AppPacingTest {
         p.outwardDone("com.slow")
         assertFalse(p.capReached("com.slow", PlacePace.CAREFUL))
         assertTrue(p.capReached("com.other", PlacePace.CAREFUL))
-        // 用户答话也不恢复
+        // The user does not recover even after answering.
         p.userAnswered()
         repeat(3) { p.noteAction("com.slow", 0, newScreen = true, pace = PlacePace.CAREFUL) }
         assertFalse(p.capReached("com.slow", PlacePace.CAREFUL))

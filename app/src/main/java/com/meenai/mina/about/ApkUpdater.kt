@@ -25,9 +25,13 @@ data class ApkDownloadState(
 }
 
 /**
- * 系统负责后台下载;只保存任务编号,进程重启后仍能查询、取消或安装。方法在 IO 线程调用。
- * 文件放在本应用的外部专属目录(别的 App 读写不到),同一时间只留一个;换版本、删除、装好后都清掉。
- * 设了网络代理(设置 › 网络代理)时系统下载服务不走它,改由 Mina 自己经代理在进程里下([ProxiedApkDownload])。
+ * The system is responsible for background downloading; only the task number is saved, and it can still
+ * be queried, canceled or installed after the process is restarted. The method is called on the IO
+ * thread. The files are placed in the external exclusive directory of this application (other apps
+ * cannot read or write), and only one is left at a time; they are cleared after changing versions,
+ * deleting, and installing. When a network proxy is set up (Settings › Network Proxy), the system
+ * download service does not use it. Instead, Mina downloads it through the proxy in the process
+ * ([ProxiedApkDownload]).
  */
 class ApkUpdater(private val context: Context, private val net: NetProxy = NetProxy.shared) {
     private val manager = context.getSystemService(DownloadManager::class.java)
@@ -35,13 +39,13 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     private val directory: File get() = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         ?: error("external files unavailable"), "updates")
     private val file: File? get() = prefs.getString("file", null)?.let { File(directory, it) }
-    /** 这一份是 Mina 自己经代理下的(不是系统下载服务)。 */
+    /** This one was downloaded by Mina herself through an agent (not a system download service). */
     private val viaApp: Boolean get() = prefs.getBoolean("viaApp", false)
 
     fun state(release: ReleaseInfo): ApkDownloadState =
         if (prefs.getString("url", null) != release.apkUrl) ApkDownloadState() else recorded()
 
-    /** 记下的那个下载任务现在的状态;系统里查不到这个任务算失败。 */
+    /** Note the current status of the download task; if the task cannot be found in the system, it is considered a failure. */
     private fun recorded(): ApkDownloadState {
         if (viaApp) return file?.let(proxied::state) ?: ApkDownloadState(DownloadPhase.Failed)
         val id = prefs.getLong("id", -1)
@@ -68,9 +72,11 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
         cancel()
         val folder = directory
         check(folder.mkdirs() || folder.isDirectory)
-        // 进程被杀、记录丢了时留下的旧文件也一并清掉,目录里只留这一次的。
+        // The old files left behind when the process was killed and the records were lost are also
+        // cleared, leaving only this time in the directory.
         folder.listFiles()?.forEach { it.delete() }
-        // remove 的后台清理可能晚于下一次下载,不能复用旧任务的文件名。
+        // The background cleanup of remove may be later than the next download, and the file name of the
+        // old task cannot be reused.
         val target = File(folder, "update-${UUID.randomUUID()}.apk")
         if (net.proxyFor(Uri.parse(url).host.orEmpty()) != null) {
             check(prefs.edit().putBoolean("viaApp", true).putString("url", url).putString("file", target.name).commit()) { "could not save download" }
@@ -98,7 +104,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
         check(prefs.edit().clear().commit())
     }
 
-    /** 已经装上(或装了更新的版本)后,下好的安装包没用了:启动时清掉。下载中、暂停、失败的留给关于页处理。 */
+    /** After it has been installed (or a newer version is installed), the downloaded installation package is useless: clear it at startup. Downloading, paused, or failed downloads will be handled by the About page. */
     fun dropInstalled() {
         val target = file ?: return
         if (recorded().phase != DownloadPhase.Ready) return
@@ -108,8 +114,9 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     }
 
     /**
-     * 只接受本应用、更高版本、同一签名的完整附件;没通过就删掉文件并抛 [ApkRejected]。
-     * 系统安装器之后还会再验签名并要求用户确认。
+     * Only accept complete attachments of this application, higher versions, and the same signature; if
+     * they fail, delete the file and throw [ApkRejected]. The system installer will then re-verify the
+     * signature and ask the user for confirmation.
      */
     fun installIntent(release: ReleaseInfo): Intent {
         check(state(release).phase == DownloadPhase.Ready)
@@ -168,12 +175,12 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     @Suppress("DEPRECATION")
     private fun installedInfo(flags: Int): PackageInfo = context.packageManager.getPackageInfo(context.packageName, flags)
 
-    /** 当前签名证书;个别系统读安装包时不给 signingInfo,退回旧字段 signatures。 */
+    /** Current signing certificate; some systems do not provide signingInfo when reading the installation package, and return the old field signatures. */
     @Suppress("DEPRECATION")
     private fun PackageInfo.signers(): Set<String> =
         (signingInfo?.apkContentsSigners ?: signatures).orEmpty().map { ApkIntegrity.sha256(it.toByteArray()) }.toSet()
 
-    /** 轮换过签名的包带着历史证书;多个签名者时没有历史。 */
+    /** Rotated signed packages carry certificate history; multiple signers have no history. */
     private fun PackageInfo.signerHistory(): Set<String> {
         val info = signingInfo ?: return emptySet()
         if (info.hasMultipleSigners()) return emptySet()
@@ -181,7 +188,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     }
 
     private companion object {
-        /** 经代理在进程里下的那一份,进程里只有一个。 */
+        /** There is only one share in the process placed by the agent. */
         val proxied by lazy {
             ProxiedApkDownload(NetProxy.shared.client(OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS)))
         }

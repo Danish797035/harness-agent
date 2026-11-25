@@ -16,7 +16,7 @@ import com.meenai.mina.ui.theme.MinaTheme
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-/** 用户主动分享的授权浮层;不会先读取应用内容。 */
+/** An authorization floating layer that users actively share; the application content will not be read first. */
 internal suspend fun requestScreenShare(service: ScreenAccessibility, store: AppAccessStore, pkg: String, label: String): Boolean =
     suspendCancellableCoroutine { continuation ->
         val protection = store.protectUi()

@@ -1,6 +1,6 @@
 package com.meenai.mina.ui.viewer
 
-/** 内置查看器能显示的几类文件;不在这里的交给别的 App。 */
+/** There are several types of files that the built-in viewer can display; those that are not here are left to other apps. */
 enum class ViewerKind { Html, Markdown, Pdf, Image, Text }
 
 object ViewerKinds {
@@ -17,8 +17,10 @@ object ViewerKinds {
     )
 
     /**
-     * 按内容提供方给的 MIME 类型认,认不出(空、`application/octet-stream`、泛泛的 `text/plain`)时看扩展名。
-     * 明确的 HTML / Markdown / PDF / 图片类型直接定;`text/plain` 的 .md 仍按 Markdown 显示。都不是返回 null。
+     * Recognize the MIME type given by the content provider, and look at the extension if it is not
+     * recognized (empty, `application/octet-stream`, general `text/plain`). Clear HTML / Markdown / PDF
+     * / image types are directly determined; `text/plain`'s.md is still displayed in Markdown. Neither
+     * returns null.
      */
     fun of(mime: String?, name: String): ViewerKind? {
         val m = mime?.substringBefore(';')?.trim()?.lowercase().orEmpty()

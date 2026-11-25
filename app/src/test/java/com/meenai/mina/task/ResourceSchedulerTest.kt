@@ -58,14 +58,14 @@ class ResourceSchedulerTest {
         first.join(5_000)
     }
 
-    // ---------- 等别的任务放开 App ----------
+    // ---------- Wait for other tasks to release the App ----------
 
     private val active: (String) -> Boolean = { true }
 
-    /** 「登记里没人占」就算放开(测试里不看别的屏)。 */
+    /** If "No one is occupied in the registration", you can let it go (don't look at other screens during the test). */
     private fun ResourceScheduler.freeFor(pkg: String, owner: String): suspend () -> Boolean = { appFree(pkg, owner, active, { true }) }
 
-    /** 占着的任务一放开,等着的马上醒来(不用等到下一次轮询)。 */
+    /** As soon as the occupied task is released, the waiting one will wake up immediately (without waiting for the next polling). */
     @Test fun releaseWakesTheWaiter() = runTest {
         val r = ResourceScheduler()
         assertTrue(r.reserveApp("com.chat", "a", active, { true }))
@@ -79,18 +79,19 @@ class ResourceSchedulerTest {
         assertTrue(r.reserveApp("com.chat", "b", active, { true }))
     }
 
-    /** 到时限仍被占着:如实说等不到,也不再算在等。 */
+    /** It's still occupied when the time limit expires: if you honestly say you can't wait, it's no longer counted as waiting. */
     @Test fun waitingTimesOut() = runTest {
         val r = ResourceScheduler()
         assertTrue(r.reserveApp("com.chat", "a", active, { true }))
         assertEquals(AppWait.TimedOut, r.awaitApp("com.chat", "b", 3_000, active, r.freeFor("com.chat", "b")))
         assertEquals(3_000L, currentTime)
-        // b 不再登记为在等:a 现在去等 b 手里的 App 不会被当成互相等
+        // b is no longer registered as waiting: a now waits for b. The apps in hand will not be regarded
+        // as waiting for each other.
         assertTrue(r.reserveApp("com.mail", "b", active, { true }))
         assertEquals(AppWait.TimedOut, r.awaitApp("com.mail", "a", 1_000, active, r.freeFor("com.mail", "a")))
     }
 
-    /** a 占着聊天、在等 b 手里的邮件;b 再去等聊天就是互相等:b 当场不等,a 照样等着。 */
+    /** a is chatting and waiting for the email in b's hand; b is waiting for each other when chatting: b doesn't wait on the spot, and a still waits. */
     @Test fun mutualWaitIsRefusedAtOnce() = runTest {
         val r = ResourceScheduler()
         assertTrue(r.reserveApp("com.chat", "a", active, { true }))
@@ -99,13 +100,13 @@ class ResourceSchedulerTest {
         runCurrent()
         assertEquals(AppWait.WouldDeadlock, r.awaitApp("com.chat", "b", 60_000, active, r.freeFor("com.chat", "b")))
         assertEquals("没等:时间没走", 0L, currentTime)
-        // b 不等、做完收尾放掉邮件,a 就等到了
+        // b. Don’t wait. Put the mail away after finishing. a. Just wait.
         r.releaseOwner("b")
         runCurrent()
         assertEquals(AppWait.Free, a.await())
     }
 
-    /** 三个任务绕成一圈(a 等 b、b 等 c、c 再等 a)同样认得出;不成圈的照常等。 */
+    /** Three tasks in a circle (a waits for b, b waits for c, c waits for a) are also recognizable; if they are not in a circle, wait as usual. */
     @Test fun longerCyclesAreFoundAndChainsWithoutCycleWait() = runTest {
         val r = ResourceScheduler()
         for ((pkg, owner) in listOf("p.a" to "a", "p.b" to "b", "p.c" to "c")) assertTrue(r.reserveApp(pkg, owner, active, { true }))
@@ -113,14 +114,14 @@ class ResourceSchedulerTest {
         val b = async { r.awaitApp("p.c", "b", 60_000, active, r.freeFor("p.c", "b")) }
         runCurrent()
         assertEquals(AppWait.WouldDeadlock, r.awaitApp("p.a", "c", 60_000, active, r.freeFor("p.a", "c")))
-        // d 不占东西,等 a 手里的不成圈
+        // d does not occupy anything, until a's hand does not form a circle
         val d = async { r.awaitApp("p.a", "d", 2_000, active, r.freeFor("p.a", "d")) }
         advanceTimeBy(2_001)
         assertEquals(AppWait.TimedOut, d.await())
         a.cancel(); b.cancel()
     }
 
-    /** 占着的任务已经不在了(没来得及放开):不算占着,也不算互相等。 */
+    /** The task of occupying is no longer there (there is no time to let go): it does not count as occupying, nor does it count as waiting for each other. */
     @Test fun goneHolderDoesNotBlockOrDeadlock() = runTest {
         val r = ResourceScheduler()
         assertTrue(r.reserveApp("com.chat", "gone", active, { true }))
@@ -128,4 +129,3 @@ class ResourceSchedulerTest {
         assertEquals(AppWait.Free, r.awaitApp("com.chat", "b", 1_000, alive, { r.appFree("com.chat", "b", alive, { true }) }))
     }
 }
-

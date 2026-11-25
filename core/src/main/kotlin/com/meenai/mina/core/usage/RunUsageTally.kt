@@ -8,11 +8,15 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
 /**
- * 一次运行里经计量的模型请求合计。运行把它放进自己的协程上下文,[metered] 套上的模型每次请求结束顺手加一笔,
- * 所以主循环之外的旁路调用(意图判断、核查、看图、压缩……)和失败重试的每一次都算在这次运行名下;
- * 不在这个上下文里的调用(交出回答后的结局判定、记忆提取)不算,Token 用量页照样都记。只在内存里加,多线程安全。
+ * The total number of model requests measured in a run. Run it and put it into its own coroutine
+ * context. The model applied to [metered] will add a sum every time the request is completed, so the
+ * bypass calls outside the main loop (intent judgment, verification, picture viewing, compression...)
+ * and every failed retry are counted under the name of this run; calls that are not in this context (end
+ * judgment after handing over the answer, memory retrieval) are not counted, and the Token usage page is
+ * still recorded. Only added in memory, multi-thread safe.
  *
- * [onChange] 每加一笔就调一次(任务用它把实时用量推给界面);[noteContext] 记最近一次请求的上下文大小。
+ * [onChange] is adjusted every time an item is added (the task uses it to push real-time usage to the
+ * interface); [noteContext] records the context size of the latest request.
  */
 class RunUsageTally : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RunUsageTally>
@@ -25,10 +29,10 @@ class RunUsageTally : AbstractCoroutineContextElement(Key) {
     private val context = AtomicInteger()
     private val limit = AtomicInteger()
 
-    /** 用量变了(界面上实时更新)。从任意线程调用,回调要自己切到该在的线程。 */
+    /** The usage has changed (updated in real time on the interface). When called from any thread, the callback needs to be cut to the appropriate thread. */
     @Volatile var onChange: (() -> Unit)? = null
 
-    /** 记一次请求;[usage] 为 null 表示没报用量或调用失败。 */
+    /** Remember a request; [usage] is null, indicating that no usage was reported or the call failed. */
     fun add(usage: Usage?) {
         calls.incrementAndGet()
         if (usage == null) {
@@ -41,14 +45,14 @@ class RunUsageTally : AbstractCoroutineContextElement(Key) {
         onChange?.invoke()
     }
 
-    /** 最近一次请求发出去时上下文有多大、模型的上限是多少(估算,界面据此显示还剩多少)。 */
+    /** How big was the context when the last request was sent, and what is the upper limit of the model (estimate, and the interface will display how much is left accordingly). */
     fun noteContext(tokens: Int, contextLimit: Int) {
         context.set(tokens)
         limit.set(contextLimit)
         onChange?.invoke()
     }
 
-    /** 此刻的合计,给界面用。 */
+    /** The current total is used by the interface. */
     fun snapshot() = RunUsage(
         calls = calls.get(),
         inputTokens = input.get(),
@@ -58,6 +62,6 @@ class RunUsageTally : AbstractCoroutineContextElement(Key) {
         unreported = unreported.get(),
     )
 
-    /** 此刻的合计,作为运行记录里的一条 [RunEvent.ModelCalls]。 */
+    /** The total at this moment is regarded as [RunEvent.ModelCalls] in the running record. */
     fun event(atMs: Long) = RunEvent.ModelCalls(atMs, calls.get(), unreported.get(), input.get(), output.get(), cached.get())
 }

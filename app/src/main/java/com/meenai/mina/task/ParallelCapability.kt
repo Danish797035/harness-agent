@@ -3,12 +3,14 @@ package com.meenai.mina.task
 import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 
-/** 此刻最多能同时跑几个任务;[reason] 说明为什么只能一个(设置页显示),没有限制时为空。 */
+/** At most, several tasks can be run at the same time; [reason] explains why there is only one (displayed on the settings page), and it is empty when there is no limit. */
 data class ParallelLimit(val max: Int, val reason: String?)
 
 /**
- * 按设备能力决定并行几个任务:每块虚拟屏要有独立焦点(安卓 14+);低内存设备不并行;
- * 第二块屏这次运行里建失败过就不再尝试;其余按用户设定的上限,限定在 1–3。
+ * The number of tasks to be parallelized is determined based on the device capabilities: each virtual
+ * screen must have independent focus (Android 14+); low-memory devices are not parallelized; if the
+ * second screen fails to run this time, it will not be tried again; the rest are limited to 1-3
+ * according to the upper limit set by the user.
  */
 object ParallelCapability {
     const val MIN_SDK = 34

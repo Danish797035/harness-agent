@@ -11,7 +11,8 @@ class RecordedVerificationsTest {
     private fun result(step: Int, tool: String) = RunEvent.ToolResult(++t, step, tool, """{"ok":true}""", null, null)
     private fun verifier(step: Int? = null) = RunEvent.Verifier(++t, "fail", "{}", step)
 
-    // 平常的一步:核查记在 finish 回复之前;最后一轮:记在之后。两种顺序混在一条记录里也各配各的
+    // Ordinary step: verification is recorded before the finish reply; final round: is recorded after.
+    // Even if the two orders are mixed in one record, each has its own place.
     @Test fun legacyRecordsPairEitherOrder() {
         val ev = listOf(
             reply(1, "phone_observe"), result(1, "phone_observe"),
@@ -22,14 +23,16 @@ class RecordedVerificationsTest {
         assertEquals(listOf(2 to 3, 9 to 7), RecordedVerifications.pairs(ev))
     }
 
-    // 两次 finish 紧挨着:先核查后记回复的那次不会被配到上一次 finish
+    // Two finishes next to each other: the one that checks first and then replies will not be assigned
+    // to the previous finish.
     @Test fun backToBackFinishesDoNotSwap() {
         val ev = listOf(verifier(), reply(1, "finish"), result(1, "finish"), verifier(), reply(2, "finish"), result(2, "finish"))
         assertEquals(listOf(0 to 1, 3 to 4), RecordedVerifications.pairs(ev))
     }
 
     @Test fun stepPairsRegardlessOfPosition() {
-        // 带 step 的:最后一轮的核查(在回复之后)后面还跟着别的 finish 也配对正确
+        // With step: the last round of verification (after the reply) is followed by another finish and
+        // the matching is correct.
         val ev = listOf(reply(1, "finish"), result(1, "finish"), verifier(1), reply(2, "finish"), verifier(2))
         assertEquals(listOf(2 to 0, 4 to 3), RecordedVerifications.pairs(ev))
     }

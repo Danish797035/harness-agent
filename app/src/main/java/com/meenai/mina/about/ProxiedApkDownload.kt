@@ -15,9 +15,12 @@ import java.io.IOException
 import kotlin.coroutines.coroutineContext
 
 /**
- * 设了网络代理时的更新下载:系统下载服务不走 App 自己的代理,改由 Mina 用走代理的 [http] 在进程里下。
- * 先写到 `<目标>.part`,下完整了再改名成目标文件,所以「目标文件在」就是下好了。
- * 进程里只有一份(同一时间只下一个);进程被杀后没下完的算失败,用户重试即可。
+ * Update download when a network proxy is set up: The system download service does not use the App's own
+ * proxy. Instead, Mina uses the proxy's [http] in the process. First write to `<target>.part`, then download
+ * it completely and then rename it to the target file, so "the target file is here" means it is
+ * downloaded. There is only one copy in the process (only one is downloaded at the same time); if the
+ * process is killed and the download is not completed, it will be considered a failure, and the user can
+ * try again.
  */
 class ProxiedApkDownload(
     private val http: OkHttpClient,
@@ -40,7 +43,7 @@ class ProxiedApkDownload(
         }
     }
 
-    /** [file] 这一份的状态:正在下、下好了,或失败(没在下、也没有完整的文件)。 */
+    /** [file] The status of this copy: is being downloaded, has been downloaded, or failed (not being downloaded, and there is no complete file). */
     fun state(file: File): ApkDownloadState = when {
         job?.isActive == true && target == file -> ApkDownloadState(DownloadPhase.Downloading, bytes, total)
         file.isFile -> ApkDownloadState(DownloadPhase.Ready, file.length(), file.length())
@@ -49,7 +52,7 @@ class ProxiedApkDownload(
 
     fun cancel() {
         job?.cancel()
-        // 连带掐断连接,不等读完这一块
+        // Cut off the connection together and wait until you finish reading this section.
         call?.cancel()
         job = null
         call = null
@@ -59,7 +62,7 @@ class ProxiedApkDownload(
     companion object {
         private const val PART = ".part"
 
-        /** 把 [url] 下到 [file]:边下边报进度(已下、总共,不知道总共为 -1);不是 2xx、或没下完整就抛错,不留目标文件。 */
+        /** Download [url] to [file]: report the progress while downloading (downloaded, total, not sure the total is -1); if it is not 2xx, or the download is not complete, an error will be thrown, and the target file will not be left. */
         suspend fun fetch(http: OkHttpClient, url: String, file: File, onCall: (Call) -> Unit = {}, progress: (Long, Long) -> Unit) {
             val part = File(file.path + PART)
             try {

@@ -118,7 +118,7 @@ private val Body = TextStyle(fontSize = 13.5.sp, lineHeight = 20.sp)
 private val Strong = Body.copy(fontWeight = FontWeight.SemiBold)
 private val Step = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
 
-/** 卡片上的固定说法(按钮、链接、读屏描述)。 */
+/** Fixed sayings on cards (buttons, links, screen-reading descriptions). */
 object CardCopy {
     val STOP: String get() = tr(R.string.chat_stop)
     val TAKE_OVER: String get() = tr(R.string.action_take_over)
@@ -137,59 +137,71 @@ object CardCopy {
     val ZOOM_HINT: String get() = tr(R.string.card_zoom_hint)
 }
 
-/** 卡片上的按钮;都转成任务服务现有的动作(见 [CapsuleController])。[runKey] 是按下时那件事的编号。 */
+/** The buttons on the card are converted into existing actions of the task service (see [CapsuleController]). [runKey] is the number of that thing when pressed. */
 interface CardActions {
     fun collapse()
     fun stop(runKey: String)
     fun takeOver(runKey: String)
     fun resume(runKey: String)
-    /** 暂停:下一步改动屏幕之前停下,等「继续」。 */
+    /** Pause: Stop before changing the screen in the next step and wait for "Continue". */
     fun pause(runKey: String) {}
     fun answer(runKey: String, text: String)
     fun approve(runKey: String, requestKey: Int)
     fun decline(runKey: String, requestKey: Int)
     fun openMina(conversationId: String)
     fun zoom(on: Boolean)
-    /** 点了底部的输入框:这时浮层才改成能接收键盘。 */
+    /** Click the input box at the bottom: Only then does the floating layer change to be able to receive the keyboard. */
     fun openInput()
     fun draft(text: String)
-    /** 发出输入框里的话(交给谁见 [CapsuleCards.input])。 */
+    /** Send the words in the input box (give it to someone to see [CapsuleCards.input]). */
     fun send()
-    /** 空闲卡片:[fresh] 为 true 开新对话,false 接着最近的对话。 */
+    /** Idle card: [fresh] is true to open a new conversation, false to continue the most recent conversation. */
     fun freshChat(fresh: Boolean)
-    /** 对话卡片滚到了顶:往前多加载几轮。 */
+    /** The dialogue card has scrolled to the top: load a few more rounds forward. */
     fun loadEarlier()
-    /** 输入框左边的截屏按钮:卡片先藏起来,截下用户此刻的屏幕,挂在输入框上面。 */
+    /** Screen capture button on the left side of the input box: hide the card first, capture the user's screen at the moment, and hang it above the input box. */
     fun captureScreen()
-    /** 附件条上的 ×:不要这张截图。 */
+    /** × on the attachment bar: Don’t want this screenshot. */
     fun dropScreen()
-    /** 留在后台运行的那一页的卡片上的「关闭网页」。 */
+    /** "Close page" on the card that leaves the page running in the background. */
     fun closeKeptPage() {}
 }
 
-/** 截下来、挂在输入框上面等着发的一屏:[thumb] 是缩略图(不让截图的页面没有)。 */
+/** The screen that was captured and hung on the input box waiting to be sent: [thumb] is a thumbnail (the page that does not allow screenshots does not have it). */
 data class PendingScreen(val shot: CapturedScreen, val thumb: ImageBitmap?)
 
 /**
- * 卡片底部输入框此刻的样子:[open] 时是能打字的框(浮层能接收键盘),否则是一行提示,点了才打开;
- * [screen] 是截下来挂在上面的那一屏(随下一句发出,只发它也行)。
+ * The input box at the bottom of the card looks like this: [open] is a box that can be typed (the
+ * floating layer can accept the keyboard), otherwise it is a line of prompts that will be opened after
+ * clicking on it; [screen] is the screen that was cut off and hung on it (send it with the next
+ * sentence, or just send it).
  */
 data class CardInputUi(val open: Boolean = false, val draft: String = "", val screen: PendingScreen? = null) {
-    /** 写了字或挂着一屏:可以发。 */
+    /** After writing or hanging a screen: you can send it. */
     val canSend: Boolean get() = draft.isNotBlank() || screen != null
 }
 
 /**
- * 点开胶囊的卡片,不带状态,只说一件事(挑哪件见 [CapsuleCards.of])。
- * 任务卡片([CardView.Detail])左边是虚拟屏小画面 [preview](只有那件事有画面时才有),右边按状态放步骤、要你做的事和按钮;
- * 对话卡片([CardView.Chat])是那个对话的来回 [thread](还在读时为 null,中间先空着)。
- * 对话卡片固定 [height] 高(看得见的卡片,不含阴影边;不给时按屏幕高度的 [CardDocking.SHARE]),不随内容变;任务卡片
- * 按内容高、最多 [height],下面不留空——任务卡片中间那段取小画面(按画面的宽高比)和右边文字里高的那个。干活中的步骤最多和小画面
- * 一样高(还没有画面时按主屏的宽高比算,画面来了卡片不跳),步骤再多卡片也不变高:最新一步在底下,旧的往上滚着看;别的内容放不下就在里面滚,
- * 要你点的按钮和输入框固定在下面。高度变了(换卡片、内容变了)时一下到位:浮层窗口跟着内容大小,只变一次,不逐帧改窗口;上边不动(见 [CardDocking])。
- * 展开、收起的动效在外面套([OverlayMotion])。
- * [onHandle] 报标题栏在窗口里的位置(像素):按着它能拖卡片。
- * [zoomed] 时整张换成放大的画面,点一下回来。[elapsed] 把开始时刻换成用时(每秒更新)。
+ * Click on the card to open the capsule, without status, just saying one thing (see [CapsuleCards.of]
+ * for which one to choose). The left side of the task card ([CardView.Detail]) is the small virtual
+ * screen [preview] (only if that thing has a picture), and the right side contains the steps, things you
+ * want to do, and buttons according to the status; the dialogue card ([CardView.Chat]) is the back and
+ * forth of the dialogue [thread] (null when still reading, empty in the middle). Dialogue cards are
+ * fixed at [height] height (visible cards, without shadow edges; when not given, press the screen height
+ * of [CardDocking.SHARE]) and do not change with the content; task cards are based on content height, up
+ * to [height], with no space below - the middle section of the task card takes the height of the small
+ * screen (according to the aspect ratio of the screen) and the taller one in the text on the right. The
+ * steps in the work are at most as high as the small screen (when there is no screen, it is calculated
+ * according to the aspect ratio of the main screen, and the card does not jump when the screen comes).
+ * No matter how many steps there are, the card will not be high: the latest step is at the bottom, and
+ * the old ones are scrolled up; other content cannot be accommodated, so it is scrolled inside, and the
+ * buttons and input boxes you want to click are fixed at the bottom. When the height changes (card
+ * changes, content changes), it snaps into place: the floating layer window follows the size of the
+ * content, only changes once, and does not change the window frame by frame; the upper part does not
+ * move (see [CardDocking]). The animation of unfolding and folding is applied outside ([OverlayMotion]).
+ * [onHandle] reports the position (pixels) of the title bar in the window: press it to drag the card.
+ * [zoomed], the whole picture is changed to the enlarged picture, click to return. [elapsed] Change the
+ * start time into elapsed time (updated every second).
  */
 @Composable
 fun CapsuleCard(
@@ -205,7 +217,8 @@ fun CapsuleCard(
     onHandle: (Rect) -> Unit = {},
 ) {
     val field = CapsuleCards.input(card)
-    // 任务还在进行(干活中、Mina 问你、等条件)时,停止和对话页一样放在输入框右边,不另占一个按钮
+    // When the task is still in progress (working, Mina asks you, etc.), stop is placed on the right
+    // side of the input box like the dialogue page, without occupying another button
     val stopKey = CapsuleCards.stopKey(card)
     val h = if (height == Dp.Unspecified) (LocalConfiguration.current.screenHeightDp * CardDocking.SHARE).dp else height
     val report by rememberUpdatedState(onHandle)
@@ -227,10 +240,14 @@ fun CapsuleCard(
 }
 
 /**
- * 浮层里的东西出现、收起的动效(卡片展开收起,收起后一颗回到边上):浮层窗口一下就是最后的大小和位置,里面的东西只靠图层的
- * 缩放和透明度从 [origin] 那边长出来(按此刻的大小给出方位,例如卡片从胶囊那边),真开始出来时调 [onOpened];
- * [open] 变成 false 时缩回那边、淡掉,做完调 [onClosed]。
- * 只动图层,不改布局,也就不逐帧改窗口。关了动画时直接到位,收起时马上调 [onClosed]。
+ * The dynamic effect of the appearance and collapse of things in the floating layer (cards are expanded
+ * and folded, and then returned to the side): the floating layer window is the final size and position
+ * at once, and the things inside grow from the [origin] side only by the scaling and transparency of the
+ * layer (give the orientation according to the current size, for example, the card is from the capsule
+ * side). When it really starts to come out, adjust [onOpened]; when [open] becomes false, it shrinks to
+ * that side, fades out, and the adjustment is completed [onClosed]. Only the layers are moved, the
+ * layout is not changed, and the window is not changed frame by frame. When the animation is turned off,
+ * it is directly in place, and when it is put away, it is immediately adjusted to [onClosed].
  */
 @Composable
 fun OverlayMotion(
@@ -247,7 +264,9 @@ fun OverlayMotion(
                 shown.snapTo(1f)
                 opened()
             } else {
-                // 刚出来那一帧要排版、窗口换大小,最慢:等它画完再起步,动画的头几帧不被它吃掉
+                // The frame that just comes out needs to be typed and the window resized. The slowest:
+                // wait for it to finish drawing before starting, so that the first few frames of the
+                // animation are not eaten by it.
                 if (shown.value == 0f) repeat(SETTLE_FRAMES) { withFrameNanos { } }
                 opened()
                 shown.animateTo(1f, tween(CARD_IN_MS, easing = MinaMotion.Decelerate))
@@ -255,7 +274,8 @@ fun OverlayMotion(
         } else {
             if (!still) {
                 shown.animateTo(0f, tween(CARD_OUT_MS, easing = FastOutLinearInEasing))
-                // 让完全看不见的那一帧先画出来,再换内容、挪窗口,不留一帧半透明的卡片
+                // Let the completely invisible frame be drawn first, then change the content and move
+                // the window, leaving no translucent card frame.
                 withFrameNanos { }
             }
             closed()
@@ -267,7 +287,8 @@ fun OverlayMotion(
             val scale = CARD_FROM_SCALE + (1f - CARD_FROM_SCALE) * v
             scaleX = scale
             scaleY = scale
-            // 透明度走得比缩放快:一出来就看得清,收起时最后才淡完
+            // Transparency goes faster than zooming: you can see it clearly as soon as you come out, and
+            // it fades out when you retract it.
             alpha = (v * 2f).coerceAtMost(1f)
             transformOrigin = from(size)
         },
@@ -280,8 +301,10 @@ private const val CARD_FROM_SCALE = 0.6f
 private const val SETTLE_FRAMES = 2
 
 /**
- * 底部输入框:平时是一行提示(浮层不抢键盘),点了打开成能打字的框并弹出输入法;回车或右边的按钮发出。
- * 有 [stop] 时右边一直有黑色的停止键(同对话页输入栏),写了字再多一个发送。
+ * Bottom input box: It is usually a line of prompts (the floating layer does not grab the keyboard).
+ * Click to open the box that can be typed and the input method will pop up; press Enter or press the
+ * button on the right to send it. When there is [stop], there is always a black stop button on the right
+ * (same as the input field on the dialogue page). After writing the word, there is one more to send.
  */
 @Composable
 private fun InputRow(field: CardInput, ui: CardInputUi, actions: CardActions, stop: (() -> Unit)? = null) {
@@ -292,7 +315,7 @@ private fun InputRow(field: CardInput, ui: CardInputUi, actions: CardActions, st
     }
 }
 
-/** 输入框左边的截屏按钮:圆钮里一块屏。 */
+/** The screenshot button on the left side of the input box: a screen inside the round button. */
 @Composable
 private fun CameraKey(onClick: () -> Unit) {
     val c = MinaTheme.colors
@@ -306,7 +329,7 @@ private fun CameraKey(onClick: () -> Unit) {
     }
 }
 
-/** 输入框上面那一条:缩略图、「你此刻的屏幕」、App · 时刻,右边 × 不要它;不让截图的页面写「没截到」。 */
+/** The one above the input box: Thumbnail, "Your current screen", App · Moment, right × Don't want it; don't let the screenshot page write "Not captured". */
 @Composable
 private fun ScreenChip(p: PendingScreen, onRemove: () -> Unit) {
     val c = MinaTheme.colors
@@ -333,7 +356,7 @@ private fun ScreenChip(p: PendingScreen, onRemove: () -> Unit) {
     }
 }
 
-/** 发送键:有东西可发时是蓝底,否则灰的点不了。 */
+/** Send button: It has a blue background when there is something to send, otherwise it is gray and cannot be clicked. */
 @Composable
 private fun SendKey(enabled: Boolean, onSend: () -> Unit, start: Dp = 0.dp) {
     val c = MinaTheme.colors
@@ -368,7 +391,7 @@ private fun InputField(field: CardInput, ui: CardInputUi, actions: CardActions, 
                 Text(ui.draft.ifEmpty { field.hint }, style = Body, color = if (ui.draft.isEmpty()) c.ink3 else c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             stop?.let { StopKey(it) }
-            // 挂着一屏时不用打开输入框也能直接发
+            // You can send directly without opening the input box when the screen is hung.
             if (ui.screen != null) SendKey(true, actions::send, start = if (stop != null) 4.dp else 0.dp)
         }
         return
@@ -397,7 +420,7 @@ private fun InputField(field: CardInput, ui: CardInputUi, actions: CardActions, 
     }
 }
 
-/** 输入框右边的停止键:黑底圆钮里一个方块,同对话页输入栏。 */
+/** The stop key on the right side of the input box: a square in a black round button, the same as the input field on the dialog page. */
 @Composable
 internal fun StopKey(onStop: () -> Unit) {
     val c = MinaTheme.colors
@@ -418,7 +441,7 @@ private const val TITLE_MAX = 12
 @Composable
 private fun cardWidth() = minOf(CardWidth, (LocalConfiguration.current.screenWidthDp - 24).coerceAtLeast(240).dp)
 
-/** 卡片的底:[fixed] 时就是 [height] 高(对话卡片),否则按内容高、最多 [height](任务卡片)。 */
+/** When the bottom of the card is [fixed], it is [height] high (dialogue card), otherwise the content is high, up to [height] (task card). */
 @Composable
 private fun CardFrame(height: Dp, fixed: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val c = MinaTheme.colors
@@ -429,7 +452,7 @@ private fun CardFrame(height: Dp, fixed: Boolean = true, content: @Composable Co
     )
 }
 
-/** 标题栏(按着它能拖卡片,见 [CapsuleCard] 的 onHandle):左边 Mina 图标,中间标题和状态,右边收起。 */
+/** Title bar (press it to drag the card, see onHandle of [CapsuleCard]): Mina icon on the left, title and status in the middle, and collapse on the right. */
 @Composable
 private fun Header(title: String, sub: String, actions: CardActions, handle: Modifier) {
     val c = MinaTheme.colors
@@ -443,7 +466,7 @@ private fun Header(title: String, sub: String, actions: CardActions, handle: Mod
     }
 }
 
-/** 空闲卡片的标题栏:「接着「…」聊 · 新对话」或「新对话 · 接着上次聊」;没有任何对话时只有「新对话」。 */
+/** The title bar of the idle card: "Chat with "..." · New conversation" or "New conversation · Continue with the last chat"; when there is no conversation, there is only "New conversation". */
 @Composable
 private fun IdleHeader(card: CardView.Chat, actions: CardActions, handle: Modifier) {
     val c = MinaTheme.colors
@@ -475,7 +498,7 @@ private fun IconButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-/** 任务卡片:此刻在操作 App 或网页的那件事;按内容高,中间那段取左边小画面和右边文字里高的那个(步骤最多和小画面一样高)。 */
+/** Task card: What you are currently operating on the app or web page; according to the height of the content, the middle section takes the one with the height of the small screen on the left and the text on the right (the step is at most as high as the small screen). */
 @Composable
 private fun Detail(
     card: CardView.Detail, preview: Bitmap?, actions: CardActions, elapsed: @Composable (Long?) -> String?,
@@ -487,22 +510,26 @@ private fun Detail(
     CardFrame(height, fixed = false) {
         Header(ScreenCopy.plain(r.run.goal).ifBlank { "Harness Agent" }, sub, actions, handle)
         val screen = preview?.takeIf { CapsuleCards.showsScreen(card.content) }
-        // 步骤那段的高度上限 = 小画面的高;还没有画面时按主屏的宽高比算同样的高,画面来了不跳
+        // The upper limit of the height of the step section = the height of the small screen; when there
+        // is no screen, the same height is calculated according to the aspect ratio of the main screen,
+        // and the screen will not jump when it comes.
         val config = LocalConfiguration.current
         val stepsMax = ScreenWidth / (screen?.let(::ratio) ?: ratio(config.screenWidthDp, config.screenHeightDp))
         Row(Modifier.padding(top = 10.dp).weight(1f, fill = false).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (screen != null) MiniScreen(screen) { actions.zoom(true) }
             Column(Modifier.weight(1f)) {
                 val content = card.content
-                // 干活中的步骤单独排(自己滚、最多和小画面一样高),没有要你点的按钮
+                // The steps in the work are arranged separately (roll by yourself, at most as high as
+                // the mini screen), there are no buttons for you to click.
                 if (content is CardContent.Working) Steps(content.steps, stepsMax) else {
-                    // 文字放不下就在这一段里滚;要你点的按钮放在下面,不跟着滚走
+                    // If you can't fit the text, just scroll in this paragraph; put the button you want
+                    // to click below, and don't scroll away with it.
                     Column(
                         Modifier.testTag("capsule-scroll").weight(1f, fill = false).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         when (content) {
-                            // 干活中在上面单独排
+                            // Stand alone on top while working
                             is CardContent.Working -> Unit
                             is CardContent.Takeover -> {
                                 Text(content.need, style = Strong, color = c.warn)
@@ -516,7 +543,7 @@ private fun Detail(
                             }
                             is CardContent.Question -> Text(content.prompt, style = Body, color = c.ink)
                             is CardContent.Held -> Text(content.why, style = Body, color = c.ink2)
-                            // 结束了的是对话卡片,不在这里
+                            // What ended is the dialogue card, not here
                             is CardContent.Result -> Unit
                         }
                     }
@@ -532,8 +559,10 @@ private fun Detail(
 }
 
 /**
- * 留在后台运行的那一页的卡片:标题「后台网页 · 还剩 1 小时 52 分」,实时画面(它那块显示的最新一帧,点一下放大),
- * 站点和来自哪个对话,下面「打开对话」「关闭网页」。按内容高。剩下的时间每分钟走一次。
+ * The card left on the page running in the background: the title "Background web page · 1 hour and 52
+ * minutes left", the real-time picture (the latest frame displayed on it, click to enlarge), the site
+ * and the conversation it comes from, below "Open conversation" and "Close web page". Press content
+ * high. Walk every minute the rest of the time.
  */
 @Composable
 private fun KeptCard(card: CardView.Kept, preview: Bitmap?, actions: CardActions, height: Dp, handle: Modifier) {
@@ -568,7 +597,7 @@ private fun KeptCard(card: CardView.Kept, preview: Bitmap?, actions: CardActions
         }
         Row(Modifier.padding(top = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f).testTag("kept-open")) { Action(tr(R.string.kept_open_chat), ButtonKind.Tonal) { actions.openMina(p.conversationId) } }
-            // 关闭是红字的淡红按钮,和别的按钮分开
+            // Close is a light red button with red letters, separate from other buttons
             Box(
                 Modifier.weight(1f).height(40.dp).testTag("kept-close").clip(MinaShapes.Pill).background(c.badSoft)
                     .clickable(role = Role.Button, onClick = actions::closeKeptPage),
@@ -580,7 +609,7 @@ private fun KeptCard(card: CardView.Kept, preview: Bitmap?, actions: CardActions
 
 private const val KEPT_TICK_MS = 30_000L
 
-/** 要你点的按钮(接管、同意、选项、继续),固定在卡片中间那段的下面,不跟着滚。 */
+/** The buttons you want to click (Accept, Agree, Options, Continue) are fixed under the middle section of the card and do not roll with it. */
 @Composable
 internal fun Pinned(content: CardContent?, key: String, actions: CardActions) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -609,8 +638,10 @@ internal fun Pinned(content: CardContent?, key: String, actions: CardActions) {
 }
 
 /**
- * 对话卡片:那个对话的来回在中间滚;要你回答、同意时按钮固定在来回下面,再下面是输入框和「回到 Mina」。
- * 不带任务时是空闲卡片(标题栏能切新对话)。
+ * Dialogue card: The back and forth of the conversation scrolls in the middle; when you are asked to
+ * answer or agree, the button is fixed below the back and forth, and below that is the input box and
+ * "Return to Mina". When there is no task, it is an idle card (the title bar can open a new
+ * conversation).
  */
 @Composable
 private fun ChatCard(
@@ -626,7 +657,8 @@ private fun ChatCard(
             actions, handle,
         )
         Box(Modifier.padding(top = 8.dp).weight(1f).fillMaxWidth()) {
-            // 换了对话(空闲卡片切到新对话)时从那个对话的最新一问重新读起
+            // When the conversation is changed (the idle card switches to a new conversation), read
+            // again from the latest question of that conversation.
             if (thread != null) key(card.target) { ThreadList(thread, card.conversationId, actions) }
         }
         if (r != null) Pinned(card.content, r.run.key, actions)
@@ -640,8 +672,11 @@ private fun ChatCard(
 }
 
 /**
- * 对话的来回(旧的在上):打开时最新那句你说的话停在顶上;滚到顶往前多加载几轮,列表按每条的 key 停在原处;
- * 往下长的字只在你本来就在底部时跟着往下(同对话页);来了新的一问时滚到它。[footer] 排在最后一条后面。
+ * Dialogue back and forth (oldest on top): When opening, the latest sentence you said will stop at the
+ * top; scroll to the top and load a few more rounds, and the list will stop in place according to the
+ * key of each item; words that are longer will only follow you down when you are already at the bottom
+ * (same as the conversation page); scroll to it when a new question comes. [footer] comes after the last
+ * one.
  */
 @Composable
 internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: CardActions, footer: (@Composable () -> Unit)? = null) {
@@ -664,7 +699,9 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
         lastAnchor = anchorKey
         state.scrollToItem(thread.anchor)
     }
-    // 回答按 Markdown 排版(流式时在后台解析),排好了高度才变:按条数和最后一条排出来的高度跟,不按字数
+    // Answers are typeset in Markdown (parsed in the background during streaming), and the height
+    // changes only after they are arranged: according to the number of items and the height of the last
+    // item, not according to the number of words.
     LaunchedEffect(state) {
         snapshotFlow {
             val info = state.layoutInfo
@@ -680,7 +717,8 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
     LazyColumn(Modifier.testTag("capsule-thread").fillMaxWidth().fillMaxHeight(), state = state) {
         items(thread.items, key = { it.key }) { item ->
             when (item) {
-                // 带着屏幕的那句:缩略图和「你此刻的屏幕 · App · 时刻」,附言另起一个气泡
+                // The sentence with the screen: thumbnail and "Your screen at the moment · App ·
+                // Moment", add another bubble with the postscript
                 is ThreadItem.User -> BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp), contentAlignment = Alignment.CenterEnd) {
                     val maxWidth = maxWidth
                     Column(horizontalAlignment = Alignment.End) {
@@ -691,7 +729,7 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
                                 style = Body, color = c.onAccent,
                             )
                         }
-                        // 插的话的去向(已收到、已加入、下一件事)
+                        // The destination of the inserted words (received, added, next thing)
                         item.note?.let { Text(it, Modifier.padding(top = 2.dp, end = 4.dp), style = Sub, color = c.ink3) }
                     }
                 }
@@ -699,38 +737,45 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
                     item.text, Modifier.padding(bottom = 4.dp), style = Sub,
                     color = if (item.kind.needsYou) c.warn else c.ink3, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
-                // 表格、代码块在自己那块里左右滑,不撑宽卡片;链接另开任务打开,浮层里也能点
+                // Tables and code blocks can slide left and right in their own section without
+                // stretching the card; links can be opened in separate tasks and can also be clicked in
+                // the floating layer.
                 is ThreadItem.Answer -> if (!item.cut) {
                     MarkdownText(item.text, Body.copy(color = c.ink), Modifier.fillMaxWidth().padding(bottom = 8.dp), streaming = item.streaming)
                 } else Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                    // 被插话打断的那段:淡色,下面一行小字(和对话页同一句话)
+                    // The paragraph interrupted by the interruption: light color, a line of small words
+                    // below (same sentence as the conversation page)
                     MarkdownText(item.text, Body.copy(color = c.ink2), Modifier.fillMaxWidth(), streaming = false)
                     Text(tr(R.string.steer_interrupted_reply), Modifier.padding(top = 2.dp), style = Sub, color = c.ink3)
                 }
             }
         }
-        // 接在来回后面的一段(浏览器页面板里此刻的步骤):紧跟着最后一条,跟到底部时一起往下
+        // The paragraph following the round trip (the current steps in the browser page panel): follow
+        // the last one, and go down together when you reach the bottom.
         footer?.let { f -> item(FOOTER_KEY) { f() } }
     }
 }
 
 private const val FOOTER_KEY = "thread-footer"
 
-/** 卡片来回里截图缩略图的宽。 */
+/** The width of the screenshot thumbnail in the card. */
 private val ThreadThumbWidth = 78.dp
 
-/** 跟到底部时滚到最后一条再往下这么多像素,由列表夹到真正的底。 */
+/** When you reach the bottom, scroll to the last item and then go down so many pixels to get to the real bottom from the list. */
 private const val END_OFFSET = 1_000_000
 
 /**
- * 干活中的步骤(旧的在上):按内容高、最多 [max] 高。放不下时最新一步留在底下,旧的在上面截掉、顶上淡出,往上滚看更早的;
- * 来了新的一步时,本来就在底部才跟着往下,往上翻着看时不拽回去(同 [ThreadList])。
- * [tags] 和 [steps] 一一对应:那一步在哪(「网页」「App」),写成步骤前面的小标签;没有为 null。
+ * Steps in working (the old one is on top): According to the content, the maximum is [max]. When you
+ * can't put it down, the latest step stays at the bottom, and the old one is cut off at the top, fades
+ * out at the top, and scrolls up to see the earlier one; when a new step comes, it is already at the
+ * bottom and then scrolls down, and it is not pulled back when scrolling up (same as [ThreadList]).
+ * [tags] and [steps] have a one-to-one correspondence: where is that step ("Webpage" "App"), written as
+ * a small label in front of the step; if not, it is null.
  */
 @Composable
 internal fun Steps(steps: List<String>, max: Dp, tags: List<String?> = emptyList()) {
     val c = MinaTheme.colors
-    // 倒着排:第 0 项是最新一步,贴在底下
+    // Arrange backwards: item 0 is the latest step, posted at the bottom
     val state = rememberLazyListState()
     var following by remember { mutableStateOf(true) }
     LaunchedEffect(state) {
@@ -749,13 +794,14 @@ internal fun Steps(steps: List<String>, max: Dp, tags: List<String?> = emptyList
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithContent {
                 drawContent()
-                // 上面还有更早的步骤:顶上淡出
+                // There is an earlier step above: top fade
                 if (state.canScrollForward) drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, endY = fade), blendMode = BlendMode.DstIn)
             },
         state = state,
         reverseLayout = true,
     ) {
-        // 按从旧到新的序号作 key:往上翻着看时来了新的一步,看着的那几步留在原处
+        // Use the serial number from old to new as the key: when you turn up and look up, a new step
+        // comes, and the steps you looked at remain where they are.
         items(steps.size, key = { steps.lastIndex - it }) { j ->
             val i = steps.lastIndex - j
             val current = j == 0
@@ -792,7 +838,7 @@ private fun TextLink(text: String, onClick: () -> Unit) {
     )
 }
 
-/** 虚拟屏小画面,点一下放大。 */
+/** Virtual screen small picture, click to enlarge. */
 @Composable
 private fun MiniScreen(frame: Bitmap, onZoom: () -> Unit) {
     val c = MinaTheme.colors
@@ -812,7 +858,7 @@ private fun MiniScreen(frame: Bitmap, onZoom: () -> Unit) {
     }
 }
 
-/** 放大的画面:点一下回到卡片。 */
+/** Enlarged screen: Click to return to the card. */
 @Composable
 private fun Zoomed(frame: Bitmap, actions: CardActions) {
     val image = remember(frame) { frame.asImageBitmap() }
@@ -831,7 +877,7 @@ private fun Zoomed(frame: Bitmap, actions: CardActions) {
     }
 }
 
-/** 画面的宽高比,夹在合理范围里(防止异常尺寸撑坏卡片)。 */
+/** The aspect ratio of the picture is within a reasonable range (to prevent abnormal sizes from damaging the card). */
 private fun ratio(b: Bitmap): Float = ratio(b.width, b.height)
 
 private fun ratio(width: Int, height: Int): Float = if (height <= 0) 0.45f else (width.toFloat() / height).coerceIn(0.3f, 1.8f)

@@ -7,9 +7,10 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * 提示词表面的金样:全文写出(不是摘要),审改动时直接看得到差在哪。
- * 金样在 core/src/test/resources/prompt-surface/;重新生成:
- *   ./gradlew :core:test --tests '*PromptSurface*' -PupdateSnapshots
+ * Tips for the golden pattern on the surface of the word: Write the full text (not the abstract), and
+ * you can directly see the differences when reviewing and making changes. The gold sample is in
+ * core/src/test/resources/prompt-surface/; regenerate:./gradlew:core:test --tests '*PromptSurface*'
+ * -PupdateSnapshots
  */
 object PromptSurface {
     private val dir = File(System.getProperty("mina.promptSurfaceDir") ?: "src/test/resources/prompt-surface")
@@ -26,7 +27,7 @@ object PromptSurface {
         assertEquals("提示词表面 $name 变了;确认是有意的改动后用 -PupdateSnapshots 重新生成", file.readText(), actual)
     }
 
-    /** 一种能力组合:系统提示词全文,再列发给模型的工具(名字 + 定义摘要,定义全文在 tools 里)。 */
+    /** A combination of capabilities: the system prompts the full text of the word, and then lists the tools sent to the model (name + definition summary, the full text of the definition is in tools). */
     fun system(system: String, tools: List<ToolSpec>): String = buildString {
         appendLine(system)
         appendLine()
@@ -34,7 +35,7 @@ object PromptSurface {
         tools.forEach { appendLine("${it.name} #${hash(spec(it))}") }
     }
 
-    /** 一次请求的全貌:系统提示词全文,再按发给模型的顺序列每个工具的定义全文。 */
+    /** The full picture of a request: the system prompts the full text of the word, and then lists the full text of the definition of each tool in the order sent to the model. */
     fun layer(system: String, tools: List<ToolSpec>): String = buildString {
         appendLine(system)
         appendLine()
@@ -48,7 +49,7 @@ object PromptSurface {
 
     private fun spec(t: ToolSpec) = "## ${t.name}\n${t.description}\n${t.parametersJsonSchema}\n"
 
-    /** 内部角色(标准、核查、描述、定位等)的提示词全文。 */
+    /** The full text of the prompt words for internal roles (standard, verification, description, positioning, etc.). */
     fun roles(): String = buildString {
         for (name in ROLES) {
             appendLine("## $name")
@@ -62,7 +63,7 @@ object PromptSurface {
         checkNotNull(PromptSurface::class.java.getResourceAsStream("/prompts/roles/$name.md")) { "missing role prompt $name" }
             .bufferedReader(Charsets.UTF_8).use { it.readText() }
 
-    /** 一组「标签 → 发给模型的字」逐条写出。 */
+    /** A set of "labels → words sent to the model" are written out one by one. */
     fun entries(items: List<Pair<String, String>>): String = buildString {
         items.forEach { (k, v) -> appendLine("### $k"); appendLine(v) }
     }

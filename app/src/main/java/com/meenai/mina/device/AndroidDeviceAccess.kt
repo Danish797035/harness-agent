@@ -21,7 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** App 级唯一实例:设置页与经过认证的 MCP 共用,不经过模型、屏幕工具或运行记录。 */
+/** App-level only instance: Settings pages are shared with certified MCPs without going through models, screen tools, or run logging. */
 class AndroidDeviceAccess(context: Context, helper: () -> IHarnessShell?) {
     val settings = DeviceAccessSettings(File(context.filesDir, "settings"), KeystoreKeyCipher("mina-device-access"))
     val access = DeviceAccess(AndroidDeviceAccessPort(context, helper), settings)
@@ -41,8 +41,10 @@ internal class AndroidDeviceAccessPort(context: Context, private val helper: () 
     override suspend fun dismiss(): Boolean = withContext(Dispatchers.IO) { runCatching { helper()?.dismissDeviceKeyguard() == true }.getOrDefault(false) }
 
     /**
-     * 只认主屏 SystemUI 中唯一、类型匹配的密码框。SIM PIN/无法识别的厂商页不尝试。
-     * 凭据按键要只投给 SystemUI 的窗口,靠安卓 13 起的定向注入;更早的系统在占位之前就报不支持,不留下暂停。
+     * Only recognize the unique password box with matching type in the main screen SystemUI. SIM
+     * PIN/unrecognized manufacturer page is not attempted. Credential buttons must only be cast to the
+     * SystemUI window, relying on directional injection starting from Android 13; earlier systems
+     * reported that they are not supported before occupying the space, leaving no pause.
      */
     override suspend fun credentialReady(kind: CredentialKind): Boolean = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withContext false

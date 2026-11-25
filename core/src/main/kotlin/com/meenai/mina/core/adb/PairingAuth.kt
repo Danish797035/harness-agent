@@ -6,7 +6,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/** HKDF-SHA256(RFC 5869)。salt 为空时按 RFC 用 32 个零字节。 */
+/** HKDF-SHA256 (RFC 5869). When salt is empty, 32 zero bytes are used per RFC. */
 object Hkdf {
     fun sha256(ikm: ByteArray, salt: ByteArray?, info: ByteArray, length: Int): ByteArray {
         require(length in 1..255 * 32)
@@ -33,8 +33,10 @@ object Hkdf {
 }
 
 /**
- * 配对通道上的 AES-128-GCM:密钥 = HKDF(SPAKE2 密钥, 无 salt, "adb pairing_auth aes-128-gcm key", 16);
- * 12 字节 nonce 的前 8 字节放各自方向的序号(小端,从 0 起每条消息加一),其余为零;无附加数据,16 字节标签附在密文后。
+ * AES-128-GCM on the pairing channel: key = HKDF(SPAKE2 key, no salt, "adb pairing_auth aes-128-gcm
+ * key", 16); The first 8 bytes of the 12-byte nonce are the sequence numbers in the respective
+ * directions (little endian, plus one for each message starting from 0), and the rest are zero; no
+ * additional data, a 16-byte label is appended to the ciphertext.
  */
 class PairingCipher(keyMaterial: ByteArray) {
     private val key = SecretKeySpec(Hkdf.sha256(keyMaterial, null, INFO, 16), "AES")
@@ -43,7 +45,7 @@ class PairingCipher(keyMaterial: ByteArray) {
 
     fun encrypt(plain: ByteArray): ByteArray = run(Cipher.ENCRYPT_MODE, encSeq++, plain)
 
-    /** 认证失败抛 [javax.crypto.AEADBadTagException]。 */
+    /** Authentication failure throws [javax.crypto.AEADBadTagException]. */
     fun decrypt(sealed: ByteArray): ByteArray = run(Cipher.DECRYPT_MODE, decSeq, sealed).also { decSeq++ }
 
     private fun run(mode: Int, seq: Long, data: ByteArray): ByteArray {
@@ -59,7 +61,7 @@ class PairingCipher(keyMaterial: ByteArray) {
     }
 }
 
-/** 配对认证:SPAKE2 交换消息,得到密钥后建 [PairingCipher]。名字含结尾的 NUL,与设备端一致。 */
+/** Pairing authentication: SPAKE2 exchanges messages and builds [PairingCipher] after obtaining the key. The name contains NUL at the end, which is consistent with the device side. */
 class PairingAuth private constructor(role: Spake2.Role, password: ByteArray, seed: ByteArray?) {
     private val spake = if (role == Spake2.Role.ALICE) Spake2(role, CLIENT_NAME, SERVER_NAME) else Spake2(role, SERVER_NAME, CLIENT_NAME)
     val message: ByteArray = if (seed == null) spake.generateMessage(password, SecureRandom()) else spake.generateMessage(password, seed)

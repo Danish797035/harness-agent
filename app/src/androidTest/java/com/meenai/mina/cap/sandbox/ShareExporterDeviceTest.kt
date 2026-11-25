@@ -15,7 +15,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 
-/** 导出到「下载/Mina」:经 MediaStore 查得到、大小一致;超限、工作区外、链接一律不导。 */
+/** Export to "Download/Mina": Checked by MediaStore, the size is the same; if it exceeds the limit, is outside the work area, and the link will not be exported. */
 @RunWith(AndroidJUnit4::class)
 class ShareExporterDeviceTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -32,7 +32,7 @@ class ShareExporterDeviceTest {
         try { block(); fail("expected $code") } catch (e: SandboxError) { assertEquals(code, e.code) }
     }
 
-    /** 和 AndroidSandbox.share 一样:经关口打开工作区里的 [rel],再从这个句柄导出。 */
+    /** Same as AndroidSandbox.share: open [rel] in the workspace through the gateway, and then export from this handle. */
     private suspend fun export(rel: String, name: String) = AndroidFdSys.gate.openRead(ws, rel).use { exporter.export(it, name) }
 
     @Test fun exportsToDownloadsMina() = runBlocking {
@@ -68,7 +68,7 @@ class ShareExporterDeviceTest {
             expectError("path_outside_workspace") { export("../../../share-outside.txt", "x.txt") }
             val link = File(ws, "link.txt")
             Files.createSymbolicLink(link.toPath(), outside.toPath())
-            // 不跟随链接打开:链接本身打不开
+            // Open without following the link: the link itself cannot be opened
             expectError("not_a_file") { export("link.txt", "x.txt") }
             File(ws, "out.txt").writeText("a")
             expectError("invalid_arguments") { export("out.txt", "a‮txt.exe") }
@@ -77,7 +77,7 @@ class ShareExporterDeviceTest {
         }
     }
 
-    /** 检查之后换成 FIFO:不跟随、不阻塞地打开,按类型拒掉,不会卡在读上。 */
+    /** After checking, switch to FIFO: open without following or blocking, reject by type, and won't get stuck on reading. */
     @Test fun fifoRejectedWithoutBlocking() {
         val fifo = File(ws, "pipe.txt")
         android.system.Os.mkfifo(fifo.path, 0x180)
@@ -86,7 +86,7 @@ class ShareExporterDeviceTest {
         assertTrue("took ${System.currentTimeMillis() - begin} ms", System.currentTimeMillis() - begin < 3_000)
     }
 
-    /** 有多个硬链接的文件不导(可能链着 Mina 自己的私有文件)。系统不让建硬链接时跳过。 */
+    /** Files with multiple hard links are not imported (may be linked to Mina's own private files). The system does not allow skipping when building hard links. */
     @Test fun hardLinkedFileRejected() {
         val secret = File(context.filesDir, "share-secret.txt").apply { writeText("secret") }
         val link = File(ws, "linked.txt")

@@ -3,20 +3,26 @@ package com.meenai.mina.cap.phone.a11y
 import com.meenai.mina.cap.phone.display.FrameMath
 
 /**
- * 认屏上文字(OCR)前后对画面的要求。自绘界面几乎不发无障碍事件,「事件安静」不等于画完:
- * 刚进页面、键盘在升起时认,认到的是过渡帧,或者认完画面已经换了、只好丢掉。
+ * Screen requirements before and after on-screen text recognition (OCR). The self-drawing interface
+ * almost never sends accessibility events. "Event quiet" does not mean that the drawing is completed:
+ * when the page is just entered and the keyboard is raised, the transition frame is recognized, or the
+ * screen has been changed after the recognition, so it has to be discarded.
  *
- * - 认之前等画面停稳:前后两帧相近([FrameMath.differs] 为假),最多等 [STILL_CAP_MS];一直有局部在动(动图头像、光标)也到时就认。
- * - 认完整页变了([FrameMath.pageChanged]):字的位置已经对不上,按新的一页再认一次,最多 [ATTEMPTS] 次;局部变化不影响字的位置,照用。
+ * - - Wait for the screen to stabilize before recognizing: the two frames before and after are similar
+ * ([FrameMath.differs] is false), wait at most [STILL_CAP_MS]; if there are parts that are always moving
+ * (animated avatars, cursors), recognize them at that time.
+ * - - Recognize that the entire page has changed ([FrameMath.pageChanged]): the position of the
+ * characters no longer matches, press a new page to recognize again, up to [ATTEMPTS] times; local
+ * changes do not affect the position of the characters, so use them as they are.
  *
- * 时钟、等待、取帧都由调用方注入,便于在 JVM 上测。
+ * Clock, wait, and frame fetching are all injected by the caller to facilitate testing on the JVM.
  */
 internal object StillFrameRead {
     const val POLL_MS = 120L
     const val STILL_CAP_MS = 1_200L
     const val ATTEMPTS = 2
 
-    /** [recognize] 认当前一帧;它给 null(没有画面)时直接返回 null。每次都整页变了也返回 null。 */
+    /** [recognize] recognizes the current frame; when it returns null (no picture), it returns null directly. Every time the entire page changes, null is returned. */
     suspend fun <T : Any> read(now: () -> Long, sleep: suspend (Long) -> Unit, frame: () -> IntArray?, recognize: suspend () -> T?): T? {
         repeat(ATTEMPTS) {
             awaitStill(now, sleep, frame)
@@ -27,7 +33,7 @@ internal object StillFrameRead {
         return null
     }
 
-    /** 等到前后两帧相近;到时限还在动返回 false。没有画面时不等。 */
+    /** Wait until the two frames before and after are similar; return false when the time limit is still moving. It does not wait when there is no picture. */
     suspend fun awaitStill(now: () -> Long, sleep: suspend (Long) -> Unit, frame: () -> IntArray?): Boolean {
         val deadline = now() + STILL_CAP_MS
         var prev = frame() ?: return true

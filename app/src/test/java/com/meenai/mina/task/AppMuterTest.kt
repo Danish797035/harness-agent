@@ -7,9 +7,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 静音规则:启动前静、中途冒出的新 App 静一次、另一份单独静、收尾全还原、没静成照实记下。 */
+/** Mute rules: mute before starting, mute once for new apps that pop up in the middle, mute another one separately, restore all at the end, record everything if it is not muted. */
 class AppMuterTest {
-    /** 记下每一次写 PLAY_AUDIO 的假外壳;键是 [AppAudioKey]。 */
+    /** Note the dummy shell that writes PLAY_AUDIO each time; the key is [AppAudioKey]. */
     private class FakeAudio : AudioPort {
         val modes = mutableMapOf<String, String>()
         val mutes = mutableListOf<String>()
@@ -44,7 +44,7 @@ class AppMuterTest {
 
     @Test fun mutesBeforeLaunchAndDoesNotMuteAgainOnceOpened() {
         muter.beforeOpen("video.app", null)
-        // 启动还没发出,已经静上了
+        // The startup has not been issued yet, but it has already gone silent.
         assertEquals(listOf("video.app"), audio.mutes)
         muter.opened("video.app", null)
         assertEquals(listOf("video.app"), audio.mutes)
@@ -57,7 +57,8 @@ class AppMuterTest {
         muter.notOpened("video.app", null)
         assertEquals("allow", audio.modes["video.app"])
         assertNull(store.saved)
-        // 已经开出来过的,启动被拒不还原(它还在屏上)
+        // It has been opened, but the startup is refused and cannot be restored (it is still on the
+        // screen)
         muter.beforeOpen("music.app", null)
         muter.opened("music.app", null)
         muter.notOpened("music.app", null)
@@ -75,7 +76,8 @@ class AppMuterTest {
     @Test fun newPackageMidTaskIsMutedOnce() {
         muter.beforeOpen("feed.app", null)
         muter.opened("feed.app", null)
-        // 从目标 App 里点开的另一个 App:第一次看到就静,之后再看到不重复
+        // Another app clicked from the target app: it will be silent the first time it is seen, and it
+        // will not be repeated again when it is seen.
         muter.opened("player.app", null)
         muter.opened("player.app", null)
         muter.opened("feed.app", null)
@@ -87,7 +89,7 @@ class AppMuterTest {
         muter.opened("chat.app", 10)
         assertEquals(listOf("chat.app@10"), audio.mutes)
         assertFalse("chat.app" in audio.modes)
-        // 本来那份冒出来时另静一次
+        // When the original one comes out, it will be quiet again.
         muter.opened("chat.app", null)
         assertEquals(listOf("chat.app@10", "chat.app"), audio.mutes)
     }
@@ -112,7 +114,8 @@ class AppMuterTest {
         onMain += "maps.app"
         muter.beforeOpen("maps.app", null)
         assertTrue(audio.mutes.isEmpty())
-        // 用户在主屏上看得见的:不静,照实记下可能出声
+        // What the user can see on the home screen: If it is not silent, write it down as it is and it
+        // may make noise
         muter.opened("maps.app", null)
         assertTrue(audio.mutes.isEmpty())
         assertEquals(listOf("maps.app"), failed)

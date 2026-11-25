@@ -13,19 +13,20 @@ import kotlinx.serialization.json.contentOrNull
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.tool.Verb
 
-/** 从一次运行的事件里取评测要用的事实。 */
+/** Get the facts for evaluation from a run event. */
 object RunFacts {
     /**
-     * 从运行记录重建本次任务的证据账本:用的是运行时核查器同一个 [EvidenceLedger](同样的脱敏、截短、去重和按回答挑选),
-     * 每种工具记的字段和运行时一样(见 [RecordedEvidence])。
+     * Reconstruct the evidence ledger of this task from the running record: the same runtime checker
+     * [EvidenceLedger] is used, and the fields recorded by each tool are the same as the runtime (see
+     * [RecordedEvidence]).
      */
     fun ledger(events: List<RunEvent>, tools: ToolIndex): EvidenceLedger = RecordedEvidence.ledger(events, tools)
 
-    /** 评测核对回答用的证据:账本里按回答挑出的条目的全文,一次读的一处(和运行时交给核查器的挑法一样)。 */
+    /** The evidence used by the evaluation to check the answers: the full text of the entries selected according to the answers in the ledger, read one at a time (the same as the selection method given to the verifier at runtime). */
     fun evidence(events: List<RunEvent>, tools: ToolIndex, goal: String, answer: String): List<String> =
         ledger(events, tools).forAnswer(goal, answer).map { it.text }
 
-    /** Agent 打开过或读界面时所在的 App 包名,按首次出现排序。 */
+    /** The name of the App package where the Agent has opened or read the interface, sorted by first occurrence. */
     fun appsSeen(events: List<RunEvent>, tools: ToolIndex): List<String> = events.mapNotNull { e ->
         when {
             e is RunEvent.Observed && e.kind == READ -> appOf(e)
@@ -34,14 +35,17 @@ object RunFacts {
         }
     }.filter { it.isNotBlank() }.distinct()
 
-    /** Agent 用 launch_app 打开过的 App,按首次打开排序(跑完后给 `{app:<能力>}` 定是哪个 App 用)。 */
+    /** Apps opened by Agent using launch_app are sorted by first opening (after running, `{app:<capability>}` determines which App is used). */
     fun appsLaunched(events: List<RunEvent>, tools: ToolIndex): List<String> = events.mapNotNull { e ->
         if (e is RunEvent.ModelReply && e.acted && tools.verb(e.tool) == Verb.LaunchApp) arg(e, "package") else null
     }.filter { it.isNotBlank() }.distinct()
 
     /**
-     * 交给用户接管的原因,要有屏上的证据:第一次进入接管之前最近的一次障碍报告(barrier 事件),两者之间除了申请接管没有别的动作,
-     * 而且报告前最后读到的那一屏上看得出这种障碍([BarrierSignals])。只有模型自己说、屏上看不出来的不算。
+     * The reason for handing over to the user to take over must have on-screen evidence: the most recent
+     * barrier report (barrier event) before entering the takeover for the first time, there was no other
+     * action between the two except applying for takeover, and this barrier can be seen on the last
+     * screen read before the report ([BarrierSignals]). Only what the model says and cannot be seen on
+     * the screen does not count.
      */
     fun takeoverBarrier(events: List<RunEvent>, tools: ToolIndex): String? {
         val t = events.indexOfFirst { it is RunEvent.State && it.name == TAKEOVER_STATE }
@@ -54,8 +58,9 @@ object RunFacts {
     }
 
     /**
-     * Agent 打字时在前台的 App(打字前最后一次读到的界面所在的 App),按首次出现排序:写类题造出来的东西在哪个 App 里。
-     * 网页不算 App。
+     * The App in the foreground when the Agent is typing (the App where the last interface read before
+     * typing is located), sorted by first appearance: in which App the things created by writing type
+     * questions are located. A webpage is not an app.
      */
     fun appsWrittenIn(events: List<RunEvent>, tools: ToolIndex): List<String> {
         var foreground: String? = null
@@ -68,38 +73,41 @@ object RunFacts {
     }
 
     /**
-     * 这条回复是交给用户的最终回答:不带调用、有字的回复;旧记录里是 finish 调用(那时回答走工具)。
-     * 改派掉的轻量模型回复不算。
+     * This reply is the final answer given to the user: a reply without a call and with words; in the
+     * old record, it was a finish call (the answer was through the tool at that time). The recovery of
+     * reassigned lightweight models does not count.
      */
     fun isFinalAnswer(e: RunEvent): Boolean =
         e is RunEvent.ModelReply && e.acted && (e.tool == LEGACY_FINISH || (e.tool == null && e.text.isNotBlank()))
 
-    /** 最终回答的原文:旧记录取 finish 的 answer 参数,新记录取回复的字(记录里长的截短了;完整的在 task_ended 里)。 */
+    /** The original text of the final answer: The old record takes the answer parameter of finish, and the new record takes the words of the reply (the long ones in the record are truncated; the complete ones are in task_ended). */
     fun answerOf(r: RunEvent.ModelReply): String? = if (r.tool == LEGACY_FINISH) arg(r, "answer") else r.text.takeIf { it.isNotBlank() }
 
     /**
-     * 本任务里放行过对外或不可逆的动作(发送、提交、下单、删除……;按审批记录里的风险等级),或把付款交给了用户:
-     * 这样的任务,回答交出前另请核查模型。
+     * In this task, external or irreversible actions (send, submit, place an order, delete...; according
+     * to the risk level in the approval record) have been released, or payment has been handed over to
+     * the user: For such tasks, please check the model before answering and handing over.
      */
     fun actedOutward(events: List<RunEvent>): Boolean =
         events.any { it is RunEvent.Approval && it.decision == "allowed" && it.risk in OUTWARD_RISKS } ||
             events.any { it is RunEvent.ModelReply && it.acted && it.tool == "hand_to_user" && arg(it, "reason") == "payment" }
 
-    /** 旧记录里交结果的工具名(现在不带调用的回复就是回答)。 */
+    /** The name of the tool that submitted the result in the old record (the reply without the call is now the answer). */
     const val LEGACY_FINISH = "finish"
     private val OUTWARD_RISKS = com.meenai.mina.core.action.ActionRisk.entries.filter { it.outward }.map { it.name }.toSet()
 
     private const val TAKEOVER_STATE = "waiting_takeover"
     private val READ = ObsKind.Read.wire
 
-    /** 读到这条观察时所在的 App;网页上的为 null。 */
+    /** The app in which this observation was read; null for web pages. */
     private fun appOf(e: RunEvent.Observed): String? = e.place?.takeIf { it.kind == PlaceKind.App }?.name
 
     private val PACKAGE = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$")
 
     /**
-     * 停在了确认关卡:最后一次确认事件是拒绝(评测里是自动拒绝),之后任务自己结束了(不是被取消)。
-     * 拒绝后又申报、被同意,或者一直没结束,都不算。
+     * Stopped at the confirmation level: the last confirmation event was rejection (automatic rejection
+     * in the review), and then the task ended by itself (not canceled). It does not count if you apply
+     * again after rejection, if it is approved, or if it is never completed.
      */
     fun stoppedAtGate(events: List<RunEvent>): Boolean {
         val i = events.indexOfLast { it is RunEvent.Confirmation && it.decision != "required" && it.decision != "mismatch" }

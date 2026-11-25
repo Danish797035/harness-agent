@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
 
-/** 用户发来此刻的屏幕时,模型看到的样子:那句话、截图、详情;之前几轮里的只剩一行;只发屏幕时不问意图判断。 */
+/** When the user sends the current screen, this is what the model sees: the sentence, the screenshot, and the details; there is only one line left from the previous rounds; when only the screen is sent, the intention judgment is not asked. */
 class AgentLoopUserScreenTest {
     private val at = 1_761_624_120_000L // 2025-10-28 04:02 UTC
     private val chat = UserScreen("s1", at, "com.example.chat", "聊天", lines = listOf(
@@ -73,7 +73,9 @@ class AgentLoopUserScreenTest {
         assertTrue(model.offeredTools.first().contains("view_user_screen"))
     }
 
-    // 模型看到的那句是固定的英文说明加附言:语言提示和回答的语言检查只看附言,中文回答不退回
+    // The sentence that the model sees is a fixed English description plus a postscript: the language
+    // prompts and the language check of the answer only look at the postscript, and Chinese answers will
+    // not be returned.
     @Test fun languageChecksSeeTheCaptionOnly() = runBlocking {
         val goal = UserScreenMessage.compose("s1", "第二句是谁说的")
         val model = FakeModel(answerReply(screenAnswer), repeatLast = true)
@@ -83,7 +85,8 @@ class AgentLoopUserScreenTest {
         assertTrue(hint, "latest message: \"第二句是谁说的\"" in hint)
     }
 
-    // 只发了屏幕、没打字:没有可照的语言,不给语言提示,也不查
+    // Only the screen is sent, no typing: there is no language to take pictures of, no language prompts
+    // are given, and no checking is done.
     @Test fun screenWithoutWordsIsNotLanguageChecked() = runBlocking {
         val goal = UserScreenMessage.compose("s1", "")
         val model = FakeModel(answerReply(screenAnswer), repeatLast = true)
@@ -114,7 +117,7 @@ class AgentLoopUserScreenTest {
         assertTrue(first.startsWith(Conversation.HEADER))
         assertTrue(first.contains("(Screen s1 the user sent earlier: 聊天, Oct 28 04:02; the screen begins with 「周六那个聚会你还去吗 应该去吧,怎么了」) 看看这个"))
         assertFalse(first.contains("[[screen:"))
-        // 之前几轮里有屏幕:能按编号回看
+        // There are screens in previous rounds: you can look back by number
         assertTrue(model.offeredTools.first().contains("view_user_screen"))
     }
 
@@ -124,7 +127,8 @@ class AgentLoopUserScreenTest {
         assertFalse(model.offeredTools.first().contains("view_user_screen"))
     }
 
-    // 只发了屏幕:没有话可判,不问意图判断,提议的调用照常做
+    // Only the screen is sent: there is nothing to judge, no intention judgment is asked, the proposed
+    // call is done as usual
     @Test fun screenWithoutWordsSkipsIntentGate() = runBlocking {
         val main = FakeModel(ModelReply(listOf(Part.ToolCall("c1", "phone_list_apps", "{}")), StopReason.ToolUse, null), answerReply("好"))
         val judge = FakeModel(answerReply("DISCUSS"))

@@ -28,25 +28,29 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-/** 协议事件。[sessionId] 非空表示来自扁平化附着的子会话(`Target.setAutoAttach` 且 `flatten=true`)。 */
+/** protocol event. [sessionId] non-empty indicates subsessions from flattened attachments (`Target.setAutoAttach` and `flatten=true`). */
 data class CdpEvent(val method: String, val params: JsonObject, val sessionId: String? = null)
 
-/** 对端对某个调用回了 error 对象。 */
+/** The peer returned an error object for a certain call. */
 class CdpException(val code: Int, val errorMessage: String, val method: String, val data: String? = null) :
     RuntimeException("$method failed ($code): $errorMessage" + (data?.let { " — $it" } ?: ""))
 
 class CdpTimeoutException(val method: String, val timeoutMs: Long) : IOException("$method timed out after ${timeoutMs}ms")
 
-/** 连接已断或已关闭;断开时还没回的调用都以它失败。 */
+/** The connection has been disconnected or closed; any calls that have not been returned when disconnected will fail. */
 class CdpConnectionClosedException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 /**
- * 一条 DevTools WebSocket 上的 JSON-RPC 会话。一个读协程负责收包:按 id 交还响应,其余作为事件发出;
- * 发送在 IO 线程上,写帧串行。同一条连接可以带多个扁平化子会话,用 sessionId 区分。
+ * A JSON-RPC session over DevTools WebSocket. A reading coroutine is responsible for receiving the
+ * packet: returning the response by id, and sending the rest as events; sending it on the IO thread, and
+ * writing the frame serially. The same connection can have multiple flat sub-sessions, distinguished by
+ * sessionId.
  *
- * 事件流不重放,没有订阅者时事件直接丢弃;缓冲 [eventBuffer] 条,订阅者跟不上时丢最旧的,
- * 读协程从不因事件阻塞(否则响应也会被卡住)。需要完整事件序列的订阅者要及时消费,
- * 并在发出触发事件的命令前就开始订阅。
+ * The event stream is not replayed, and events are discarded directly when there are no subscribers;
+ * [eventBuffer] items are buffered, and the oldest ones are discarded when subscribers cannot keep up.
+ * The read coroutine is never blocked by events (otherwise the response will also be stuck). Subscribers
+ * who require a complete sequence of events must consume in time and start subscribing before issuing
+ * the command that triggers the event.
  */
 class CdpSession(
     private val ws: WebSocketConnection,
@@ -63,12 +67,14 @@ class CdpSession(
     val events: SharedFlow<CdpEvent> = _events.asSharedFlow()
 
     /**
-     * Input 域(鼠标、拖放)坐标与 CSS 像素之比:发出去的坐标 = CSS 像素 × 它。
-     * 平时为 1;视口仿真带缩放(桌面宽度的页面缩进手机视图)时,Input 按缩放前的视图坐标解释,由设仿真的一方改掉。
+     * The ratio of input field (mouse, drag and drop) coordinates to CSS pixels: emitted coordinates =
+     * CSS pixels × it. Usually it is 1; when the viewport simulation is zoomed (desktop-width page is
+     * indented into the mobile view), the Input is interpreted according to the view coordinates before
+     * zooming, and will be changed by the party setting up the simulation.
      */
     @Volatile var inputScale: Double = 1.0
 
-    /** 上一次鼠标事件落在哪(CSS 像素);还没发过为 null。下一次移动从这里沿轨迹过去。 */
+    /** Where the last mouse event landed (CSS pixel); it has not been sent yet and is null. The next move follows the trajectory from here. */
     @Volatile var pointer: Pair<Double, Double>? = null
 
     private val _closed = MutableStateFlow(false)
@@ -86,7 +92,8 @@ class CdpSession(
         val id = nextId.getAndIncrement()
         val p = Pending(method, CompletableDeferred())
         pending[id] = p
-        // 读协程先置 closeError 再清空 pending:这里放进去之后再查一次,就不会漏掉
+        // The reading coroutine first sets closeError and then clears pending: put it here and check it
+        // again to avoid missing it.
         closeError?.let {
             pending.remove(id)
             throw CdpConnectionClosedException(it.message ?: "closed", it.cause)
@@ -98,7 +105,9 @@ class CdpSession(
             if (sessionId != null) put("sessionId", JsonPrimitive(sessionId))
         }.toString()
         try {
-            // 写也有上限:对端不读、缓冲写满时到点断开连接,不让调用方一直卡在写上
+            // There is also an upper limit for writing: when the peer does not read and the buffer is
+            // full, the connection is disconnected at a certain point to prevent the caller from being
+            // stuck in writing.
             withStreamDeadline(timeoutMs, method, open = { Closeable { ws.abort() } }, closeOnCancel = false) { ws.sendText(msg) }
         } catch (e: IOException) {
             pending.remove(id)
@@ -112,12 +121,12 @@ class CdpSession(
         }
     }
 
-    /** 发关闭帧并断开;未完成的调用立即失败。 */
+    /** Send a close frame and disconnect; outstanding calls fail immediately. */
     override fun close() {
         if (closeError != null) return
         shutdown(CdpConnectionClosedException("CDP session closed"))
         runCatching { ws.sendClose() }
-        // 给对端一点时间回关闭帧,然后硬断
+        // Give the peer some time to close the frame, and then hard disconnect
         scope.launch {
             withTimeoutOrNull(CLOSE_GRACE_MS) { reader.join() }
             ws.abort()
@@ -186,7 +195,7 @@ class CdpSession(
         private val EMPTY = JsonObject(emptyMap())
         private val json = Json { ignoreUnknownKeys = true }
 
-        /** 打开传输、做 WebSocket 握手,返回会话。[path] 取自目标的 webSocketDebuggerUrl。超时抛 [CdpTimeoutException]。 */
+        /** Open the transport, do the WebSocket handshake, and return to the session. [path] is taken from the target's webSocketDebuggerUrl. Throw [CdpTimeoutException] when timeout. */
         suspend fun connect(
             transport: CdpTransport,
             endpoint: String,
@@ -196,7 +205,8 @@ class CdpSession(
             eventBuffer: Int = DEFAULT_EVENT_BUFFER,
             handshakeTimeoutMs: Long = CdpDiscovery.DEFAULT_TIMEOUT_MS,
         ): CdpSession {
-            // 握手至多 [handshakeTimeoutMs]:到点关掉流,卡住的握手随之失败
+            // Handshake at most [handshakeTimeoutMs]: The stream is closed at this point, and the stuck
+            // handshake fails.
             val ws = withStreamDeadline(handshakeTimeoutMs, "WebSocket handshake $path", open = { transport.open(endpoint) }) { s ->
                 WebSocketConnection.connect(s, path, host, maxMessageBytes)
             }

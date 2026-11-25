@@ -20,8 +20,9 @@ import kotlinx.serialization.json.put
 import com.meenai.mina.core.uistate.lastSnapshot
 
 /**
- * 页面脚本:自己不动页面,脚本里的每个动作经执行入口回来(守卫、关卡、不可逆判定、记录照常);
- * 不过锁屏关卡,也不能作为只读调用。
+ * Page script: If you don’t move the page, each action in the script will be returned through the
+ * execution entrance (guards, levels, irreversible judgments, records as usual); however, lock screen
+ * levels cannot be called as read-only.
  */
 internal object WebScriptTool : WebTool {
     override val verb = Verb.Script
@@ -46,7 +47,9 @@ internal object WebScriptTool : WebTool {
         val timeoutMs = (a.int("timeoutMs", 1000, SCRIPT_MAX_TIMEOUT_MS) ?: SCRIPT_DEFAULT_TIMEOUT_MS).toLong()
         val calls = ScriptCalls(ctx.callId, ctx.sub, ctx.tools)
         val run = try {
-            // 时限由端口管:只算脚本自己的时间,动作(含等锁屏关卡)在做时不走表,也不会被掐在半中间
+            // The time limit is managed by the port: only the script's own time is counted, and the
+            // actions (including waiting for the lock screen level) will not run off the clock during
+            // execution, nor will they be caught in the middle.
             ctx.web!!.runScript(code, timeoutMs, calls)
         } catch (e: WebTabCrashed) {
             ScriptRun.Failed("tab_crashed", FAILURE_MESSAGES.getValue("tab_crashed"))

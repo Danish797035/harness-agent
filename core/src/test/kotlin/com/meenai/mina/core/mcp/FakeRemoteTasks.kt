@@ -5,7 +5,7 @@ import com.meenai.mina.core.remote.RemoteTasks
 import com.meenai.mina.core.remote.RemoteTask
 import com.meenai.mina.core.agent.TaskState
 
-/** 测试用的任务出入口:状态由测试直接改,记下回答和取消。 */
+/** Task entrance and exit for testing: the status is changed directly from the test, and the answers and cancellations are recorded. */
 class FakeRemoteTasks : RemoteTasks {
     val tasks = LinkedHashMap<String, RemoteTask>()
     val answers = mutableListOf<Pair<String, String>>()

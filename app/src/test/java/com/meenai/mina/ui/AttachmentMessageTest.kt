@@ -22,7 +22,7 @@ class AttachmentMessageTest {
         assertTrue(p.hasAttachments)
     }
 
-    /** 旧对话里存下的写法:名字里带括号、只有附件没有话、大小是字节。 */
+    /** The writing method saved in the old conversation: brackets in the name, only attachments without words, and size in bytes. */
     @Test fun oldMessagesParseTheSameWay() {
         val p = AttachmentMessage.parse("附件:/workspace/inbox/报表 (1).csv(2 KB)\n附件:/workspace/inbox/x(512 B)")
         assertEquals("", p.words)
@@ -48,7 +48,7 @@ class AttachmentMessageTest {
         assertEquals(1, p.photos.size)
         assertEquals(1, p.files.size)
         assertEquals("附件:/workspace/inbox/a.png(3 KB)", AttachmentLines.compose("", listOf("/workspace/inbox/a.png" to "3 KB")))
-        // 交给任务的写法和以前一样
+        // The way to write tasks is the same as before
         assertEquals(text, ChatViewModel.withAttachments("查一下", listOf("/workspace/inbox/a.png" to 3072L, "/workspace/inbox/b.docx" to 1024L * 1024)))
     }
 
@@ -96,7 +96,7 @@ class AttachmentMessageTest {
         val full = AttachTray.toggle(items, photo(99))
         assertTrue(full.full)
         assertEquals(items, full.items)
-        // 取消一张后又能选
+        // You can choose again after canceling one
         items = AttachTray.toggle(items, photo(3)).items
         assertEquals(AttachTray.LIMIT - 1, items.size)
         assertNull(AttachTray.order(items, "content://m/3"))
@@ -109,7 +109,7 @@ class AttachmentMessageTest {
         assertEquals(AttachTray.LIMIT, items.size)
         assertEquals(listOf("content://m/0", "content://f/1"), items.take(2).map { it.uri })
         assertEquals(2, dropped)
-        // 照片的序号只数照片
+        // The serial number of the photo only counts the photo
         assertEquals(2, AttachTray.order(items, "content://m/1"))
         assertNull(AttachTray.order(items, "content://f/1"))
         assertFalse(file.photo)

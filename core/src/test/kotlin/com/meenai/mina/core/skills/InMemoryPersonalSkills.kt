@@ -1,6 +1,6 @@
 package com.meenai.mina.core.skills
 
-/** 测试用的内存实现,语义同 app 层的文件实现。 */
+/** The memory implementation used for testing has the same semantics as the file implementation at the app layer. */
 class InMemoryPersonalSkills(vararg skills: PersonalSkill) : PersonalSkills {
     private val active = linkedMapOf<String, PersonalSkill>().apply { skills.forEach { put(it.name, it) } }
     private val drafts = linkedMapOf<String, PersonalSkill>()

@@ -68,7 +68,8 @@ class SystemIntentsTest {
         val other = SystemIntents.Handler("com.example.other", "Set", system = false)
         assertNull(SystemIntents.choose(emptyList(), null))
         assertEquals(other, SystemIntents.choose(listOf(other), null))
-        // 用户设了默认的用默认的;没设(系统解析出来的是选择器)先挑系统自带的
+        // If the user sets the default, use the default one; if not (the system parses the selector),
+        // first choose the one that comes with the system.
         assertEquals(other, SystemIntents.choose(listOf(clock, other), "com.example.other"))
         assertEquals(clock, SystemIntents.choose(listOf(other, clock), "android"))
         assertEquals(other, SystemIntents.choose(listOf(other, other.copy(className = "B")), null))

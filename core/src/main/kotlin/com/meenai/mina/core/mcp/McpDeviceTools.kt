@@ -7,7 +7,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 主屏准备是独立的确定性流程。工具不接收凭据,凭据只能在手机设置。沿用 MCP 的认证门口。 */
+/** Home screen preparation is a separate deterministic process. The tool does not accept credentials, which can only be set on the phone. Follow MCP's certified doorway. */
 internal class McpDeviceTools(private val device: DeviceAccess) {
     private val schema = buildJsonObject {
         put("type", "object"); put("properties", JsonObject(emptyMap()))

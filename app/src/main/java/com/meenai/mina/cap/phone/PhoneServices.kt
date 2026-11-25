@@ -12,38 +12,40 @@ import com.meenai.mina.core.shell.BuiltinShellControl
 import com.meenai.mina.settings.RecoverySettings
 
 /**
- * 手机能力在 Mina 进程里的服务,由 App 建一份、经 [Owner] 给出:内置助手(交接落点、配对与看门狗、
- * 自动恢复与授权)、任务和启动恢复共用的那条 shell 连接、配对流程、「去设置」提示。
- * 助手进程(HelperMain、ShellService)跑在 shell 身份下,没有 App 对象,不经这里。
+ * The services of mobile phone capabilities in the Mina process are created by the App and given by
+ * [Owner]: built-in assistant (handover point, pairing and watchdog, automatic recovery and
+ * authorization), the shell connection shared by tasks and startup recovery, pairing process, and "go to
+ * settings" prompt. The helper process (HelperMain, ShellService) runs under the shell identity, does
+ * not have an App object, and does not pass here.
  */
 class PhoneServices(context: Context) {
     private val app = context.applicationContext
 
-    /** 助手交来 Binder 的落点:助手只认一个进程里的一个落点。 */
+    /** The assistant hands over the Binder placement point: the assistant only recognizes one placement point in a process. */
     val hub = HelperHub(app)
 
-    /** 配对、经 adbd 起助手、看门狗。 */
+    /** Pairing, adbd boot assistant, watchdog. */
     val shellManager = BuiltinShellManager(app, hub) { recoverySettings.consent.value }
 
-    /** 内置助手本身(状态、配对、重试、解除配对)。 */
+    /** Built-in assistant itself (status, pairing, retry, unpairing). */
     val shellControl: BuiltinShellControl get() = shellManager.engine
 
-    /** 自动恢复与授权开关的设置。 */
+    /** Automatic recovery and authorization switch settings. */
     val recoverySettings: RecoverySettings by lazy { RecoverySettings(RecoverySettings.prefs(app)) }
 
-    /** 自动恢复与那几项授权开关。 */
+    /** Automatic recovery and those authorization switches. */
     val recovery: BuiltinShellRecovery by lazy { BuiltinShellRecovery(app, shellManager.commandRunner, recoverySettings, shellControl) }
 
-    /** 任务与启动恢复共用的那条 shell 连接。 */
+    /** The shell connection that the task shares with startup recovery. */
     val sharedShell = SharedShell { BuiltinShellConnection(hub) { shellManager.need() } }
 
-    /** 一次配对的全过程。 */
+    /** The entire pairing process. */
     val pairing: PairingCoordinator by lazy { PairingCoordinator(app, shellControl) }
 
-    /** 任务要用手机、助手却没在运行时的提示。 */
+    /** The task requires the use of mobile phones and assistants but there is no prompt when running. */
     val setupPrompt = PhoneSetupPrompt(app)
 
-    /** 给出进程里那一份的 Application。 */
+    /** Give the application in the process. */
     interface Owner {
         val phone: PhoneServices
     }

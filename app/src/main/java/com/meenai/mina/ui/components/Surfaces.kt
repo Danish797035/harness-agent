@@ -54,13 +54,13 @@ import com.meenai.mina.ui.theme.MinaSize
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
-/** 页面底:干净的近白(深色下近黑),不加渐变。 */
+/** Bottom of the page: clean near white (near black under dark colors), no gradient. */
 @Composable
 fun PageBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     Box(modifier.fillMaxSize().background(MinaTheme.colors.bg), content = content)
 }
 
-/** 卡片的底:白底 + 黑 5% 描边 + 极淡阴影;深色下只有描边。 */
+/** The base of the card: white + black 5% stroke + very light shadow; dark only stroke. */
 fun Modifier.cardSurface(colors: MinaColors, shape: Shape = MinaShapes.Card): Modifier =
     (if (colors.cardShadow.alpha > 0f) {
         shadow(6.dp, shape, clip = false, ambientColor = colors.cardShadow.copy(alpha = 0.45f), spotColor = colors.cardShadow.copy(alpha = 0.16f))
@@ -68,11 +68,11 @@ fun Modifier.cardSurface(colors: MinaColors, shape: Shape = MinaShapes.Card): Mo
         .background(colors.surface, shape)
         .border(0.5.dp, colors.edge, shape)
 
-/** 悬浮元素的阴影(输入栏、浮在内容上的按钮)。 */
+/** Shadows for suspended elements (input fields, buttons floating on content). */
 fun Modifier.floatShadow(colors: MinaColors, shape: Shape): Modifier =
     shadow(14.dp, shape, clip = false, ambientColor = colors.floatShadow.copy(alpha = 0.3f), spotColor = colors.floatShadow.copy(alpha = 0.35f))
 
-/** 一张卡片,内容裁在圆角里(行的按压效果不出角)。 */
+/** A card with the content cut in the rounded corners (the row press effect does not reveal the corners). */
 @Composable
 fun HarnessCard(modifier: Modifier = Modifier, shape: Shape = HarnessShapes.Card, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxWidth().cardSurface(HarnessTheme.colors, shape).clip(shape), content = content)
@@ -83,15 +83,16 @@ fun MinaCard(modifier: Modifier = Modifier, shape: Shape = HarnessShapes.Card, c
     HarnessCard(modifier, shape, content)
 
 /**
- * 分组卡片:一组 [ListRow]。下面自带 12dp 间距,和下一组的 [GroupLabel](上 8)合起来是分组之间的 20。
- * 行与行的分隔线由行自己画,从文字处开始。
+ * Group cards: a group of [ListRow]. The following comes with a 12dp spacing, which together with the
+ * next group of [GroupLabel] (on 8) is 20 between groups. The lines separating lines are drawn by the
+ * lines themselves, starting from the text.
  */
 @Composable
 fun GroupCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     MinaCard(modifier.padding(bottom = 12.dp), content = content)
 }
 
-/** 状态卡:左边圆形图标,右边标题和说明。用于页面顶上的总状态。 */
+/** Status card: circular icon on the left, title and description on the right. Used for the overall status at the top of the page. */
 @Composable
 fun StateCard(
     icon: ImageVector,
@@ -121,18 +122,18 @@ fun StateCard(
     }
 }
 
-// ---------- 悬浮玻璃 ----------
+// ---------- Suspended glass ----------
 
-/** 能做背景模糊(安卓 12 起有 RenderEffect);不能时玻璃退回不透明的卡片底。 */
+/** It can blur the background (RenderEffect is available starting from Android 12); when it cannot, the glass will return to the opaque card bottom. */
 val GlassBlurSupported: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-/** 玻璃后面那层内容的画面:内容用 [glassSource] 画进来,[GlassBar] 取它模糊后垫在自己底下。 */
+/** The picture of the content behind the glass: use [glassSource] to draw the content, blur it with [GlassBar] and put it under yourself. */
 @Stable
 class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
     internal var origin by mutableStateOf(Offset.Zero)
 }
 
-/** 不支持模糊时为 null,[GlassBar] 就用不透明底。 */
+/** It is null when blur is not supported, and [GlassBar] uses opaque background. */
 @Composable
 fun rememberGlassBackdrop(): GlassBackdrop? {
     if (!GlassBlurSupported) return null
@@ -140,7 +141,7 @@ fun rememberGlassBackdrop(): GlassBackdrop? {
     return remember(layer) { GlassBackdrop(layer) }
 }
 
-/** 把这块内容记成玻璃的背景。玻璃本身不能在这块内容里面。 */
+/** Mark this piece of content as the background of the glass. The glass itself cannot be inside this content. */
 fun Modifier.glassSource(backdrop: GlassBackdrop?): Modifier =
     if (backdrop == null) this
     else onGloballyPositioned { backdrop.origin = it.positionInRoot() }
@@ -152,8 +153,9 @@ fun Modifier.glassSource(backdrop: GlassBackdrop?): Modifier =
 private val GlassBlur = BlurEffect(30f, 30f, TileMode.Clamp)
 
 /**
- * 玻璃输入栏的外壳:半透明底 + 背景模糊 + 悬浮阴影,高至少 52。
- * [backdrop] 为 null(不支持模糊、或后面没有内容)时用不透明底。
+ * Shell of glass input field: translucent bottom + background blur + floating shadow, height at least
+ * 52. When [backdrop] is null (blurring is not supported, or there is no content behind it), opaque
+ * background is used.
  */
 @Composable
 fun GlassBar(

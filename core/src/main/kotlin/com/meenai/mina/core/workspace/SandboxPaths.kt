@@ -3,13 +3,13 @@ package com.meenai.mina.core.workspace
 import java.io.File
 import java.nio.file.Files
 
-/** 模型只看到沙箱里的路径;这里规范化并判断越界。 */
+/** The model only sees paths in the sandbox; here it is normalized and judged to be out of bounds. */
 object SandboxPaths {
     const val WORKSPACE = "/workspace"
     const val SKILLS = "/opt/harness/skills"
     const val LEGACY_SKILLS = "/opt/mina/skills"
 
-    /** 相对路径以 [cwd] 为基;规范化后不在 [WORKSPACE] 或 [SKILLS] 下返回 null。 */
+    /** Relative paths are based on [cwd]; do not return null under [WORKSPACE] or [SKILLS] after normalization. */
     fun normalize(path: String, cwd: String = WORKSPACE): String? {
         if (path.isEmpty() || '\u0000' in path) return null
         val parts = ArrayDeque<String>()
@@ -22,12 +22,13 @@ object SandboxPaths {
         return n.takeIf { under(it, WORKSPACE) || under(it, SKILLS) || under(it, LEGACY_SKILLS) }
     }
 
-    /** 只有工作区可写;技能目录只读。 */
+    /** Only the workspace is writable; the skills directory is read-only. */
     fun isWritable(normalized: String): Boolean = under(normalized, WORKSPACE)
 
     /**
-     * [root] 下的 [sandboxRel];逐段检查符号链接:指到 [root] 外面的、目标不存在的(写下去会落到哪里看不出来)一律 null,
-     * 最终的 canonicalFile 也必须仍在 [root] 下。
+     * [sandboxRel] under [root]; check the symbolic links piece by piece: those pointing outside [root]
+     * and the target does not exist (you can’t tell where it will fall after writing it) will be null,
+     * and the final canonicalFile must still be under [root].
      */
     fun resolveHost(root: File, sandboxRel: String): File? {
         val base = root.canonicalFile

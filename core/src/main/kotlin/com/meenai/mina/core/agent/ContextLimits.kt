@@ -1,31 +1,38 @@
 package com.meenai.mina.core.agent
 
 /**
- * 一个模型上下文窗口上的几条线。全部按**整份请求**计(系统提示词 + 工具定义 + 消息,和服务商报的输入 token 同一口径),
- * 固定开销不在这里扣,由量的那一边([UsageMeter])算进去,只算一次。触发点只在 [of] 一处算。
+ * Several lines on a model context window. All are calculated based on the **whole request** (system
+ * prompt word + tool definition + message, the same caliber as the input token reported by the service
+ * provider), the fixed overhead is not deducted here, it is calculated from the side of the amount
+ * ([UsageMeter]), and is only counted once. The trigger point is only calculated at [of].
  *
- * - [usable]:窗口扣掉给输出的预留(最多 [MAX_OUTPUT_RESERVE],小窗口按窗口的四分之一)。
- * - [margin]:触发点离 [usable] 的余量(最多 [MARGIN_TOKENS],小窗口按 [usable] 的四分之一);也是压缩后的回差,
- *   压完至少再长这么多才会再压,不会每步都压。
- * - [trigger]:当前请求超过它就压缩一次。不低于窗口的 [MIN_TRIGGER_SHARE],不高于 [usable]。
- * - [target]:一次压缩要把整份请求压到它以下([usable] 的 [AFTER_COMPACTION],且至少比触发点低一个 [margin])。
+ * - - [usable]: The window deducts the reservation for output (up to [MAX_OUTPUT_RESERVE], a quarter of
+ * the window for small windows).
+ * - - [margin]: The margin between the trigger point and [usable] (up to [MARGIN_TOKENS], the small
+ * window is one-quarter of [usable]); it is also the hysteresis after compression,
+ * After pressing, it will be at least this long before pressing again, not at every step.
+ * - - [trigger]: The current request is compressed once if it exceeds it. Not lower than
+ * [MIN_TRIGGER_SHARE] of the window, not higher than [usable].
+ * - - [target]: One compression should compress the entire request below it ([usable] of
+ * [AFTER_COMPACTION], and at least one [margin] lower than the trigger point).
  */
 class ContextLimits private constructor(
     val window: Int, val usable: Int, val trigger: Int, val margin: Int, val target: Int,
     val minTrigger: Int,
 ) {
     companion object {
-        /** 给模型输出预留的 token 上限。 */
+        /** The upper limit of tokens reserved for model output. */
         const val MAX_OUTPUT_RESERVE = 20_000
-        /** 触发点离可用窗口留的余量上限。 */
+        /** The upper limit of the margin left between the trigger point and the available window. */
         const val MARGIN_TOKENS = 13_000
-        /** 一次压缩要压到可用窗口的这个比例以下。 */
+        /** A compression should be below this ratio of the available window. */
         const val AFTER_COMPACTION = 0.5
-        /** 触发点的下限(占窗口的比例):给了别的触发点也不会低到一开局就压。 */
+        /** The lower limit of the trigger point (proportion of the window): If you give other trigger points, it will not be so low that it will be suppressed at the beginning. */
         const val MIN_TRIGGER_SHARE = 0.5
 
         /**
-         * [window]:模型上下文长度。[triggerOverride]:按模型单独给的触发点(整份请求的 token);限在下限和 [usable] 之间。
+         * [window]: Model context length. [triggerOverride]: The trigger point given separately by the
+         * model (token of the entire request); limited to the lower limit and [usable].
          */
         fun of(window: Int, triggerOverride: Int? = null): ContextLimits {
             val w = window.coerceAtLeast(0)

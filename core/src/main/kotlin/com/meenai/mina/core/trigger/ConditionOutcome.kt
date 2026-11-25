@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
-/** 条件检查的机器结果；无法解析和执行失败都不能当成条件不成立。 */
+/** The machine result of the condition check; neither failure to parse nor execution failure can be regarded as the condition not being met. */
 sealed interface ConditionOutcome {
     data class Checked(val met: Boolean, val evidence: String?) : ConditionOutcome
     data class Error(val reason: String) : ConditionOutcome

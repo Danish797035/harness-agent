@@ -5,12 +5,15 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 安卓的正则引擎比电脑上的 Java 严:没转义的 `{`、`}`(不是 {n}、{n,m} 这类次数)在电脑上能编译,
- * 装到手机上一加载就抛错。这里扫源码里所有写死的正则字面量,把这一类挡在电脑上。
+ * Android's regex engine is stricter than Java on computers: unescaped `{` and `}` (not {n}, {n,m}
+ * times) can be compiled on a computer, but an error will be thrown as soon as they are loaded on a
+ * mobile phone. Here we scan all the hard-coded regular literals in the source code and block this
+ * category on the computer.
  */
 class RegexPortabilityTest {
     private val roots = listOf(File("src/main/kotlin"), File("../app/src/main/java"))
-    // 只看紧跟在调用括号后的那个字面量;三引号原样,普通字符串按 Kotlin 转义还原
+    // Only look at the literal immediately following the calling parentheses; the triple quotes remain
+    // as they are, and ordinary strings are restored by Kotlin escape.
     private val call = Regex("""(?:Regex|Pattern\.compile)\(\s*(\"\"\"[\s\S]*?\"\"\"|"(?:[^"\\]|\\.)*")""")
     private val toRegex = Regex("""("(?:[^"\\]|\\.)*")\.toRegex\(""")
 
@@ -42,7 +45,7 @@ class RegexPortabilityTest {
         if (lit.startsWith("\"\"\"")) lit.removeSurrounding("\"\"\"")
         else lit.removeSurrounding("\"").replace("\\\\", "\u0000").replace("\\\"", "\"").replace("\u0000", "\\")
 
-    /** 去掉转义的花括号、\p{…} 这类属性、[…] 字符组和 {n}/{n,}/{n,m} 次数后,还剩花括号就算。 */
+    /** After removing escaped curly braces, attributes such as \p{...}, [...] character group and {n}/{n,}/{n,m} times, just leave curly braces left. */
     private fun hasBareBrace(pattern: String): Boolean {
         var p = pattern.replace(Regex("""\\[pP]\{[A-Za-z_=]+\}"""), "")
         p = p.replace(Regex("""\\[{}\\]"""), "")

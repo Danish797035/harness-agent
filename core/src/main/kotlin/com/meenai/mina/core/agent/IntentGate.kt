@@ -8,7 +8,7 @@ import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.prompt.Prompts
 import kotlinx.coroutines.CancellationException
 
-/** 只在准备调用本轮第一个工具时，独立判断用户是在讨论，还是要读取或操作。 */
+/** Only when preparing to call the first tool of this round, independently determine whether the user is discussing, or wants to read or operate. */
 internal class IntentGate(private val judge: ChatModel, private val fallback: ChatModel? = null) {
     enum class Intent { Discuss, Read, Act }
 
@@ -40,7 +40,7 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
     }
 
     companion object {
-        /** 明确是命令的说法:直接按动作走,不为此多调一次模型。只认英文/印地语,别的语言交给判官。 */
+        /** It is clearly a command statement: follow the action directly without adjusting the model more than once. Only English/Hindi is spoken, other languages are left to the judge. */
         private val POLITE = listOf(
             "please ", "pls ", "kindly ", "can you ", "could you ", "would you ", "will you ",
             "kya aap ", "kripya ",

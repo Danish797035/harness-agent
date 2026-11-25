@@ -7,16 +7,17 @@ import com.meenai.mina.i18n.AppLanguage
 import com.meenai.mina.settings.Provider
 import com.meenai.mina.settings.ProviderStore
 
-/** 界面(输入栏、悬浮胶囊)拿语音会话的地方;App 里是 [VoiceInput],界面测试换成假的。 */
+/** The interface (input field, floating capsule) is where the voice conversation is taken; in the App it is [VoiceInput], and the interface test is replaced with a fake one. */
 interface VoiceSource {
     fun spec(): SpeechEngineSpec
     fun start(language: String? = null): SpeechSession
 }
 
 /**
- * 语音输入的入口:对话页输入框和悬浮胶囊只经这里拿会话。
- * 先按用户的选择、手机能力和现有服务商定下引擎([spec]),再开一次会话([start])。
- * [transcriber] 按服务商给出转写器:每家的请求头(客户端标识、它要的会话头)不同。
+ * Entrance to voice input: dialogue page input boxes and floating capsules can only be accessed here.
+ * First, decide on the engine ([spec]) according to the user's choice, mobile phone capabilities and
+ * existing services, and then open a session ([start]). [transcriber] provides transcribers according to
+ * service providers: each has different request headers (client ID, session headers it requires).
  */
 class VoiceInput(
     context: Context,
@@ -26,13 +27,15 @@ class VoiceInput(
 ) : VoiceSource {
     private val context = context.applicationContext
 
-    /** 界面先问一下能不能用、用的是哪个(卡片顶上那个小标签)。 */
+    /** The interface first asks if it can be used and which one is used (the small label on the top of the card). */
     override fun spec(): SpeechEngineSpec =
         SpeechResolver.resolve(settings.choice.value, SystemSpeech.capability(context, settings.systemSilent.value), providers.providers.value)
 
     /**
-     * 开一次会话,按下时调(要在主线程)。[language] 是识别语言(BCP-47);null 跟 App 界面语言。
-     * 没有录音权限、引擎用不了时,给出只发一个 Failed 的会话,界面按同一套处理。
+     * Open a session and press the time call (it must be on the main thread). [language] is the
+     * recognition language (BCP-47); null is the App interface language. When there is no recording
+     * permission and the engine cannot be used, only one Failed session will be sent, and the interface
+     * will be processed in the same way.
      */
     override fun start(language: String?): SpeechSession {
         val spec = spec()

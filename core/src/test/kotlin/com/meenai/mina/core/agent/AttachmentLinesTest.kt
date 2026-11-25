@@ -3,7 +3,7 @@ package com.meenai.mina.core.agent
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** 附件行的写法:话在前、每个附件一行在后,拆回来;旧对话里的写法,只是看着像附件行的话。 */
+/** The way the attachment lines are written: words first, one line for each attachment at the end, then split back; the way it was written in the old dialogue just looked like the words in the attachment lines. */
 class AttachmentLinesTest {
     @Test fun composeWritesWhatParseReads() {
         val files = listOf("/workspace/inbox/a.png" to "3 KB", "/workspace/inbox/b.docx" to "1.0 MB")
@@ -13,7 +13,8 @@ class AttachmentLinesTest {
         assertEquals("附件:/workspace/inbox/a.png(3 KB)", AttachmentLines.compose("", listOf("/workspace/inbox/a.png" to "3 KB")))
     }
 
-    // 旧对话里存下的写法:名字里带括号、只有附件没有话、大小是字节
+    // The writing method saved in the old conversation: brackets in the name, only attachments without
+    // words, and size in bytes
     @Test fun oldMessagesParseTheSameWay() {
         assertEquals(
             AttachmentLines.Parsed(listOf("/workspace/inbox/报表 (1).csv" to "2 KB", "/workspace/inbox/x" to "512 B"), ""),

@@ -1,29 +1,38 @@
 package com.meenai.mina.core.uistate
 
 /**
- * 装在另一份用户(分身、工作资料一类的资料)里的那份 App:[packageName] 包名,[userId] 那份用户的编号(打开时用它指定),
- * [userName] 系统给那份用户起的名字(随系统语言,不写死;读不到为空)。
+ * The App installed in another user (information such as clones and work information): [packageName]
+ * package name, [userId] the number of the user (use it to specify when opening), [userName] the name
+ * given to the user by the system (according to the system language, do not hard-code it; it will be
+ * empty if it cannot be read).
  */
 data class AppCopy(val packageName: String, val userId: Int, val userName: String) {
-    /** 列给模型看的名字:「App 名 (another copy: 那份用户的名字)」。 */
+    /** The name listed for the model: "App name (another copy: the user's name)". */
     fun label(appLabel: String): String = "$appLabel (another copy: ${userName.ifBlank { "user $userId" }})"
 }
 
 /**
- * 哪几份别的用户里的 App 能给 Mina 打开,以及列出来的那几项。纯逻辑,内置助手(判哪几份用户可用)和 Mina(列出、核对)共用。
+ * Which apps among different users can be opened by Mina, as well as the listed items. Pure logic,
+ * built-in assistant (determining which copies are available to users) and Mina (listing, checking) are
+ * shared.
  *
- * 判一份用户能不能用(按安卓的多用户概念,读 UserManager 给的 UserInfo、UserProperties 和系统自己给标记起的名字,不看用户名字):
- * 1. 先排除,不管别的怎样:用户类型带 private;系统的标记名里带 HIDDEN 或 PRIVATE;系统标明对别的 App 隐藏
- *    (UserProperties 的 profileApiVisibility);访客、演示、临时、已停用(标记名 GUEST / DEMO / EPHEMERAL / DISABLED,
- *    读不到标记名时按原版的这几个标记位)。私密空间一类的一律不列也不打开,哪怕它正在运行、和当前用户连在一起。
- * 2. 正在运行且已解锁;不在安静模式(工作资料暂停时是安静模式)。
- * 3. 和当前用户连在一起:资料组(profileGroupId)和当前用户的那一组相同,或系统报的上级用户(parentId)就是当前用户。
- * 4. 而且看得出是分身或工作资料:用户类型带 clone,或系统的标记名里带 CLONE,或 UserProperties 说它和上级用户共用媒体,
- *    或是原版的工作资料类型 android.os.usertype.profile.MANAGED。
- * 任何一项读不到都按不满足算:宁可漏列一份,不碰用户没打算给别人看的资料。
+ * Determine whether a user can be used (according to Android's multi-user concept, read the UserInfo and
+ * UserProperties given by UserManager and the name given to the tag by the system itself, without
+ * looking at the user name): 1. Exclude first, no matter what else: user type with private; system tag
+ * name with HIDDEN or PRIVATE; system mark hidden from other apps (profileApiVisibility of
+ * UserProperties); guest, demo, temporary, disabled (tag name GUEST / DEMO / EPHEMERAL / DISABLED, press
+ * these original tag bits when the tag name cannot be read). Private spaces and other categories are not
+ * listed or opened, even if they are running and connected to the current user. 2. Running and unlocked;
+ * not in quiet mode (quiet mode when work data is paused). 3. Connected to the current user: the profile
+ * group (profileGroupId) is the same as the current user, or the parent user (parentId) reported by the
+ * system is the current user. 4. And it can be seen that it is a clone or work data: the user type has
+ * clone, or the system tag name has CLONE, or the UserProperties says it shares media with the superior
+ * user, or the original work data type is android.os.usertype.profile.MANAGED. If you cannot read any
+ * item, it will be considered unsatisfactory: it is better to leave out one item than to touch
+ * information that the user does not intend to show to others.
  */
 object AppCopies {
-    // UserInfo.FLAG_*(原版的值);只在读不到系统的标记名时用
+    // UserInfo.FLAG_* (original value); only used when the system tag name cannot be read
     const val FLAG_GUEST = 0x4
     const val FLAG_DISABLED = 0x40
     const val FLAG_QUIET_MODE = 0x80
@@ -32,15 +41,18 @@ object AppCopies {
     private const val EXCLUDED_FLAGS = FLAG_GUEST or FLAG_DISABLED or FLAG_EPHEMERAL or FLAG_DEMO
     private val EXCLUDED_NAMES = setOf("GUEST", "DEMO", "EPHEMERAL", "DISABLED")
 
-    /** UserInfo.NO_PROFILE_GROUP_ID(即 UserHandle.USER_NULL):不在任何资料组里。 */
+    /** UserInfo.NO_PROFILE_GROUP_ID (ie UserHandle.USER_NULL): Not in any data group. */
     const val NO_PROFILE_GROUP = -10000
     const val TYPE_MANAGED = "android.os.usertype.profile.MANAGED"
 
     /**
-     * 内置助手读到的一份用户:[flags] UserInfo 的标记,[flagNames] 系统给这些标记起的名字(UserInfo.flagsToString,含系统自定义的;
-     * 读不到为 null),[type] 用户类型(读不到为 null),[profileGroupId] 资料组,[parentId] 系统报的上级用户(没有为 null),
-     * [running] 正在运行,[unlocked] 已解锁,[quiet] 处于安静模式,[mediaShared] UserProperties.isMediaSharedWithParent,
-     * [hidden] UserProperties 标明对别的 App 隐藏;这两项读不到为 null。
+     * A user read by the built-in assistant: [flags] UserInfo tags, [flagNames] The names given by the
+     * system to these tags (UserInfo.flagsToString, including system-defined ones; if not read, it is
+     * null), [type] user type (if not read, it is null), [profileGroupId] data group, [parentId] The
+     * superior user reported by the system (if not, it is null), [running] Running, [unlocked] is
+     * unlocked, [quiet] is in quiet mode, [mediaShared] UserProperties.isMediaSharedWithParent, [hidden]
+     * UserProperties indicates that it is hidden from other apps; these two items are null if they
+     * cannot be read.
      */
     data class User(
         val id: Int,
@@ -56,7 +68,7 @@ object AppCopies {
         val parentId: Int? = null,
     )
 
-    /** 一份用户为什么能用或不能用;只有 [Copy] 能用。 */
+    /** Why one user can or cannot use it; only [Copy] can use it. */
     enum class Verdict { Copy, Self, Private, Flags, Stopped, Locked, Quiet, NotLinked, NotCopy }
 
     fun verdict(u: User, current: Int, group: Int): Verdict {
@@ -76,17 +88,17 @@ object AppCopies {
         }
     }
 
-    /** 当前用户 [current] 所在的资料组;当前用户读不到或不在组里时就是它自己。 */
+    /** The data group where the current user [current] is located; when the current user cannot read or is not in the group, it is itself. */
     fun groupOf(current: Int, users: List<User>): Int =
         users.firstOrNull { it.id == current }?.profileGroupId?.takeIf { it != NO_PROFILE_GROUP } ?: current
 
-    /** 能打开里面 App 的那几份别的用户的编号。 */
+    /** The numbers of the users who can open the app inside. */
     fun usable(current: Int, users: List<User>): List<Int> {
         val group = groupOf(current, users)
         return users.filter { verdict(it, current, group) == Verdict.Copy }.map { it.id }
     }
 
-    /** 给诊断信息的一行:每份别的用户的编号、标记(和系统给的标记名)、类型、资料组、上级、判定;不含名字和装了什么。 */
+    /** A line for diagnostic information: each user's number, tag (and tag name given by the system), type, data group, superior, and judgment; excluding name and installed content. */
     fun summary(current: Int, users: List<User>): String {
         val group = groupOf(current, users)
         val others = users.filter { it.id != current }
@@ -100,14 +112,14 @@ object AppCopies {
         }
     }
 
-    /** `dumpsys user` 里一份用户的几项:系统给标记起的名字(括号里的)、上级用户(parentId)。 */
+    /** Several items of a user in `dumpsys user`: the name given to the mark by the system (in brackets), the parent user (parentId). */
     data class Dumped(val flagNames: List<String>?, val parentId: Int?)
 
     private val DUMP_USER = Regex("""UserInfo\{(\d+):""")
     private val DUMP_PARENT = Regex("""parentId=(-?\d+)""")
     private val DUMP_FLAGS = Regex("""^\s*Flags:\s*-?\d+\s*\(([^)]*)\)""")
 
-    /** 读 `dumpsys user`:每份用户(编号)的标记名和上级用户;读不到标记名的为 null。反射读不到标记名时用。 */
+    /** Read `dumpsys user`: the tag name and superior user of each user (number); if the tag name cannot be read, it is null. Used when reflection cannot read the tag name. */
     fun parseDumpsys(output: String): Map<Int, Dumped> {
         val out = linkedMapOf<Int, Dumped>()
         var id: Int? = null
@@ -127,8 +139,10 @@ object AppCopies {
     }
 
     /**
-     * 列出的另一份:[apps] 当前用户能打开的 App(包名, 显示名),[users] 能用的那几份用户(带名字),
-     * [packages] 每份用户里装的包。只列当前用户也装着的(和列表里的 App 对得上),按 [apps] 的先后排。
+     * Another one listed: [apps] Apps that can be opened by the current user (package name, display
+     * name), [users] those users that can use them (with names), [packages] the packages installed in
+     * each user. Only the apps installed by the current user (that match the apps in the list) are
+     * listed, arranged in order of [apps].
      */
     fun copies(apps: List<Pair<String, String>>, users: List<UserProfile>, packages: Map<Int, Set<String>>): List<AppCopy> =
         apps.flatMap { (pkg, _) ->

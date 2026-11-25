@@ -29,7 +29,7 @@ import com.meenai.mina.core.testing.WEB_SCRIPT_TOOL
 import com.meenai.mina.core.assembly.toolDispatcher
 import com.meenai.mina.core.assembly.knownToolNames
 
-/** 假端口:runScript 按 [script] 把调用发给桥,模拟页面里的脚本。 */
+/** Fake port: runScript Press [script] to send the call to the bridge to simulate the script in the page. */
 internal class ScriptWebPort(val inner: FakeWebPort = FakeWebPort(), var script: suspend (ScriptBridge) -> ScriptRun = { ScriptRun.Done(null) }) : WebPort by inner {
     var lastCode: String? = null
     var lastTimeout: Long? = null
@@ -46,7 +46,7 @@ class BrowserScriptTest {
         it.execute(Part.ToolCall("n", "web_navigate", """{"url":"https://shop.example.com/"}"""))
     }
 
-    /** 直接交给分发器执行的子步(真实路径由循环接上关卡,见 ScriptStepsTest)。 */
+    /** Substeps passed directly to the dispatcher for execution (the real path is connected to the level by a loop, see ScriptStepsTest). */
     private fun passthrough(d: ToolDispatcher) = SubActions { c -> subCalls += c; d.execute(c) }
 
     private suspend fun ToolDispatcher.script(code: String = "return 1", sub: SubActions? = null, extra: String = "") =
@@ -96,7 +96,8 @@ class BrowserScriptTest {
             val snap = b.call("snapshot", JsonObject(emptyMap()))
             seen = snap
             assertEquals(JsonPrimitive(true), b.call("tap", args("ref" to "@e1"))["ok"])
-            // 写操作之后旧编号作废,要再 snapshot
+            // After the write operation, the old number is invalid and you need to take another
+            // snapshot.
             assertEquals("no_snapshot", b.call("type", args("ref" to "@e1", "text" to "咖啡"))["error"]!!.jsonPrimitive.content)
             b.call("snapshot", JsonObject(emptyMap()))
             b.call("type", args("ref" to "@e1", "text" to "咖啡", "enter" to true))
@@ -130,7 +131,7 @@ class BrowserScriptTest {
                     b.call("tap", args("ref" to "@e1"))
                 }
             } catch (e: ScriptAbort) { thrown = e }
-            // 停下之后再调也不做
+            // After stopping, no adjustments will be made.
             b.call("snapshot", JsonObject(emptyMap()))
             ScriptRun.Done(null)
         }
@@ -155,7 +156,7 @@ class BrowserScriptTest {
         val d = dispatcher(web)
         assertEquals("limit_exceeded", d.script(sub = passthrough(d)).s("error"))
         assertEquals(SCRIPT_MAX_NAVIGATIONS, subCalls.size)
-        // 整页跳走:脚本停在那里,照实说
+        // The whole page jumps away: the script stops there, tell it like it is
         web.script = { b -> b.call("navigate", args("url" to "https://shop.example.com/2")); ScriptRun.Navigated }
         val r = d.script(sub = passthrough(d))
         assertEquals("true", r.s("ok")); assertEquals("navigation", r.s("endedBy"))
@@ -165,7 +166,8 @@ class BrowserScriptTest {
     @Test fun fatalSubResultStopsScript() = runTest {
         val web = ScriptWebPort()
         val d = dispatcher(web)
-        // 关卡拦下:子步没执行,脚本停,结果里带拦下的原因
+        // Blocked at the level: the substep was not executed, the script stopped, and the result
+        // contains the reason for blocking.
         val gated = SubActions { c ->
             subCalls += c
             if (c.name == "web_tap") ToolExecution(buildJsonObject {
@@ -223,10 +225,11 @@ class BrowserScriptTest {
         assertEquals("[\"text\",\"box\"]", specs[0]["fields"].toString()); assertEquals("5", specs[0].s("limit"))
         assertEquals("[\"text\"]", specs[1]["fields"].toString()); assertEquals("50", specs[1].s("limit"))
         assertEquals("100", specs[3].s("maxChars"))
-        // 按 value 属性选元素(猜隐藏字段)、不认识的字段、超上限都不交给端口
+        // Select elements by value attribute (guess hidden fields), fields you don’t recognize, and
+        // fields that exceed the upper limit are not handed over to the port.
         assertEquals("invalid_selector", got[4].s("error"))
         assertEquals("invalid_arguments", got[5].s("error")); assertEquals("invalid_arguments", got[6].s("error"))
-        // 页面读不经工具,只记进动作列表
+        // The page is read without going through the tool and is only recorded in the action list.
         assertTrue(subCalls.isEmpty())
         assertEquals(listOf("queryAll", "query", "query", "text"), r["actions"]!!.jsonArray.map { it.jsonObject.s("op") })
     }
@@ -240,7 +243,8 @@ class BrowserScriptTest {
         }
         val d = dispatcher(web)
         d.script(sub = passthrough(d))
-        // 转义、命名空间、注释、url( 的写法照样认出来;只是名字里带 value 的属性照常读
+        // The writing of escape, namespace, comment, url( is still recognized; only the attributes with
+        // value in the name are read as usual.
         assertEquals(listOf("invalid_selector", "invalid_selector", "invalid_selector", "invalid_selector", null), got.map { it["error"]?.jsonPrimitive?.content })
         assertEquals("all", got[4]["read"]!!.jsonObject.s("mode"))
     }

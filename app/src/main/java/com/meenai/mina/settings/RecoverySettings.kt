@@ -13,11 +13,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 「手机操作」那几项能力的记录,以及上次开机自动恢复的结果。开机广播和设置页在同一进程里看同一份。
+ * The records of several capabilities of "Mobile Phone Operation", as well as the results of automatic
+ * recovery from the last time the phone was turned on. The boot broadcast and the settings page are
+ * viewed in the same process.
  *
- * 每项两个布尔值:原来的键(如 `accessibility`)记「已生效」,含义和以前一样(以前只在命令成功后写 true);
- * `<键>_declined` 记「用户亲手关掉」。旧版本只有前一个键:写着 false 的分不出是没动过还是关掉过,
- * 一律当没动过——新键不存在就是没关掉过,所以升级不用另做迁移,这几项会在连接可用时按默认打开。
+ * Each item has two Boolean values: the original key (such as `accessibility`) is marked as "effective",
+ * and the meaning is the same as before (previously, it only wrote true after the command was
+ * successful); `<key>_declined` is marked as "turned off by the user". The old version only has the
+ * previous key: if it says false, it cannot be distinguished whether it has been untouched or turned
+ * off. It will be treated as untouched - if the new key does not exist, it means it has not been turned
+ * off, so there is no need to perform additional migrations when upgrading. These items will be opened
+ * by default when the connection is available.
  */
 class RecoverySettings(private val prefs: SharedPreferences) : RecoveryConsentStore {
     private val _consent = MutableStateFlow(read())
@@ -27,10 +33,10 @@ class RecoverySettings(private val prefs: SharedPreferences) : RecoveryConsentSt
     val lastRestore: StateFlow<RestoreOutcome?> = _lastRestore.asStateFlow()
 
     private val _lastA11yLoss = MutableStateFlow(readLoss())
-    /** 上一次 Mina 启动时发现无障碍服务被拿掉或没绑定(诊断信息用)。 */
+    /** The last time Mina was started, it was found that the accessibility service was removed or not bound (for diagnostic information). */
     val lastA11yLoss: StateFlow<A11yLossRecord?> = _lastA11yLoss.asStateFlow()
 
-    /** Mina 的无障碍服务连上过:之后启动时没连上才算问题,从没设置过的不算。 */
+    /** Mina's accessibility service has been connected: it is only a problem if it is not connected when it is started later, and it is not considered if it has never been set up. */
     var accessibilitySeen: Boolean
         get() = prefs.getBoolean(A11Y_SEEN, false)
         set(v) { if (v != accessibilitySeen) prefs.edit().putBoolean(A11Y_SEEN, v).apply() }
@@ -56,7 +62,7 @@ class RecoverySettings(private val prefs: SharedPreferences) : RecoveryConsentSt
             if (restoreChanged) remove(LAST_RESTORE)
         }.commit()
         _consent.value = consent
-        // 重新打开或关掉后,旧的开机结果不再说明问题
+        // After restarting or shutting down, the old startup results no longer indicate the problem.
         if (restoreChanged) _lastRestore.value = null
     }
 
@@ -87,7 +93,7 @@ class RecoverySettings(private val prefs: SharedPreferences) : RecoveryConsentSt
         private const val A11Y_LOSS = "a11y_loss"
         private const val A11Y_LOSS_AT = "a11y_loss_at"
 
-        /** 产品里的那份(由 [com.meenai.mina.cap.phone.PhoneServices] 建)读写的偏好文件。 */
+        /** The read and write preference file in the product (built by [com.meenai.mina.cap.phone.PhoneServices]). */
         fun prefs(context: Context): SharedPreferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 }

@@ -21,10 +21,10 @@ internal fun clipBody(body: String, limit: Int, hint: String): String =
 
 internal fun clipKnowledge(body: String): String = clipBody(body, KNOWLEDGE_BODY_LIMIT, KNOWLEDGE_TRUNCATED_HINT)
 
-/** 上下文的层。预算裁剪的优先级:[Task](L5)> [Knowledge](L2)> [Skills](L4);[Runtime] 很短,不进预算。 */
+/** Contextual layer. Budget trimming priority: [Task](L5)>[Knowledge](L2)>[Skills](L4); [Runtime] is very short and does not enter the budget. */
 enum class ContextLayer { Task, Knowledge, Skills, Runtime }
 
-/** 可信度:写进每条上下文的外壳,告诉模型这段话是谁说的、能信到什么程度。 */
+/** Credibility: Write the shell of each context to tell the model who said this and how much it can be believed. */
 enum class Trust(val label: String) {
     Reference("reference material: may be out of date; what you read now takes precedence"),
     UserMemory("what the user told you before: may be out of date; when it conflicts with what they say now, follow what they say now"),
@@ -35,7 +35,8 @@ enum class Trust(val label: String) {
 }
 
 /**
- * 上下文的种类。[pinned]:压缩折叠旧步骤时保留;不保留的(提示、运行时状态)随旧步骤一起去掉。
+ * Type of context. [pinned]: Keep the old steps when compressing and folding; those that are not
+ * retained (prompts, runtime status) are removed along with the old steps.
  */
 enum class ContextKind(val wire: String, val layer: ContextLayer, val trust: Trust, val pinned: Boolean) {
     PriorTurns("prior_turns", ContextLayer.Task, Trust.Record, pinned = true),
@@ -44,7 +45,7 @@ enum class ContextKind(val wire: String, val layer: ContextLayer, val trust: Tru
     SiteKnowledge("site_knowledge", ContextLayer.Knowledge, Trust.Reference, pinned = true),
     SkillsIndex("skills_index", ContextLayer.Skills, Trust.Reference, pinned = true),
     Channel("channel", ContextLayer.Runtime, Trust.Runtime, pinned = true),
-    /** 用户发来的此刻的屏幕(见 [com.meenai.mina.core.userscreen.UserScreenPrompt]):紧跟在那句话后面,压缩时保留。 */
+    /** The screen at this moment sent by the user (see [com.meenai.mina.core.userscreen.UserScreenPrompt]): immediately after that sentence, retained during compression. */
     UserScreen("user_screen", ContextLayer.Runtime, Trust.Screen, pinned = true),
     RuntimeState("runtime_state", ContextLayer.Runtime, Trust.Runtime, pinned = false),
     Notice("notice", ContextLayer.Runtime, Trust.Mina, pinned = false);
@@ -56,35 +57,40 @@ enum class ContextKind(val wire: String, val layer: ContextLayer, val trust: Tru
 }
 
 /**
- * token 预算(按 [TokenEstimate]):[total] 管 L5+L2+L4 合计,[layers] 管各层;单份参考资料另有上限(正文 token)。
- * 技能索引整份给,不受预算裁剪(见 [ContextBuilder.start])。按 token 计后各语言占的上下文一样多:
- * 和原来按字数的额度比,英文能放的字多了约一倍,中文少了约三分之一;自带的 App/网站知识正文(APP.md、SITE.md)单份都在 [KNOWLEDGE_BODY_LIMIT] 以内。
+ * Token budget (according to [TokenEstimate]): [total] manages the total of L5+L2+L4, [layers] manages
+ * each layer; there is an upper limit for a single reference (text token). The skill index is given in
+ * its entirety and is not subject to budget cuts (see [ContextBuilder.start]). After calculating by
+ * token, each language accounts for the same amount of context: Compared with the original quota by word
+ * count, English can hold about twice as many words, and Chinese can hold about one-third less; the
+ * single copy of the built-in App/website knowledge text (APP.md, SITE.md) is within
+ * [KNOWLEDGE_BODY_LIMIT].
  */
 data class ContextBudget(
     val total: Int = 8_000,
     val layers: Map<ContextLayer, Int> = mapOf(ContextLayer.Task to 4_000, ContextLayer.Knowledge to 5_000),
     val knowledgeItem: Int = KNOWLEDGE_BODY_LIMIT,
-    /** 每任务至多注入几份 App/站点参考资料(开局与中途合计)。 */
+    /** Inject at most a few App/site references per task (total at the beginning and midway). */
     val maxKnowledge: Int = 3,
-    /** 裁到不足这么多 token 的正文不值得给,整份不给。 */
+    /** Text that is cut short of so many tokens is not worth giving, and the entire copy will not be given. */
     val minKeep: Int = 150,
 )
 
 /**
- * 除用户原话以外发给模型的上下文,都由这里生成:同一个外壳(种类、来源、可信度),同一套预算。
- * 线上仍是 user 角色(各家接口要求),但用 `<context …>` 标签和用户的话分开:
+ * In addition to the user's original words, the context sent to the model is generated here: the same
+ * shell (type, source, credibility), the same set of budgets. The user role is still used online
+ * (required by each interface), but the `<context …>` tag is used to separate it from the user's words:
  * ```
- * <context kind="app_knowledge" source="铁路12306 · com.MobileTicket" trust="参考资料:可能过时,以当前屏幕为准">
+ * <context kind="app_knowledge" source="Railway 12306 · com.MobileTicket" trust="Reference: May be out of date, subject to the current screen">
  * …
  * </context>
  * ```
- * 一个任务一个实例:记着已用的预算和已注入的参考资料。不做 IO。
+ * One task at a time: remember the budget used and the reference materials injected. Don't do IO.
  */
 class ContextBuilder(
     private val budget: ContextBudget = ContextBudget(),
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
-    /** 开局的上下文:[messages] 依次放进历史;[knowledge] 是实际给出的参考资料(链接按它放行)。 */
+    /** The context of the opening: [messages] is put into the history in sequence; [knowledge] is the actual reference material given (click on it to release the link). */
     class Start(val messages: List<Message>, val knowledge: List<KnowledgeEntry>)
 
     private val used = mutableMapOf<ContextLayer, Int>()
@@ -92,9 +98,13 @@ class ContextBuilder(
     private val injected = mutableSetOf<Pair<String, Surface>>()
 
     /**
-     * 开局:之前几轮、记忆、任务原话、可用渠道、参考资料、知识与技能索引,按这个顺序。
-     * 超预算时先裁 L2,L5 不丢;索引([skillsIndex])是模型知道有哪些技能的唯一入口,也整份给、不截不丢。
-     * 原话带着用户此刻的屏幕时,截图([taskImages],主模型看得到图时才有)接在原话里,屏幕的详情([screens]:来源 → 正文)紧跟在原话后面。
+     * Start: previous rounds, memory, mission text, available channels, reference materials, knowledge
+     * and skill index, in this order. When the budget exceeds the budget, L2 and L5 will be cut first
+     * and L5 will not be lost; the index ([skillsIndex]) is the only entrance for the model to know what
+     * skills it has, and it will be given in full without cutting or losing. When the original sentence
+     * brings the user's current screen, the screenshot ([taskImages], only available when the main model
+     * can see the picture) is connected to the original sentence, and the details of the screen
+     * ([screens]: source → text) follow the original sentence.
      */
     fun start(
         task: String,
@@ -117,7 +127,8 @@ class ContextBuilder(
         skillsIndex?.let { pieces += Piece(ContextKind.SkillsIndex, "knowledge and skills index", body = it) }
 
         val kept = fit(pieces)
-        // 任务原话是用户说的,不进外壳;放在之前几轮与记忆之后、其余上下文之前
+        // The original words of the task are spoken by the user and do not enter the shell; they are
+        // placed after the previous rounds and memories and before the other contexts.
         val at = kept.indexOfFirst { it.kind != ContextKind.PriorTurns && it.kind != ContextKind.Memory }.let { if (it < 0) kept.size else it }
         val messages = kept.map { it.message() }.toMutableList()
         messages.add(at, Message(Role.User, listOf(Part.Text(task)) + taskImages, Author.User))
@@ -126,24 +137,28 @@ class ContextBuilder(
         return Start(messages, keptKnowledge)
     }
 
-    /** 中途切到某个 App、打开某个站点时的参考资料;同一份只给一次,超出份数或预算返回 null。 */
+    /** Reference materials when switching to an app or opening a website in the middle; the same copy will only be given once, and null will be returned if the number of copies is exceeded or the budget is exceeded. */
     fun knowledge(e: KnowledgeEntry?, note: String, withLinks: Boolean): Message? {
         e?.body ?: return null
         if (injected.size >= budget.maxKnowledge || !injected.add(e.name to e.surface)) return null
         return fit(listOf(knowledgePiece(e, note, withLinks))).firstOrNull()?.message()
     }
 
-    /** 用户发来的一屏的详情(屏上的字、编号);不进预算,和那句话一样留着。 */
+    /** The details of a screen (words and numbers on the screen) sent by the user; do not enter the budget, just keep it like that sentence. */
     fun userScreen(source: String, body: String): Message = Piece(ContextKind.UserScreen, source, body = body).message()
 
-    /** Mina 给模型的提示(没调工具、步数自查、步数用完……)。 */
+    /** Mina's tips for the model (no tool adjustment, self-checking of steps, running out of steps...). */
     fun notice(source: String, text: String): Message = Piece(ContextKind.Notice, source, body = text).message()
 
     /**
-     * 每轮一段的运行时状态:当前界面、第几步、本地时间、用户最近一句话里他自己打的字的开头。是一段文字,接在这一步最后一条消息的末尾(见 AgentLoop)。
-     * [place] 是任务此刻在哪(App 或站点),[label] 是 App 名,[siteMode] 是 desktop / mobile(不知道为 null)。
-     * [userWords] 是用户最近一句话里他自己打的字(不带屏幕、页面说明这些,见 AgentLoop):读到的内容多是别的语言时,模型写给用户的话容易跟着换语言,紧挨着生成处摆出这些字的开头,
-     * 让它照这句话的语言写;不在这里判断是哪种语言。
+     * Runtime status for each round: current screen, step, local time, and the opening of the words the
+     * user typed in their last sentence. It is a text piece appended to the end of the last message of
+     * this step (see AgentLoop). [place] is where the task is now (app or site), [label] is the app name,
+     * [siteMode] is desktop / mobile (null when unknown). [userWords] is the part of the user's last
+     * sentence that they typed themselves (without screen and page descriptions, see AgentLoop): when
+     * the content read from the screen is in another language, the model tends to switch language too,
+     * so these words are placed right next to the generation point; the language itself is not detected
+     * here.
      */
     fun runtimeState(place: Place?, label: String?, siteMode: String?, step: Int, maxSteps: Int, nowMs: Long, userWords: String? = null): Part.Text {
         val surface = when {
@@ -175,9 +190,12 @@ class ContextBuilder(
     }
 
     /**
-     * 按优先级给额度:层按 L5 > L2 > L4,层内按 [RANK](标准先于记忆先于之前几轮);每份不超过本层上限和剩下的总额。
-     * 放不下的可截正文就截,截不出 [ContextBudget.minKeep] 个 token 或不可截就不给;L5 与技能索引一律保留(L5 占掉的额度会挤掉后面的层)。
-     * 不进预算的层原样保留。结果按原顺序。
+     * Quotas are given according to priority: L5 > L2 > L4 for layers, [RANK] (standard before memory
+     * before previous rounds) within a layer; each share does not exceed the upper limit of the current
+     * layer and the remaining total amount. If you can't fit it, you'll cut off the main text. If you
+     * can't cut out [ContextBudget.minKeep] tokens or it's not cuttable, you won't give it. L5 and skill
+     * index will be retained (the quota occupied by L5 will crowd out the following layers). Layers that
+     * are not budgeted are left as they are. The results are in original order.
      */
     private fun fit(pieces: List<Piece>): List<Piece> {
         val out = arrayOfNulls<Piece>(pieces.size)
@@ -201,7 +219,7 @@ class ContextBuilder(
         return out.filterNotNull()
     }
 
-    /** 一段上下文:[head] 和 [tail](附注、链接)不截,只截 [body];[clip] 为单份正文上限(null 为不可截),[hint] 是截断后补的说明。 */
+    /** A piece of context: [head] and [tail] (notes, links) do not truncate, only [body]; [clip] is the upper limit of a single text (null means it cannot be truncated), and [hint] is the after explanation truncation. */
     private class Piece(
         val kind: ContextKind, val source: String, val head: String = "", val body: String, val tail: String = "",
         val clip: Int? = null, val hint: String = CLIPPED_HINT, val entry: KnowledgeEntry? = null,
@@ -209,10 +227,10 @@ class ContextBuilder(
         val fixed get() = TokenEstimate.of(head) + TokenEstimate.of(tail)
         val size get() = fixed + TokenEstimate.of(body)
 
-        /** 单份上限:正文最多 [clip] token,后面补 [hint]。 */
+        /** The upper limit for a single copy: the maximum text content is [clip] token, followed by [hint]. */
         fun capped(): Piece = if (clip != null && TokenEstimate.of(body) > clip) withBody(TokenEstimate.clip(body, clip, "\n$hint")) else this
 
-        /** 截到总长不超过 [n] token(含附注、链接与截断说明)。 */
+        /** The total length shall not exceed [n] token (including notes, links and truncation instructions). */
         fun clipTo(n: Int): Piece {
             val room = n - fixed
             if (TokenEstimate.of(body) <= room) return this
@@ -236,43 +254,43 @@ class ContextBuilder(
         private val TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
         private const val EXCERPT_CHARS = 60
 
-        /** 用户原话的开头:空白并成一个空格,超出 [EXCERPT_CHARS] 字截断加省略号;没有字为 null。 */
+        /** The beginning of the user's original words: blanks are merged into one space, words beyond [EXCERPT_CHARS] are truncated and ellipses added; if there are no words, it is null. */
         internal fun excerpt(words: String): String? {
             val flat = words.trim().replace(Regex("\\s+"), " ").takeIf { it.isNotEmpty() } ?: return null
             return if (flat.length <= EXCERPT_CHARS) flat else flat.take(EXCERPT_CHARS).trimEnd() + "…"
         }
         private val WEEKDAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
-        /** 统一外壳。正文里的结束标签转义掉,外壳不会被正文提前合上。 */
+        /** Unified shell. The closing tag in the text is escaped, and the shell will not be closed in advance by the text. */
         fun envelope(kind: ContextKind, source: String, body: String): String =
             "$OPEN${kind.wire}\" source=\"${attr(source)}\" trust=\"${kind.trust.label}\">\n" +
                 body.replace(CLOSE, "<\\/context>") + "\n$CLOSE"
 
-        /** 这条消息是哪种上下文;用户原话、工具结果等不是上下文,返回 null。 */
+        /** What kind of context is this message? The user's original words, tool results, etc. are not contexts, and null is returned. */
         fun kindOf(m: Message): ContextKind? {
             if (m.role != Role.User) return null
             return kindOf((m.parts.firstOrNull() as? Part.Text)?.text ?: return null)
         }
 
-        /** 这段文字是哪种上下文(接在别的消息里的运行时状态也认得出)。 */
+        /** What kind of context does this text belong to (the runtime status connected to other messages can also be recognized). */
         fun kindOf(text: String): ContextKind? {
             if (!text.startsWith(OPEN)) return null
             return ContextKind.ofWire(text.substring(OPEN.length).substringBefore('"'))
         }
 
-        /** 去掉消息里接着的运行时状态;没有就原样返回。 */
+        /** Remove the remaining runtime status from the message; if not, return it as is. */
         fun withoutRuntimeState(m: Message): Message {
             if (m.parts.none { it is Part.Text && kindOf(it.text) == ContextKind.RuntimeState }) return m
             return m.copy(parts = m.parts.filterNot { it is Part.Text && kindOf(it.text) == ContextKind.RuntimeState })
         }
 
-        /** 外壳里的正文(不含标签);不是上下文返回 null。 */
+        /** The body of the shell (without tags); returns null if not a context. */
         fun bodyOf(m: Message): String? {
             kindOf(m) ?: return null
             return (m.parts.first() as Part.Text).text.substringAfter(">\n").removeSuffix("\n$CLOSE")
         }
 
-        /** 外壳上写的来源;不是上下文返回 null。 */
+        /** The source written on the shell; returns null if not a context. */
         fun sourceOf(m: Message): String? {
             kindOf(m) ?: return null
             return (m.parts.first() as Part.Text).text.substringAfter(" source=\"").substringBefore('"')

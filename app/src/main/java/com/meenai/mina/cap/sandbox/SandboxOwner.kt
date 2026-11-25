@@ -3,7 +3,7 @@ package com.meenai.mina.cap.sandbox
 import android.content.Context
 import com.meenai.mina.core.workspace.SandboxTree
 
-/** 沙箱在进程里的那一份状态与树锁:由 App 给出,设置页、安装、Agent 看到的是同一份。 */
+/** The state of the sandbox in the process and the tree lock: given by the App, the settings page, installation, and Agent see the same copy. */
 interface SandboxOwner {
     val sandboxState: SandboxState
     val sandboxTree: SandboxTree

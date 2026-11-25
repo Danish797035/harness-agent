@@ -22,11 +22,11 @@ class ChatCopyTest {
         val first = Exchange("查车次\n附件:/workspace/inbox/a.pdf(1 KB)", emptyList(), ExchangeStatus.Working, live = true)
         assertEquals("查车次", ChatCopy.title(listOf(first, first.copy(goal = "再查"))))
         assertEquals("", ChatCopy.title(emptyList()))
-        // 只发了附件:不拿路径当标题
+        // Only sent attachments: no path as title
         assertEquals("Photo", ChatCopy.title(listOf(first.copy(goal = "附件:/workspace/inbox/a.jpg(1 KB)"))))
         assertEquals("a.pdf", ChatCopy.plainTitle("附件:/workspace/inbox/a.pdf(1 KB)"))
         assertEquals(ScreenCopy.TAG, ChatCopy.plainTitle("[[screen:s1]]"))
-        // 在浏览器页上对着一页问的:页面说明不当标题
+        // Asked about a page on the browser page: The page description has an inappropriate title.
         val paged = com.meenai.mina.core.cap.web.AttachedPage.compose(com.meenai.mina.core.cap.web.AttachedPage.Page("https://a.example/", "页"), "挑一个\n第二行")
         assertEquals("挑一个", ChatCopy.plainTitle(paged))
     }
@@ -55,7 +55,7 @@ class ChatCopyTest {
         assertEquals("", s.recent.single().subtitle)
     }
 
-    /** 置顶的对话在「置顶」一段,最近置顶的在前,不在「最近」里重复;有任务在跑的只列在进行中(带图钉)。 */
+    /** The conversations that are pinned to the top are in the "Pin" section, and the most recently pinned conversations are first and are not repeated in "Recent"; those with tasks running are only listed as in progress (with push pins). */
     @Test fun drawerListsPinnedAboveRecent() {
         val all = listOf(
             ConversationSummary("a", "一", 40L),
@@ -71,13 +71,13 @@ class ChatCopyTest {
         assertTrue(s.pinned.all { it.pinned })
         assertEquals(listOf("a", "c"), s.recent.map { it.id })
         assertTrue(s.recent.none { it.pinned })
-        // 取消置顶:回到「最近」里按改动时间排的位置
+        // Unpin: Return to the position ranked by change time in "Recent"
         val unpinned = drawerSections(all.map { if (it.id == "b") it.copy(pinnedAt = null) else it }, CurrentConversation("a", false, "一", ""), emptyList(), { null }, true, 0L, zone)
         assertEquals(listOf("e", "d"), unpinned.pinned.map { it.id })
         assertEquals(listOf("a", "b", "c"), unpinned.recent.map { it.id })
     }
 
-    /** 在浏览器页上对着一页开始的对话:侧栏那一条带着网站(画成「网页」小标签和网站名),进行中、最近两段都是。 */
+    /** A conversation started on a browser page facing one page: the one in the sidebar carries the website (drawn as a small label "Web Page" and the name of the website), both in progress and the most recent paragraphs. */
     @Test fun drawerMarksConversationsStartedFromAPage() {
         val page = com.meenai.mina.chat.PageOrigin("https://shop.example.com/s?k=1", "shop.example.com", "搜索")
         val all = listOf(ConversationSummary("a", "一", 0L, page = page), ConversationSummary("b", "二", 0L), ConversationSummary("c", "三", 0L, page = page))
@@ -86,13 +86,14 @@ class ChatCopyTest {
         assertEquals("shop.example.com", s.running.single().site)
     }
 
-    /** 任务进行中、没开并行:只有当前对话能点。 */
+    /** The task is in progress and parallelism is not enabled: only the current dialogue can be clicked. */
     @Test fun drawerLocksOtherConversationsWhileBusy() {
         val all = listOf(ConversationSummary("a", "一", 0L), ConversationSummary("b", "二", 0L))
         val s = drawerSections(all, CurrentConversation("a", false, "一", ""), emptyList(), { null }, canSwitch = false, now = 0L, zone = zone)
         assertEquals(listOf(true, false), s.recent.map { it.enabled })
         assertEquals(listOf(true, false), s.recent.map { it.current })
-        // 当前对话还没存进列表时(刚发出第一句)也列在进行中
+        // When the current conversation has not been saved in the list (the first sentence has just been
+        // sent), it is also listed as in progress.
         val fresh = drawerSections(emptyList(), CurrentConversation(null, true, "", "正在处理"), emptyList(), { null }, false, 0L, zone)
         assertEquals("New chat", fresh.running.single().title)
         assertTrue(fresh.running.single().enabled)

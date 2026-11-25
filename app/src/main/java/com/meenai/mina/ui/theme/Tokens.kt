@@ -7,29 +7,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** 字号与字重。只定大小、字重、行高,颜色由用的地方给。 */
+/** Font size and weight. Only the size, font weight, and line height are determined, and the color is determined by where it is used. */
 object HarnessType {
-    /** 大标题:空状态、欢迎页。 */
+    /** Headline: Empty status, welcome page. */
     val LargeTitle = TextStyle(fontSize = 28.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold)
-    /** 页面标题:顶栏。 */
+    /** Page title: Top bar. */
     val Title = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-    /** 正文、行标题。 */
+    /** Text, line headings. */
     val Body = TextStyle(fontSize = 15.5.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal)
-    /** 卡片标题等需要强调的正文。 */
+    /** Card titles and other text that need to be emphasized. */
     val BodyStrong = TextStyle(fontSize = 15.5.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-    /** 说明文字。 */
+    /** Description text. */
     val Caption = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Normal)
-    /** 分组小标题。 */
+    /** Group subtitles. */
     val Label = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
-    /** 提示、页脚。 */
+    /** Tips, footers. */
     val Hint = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Normal)
-    /** 行尾的值。 */
+    /** The value at the end of the line. */
     val Value = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal)
 }
 
 typealias MinaType = HarnessType
 
-/** 间距。页面左右留 [Page]。 */
+/** spacing. Leave [Page] on the left and right sides of the page. */
 object HarnessSpace {
     val S4 = 4.dp
     val S8 = 8.dp
@@ -42,7 +42,7 @@ object HarnessSpace {
 
 typealias MinaSpace = HarnessSpace
 
-/** 各类元素的尺寸。 */
+/** The sizes of various elements. */
 object HarnessSize {
     val TopBar = 56.dp
     val IconButton = 40.dp
@@ -50,17 +50,17 @@ object HarnessSize {
     val Button = 52.dp
     val Composer = 52.dp
     val Icon = 22.dp
-    /** 列表行左边的图标块,里面的图形是 [TileIcon]。 */
+    /** In the icon block on the left side of the list line, the graphic inside is [TileIcon]. */
     val Tile = 30.dp
     val TileIcon = 18.dp
-    /** 行尾箭头等小图标。 */
+    /** Small icons such as end-of-line arrows. */
     val SmallIcon = 16.dp
     const val IconStroke = 1.7f
 }
 
 typealias MinaSize = HarnessSize
 
-/** 圆角。 */
+/** Rounded corners. */
 object HarnessRadius {
     val Card = 16.dp
     val Bubble = 20.dp
@@ -71,12 +71,12 @@ object HarnessRadius {
 
 typealias MinaRadius = HarnessRadius
 
-/** 常用形状;顶层常量,重组时不新建。 */
+/** Commonly used shapes; top-level constants, not newly created during reorganization. */
 object HarnessShapes {
     val Card = RoundedCornerShape(HarnessRadius.Card)
-    /** 用户消息气泡:右下角是尾角。 */
+    /** User message bubble: The lower right corner is the tail corner. */
     val UserBubble = RoundedCornerShape(HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.BubbleTail, HarnessRadius.Bubble)
-    /** Harness 的回答:左下角是尾角,和用户气泡对称。 */
+    /** Harness' answer: The lower left corner is the tail corner, which is symmetrical to the user bubble. */
     val AnswerBubble = RoundedCornerShape(HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.Bubble, HarnessRadius.BubbleTail)
     val Button = RoundedCornerShape(HarnessRadius.Button)
     val Tile = RoundedCornerShape(HarnessRadius.Tile)

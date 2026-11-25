@@ -10,13 +10,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
-/** 从真实执行结果生成活动,避免由模型的进度文字猜测做了什么。 */
+/** Generate activities from real execution results and avoid guessing what was done from the model's progress text. */
 internal object ActivityRecord {
     private val controls = setOf(
         Verb.Wait, Verb.AskUser, Verb.RequestConfirmation, Verb.HandToUser,
         Verb.HandleObstacle, Verb.EndNotDone,
     )
-    // 元素编号(ref)只对模型有意义,不当作给人看的对象
+    // The element number (ref) is only meaningful to the model and is not an object for people to see.
     private val targetKeys = listOf("package", "url", "path", "query")
 
     fun of(

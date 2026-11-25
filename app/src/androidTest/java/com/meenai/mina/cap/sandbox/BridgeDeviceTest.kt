@@ -24,8 +24,9 @@ import java.util.Collections
 import java.util.UUID
 
 /**
- * 桥的真机用例:沙箱里的 `mina` 命令经抽象套接字回调 Mina。用装好的沙箱(python3 与 mina 客户端都是安装时放的);
- * 没装好就跳过。
+ * Real-machine use case of the bridge: The `mina` command in the sandbox calls back to Mina through the
+ * abstract socket. Use the installed sandbox (both python3 and mina clients are installed during
+ * installation); skip if not installed.
  */
 @RunWith(AndroidJUnit4::class)
 class BridgeDeviceTest {
@@ -36,14 +37,16 @@ class BridgeDeviceTest {
     private fun sh(command: String): CommandResult =
         runBlocking { sb.run("bridge-ws", listOf("/bin/sh", "-lc", command), null, 30_000) { progress += it } }
 
-    // 用装好的沙箱(装的时候装了 python3 和 mina 客户端);没装好就跳过,测试不自己解根文件系统
+    // Use the installed sandbox (python3 and mina client were installed during installation); skip it if
+    // it is not installed. The test does not unblock the root file system by yourself.
     @Before fun needsInstalledSandbox() {
         assumeTrue("sandbox not installed", SandboxState.get(context).status.value is SandboxStatus.Ready)
         assumeTrue("python3 not installed in the rootfs",
             Files.exists(File(SandboxDirs(context).rootfs, "usr/bin/python3").toPath(), LinkOption.NOFOLLOW_LINKS))
     }
 
-    // 导出到「下载/Mina」的测试文件删掉,不留在用户的下载目录里
+    // Test files exported to "Download/Mina" are deleted and do not remain in the user's download
+    // directory.
     @After fun deleteExported() {
         for (f in shared) runCatching { context.contentResolver.delete(Uri.parse(f.uri), null, null) }
         SandboxDirs(context).workspace("bridge-ws").deleteRecursively()
@@ -56,7 +59,8 @@ class BridgeDeviceTest {
     }
 
     @Test fun shareCallsExporter() {
-        // 名字带随机串,下载目录里不会撞名;工作区外的文件先被路径规则拒掉
+        // The name contains a random string, and there will be no name collision in the download
+        // directory; files outside the workspace are first rejected by path rules.
         val name = "mina-bridge-test-${UUID.randomUUID().toString().take(8)}.txt"
         val r = sh("echo hi > $name; harness share $name; echo rc=$?; harness share /etc/passwd; echo rc=$?")
         assertTrue(r.output, r.output.contains("\"savedAs\":\"Download/Harness/$name\""))
