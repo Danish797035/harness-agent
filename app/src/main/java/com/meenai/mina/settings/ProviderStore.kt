@@ -325,13 +325,13 @@ class ProviderStore(
     val xaiAuth: XaiAuth = defaultXaiAuth,
     /** OpenRouter account authorization (change Key). */
     val openRouterAuth: OpenRouterAuth = defaultOpenRouterAuth,
+    private val writeScope: CoroutineScope? = null,
     /**
      * Create a callable model: configuration, Key, interface specified separately for this model in the
      * service provider list (if not null, according to the configured interface type and address),
      * request header, etc. When null, use the built-in adapter (change to false in testing).
      */
     modelFactory: ((ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel)? = null,
-    private val writeScope: CoroutineScope? = null,
 ) {
     private val modelFactory: (ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel = modelFactory ?: ::buildModel
     private val writeLock = Any()
