@@ -643,6 +643,110 @@ class FreeKeyRouterTest {
         assertEquals(2, textOnly.calls)
         assertEquals(2, visionPro.calls)
     }
+
+    @Test
+    fun pinnedNonVisionModelDoesNotBypassVisionRequirement() = runTest {
+        val textPinned = mockModel("text-pinned", vision = false) { _, _, _, onText ->
+            onText("text reply")
+            simpleReply
+        }
+        val visionCapable = mockModel("vision-capable", vision = true) { _, _, _, onText ->
+            onText("vision reply")
+            simpleReply
+        }
+        val router = FreeKeyRouter(
+            listOf(
+                RouterCandidate(
+                    "text-pinned", "p1", textPinned, curatedRank = 100,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main),
+                ),
+                RouterCandidate(
+                    "vision-capable", "p2", visionCapable, curatedRank = 10,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main, com.meenai.mina.core.router.picker.ModelRole.Vision),
+                ),
+            ),
+            delayMs = {},
+        )
+        router.pinModel("text-pinned")
+        router.startTask("What is on my screen?", hasImage = true)
+        assertEquals("vision-capable", router.activeCandidate?.id)
+
+        val imageTurn = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image("AQID", "image/jpeg", 100, 100), Part.Text("Describe this")),
+                Author.User,
+            )
+        )
+        router.completeStreaming("sys", imageTurn, emptyList()) {}
+        assertEquals("vision-capable", router.activeCandidate?.id)
+        assertEquals(0, textPinned.calls)
+        assertEquals(1, visionCapable.calls)
+    }
+
+    @Test
+    fun failoverEmptyReplyAndVisionPickNeverFallBackToNonVisionPool() = runTest {
+        val visionA = mockModel("vision-a", vision = true) { _, _, _, _ -> simpleReply }
+        val visionB = mockModel("vision-b", vision = true) { _, _, _, _ -> simpleReply }
+        val textOnly = mockModel("text-only", vision = false) { _, _, _, _ -> simpleReply }
+
+        val router = FreeKeyRouter(
+            listOf(
+                RouterCandidate("vision-a", "p1", visionA, curatedRank = 20, roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Vision)),
+                RouterCandidate("vision-b", "p2", visionB, curatedRank = 10, roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Vision)),
+                RouterCandidate("text-only", "p3", textOnly, curatedRank = 99, roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main)),
+            ),
+            delayMs = {},
+        )
+        router.startTask("Analyze image", hasImage = true)
+        assertEquals("vision-a", router.activeCandidate?.id)
+
+        val next1 = router.failoverEmptyReply("vision-a")
+        assertEquals("vision-b", next1?.id)
+        val next2 = router.failoverEmptyReply("vision-b")
+        assertEquals(null, next2)
+
+        val textOnlyRouter = FreeKeyRouter(
+            listOf(RouterCandidate("text-only", "p3", textOnly, curatedRank = 99, roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main))),
+            delayMs = {},
+        )
+        assertEquals(null, textOnlyRouter.pickBestCandidate(com.meenai.mina.core.router.picker.ModelRole.Vision))
+    }
+
+    @Test
+    fun watchdogIgnoresEmptyTextAndThinkingPings() = runTest {
+        val stallingPingModel = object : StreamingChatModel {
+            override val name = "ping-staller"
+            override val capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 64_000, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>) = simpleReply
+            override suspend fun completeStreaming(system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit) = simpleReply
+            override suspend fun completeStreamingWithThinking(
+                system: String,
+                messages: List<Message>,
+                tools: List<ToolSpec>,
+                onText: (String) -> Unit,
+                onThinking: (String) -> Unit,
+            ): ModelReply {
+                onThinking("")
+                onText("")
+                delay(500L)
+                return simpleReply
+            }
+        }
+        val router = FreeKeyRouter(
+            candidates = listOf(RouterCandidate("ping-staller", "p1", stallingPingModel)),
+            firstTokenTimeoutMs = 50L,
+            preferences = object : RouterPreferences {
+                override fun isFailoverEnabled(): Boolean = false
+            },
+        )
+        try {
+            router.completeStreamingWithThinking("sys", userMsg, emptyList(), {}, {})
+            fail("Expected FirstTokenTimeout when only empty pings were emitted")
+        } catch (_: ModelError.FirstTokenTimeout) {
+            // Expected
+        }
+    }
 }
 
 class MockChatModel(

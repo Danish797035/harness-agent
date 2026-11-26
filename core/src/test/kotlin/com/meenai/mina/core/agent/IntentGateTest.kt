@@ -54,4 +54,61 @@ class IntentGateTest {
         assertEquals(IntentGate.Intent.Discuss, IntentGate(FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS")))
             .assess("kya aap youtube open kar sakte ho?", emptyList()))
     }
+
+    @Test fun negationsMidSentenceQuestionsAndStativeWordsGoToJudge() = runTest {
+        val inputs = listOf(
+            "youtube open mat karo",
+            "whatsapp mat kholo",
+            "flipkart nahi kholna",
+            "flipkart kaise open kare",
+            "youtube kab chalao",
+            "music kahan bajao",
+            "kya aap youtube khol sakte ho",
+            "ye kyun kholo",
+            "phone band hai",
+            "app chala gaya",
+        )
+        for (msg in inputs) {
+            val judge = FakeModel(com.meenai.mina.core.testing.answerReply("DISCUSS"))
+            assertEquals("Expected judge call for: $msg", IntentGate.Intent.Discuss, IntentGate(judge).assess(msg, emptyList()))
+            assertEquals("Judge must be invoked for: $msg", 1, judge.requests.size)
+        }
+    }
+
+    @Test fun expandedHinglishVerbsAndImperativeBigramsSkipJudge() = runTest {
+        val judge = FakeModel(IllegalStateException("judge must not be called"))
+        val gate = IntentGate(judge)
+        val commands = listOf(
+            "flipkart kholna",
+            "screen dekho",
+            "time batao",
+            "song dhundho",
+            "thoda ruko",
+            "wifi band kar",
+            "bluetooth band karo",
+            "music chala de",
+            "video chala do",
+        )
+        for (cmd in commands) {
+            assertEquals("Expected Act for: $cmd", IntentGate.Intent.Act, gate.assess(cmd, emptyList()))
+        }
+        assertTrue(judge.requests.isEmpty())
+    }
+
+    @Test fun appLaunchShortcutMatchesOnlyClearSingleStepOpenCommands() {
+        val apps = listOf(
+            "com.flipkart.android" to "Flipkart",
+            "com.google.android.youtube" to "YouTube",
+            "com.whatsapp" to "WhatsApp",
+            "com.whatsapp.w4b" to "WhatsApp Business",
+        )
+        assertEquals("com.flipkart.android" to "Flipkart", AppLaunchShortcut.match("open Flipkart", apps))
+        assertEquals("com.google.android.youtube" to "YouTube", AppLaunchShortcut.match("please launch YouTube app", apps))
+        assertEquals("com.whatsapp" to "WhatsApp", AppLaunchShortcut.match("WhatsApp kholo", apps))
+        assertNull(AppLaunchShortcut.match("open Flipkart and search shoes", apps))
+        assertNull(AppLaunchShortcut.match("flipkart kaise open kare", apps))
+        assertNull(AppLaunchShortcut.match("don't open WhatsApp", apps))
+        assertNull(AppLaunchShortcut.match("open flipkart.com", apps))
+        assertNull(AppLaunchShortcut.match("open NonExistentApp", apps))
+    }
 }

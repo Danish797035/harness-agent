@@ -112,6 +112,9 @@ class FreeKeyRouter(
     var activeCandidate: RouterCandidate? = null
         private set
 
+    @Volatile
+    private var taskHasImage: Boolean = false
+
     var switchCountInTask: Int = 0
         private set
 
@@ -161,19 +164,21 @@ class FreeKeyRouter(
      */
     fun resetTask() {
         switchCountInTask = 0
+        taskHasImage = false
         val current = activeCandidate
         if (current != null && pinnedModelId == null && !checkCachedQuota(current, isNewTask = true)) {
             activeCandidate = null
         }
+        val refreshed = activeCandidate
         val reason = when {
             pinnedModelId != null -> "Pinned model"
-            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
-            activeCandidate != null -> "Optimal free candidate"
+            refreshed?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
+            refreshed != null -> "Optimal free candidate"
             else -> "Task reset"
         }
         updateStatus(
-            model = activeCandidate?.id,
-            provider = activeCandidate?.provider,
+            model = refreshed?.id,
+            provider = refreshed?.provider,
             reason = reason,
         )
     }
@@ -188,15 +193,16 @@ class FreeKeyRouter(
         charCount: Int = task.length,
     ): TaskDifficulty {
         switchCountInTask = 0
+        taskHasImage = hasImage
         val difficulty = difficultyRouter.startTask(task, hasImage, plannedSteps, charCount)
-        val role = difficultyRouter.getRole(hasImage)
+        val role = if (hasImage) ModelRole.Vision else difficultyRouter.getRole(false)
 
         val current = activeCandidate
         val currentSize = current?.let { ModelSizeParser.extractParameterSizeB(it.id) } ?: 0.0
         val isSub3b = current != null && currentSize in 0.01..2.9
         val roleMismatch = current != null && (
             (hasImage && !current.model.capabilities.vision) ||
-                (role == ModelRole.Main && (
+                (!hasImage && role == ModelRole.Main && (
                     (current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)) ||
                     isSub3b
                 ))
@@ -207,8 +213,8 @@ class FreeKeyRouter(
             current
         }
         val reason = when {
-            pinnedModelId != null -> "Pinned model"
             hasImage -> "Vision task, best image understanding"
+            pinnedModelId != null -> "Pinned model"
             difficulty == TaskDifficulty.Light -> "Light task, cheapest free model"
             else -> "Heavy task, strongest free model"
         }
@@ -226,20 +232,26 @@ class FreeKeyRouter(
      * Switches only at step boundaries if necessary.
      */
     fun prepareStep(step: Int, hasImages: Boolean = false) {
-        val role = difficultyRouter.getRole(hasImages)
+        if (hasImages) taskHasImage = true
+        val needsVision = hasImages || taskHasImage
+        val role = if (needsVision) ModelRole.Vision else difficultyRouter.getRole(false)
         val current = activeCandidate
 
         val needsSwitch = current == null ||
             !checkCachedQuota(current, isNewTask = false) ||
-            (hasImages && !current.model.capabilities.vision) ||
-            (difficultyRouter.isEscalated && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main))
+            (needsVision && !current.model.capabilities.vision) ||
+            (!needsVision && difficultyRouter.isEscalated && current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main))
 
         if (needsSwitch) {
             val next = pickBestCandidate(role, isNewTask = false)
             if (next != null && next.id != current?.id) {
                 val oldId = current?.id
                 activeCandidate = next
-                val reason = if (difficultyRouter.isEscalated) "Escalated to Heavy (strongest model)" else "Step boundary check"
+                val reason = when {
+                    needsVision && current?.model?.capabilities?.vision != true -> "Vision task, switching to vision model"
+                    difficultyRouter.isEscalated -> "Escalated to Heavy (strongest model)"
+                    else -> "Step boundary check"
+                }
                 onModelSwitched?.invoke(oldId, next.id, reason)
                 updateStatus(
                     model = next.id,
@@ -247,6 +259,8 @@ class FreeKeyRouter(
                     reason = reason,
                     switchEvent = RouterSwitchEvent(oldId, next.id, next.provider, reason, now()),
                 )
+            } else if (next == null && needsVision && current != null && !current.model.capabilities.vision) {
+                activeCandidate = null
             }
         }
     }
@@ -295,20 +309,27 @@ class FreeKeyRouter(
      * switches to the next best candidate if available and switch limit permits,
      * and returns the new candidate (or null if no alternative available / max switches exceeded).
      */
-    fun failoverEmptyReply(currentModelId: String?, reason: String = "Empty reply from model"): RouterCandidate? {
+    fun failoverEmptyReply(
+        currentModelId: String?,
+        reason: String = "Empty reply from model",
+        hasImages: Boolean = taskHasImage,
+    ): RouterCandidate? {
         if (!preferences.isFailoverEnabled()) return null
         if (switchCountInTask >= effectiveMaxSwitches) return null
 
-        val current = currentModelId ?: activeCandidate?.id
+        if (hasImages) taskHasImage = true
+        val needsVision = hasImages || taskHasImage
+        val activeSnapshot = activeCandidate
+        val current = currentModelId ?: activeSnapshot?.id
         if (current != null) {
             healthTracker.recordFailure(current)
             statsTracker?.recordFailure(current, isToolCallFailure = false)
             difficultyRouter.recordFailure()
             cooldownStore.markCooldown(current, ModelCooldownStore.DEFAULT_COOLDOWN_MS, now())
         }
-        val role = difficultyRouter.getRole()
+        val role = if (needsVision) ModelRole.Vision else difficultyRouter.getRole()
         val next = pickBestCandidate(role, isNewTask = false)
-        if (next != null && next.id != current) {
+        if (next != null && next.id != current && (!needsVision || next.model.capabilities.vision)) {
             val oldId = current
             activeCandidate = next
             switchCountInTask++
@@ -330,22 +351,23 @@ class FreeKeyRouter(
         if (active != null && newCandidates.none { it.id == active.id }) {
             activeCandidate = null
         }
-        if (activeCandidate == null) {
-            val role = difficultyRouter.getRole()
-            activeCandidate = pickBestCandidate(role, isNewTask = false)
-        }
+        val selected = activeCandidate ?: pickBestCandidate(
+            if (taskHasImage) ModelRole.Vision else difficultyRouter.getRole(),
+            isNewTask = false,
+        ).also { activeCandidate = it }
         val existingReason = _status.value.reason
         val reason = if (!existingReason.isNullOrBlank() && !existingReason.contains("Candidates updated", ignoreCase = true) && existingReason != "Success") {
             existingReason
         } else when {
+            taskHasImage -> "Vision task, best image understanding"
             pinnedModelId != null -> "Pinned model"
-            activeCandidate?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
-            activeCandidate != null -> "Optimal free candidate"
+            selected?.roles?.contains(ModelRole.Light) == true -> "Light task, cheapest free model"
+            selected != null -> "Optimal free candidate"
             else -> "No model available"
         }
         updateStatus(
-            model = activeCandidate?.id,
-            provider = activeCandidate?.provider,
+            model = selected?.id,
+            provider = selected?.provider,
             reason = reason,
         )
     }
@@ -391,6 +413,8 @@ class FreeKeyRouter(
         var lastError: Throwable? = null
         var lastFailureReason: String? = null
         val hasImages = messages.any { m -> m.parts.any { it is Part.Image } }
+        if (hasImages) taskHasImage = true
+        val needsVision = hasImages || taskHasImage
         var previousCandidate: RouterCandidate? = activeCandidate
 
         while (true) {
@@ -399,10 +423,9 @@ class FreeKeyRouter(
             }
 
             // Ensure active candidate
-            val role = difficultyRouter?.getRole(hasImages) ?: if (hasImages) ModelRole.Vision else ModelRole.Main
+            val role = if (needsVision) ModelRole.Vision else difficultyRouter.getRole(false)
             val current = activeCandidate
-            val pinned = pinnedModelId ?: difficultyRouter.pinnedModelId
-            val visionMismatch = hasImages && current != null && !current.model.capabilities.vision && current.id != pinned
+            val visionMismatch = needsVision && current != null && !current.model.capabilities.vision
             val currentCandidate = if (
                 current == null ||
                 visionMismatch ||
@@ -533,7 +556,6 @@ class FreeKeyRouter(
                                 // Already retried with sanitized schema, switch candidate
                                 cooldownStore.markCooldown(currentCandidate.id, ModelCooldownStore.DEFAULT_COOLDOWN_MS, now())
                                 onText("") // discard partial output
-                            onThinking("")
                                 onThinking("")
                                 previousCandidate = currentCandidate
                                 activeCandidate = null
@@ -660,20 +682,20 @@ class FreeKeyRouter(
                     messages,
                     tools,
                     onText = { chunk ->
-                        if (!firstRecorded) {
-                            firstRecorded = true
-                            onFirstToken?.invoke(now())
-                        }
                         if (chunk.isNotEmpty()) {
+                            if (!firstRecorded) {
+                                firstRecorded = true
+                                onFirstToken?.invoke(now())
+                            }
                             onText(chunk)
                         }
                     },
                     onThinking = { thinkChunk ->
-                        if (!firstRecorded) {
-                            firstRecorded = true
-                            onFirstToken?.invoke(now())
-                        }
                         if (thinkChunk.isNotEmpty()) {
+                            if (!firstRecorded) {
+                                firstRecorded = true
+                                onFirstToken?.invoke(now())
+                            }
                             onThinking(thinkChunk)
                         }
                     },
@@ -703,20 +725,20 @@ class FreeKeyRouter(
                         messages,
                         tools,
                         onText = { chunk ->
-                            if (!firstTokenArrived.getAndSet(true)) {
-                                watchdog.cancel()
-                                onFirstToken?.invoke(now())
-                            }
                             if (chunk.isNotEmpty()) {
+                                if (!firstTokenArrived.getAndSet(true)) {
+                                    watchdog.cancel()
+                                    onFirstToken?.invoke(now())
+                                }
                                 onText(chunk)
                             }
                         },
                         onThinking = { thinkChunk ->
-                            if (!firstTokenArrived.getAndSet(true)) {
-                                watchdog.cancel()
-                                onFirstToken?.invoke(now())
-                            }
                             if (thinkChunk.isNotEmpty()) {
+                                if (!firstTokenArrived.getAndSet(true)) {
+                                    watchdog.cancel()
+                                    onFirstToken?.invoke(now())
+                                }
                                 onThinking(thinkChunk)
                             }
                         },
@@ -750,7 +772,10 @@ class FreeKeyRouter(
     fun pickBestCandidate(targetRole: ModelRole = ModelRole.Main, isNewTask: Boolean = false): RouterCandidate? {
         val pinned = pinnedModelId ?: difficultyRouter.pinnedModelId
         if (!pinned.isNullOrBlank()) {
-            return candidates.find { it.id == pinned }
+            val pinnedCandidate = candidates.find { it.id == pinned }
+            if (pinnedCandidate != null && (targetRole != ModelRole.Vision || pinnedCandidate.model.capabilities.vision)) {
+                return pinnedCandidate
+            }
         }
 
         // Specialist Manual role or configured role. A role with no model of its own
@@ -807,7 +832,13 @@ class FreeKeyRouter(
                     (ModelSizeParser.extractParameterSizeB(candidate.id).let { it <= 0.0 || it >= 3.0 })
             }
         }
-        val targetPool = if (roleFiltered.isNotEmpty()) roleFiltered else pool
+        val targetPool = if (targetRole == ModelRole.Vision) {
+            roleFiltered
+        } else if (roleFiltered.isNotEmpty()) {
+            roleFiltered
+        } else {
+            pool
+        }
 
         val preferred = preferences.getPreferredProviders().map { it.lowercase() }
         fun providerRank(p: String): Int {

@@ -14,6 +14,10 @@ import com.meenai.mina.core.userscreen.ScreenLine
 import com.meenai.mina.core.userscreen.UserScreen
 import com.meenai.mina.core.userscreen.UserScreenMessage
 import com.meenai.mina.core.userscreen.UserScreenSource
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -228,5 +232,83 @@ class AgentLoopUserScreenTest {
         val screenDetail = req.firstOrNull { ContextBuilder.kindOf(it) == ContextKind.UserScreen }?.let { ContextBuilder.bodyOf(it) }.orEmpty()
         assertFalse("Must not inject 'No text was read on the screen' when image is attached", screenDetail.contains("No text was read on the screen"))
         assertFalse("Must not tell vision model it cannot see the image", screenDetail.contains("You cannot see this image"))
+    }
+
+    @Test fun priorTurnsImageRoutesToVisionAndExternalCancellationSetsCancelledState() = runBlocking {
+        val noOcrScreen = UserScreen("s_prior", at, "com.example.gallery", "Gallery", lines = emptyList())
+        val circleSource = object : UserScreenSource {
+            override suspend fun screen(id: String) = noOcrScreen.takeIf { id == "s_prior" }
+            override suspend fun image(id: String) = png.takeIf { id == "s_prior" }
+        }
+        val blindModel = object : com.meenai.mina.core.model.ChatModel {
+            override val name = "blind-light"
+            override val capabilities = com.meenai.mina.core.model.Capabilities(
+                toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false,
+            )
+            override suspend fun complete(
+                system: String,
+                messages: List<com.meenai.mina.core.model.Message>,
+                tools: List<com.meenai.mina.core.model.ToolSpec>,
+            ) = answerReply("blind")
+        }
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val visionCalls = mutableListOf<String>()
+        val visionModel = object : com.meenai.mina.core.model.ChatModel {
+            override val name = "vision-capable"
+            override val capabilities = com.meenai.mina.core.model.Capabilities(
+                toolCalls = true, vision = true, contextTokens = 64_000, reasoning = false,
+            )
+            override suspend fun complete(
+                system: String,
+                messages: List<com.meenai.mina.core.model.Message>,
+                tools: List<com.meenai.mina.core.model.ToolSpec>,
+            ): ModelReply {
+                visionCalls += messages.last().parts.filterIsInstance<Part.Text>().joinToString(" ") { it.text }
+                started.complete(Unit)
+                gate.await()
+                return answerReply("done")
+            }
+        }
+        val router = com.meenai.mina.core.router.FreeKeyRouter(
+            listOf(
+                com.meenai.mina.core.router.RouterCandidate(
+                    "blind-light", "p1", blindModel, curatedRank = 10,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main, com.meenai.mina.core.router.picker.ModelRole.Light),
+                ),
+                com.meenai.mina.core.router.RouterCandidate(
+                    "vision-capable", "p2", visionModel, curatedRank = 5,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main, com.meenai.mina.core.router.picker.ModelRole.Vision),
+                ),
+            ),
+            delayMs = {},
+        )
+        router.startTask("hi", hasImage = false)
+        assertEquals("blind-light", router.activeCandidate?.id)
+
+        val prior = listOf(Turn(UserScreenMessage.compose("s_prior", "Look at this"), "It is a chart", "succeeded"))
+        val tools = toolDispatcher(
+            FakeScreen(),
+            visionEnabled = router.capabilities.vision,
+            userScreens = circleSource,
+            visionCheck = { router.capabilities.vision },
+        )
+        val agent = AgentLoop(
+            router,
+            tools,
+            "B",
+            zone = ZoneOffset.UTC,
+            userScreens = circleSource,
+            freeKeyRouter = router,
+        )
+        val job = async {
+            agent.run("Explain more", priorTurns = prior)
+        }
+        started.await()
+        assertEquals("vision-capable", router.activeCandidate?.id)
+        assertEquals(1, visionCalls.size)
+
+        job.cancelAndJoin()
+        assertEquals(TaskState.Cancelled, agent.state.value)
     }
 }

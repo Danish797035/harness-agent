@@ -580,7 +580,8 @@ object GeminiWebClient {
             ChatTrace.record("gemini upload failed: empty image bytes")
             throw ModelError.BadResponse("Gemini Web image upload failed: empty image bytes")
         }
-        if (session.cookies.isBlank()) {
+        val effectiveCookies = cookieSnapshot().ifBlank { session.cookies }
+        if (effectiveCookies.isBlank()) {
             ChatTrace.record("gemini upload failed: missing session cookies")
             throw ModelError.BadResponse("Gemini Web image upload failed: signed-in session cookies are missing")
         }
@@ -597,7 +598,7 @@ object GeminiWebClient {
             .header("Origin", BASE_URL)
             .header("Referer", "$BASE_URL/")
             .header("User-Agent", userAgentFor(session))
-            .header("Cookie", sanitizeCookieHeader(session.cookies))
+            .header("Cookie", sanitizeCookieHeader(effectiveCookies))
             .post(body)
         val resp = try {
             uploadClient.newCall(reqBuilder.build()).execute()

@@ -124,4 +124,37 @@ class CompositeArenaImageClientTest {
         assertTrue(result.contentEquals(nativeBytes))
         assertEquals(true, nativeCalled.get())
     }
+
+    @Test
+    fun generateAndEditRethrowCancellationWithoutFallback() = runBlocking {
+        val nativeCalled = AtomicBoolean(false)
+        val cancellingRemote = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+        }
+        val nativeClient = object : ImageClient {
+            override suspend fun generate(apiKey: String, model: String, prompt: String, size: String?): ByteArray {
+                nativeCalled.set(true)
+                return ByteArray(0)
+            }
+            override suspend fun edit(apiKey: String, model: String, prompt: String, imageBase64: String): ByteArray {
+                nativeCalled.set(true)
+                return ByteArray(0)
+            }
+        }
+        val composite = CompositeArenaImageClient(cancellingRemote, nativeClient)
+        try {
+            composite.generate("k", "mai-image-2.6", "cat", null)
+            fail("Expected CancellationException")
+        } catch (_: kotlinx.coroutines.CancellationException) {}
+        try {
+            composite.edit("k", "mai-image-2.6", "edit", "AQID")
+            fail("Expected CancellationException")
+        } catch (_: kotlinx.coroutines.CancellationException) {}
+        assertEquals(false, nativeCalled.get())
+    }
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -62,6 +65,11 @@ import com.meenai.mina.ui.ChatCopy
 import com.meenai.mina.ui.Spinner
 import com.meenai.mina.ui.VoiceCopy
 import com.meenai.mina.ui.VoiceWave
+import com.meenai.mina.ui.components.ButtonKind
+import com.meenai.mina.ui.components.ButtonSize
+import com.meenai.mina.ui.components.MinaButton
+import com.meenai.mina.ui.theme.DarkColors
+import com.meenai.mina.ui.theme.LocalHarnessColors
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.voice.HoldToTalk
@@ -182,6 +190,8 @@ internal class CapsuleTalk(
     private var ticker: Job? = null
     private var watcher: Job? = null
     private var startedAt = 0L
+    private var lastHeard = ""
+    private var lastSpeechActivityAt = 0L
 
     /** Can it be used? Do you have recording permission? Start listening if it works. The capsule is not an Activity and cannot open the system's permission box. */
     fun begin(title: String, byTouch: Boolean): Begin {
@@ -205,11 +215,20 @@ internal class CapsuleTalk(
         cancelAt = Rect.Zero
         editAt = Rect.Zero
         startedAt = SystemClock.elapsedRealtime()
+        lastHeard = ""
+        lastSpeechActivityAt = 0L
         hold.press(session)
         active = true
         collector = scope.launch { session.events.collect { hold.onEvent(it) } }
         watcher = scope.launch {
             hold.state.collect { s ->
+                if (s is HoldToTalk.State.Listening) {
+                    val heard = (s.stable + s.tail).trim()
+                    if (heard.isNotEmpty() && (heard != lastHeard || s.level >= SPEECH_ACTIVE_LEVEL)) {
+                        lastHeard = heard
+                        lastSpeechActivityAt = SystemClock.elapsedRealtime()
+                    }
+                }
                 // There are no fingers to wait for screen reading: when the conversation ends by itself,
                 // just press "Send"
                 if (s is HoldToTalk.State.Listening && s.ended && !this@CapsuleTalk.byTouch) finish(CapsuleVoice.Drop.Send)
@@ -224,10 +243,19 @@ internal class CapsuleTalk(
         ticker = scope.launch {
             while (active && !released) {
                 delay(TICK_MS)
+                val nowMs = SystemClock.elapsedRealtime()
+                val silenceAutoSend = !this@CapsuleTalk.byTouch &&
+                    lastHeard.isNotEmpty() &&
+                    lastSpeechActivityAt > 0L &&
+                    nowMs - lastSpeechActivityAt >= AUTO_SEND_SILENCE_MS
                 // When the point is reached, press the landing point at this moment to end (the state
                 // machine will release itself when it reaches the point, but it does not know the
                 // landing point)
-                if (SystemClock.elapsedRealtime() - startedAt >= MAX_MS) finish(aim) else hold.tick()
+                if (nowMs - startedAt >= MAX_MS || silenceAutoSend) {
+                    finish(if (silenceAutoSend) CapsuleVoice.Drop.Send else aim)
+                } else {
+                    hold.tick()
+                }
             }
         }
         return Begin.Started
@@ -267,6 +295,8 @@ internal class CapsuleTalk(
         active = false
         released = false
         drop = null
+        lastHeard = ""
+        lastSpeechActivityAt = 0L
         ticker?.cancel()
         ticker = null
         watcher?.cancel()
@@ -281,6 +311,8 @@ internal class CapsuleTalk(
         /** Counting from the time the finger was pressed down, it took less than this long to release it, so it was assumed that the sound was not heard clearly. */
         const val MIN_TOTAL_MS = 500L
         const val MAX_MS = 60_000L
+        const val AUTO_SEND_SILENCE_MS = 2_000L
+        private const val SPEECH_ACTIVE_LEVEL = 0.45f
         private const val TICK_MS = 100L
     }
 }
@@ -299,8 +331,9 @@ private val TargetText = TextStyle(
     fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium,
     shadow = Shadow(Color.Black.copy(alpha = 0.4f), Offset(0f, 1f), 3f),
 )
-/** The apps behind are slightly dimmed, focusing attention on the panel. */
-private const val DIM = 0.28f
+/** The apps behind are dimmed enough to keep focus and legibility on the floating card. */
+private const val DIM = 0.42f
+private const val VOICE_CARD_ALPHA = 0.94f
 
 /**
  * Press and hold the layer of the entire screen when the capsule is talking (without touching it): the
@@ -410,81 +443,109 @@ private fun Target(icon: ImageVector, label: String, hot: Boolean, bad: Boolean,
 /** Panel: The top is the recording point, who is speaking to, which text to use, and the time used; the real-time words in the middle; the waveform; and what happens when you release it at the bottom. */
 @Composable
 private fun Panel(talk: CapsuleTalk, state: HoldToTalk.State, below: Boolean) {
-    val c = MinaTheme.colors
-    val listening = state as? HoldToTalk.State.Listening
-    val converting = talk.released || state is HoldToTalk.State.Converting
-    val aim = if (converting) CapsuleVoice.Drop.Send else talk.aim
-    val cancel = aim == CapsuleVoice.Drop.Cancel
-    val edit = aim == CapsuleVoice.Drop.Edit
-    Column(
-        Modifier.padding(horizontal = 14.dp).widthIn(max = 520.dp).fillMaxWidth()
-            .glass(c, PanelShape, need = false)
-            .then(if (cancel) Modifier.border(1.5.dp, c.bad, PanelShape) else Modifier)
-            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
-            .testTag("capsule-voice-panel"),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val dot = when {
-                cancel -> c.bad
-                edit || converting -> c.ink2
-                else -> c.accent
+    val baseColors = MinaTheme.colors
+    val panelColors = if (baseColors.isDark) baseColors else DarkColors
+    CompositionLocalProvider(LocalHarnessColors provides panelColors) {
+        val c = MinaTheme.colors
+        val listening = state as? HoldToTalk.State.Listening
+        val converting = talk.released || state is HoldToTalk.State.Converting
+        val aim = if (converting) CapsuleVoice.Drop.Send else talk.aim
+        val cancel = aim == CapsuleVoice.Drop.Cancel
+        val edit = aim == CapsuleVoice.Drop.Edit
+        Column(
+            Modifier.padding(horizontal = 14.dp).widthIn(max = 520.dp).fillMaxWidth()
+                .shadow(10.dp, PanelShape, clip = false, ambientColor = c.floatShadow.copy(alpha = 0.35f), spotColor = c.floatShadow.copy(alpha = 0.4f))
+                .clip(PanelShape)
+                .background(c.surface.copy(alpha = VOICE_CARD_ALPHA))
+                .border(if (cancel) 1.5.dp else 0.75.dp, if (cancel) c.bad else c.glassEdge, PanelShape)
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
+                .testTag("capsule-voice-panel"),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val dot = when {
+                    cancel -> c.bad
+                    edit || converting -> c.ink2
+                    else -> c.accent
+                }
+                Box(Modifier.size(8.dp).drawBehind { drawCircle(dot) })
+                Text(talk.title, Modifier.weight(1f, fill = false), style = HeadText, color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (talk.engine.isNotEmpty()) {
+                    Text(
+                        talk.engine, Modifier.background(c.fill, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = ChipText, color = c.ink2, maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                listening?.let { Text(ChatCopy.clock(it.elapsedMs), style = TimeText, color = c.ink3) }
             }
-            Box(Modifier.size(8.dp).drawBehind { drawCircle(dot) })
-            Text(talk.title, Modifier.weight(1f, fill = false), style = HeadText, color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (talk.engine.isNotEmpty()) {
+            val heard = listening?.let { it.stable + it.tail }.orEmpty()
+            val words = buildAnnotatedString {
+                if (heard.isEmpty()) {
+                    val ghost = when {
+                        converting -> ""
+                        listening?.live == true -> stringResource(R.string.voice_say_now)
+                        else -> stringResource(R.string.voice_recording)
+                    }
+                    withStyle(SpanStyle(color = c.ink3)) { append(ghost) }
+                } else {
+                    withStyle(SpanStyle(color = c.ink)) { append(listening?.stable.orEmpty()) }
+                    withStyle(SpanStyle(color = c.ink2)) { append(listening?.tail.orEmpty()) }
+                }
+            }
+            if (converting && heard.isEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).testTag("capsule-voice-converting"),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                ) {
+                    Spinner(Modifier.size(15.dp), spinning = !MinaTheme.reduceMotion, track = c.accentSoft, head = c.accent)
+                    Text(stringResource(R.string.voice_converting), style = SaidText, color = c.ink2, maxLines = 1)
+                }
+            } else {
                 Text(
-                    talk.engine, Modifier.background(c.fill, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = ChipText, color = c.ink2, maxLines = 1,
+                    words,
+                    Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).alpha(if (cancel) 0.4f else 1f),
+                    style = if (cancel) SaidText.copy(textDecoration = TextDecoration.LineThrough) else SaidText,
+                    maxLines = 5, overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.weight(1f))
-            listening?.let { Text(ChatCopy.clock(it.elapsedMs), style = TimeText, color = c.ink3) }
-        }
-        val heard = listening?.let { it.stable + it.tail }.orEmpty()
-        val words = buildAnnotatedString {
-            if (heard.isEmpty()) {
-                val ghost = when {
-                    converting -> ""
-                    listening?.live == true -> stringResource(R.string.voice_say_now)
-                    else -> stringResource(R.string.voice_recording)
+            if (!converting) {
+                Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                    VoiceWave(listening?.level ?: 0f, flat = cancel, reduceMotion = MinaTheme.reduceMotion, color = if (cancel || edit) c.ink3 else c.accent)
                 }
-                withStyle(SpanStyle(color = c.ink3)) { append(ghost) }
-            } else {
-                withStyle(SpanStyle(color = c.ink)) { append(listening?.stable.orEmpty()) }
-                withStyle(SpanStyle(color = c.ink2)) { append(listening?.tail.orEmpty()) }
+            }
+            if (talk.byTouch && !converting) {
+                val foot = when {
+                    cancel -> stringResource(R.string.capsule_voice_foot_cancel)
+                    edit -> stringResource(R.string.capsule_voice_foot_edit)
+                    listening?.live == true -> stringResource(if (below) R.string.capsule_voice_foot_send_down else R.string.capsule_voice_foot_send_up)
+                    else -> stringResource(if (below) R.string.capsule_voice_foot_convert_down else R.string.capsule_voice_foot_convert_up)
+                }
+                Text(foot, Modifier.fillMaxWidth().padding(top = 8.dp), style = FootText, color = c.ink3, maxLines = 2)
+            }
+            if (!talk.byTouch || talk.released) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    MinaButton(
+                        text = stringResource(R.string.capsule_voice_cancel),
+                        onClick = { talk.abort() },
+                        modifier = Modifier.weight(1f).testTag("capsule-voice-btn-cancel"),
+                        kind = ButtonKind.Tonal,
+                        size = ButtonSize.Medium,
+                    )
+                    if (!talk.released) {
+                        MinaButton(
+                            text = stringResource(R.string.capsule_voice_send),
+                            onClick = { talk.finish(CapsuleVoice.Drop.Send) },
+                            modifier = Modifier.weight(1f).testTag("capsule-voice-btn-send"),
+                            kind = ButtonKind.Primary,
+                            size = ButtonSize.Medium,
+                            enabled = heard.isNotBlank(),
+                        )
+                    }
+                }
             }
         }
-        if (converting && heard.isEmpty()) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).testTag("capsule-voice-converting"),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            ) {
-                Spinner(Modifier.size(15.dp), spinning = !MinaTheme.reduceMotion, track = c.accentSoft, head = c.accent)
-                Text(stringResource(R.string.voice_converting), style = SaidText, color = c.ink2, maxLines = 1)
-            }
-        } else {
-            Text(
-                words,
-                Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).alpha(if (cancel) 0.4f else 1f),
-                style = if (cancel) SaidText.copy(textDecoration = TextDecoration.LineThrough) else SaidText,
-                maxLines = 5, overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (!converting) {
-            Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                VoiceWave(listening?.level ?: 0f, flat = cancel, reduceMotion = MinaTheme.reduceMotion, color = if (cancel || edit) c.ink3 else c.accent)
-            }
-        }
-        // "Transfer text..." is already written in the middle of the transfer time, so I won't repeat it
-        // below.
-        if (converting) return@Column
-        val foot = when {
-            !talk.byTouch -> stringResource(R.string.capsule_voice_foot_a11y)
-            cancel -> stringResource(R.string.capsule_voice_foot_cancel)
-            edit -> stringResource(R.string.capsule_voice_foot_edit)
-            listening?.live == true -> stringResource(if (below) R.string.capsule_voice_foot_send_down else R.string.capsule_voice_foot_send_up)
-            else -> stringResource(if (below) R.string.capsule_voice_foot_convert_down else R.string.capsule_voice_foot_convert_up)
-        }
-        Text(foot, Modifier.fillMaxWidth().padding(top = 8.dp), style = FootText, color = c.ink3, maxLines = 2)
     }
 }

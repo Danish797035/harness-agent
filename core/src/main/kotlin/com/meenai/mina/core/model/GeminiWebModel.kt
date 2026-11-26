@@ -141,19 +141,25 @@ class GeminiWebModel(
         // and nothing has been streamed yet, retry once as a guest instead of
         // failing the user's message. Quota answers (429/5xx) never fall back.
         var guestAttempt = false
+        var emittedText = false
         var emittedAny = false
         var uploadedImages: List<Pair<String, String>>? = null
         // Guest calls must not inherit the account cookies from the shared jar.
         val guestHttp by lazy { http.newBuilder().cookieJar(CookieJar.NO_COOKIES).build() }
         val emit: (String) -> Unit = { text ->
-            if (text.isNotEmpty()) emittedAny = true
+            if (text.isNotEmpty()) {
+                emittedText = true
+                emittedAny = true
+            }
             onText(text)
         }
         val emitThinking: (String) -> Unit = { thoughts ->
+            if (thoughts.isNotEmpty()) emittedAny = true
             onThinking(thoughts)
         }
-        fun startGuestAttempt(reason: String): Boolean {
-            if (guestAttempt || session.cookies.isBlank() || emittedAny || imageAttachments.isNotEmpty()) return false
+        fun startGuestAttempt(reason: String, allowThoughtsOnly: Boolean = false): Boolean {
+            val alreadyEmitted = if (allowThoughtsOnly) emittedText else emittedAny
+            if (guestAttempt || session.cookies.isBlank() || alreadyEmitted || imageAttachments.isNotEmpty()) return false
             guestAttempt = true
             onThinking("")
             ChatTrace.record("gemini guest fallback reason=$reason")
@@ -322,7 +328,7 @@ class GeminiWebModel(
                 // account endpoint sometimes does that. Guest traffic answers with
                 // text, so give it the same one-shot retry.
                 if (cleanText.isBlank() && fullThoughts.isNotBlank() &&
-                    startGuestAttempt("thoughts-only reply")
+                    startGuestAttempt("thoughts-only reply", allowThoughtsOnly = true)
                 ) {
                     continue
                 }
@@ -690,10 +696,11 @@ class GeminiWebModel(
         if (!text.contains('{') && !text.contains("```") && !text.contains('[') && !text.contains(']') && !text.contains('}')) {
             return cleanupText(text)
         }
-        var s = text.replace(Regex("""```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```"""), "")
-            .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
-            .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
-            .replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
+        var s = text.replace(Regex("""```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```""")) { match ->
+            val lang = match.groupValues[1]
+            val body = match.groupValues[2].trim()
+            if (isToolCallFenceBody(body, lang)) "" else match.value
+        }.replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
         val trimmed = s.trim()
         // A real answer can be JSON too. Only hide a leading block when it is
         // actually a tool call (or a partially streamed one), not every brace.
@@ -701,7 +708,7 @@ class GeminiWebModel(
             return if (looksLikeToolCallJson(trimmed)) "" else cleanupText(s)
         }
         if (trimmed.startsWith("```")) {
-            return ""
+            return if (looksLikeToolCallFence(trimmed)) "" else cleanupText(s)
         }
         val firstBrace = s.indexOf('{')
         val firstBracket = s.indexOf('[')
@@ -709,11 +716,32 @@ class GeminiWebModel(
         val cutIndex = listOf(firstBrace, firstBracket, firstFence).filter { it >= 0 }.minOrNull() ?: -1
         if (cutIndex >= 0) {
             val suffix = s.substring(cutIndex).trim()
-            if (looksLikeToolCallJson(suffix)) {
+            val suppress = if (suffix.startsWith("```")) looksLikeToolCallFence(suffix) else looksLikeToolCallJson(suffix)
+            if (suppress) {
                 return cleanupText(s.substring(0, cutIndex).trim())
             }
         }
         return cleanupText(s)
+    }
+
+    private fun looksLikeToolCallFence(fencedText: String): Boolean {
+        val afterTicks = fencedText.trim().removePrefix("```")
+        val nl = afterTicks.indexOf('\n')
+        return if (nl < 0) {
+            val head = afterTicks.trim()
+            head.isEmpty() || head.equals("json", ignoreCase = true) || looksLikeToolCallJson(head)
+        } else {
+            val lang = afterTicks.substring(0, nl).trim()
+            val body = afterTicks.substring(nl + 1).trim()
+            isToolCallFenceBody(body, lang)
+        }
+    }
+
+    private fun isToolCallFenceBody(body: String, lang: String): Boolean {
+        if (body.isEmpty()) return lang.isEmpty() || lang.equals("json", ignoreCase = true)
+        return looksLikeToolCallJson(body) ||
+            (body.startsWith("{") && body.contains("\"name\"", ignoreCase = true) &&
+                body.contains("\"arguments\"", ignoreCase = true))
     }
 
     /**

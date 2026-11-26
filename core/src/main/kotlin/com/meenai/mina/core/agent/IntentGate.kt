@@ -43,11 +43,16 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
         /** It is clearly a command statement: follow the action directly without adjusting the model more than once. Only English/Hindi is spoken, other languages are left to the judge. */
         private val POLITE = listOf(
             "please ", "pls ", "kindly ", "can you ", "could you ", "would you ", "will you ",
-            "kya aap ", "kripya ",
+            "kripya ",
         )
         private val QUESTION = listOf(
             "what ", "why ", "how ", "who ", "when ", "where ", "which ", "is ", "are ", "does ",
             "do ", "did ", "tell me ", "explain ", "describe ", "kya ", "kaise ", "kyun ", "kaun ",
+            "kab ", "kahan ",
+        )
+        private val NEGATION_OR_QUESTION_WORD = Regex(
+            """\b(?:mat|nahi|nahin|kaise|kyun|kab|kahan|kya)\b""",
+            RegexOption.IGNORE_CASE,
         )
         private val ACTION = listOf(
             "open ", "launch ", "start ", "search ", "find ", "play ", "send ", "message ", "call ",
@@ -58,10 +63,13 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
             "stop ", "pause ", "resume ",
         )
         private val HINGLISH_ACTION = listOf(
-            "khol", "kholo", "bhej", "bhejo", "chala", "chalao", "band", "dikha", "dikhao",
-            "likh", "likho", "dhoondh", "dhundo", "chalu", "bajao", "sunao", "banao",
-            "karo", "kardo",
-        ).map { word -> Regex("\\b" + Regex.escape(word) + "\\b") }
+            "khol", "kholo", "kholna", "bhej", "bhejo", "chalao", "dikha", "dikhao", "dekho",
+            "batao", "likh", "likho", "dhoondh", "dhundo", "dhundho", "chalu", "bajao",
+            "sunao", "banao", "karo", "kardo", "ruko",
+        ).map { word -> Regex("\\b" + Regex.escape(word) + "\\b") } + listOf(
+            Regex("""\bband\s+(?:kar|karo|kardo|karna|kar\s+de)\b"""),
+            Regex("""\bchala\s+(?:de|do|dena|kar|karo)\b"""),
+        )
 
         fun quick(task: String): Intent? {
             var t = task.trim().lowercase()
@@ -70,6 +78,7 @@ internal class IntentGate(private val judge: ChatModel, private val fallback: Ch
             for (p in POLITE) if (t.startsWith(p)) { t = t.removePrefix(p).trim(); break }
             if (t.isEmpty()) return null
             if (QUESTION.any { t.startsWith(it) }) return null
+            if (NEGATION_OR_QUESTION_WORD.containsMatchIn(t)) return null
             if (ACTION.any { t.startsWith(it) }) return Intent.Act
             if (HINGLISH_ACTION.any { it.containsMatchIn(t) }) return Intent.Act
             return null

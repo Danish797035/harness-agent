@@ -1280,6 +1280,105 @@ class GeminiWebModelTest {
         )
     }
 
+    @Test
+    fun nonEmptyThinkingSetsEmittedAnyAndPreventsMidStreamGuestReset() = runTest {
+        GeminiWebClient.clearCookies()
+        fun chunk(text: String, thoughts: String): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_mid"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+                for (i in 2..36) add(JsonPrimitive(null as String?))
+                add(buildJsonArray { add(buildJsonArray { add(JsonPrimitive(thoughts)) }) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        // Emits non-empty thinking, then encounters an explicit stream error ("er") mid-stream.
+        val erFrame = """[["er",null,null,null,null,"midstream failure"]]"""
+        val partialThoughtThenError = makeStreamData(chunk("", "Thinking step 1...")) +
+            "${erFrame.length}\n$erFrame\n"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(partialThoughtThenError))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Should not switch mid-thought"))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val receivedThinking = mutableListOf<String>()
+        try {
+            model.completeStreamingWithThinking(
+                system = "sys",
+                messages = userMsg,
+                tools = emptyList(),
+                onText = {},
+                onThinking = { receivedThinking += it },
+            )
+            fail("Expected BadResponse after mid-stream error once thinking already emitted")
+        } catch (_: ModelError.BadResponse) {
+            // Expected: non-empty onThinking marked emittedAny = true, preventing silent guest reset
+        }
+        assertEquals(1, server.requestCount)
+        assertTrue(receivedThinking.any { it.contains("Thinking step 1") })
+    }
+
+    @Test
+    fun streamingCodeBlockIsNotSuppressedWhileToolCallFenceIsStripped() = runTest {
+        fun chunk(text: String): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_code"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        val codeSample = "```kotlin\nfun hello() = \"world\"\n```"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(chunk(codeSample))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val streamed = mutableListOf<String>()
+        val reply = model.completeStreamingWithThinking("sys", userMsg, emptyList(), { streamed += it }, {})
+        assertTrue("Leading code block must remain visible in streamed output", streamed.any { it.contains("fun hello()") })
+        assertEquals(codeSample, (reply.parts.first { it is Part.Text } as Part.Text).text)
+    }
+
+    @Test
+    fun uploadImageUsesLatestRotatedCookieSnapshot() {
+        GeminiWebClient.clearCookies()
+        GeminiWebClient.seedCookies("__Secure-1PSID=orig_sid; __Secure-1PSIDTS=stale_ts")
+        // Simulate server rotating __Secure-1PSIDTS into the cookie jar
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Set-Cookie", "__Secure-1PSIDTS=rotated_ts; Path=/; Secure")
+                .setBody("ok")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("/contrib_service/ttl_1d/uploaded.jpg"))
+
+        val client = redirectingClient(jar = GeminiWebClient.cookieJar)
+        client.newCall(okhttp3.Request.Builder().url("https://gemini.google.com/rotate").build()).execute().close()
+        server.takeRequest()
+
+        val staleSession = session.copy(cookies = "__Secure-1PSID=orig_sid; __Secure-1PSIDTS=stale_ts")
+        val path = GeminiWebClient.uploadImage(client, staleSession, byteArrayOf(1, 2, 3), "image/jpeg", "test.jpg")
+        assertEquals("/contrib_service/ttl_1d/uploaded.jpg", path)
+
+        val uploadReq = server.takeRequest()
+        assertTrue(uploadReq.getHeader("Cookie").orEmpty().contains("rotated_ts"))
+    }
+
     /** A response body that sends [prefix] and then holds the connection open. */
     private class StreamBody(private val input: java.io.InputStream) : okhttp3.ResponseBody() {
         override fun contentType() = null

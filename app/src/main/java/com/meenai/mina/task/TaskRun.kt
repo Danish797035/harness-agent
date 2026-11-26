@@ -21,7 +21,9 @@ import com.meenai.mina.chat.SharedFile
 import com.meenai.mina.ui.image.GeneratedImageUi
 import com.meenai.mina.image.ImageStorageManager
 import com.meenai.mina.core.image.ImageIntentRouter
+import android.content.Intent
 import android.content.pm.ApplicationInfo
+import com.meenai.mina.core.agent.AppLaunchShortcut
 import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -528,6 +530,34 @@ class TaskRun(
         )
         sideScope = side
         try {
+            if (provenance.origin == RunOrigin.Ui &&
+                !conditionCheck &&
+                env.modelFactory === TaskEnvironment.defaultModelFactory &&
+                env.evalHooks.maxSteps == null
+            ) {
+                val installed = withContext(Dispatchers.IO) { launchableApps(service.packageManager, service.packageName) }
+                val matched = AppLaunchShortcut.match(goal, installed)
+                if (matched != null) {
+                    val (pkg, label) = matched
+                    val launchIntent = withContext(Dispatchers.IO) {
+                        service.packageManager.getLaunchIntentForPackage(pkg)
+                    }?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    if (launchIntent != null) {
+                        val startedAt = System.currentTimeMillis()
+                        withContext(Dispatchers.Main) { service.startActivity(launchIntent) }
+                        val doneMsg = "Opened $label."
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                val runs = RunStore(service).also { runStore = it }
+                                val r = runs.open(goal).also { record = it; _runId.value = it.runId }
+                                r.event(RunEvent.TaskStarted(startedAt, goal, "local/package-manager"))
+                                r.event(RunEvent.TaskEnded(System.currentTimeMillis(), "succeeded", doneMsg))
+                            }.onFailure { Log.w(TAG, "fast app launch run record failed", it) }
+                        }
+                        return TaskState.Succeeded(doneMsg, verified = true, reviewed = false)
+                    }
+                }
+            }
             val model = env.modelFactory(service, session) ?: return TaskState.Failed(tr(R.string.fail_no_main_model), FailKind.Environment)
             _activeModel.value = model.name
             // The user asks a page on the browser page: Which page is lent to this task as the current

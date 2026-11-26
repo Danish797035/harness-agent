@@ -321,6 +321,16 @@ class OverlayWindow internal constructor(
         update()
     }
 
+    /** Controls whether touches hit this overlay window or pass straight through to the app below. */
+    fun setTouchable(touchable: Boolean) {
+        if (!isOpen) return
+        val flags = if (touchable) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (flags == params.flags) return
+        params.flags = flags
+        update()
+    }
+
     /**
      * Hide the thing in the window first, wait until it really goes off the screen, then do [block]
      * (such as taking a screenshot of the user's screen), and then display it after it is done. "It's

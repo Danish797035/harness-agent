@@ -305,7 +305,10 @@ class AgentLoop(
                 }
             }
         } catch (e: CancellationException) {
-            if (!cancelRequested) throw e
+            if (!cancelRequested) {
+                _state.value = TaskState.Cancelled
+                throw e
+            }
             TaskState.Cancelled
         } finally {
             job = null
@@ -379,10 +382,13 @@ class AgentLoop(
     }
 
     private suspend fun loop(raw: String, rawPrior: List<Turn>, inbox: RunInbox?): TaskState {
-        // If the opening message carries an unblocked user screenshot or image attachment,
+        // If the opening message or prior turns carry an unblocked user screenshot or image attachment,
         // ensure FreeKeyRouter switches to a vision-capable candidate BEFORE UserScreenTurns
         // decides whether to attach Part.Image.
-        val rawHasImage = hasAttachedImageInput(raw)
+        val priorHasImage = rawPrior.any { t ->
+            hasAttachedImageInput(t.userText) || t.steers.any { hasAttachedImageInput(it) }
+        }
+        val rawHasImage = hasAttachedImageInput(raw) || priorHasImage
         if (activeRouter != null && rawHasImage) {
             activeRouter?.startTask(raw, hasImage = true, charCount = raw.length)
         }
@@ -644,7 +650,7 @@ class AgentLoop(
                     val router = activeRouter
                     if (router != null && emptyReplySwitches < 2) {
                         val currentModelName = _activeModelName.value ?: router.activeCandidate?.id
-                        val next = router.failoverEmptyReply(currentModelName, reason = "Empty reply from previous model")
+                        val next = router.failoverEmptyReply(currentModelName, reason = "Empty reply from previous model", hasImages = stepHasImages)
                         if (next != null) {
                             emptyReplySwitches++
                             emptyNudged = false

@@ -758,7 +758,7 @@ object AppFreeKeyRouter {
         return models.map { m ->
             val caps = Capabilities(
                 toolCalls = m.toolCalls ?: true,
-                vision = m.vision ?: true,
+                vision = m.vision ?: false,
                 contextTokens = m.contextTokens ?: 128_000,
                 reasoning = m.reasoning ?: false,
                 promptCaching = PromptCaching.Implicit,

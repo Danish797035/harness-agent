@@ -16,6 +16,7 @@ import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.tool.ToolDispatcher
 import com.meenai.mina.core.tool.parseArgs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
@@ -206,6 +207,16 @@ internal class ModelCaller(
             if (report) emit(RunEvent.Compressed(now(), sent.foldedSteps))
             compaction = next
             compactions[using] = compaction
+            var succeeded = false
+            var preservePartial = false
+            var cleared = false
+            fun resetPartial() {
+                if (!cleared) {
+                    cleared = true
+                    onText?.invoke("")
+                    onThinking?.invoke("")
+                }
+            }
             try {
                 // When the different base is cut or folded, the next write operation must be issued in
                 // full
@@ -235,13 +246,18 @@ internal class ModelCaller(
                     overflowRewrote = false
                     trace.modelCall(step, using, tools::verb, change, sent.messages) { send() }
                 }
+                succeeded = true
                 return reply.also { r ->
                     lastOverhead[using] = overhead
                     r.usage?.let { compressor.calibrate(sent.estimate + overhead, it.inputTokens) }
                 }
+            } catch (e: CancellationException) {
+                // Normal coroutine cancellation (user steer or task stop) must keep any streamed
+                // partial text so AgentLoop can preserve it in reply_interrupted.
+                if (e !is TimeoutCancellationException) preservePartial = true
+                throw e
             } catch (e: ModelError.ContextTooLong) {
-                onText?.invoke("")
-                onThinking?.invoke("")
+                resetPartial()
                 val (after, again) = CompactionPolicy.overflow(compaction, overflowRetried) {
                     compressor.overflow(history, contextTokens, overhead)
                 }
@@ -251,14 +267,15 @@ internal class ModelCaller(
                 if (again) { anchors.clear(); overflowRewrote = true }
                 if (!again) throw e
             } catch (e: ModelError) {
-                onText?.invoke("")
-                onThinking?.invoke("")
+                resetPartial()
                 val wait = policy.delayFor(e, retries, taskRetryWaitMs) ?: throw e
                 retries += 1
                 taskRetryWaitMs += wait
                 emit(RunEvent.State(now(), "model_retry", "${roleOf(using)} ${RetryPolicy.label(e)} #$retries ${wait}ms"))
                 // The task of canceling while waiting is over.
                 delay(wait)
+            } finally {
+                if (!succeeded && !preservePartial) resetPartial()
             }
         }
     }
