@@ -108,6 +108,7 @@ class FreeKeyRouter(
         })
     )
 
+    @Volatile
     var activeCandidate: RouterCandidate? = null
         private set
 
@@ -193,12 +194,17 @@ class FreeKeyRouter(
         val current = activeCandidate
         val currentSize = current?.let { ModelSizeParser.extractParameterSizeB(it.id) } ?: 0.0
         val isSub3b = current != null && currentSize in 0.01..2.9
-        val roleMismatch = current != null && role == ModelRole.Main && (
-            (current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)) ||
-            isSub3b
+        val roleMismatch = current != null && (
+            (hasImage && !current.model.capabilities.vision) ||
+                (role == ModelRole.Main && (
+                    (current.roles.contains(ModelRole.Light) && !current.roles.contains(ModelRole.Main)) ||
+                    isSub3b
+                ))
         )
-        if (current == null || roleMismatch || !checkCachedQuota(current, isNewTask = true)) {
-            activeCandidate = pickBestCandidate(role, isNewTask = true)
+        val selected = if (current == null || roleMismatch || !checkCachedQuota(current, isNewTask = true)) {
+            pickBestCandidate(role, isNewTask = true).also { activeCandidate = it }
+        } else {
+            current
         }
         val reason = when {
             pinnedModelId != null -> "Pinned model"
@@ -207,8 +213,8 @@ class FreeKeyRouter(
             else -> "Heavy task, strongest free model"
         }
         updateStatus(
-            model = activeCandidate?.id,
-            provider = activeCandidate?.provider,
+            model = selected?.id,
+            provider = selected?.provider,
             reason = reason,
         )
         return difficulty
@@ -394,7 +400,14 @@ class FreeKeyRouter(
 
             // Ensure active candidate
             val role = difficultyRouter?.getRole(hasImages) ?: if (hasImages) ModelRole.Vision else ModelRole.Main
-            if (activeCandidate == null || !checkCachedQuota(activeCandidate!!, isNewTask = (switchCountInTask == 0))) {
+            val current = activeCandidate
+            val pinned = pinnedModelId ?: difficultyRouter.pinnedModelId
+            val visionMismatch = hasImages && current != null && !current.model.capabilities.vision && current.id != pinned
+            val currentCandidate = if (
+                current == null ||
+                visionMismatch ||
+                !checkCachedQuota(current, isNewTask = (switchCountInTask == 0))
+            ) {
                 var next = pickBestCandidate(role, isNewTask = (switchCountInTask == 0))
                 if (next == null) {
                     val shortestWait = shortestCooldownMs()
@@ -407,10 +420,11 @@ class FreeKeyRouter(
                 val prev = previousCandidate?.id
                 activeCandidate = next
                 if (prev != null && prev != next.id) {
-                    val reason = if (lastError is ModelError.FirstTokenTimeout) {
-                        "Model slow tha, dusra try kar raha hoon"
-                    } else {
-                        lastFailureReason ?: "Switching candidate"
+                    val reason = when {
+                        lastError is ModelError.FirstTokenTimeout -> "Model slow tha, dusra try kar raha hoon"
+                        lastFailureReason != null -> lastFailureReason
+                        visionMismatch -> "Vision task, switching to vision model"
+                        else -> "Switching candidate"
                     }
                     onModelSwitched?.invoke(prev, next.id, reason)
                     updateStatus(
@@ -427,9 +441,10 @@ class FreeKeyRouter(
                     )
                 }
                 previousCandidate = next
+                next
+            } else {
+                current
             }
-
-            val currentCandidate = activeCandidate!!
             val beganTime = now()
 
             // Prepare history & tools for target model
@@ -746,17 +761,19 @@ class FreeKeyRouter(
         val manualModelId = if (rawManualModelId?.contains("carbon", ignoreCase = true) == true) "gemini-4-argon" else rawManualModelId
         if (!manualModelId.isNullOrBlank()) {
             val manualCandidate = candidates.find { it.id.equals(manualModelId, ignoreCase = true) }
-            val canHandleRole = explicitRoleModel != null ||
-                targetRole != ModelRole.Vision ||
-                manualCandidate?.let {
-                    it.model.capabilities.vision || it.roles.contains(ModelRole.Vision)
-                } == true
+            val canHandleRole = targetRole != ModelRole.Vision ||
+                manualCandidate?.model?.capabilities?.vision == true
             if (manualCandidate != null && canHandleRole && checkCachedQuota(manualCandidate, isNewTask = isNewTask)) {
                 return manualCandidate
             }
         }
-        if (!preferences.isSpecialistAutoEnabled() && activeCandidate != null && checkCachedQuota(activeCandidate!!, isNewTask = isNewTask)) {
-            return activeCandidate
+        val stickyCurrent = activeCandidate
+        if (!preferences.isSpecialistAutoEnabled() &&
+            stickyCurrent != null &&
+            (targetRole != ModelRole.Vision || stickyCurrent.model.capabilities.vision) &&
+            checkCachedQuota(stickyCurrent, isNewTask = isNewTask)
+        ) {
+            return stickyCurrent
         }
 
         val hiddenModels = preferences.getHiddenModels()
@@ -780,7 +797,7 @@ class FreeKeyRouter(
 
         val roleFiltered = pool.filter { candidate ->
             when (targetRole) {
-                ModelRole.Vision -> (candidate.model.capabilities.vision || candidate.roles.contains(ModelRole.Vision)) &&
+                ModelRole.Vision -> candidate.model.capabilities.vision &&
                     !ChatModelFilter.isImageEditOrGen(candidate.id)
                 ModelRole.Light -> candidate.roles.contains(ModelRole.Light) ||
                     AutoModelPicker.isLightModel(candidate.toModelCandidate())

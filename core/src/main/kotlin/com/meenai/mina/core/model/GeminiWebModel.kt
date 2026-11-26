@@ -52,7 +52,7 @@ private const val IDLE_AFTER_TOKENS_MS = 15_000L
 class GeminiWebModel(
     private var session: GeminiWebSession,
     private val model: String,
-    override val capabilities: Capabilities,
+    capabilities: Capabilities,
     private val http: OkHttpClient,
     private val headers: Map<String, String> = emptyMap(),
     private val reasoningEffort: String? = null,
@@ -62,6 +62,20 @@ class GeminiWebModel(
     /** How long a stream may stall after its first frame before it is cut (test hook). */
     private val idleTimeoutMs: Long = IDLE_AFTER_TOKENS_MS,
 ) : StreamingChatModel {
+
+    private val baseCapabilities: Capabilities = capabilities
+
+    @Volatile
+    private var imageUploadBlocked: Boolean = false
+
+    override val capabilities: Capabilities
+        get() {
+            val visionSupported = baseCapabilities.vision &&
+                !imageUploadBlocked &&
+                session.signedIn &&
+                session.cookies.isNotBlank()
+            return if (visionSupported == baseCapabilities.vision) baseCapabilities else baseCapabilities.copy(vision = visionSupported)
+        }
 
     override val name: String get() = model
 
@@ -102,6 +116,10 @@ class GeminiWebModel(
             .orEmpty()
             .ifEmpty { messages.flatMap { it.parts }.filterIsInstance<Part.Image>().takeLast(1) }
 
+        if (imageAttachments.isNotEmpty() && !capabilities.vision) {
+            throw ModelError.BadResponse("Gemini Web cannot view images (session not signed in or image upload unavailable)")
+        }
+
         val modelHeader = GeminiWebClient.buildModelHeader(
             modelHexId,
             capacity = session.capacity,
@@ -135,7 +153,7 @@ class GeminiWebModel(
             onThinking(thoughts)
         }
         fun startGuestAttempt(reason: String): Boolean {
-            if (guestAttempt || session.cookies.isBlank() || emittedAny) return false
+            if (guestAttempt || session.cookies.isBlank() || emittedAny || imageAttachments.isNotEmpty()) return false
             guestAttempt = true
             onThinking("")
             ChatTrace.record("gemini guest fallback reason=$reason")
@@ -143,7 +161,8 @@ class GeminiWebModel(
         }
         // A session that already failed over once stays on guest traffic: retrying
         // the account first on every message would add the same silent wait again.
-        if (session.guestMode && session.cookies.isNotBlank()) {
+        // Guest requests cannot attach uploaded images, so image turns still use the signed-in path.
+        if (session.guestMode && session.cookies.isNotBlank() && imageAttachments.isEmpty()) {
             guestAttempt = true
         }
         // The `at` token (SNlM0e) is what marks a request as the signed-in account;
@@ -162,16 +181,50 @@ class GeminiWebModel(
 
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
-            val activeUploads = if (!guestAttempt && imageAttachments.isNotEmpty()) {
-                uploadedImages ?: imageAttachments.mapIndexedNotNull { idx, img ->
-                    val rawBytes = runCatching { java.util.Base64.getDecoder().decode(img.pngBase64) }.getOrNull()
-                        ?: return@mapIndexedNotNull null
-                    val ext = if (img.mime.contains("png", ignoreCase = true)) "png" else "jpg"
-                    val filename = "screen_${idx + 1}.$ext"
-                    GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
-                        ?.let { path -> path to filename }
-                }.also { uploadedImages = it }
+            val activeUploads = if (imageAttachments.isNotEmpty()) {
+                uploadedImages ?: run {
+                    val uploads = mutableListOf<Pair<String, String>>()
+                    for ((idx, img) in imageAttachments.withIndex()) {
+                        val rawBytes = runCatching { java.util.Base64.getDecoder().decode(img.pngBase64) }
+                            .getOrNull()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: throw ModelError.BadResponse("Gemini Web image attachment could not be decoded")
+                        val ext = if (img.mime.contains("png", ignoreCase = true)) "png" else "jpg"
+                        val filename = "screen_${idx + 1}.$ext"
+                        val path = try {
+                            GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
+                        } catch (e: ModelError.BadResponse) {
+                            val isAuthOrSession = e.message?.let { msg ->
+                                msg.contains("HTTP 400") || msg.contains("HTTP 401") || msg.contains("HTTP 403")
+                            } == true
+                            if (isAuthOrSession && !refreshed) {
+                                val next = refreshSession(currentSession)
+                                if (next != null) {
+                                    refreshed = true
+                                    currentSession = next
+                                    try {
+                                        GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
+                                    } catch (retryErr: ModelError.BadResponse) {
+                                        imageUploadBlocked = true
+                                        throw retryErr
+                                    }
+                                } else {
+                                    imageUploadBlocked = true
+                                    throw e
+                                }
+                            } else {
+                                imageUploadBlocked = true
+                                throw e
+                            }
+                        }
+                        uploads += path to filename
+                    }
+                    uploads.also { uploadedImages = it }
+                }
             } else emptyList()
+            if (imageAttachments.isNotEmpty() && activeUploads.size != imageAttachments.size) {
+                throw ModelError.BadResponse("Gemini Web image upload incomplete: expected ${imageAttachments.size}, got ${activeUploads.size}")
+            }
             val innerReqJson = GeminiWebClient.buildInnerRequestJson(
                 prompt, modelNumber, thinkingFlag, uuid, activeUploads
             )

@@ -68,7 +68,9 @@ internal class ScreenSession(
     val shots: Shots,
     vision: VisionService? = null,
     private val adaptiveVision: Boolean = false,
+    private val visionCheck: (() -> Boolean)? = null,
 ) {
+    private val seesImages: Boolean get() = visionCheck?.invoke() ?: visionEnabled
     /** Mobile model results are not truncated by the number of elements; the web page still uses its own output budget. */
     private val modelElementsLimit get() = if (surface.id == "phone") Int.MAX_VALUE else MAX_ELEMENTS
     val screen: ScreenPort get() = surface.screen
@@ -199,7 +201,7 @@ internal class ScreenSession(
         val png = if ((sendImage && textOnlyDepth == 0 || (recordFrames && recordFrame && textOnlyDepth == 0)) && !s.protected) screen.screenshotPng() else null
         // Only the main model can view the pictures. The payment page and the ordinary page are
         // processed according to the same rules.
-        val kept = png?.takeIf { visionEnabled }
+        val kept = png?.takeIf { seesImages }
         shots.remember(Recall(shotId, shots.step, s.packageName, kept, observationText(s, ocr.orEmpty())))
         val image = png.takeIf { sendImage }
         return ToolExecution(content, image = image, frame = png, imageIds = listOfNotNull(image?.let { shotId }), observations = listOf(seen))
@@ -212,7 +214,7 @@ internal class ScreenSession(
      * it is null.
      */
     suspend fun currentFrame(): Pair<ByteArray, Int>? {
-        if (!visionEnabled) return null
+        if (!seesImages) return null
         val s = screenAttempt { screen.peek() } ?: return null
         if (s.protected) return null
         if (s.packageName == null && s.elements.isEmpty() && !s.hasWindow) return null
@@ -229,7 +231,7 @@ internal class ScreenSession(
      * be posted on a protected page; it will be null when there is no app on the screen.
      */
     suspend fun currentView(): ToolDispatcher.Glance? {
-        if (!visionEnabled && !adaptiveVision) return null
+        if (!seesImages && !adaptiveVision) return null
         val peeked = screenAttempt { screen.peek() } ?: return null
         if (peeked.packageName == null && peeked.elements.isEmpty() && !peeked.hasWindow) return null
         if (textOnlyDepth > 0) {
@@ -238,7 +240,7 @@ internal class ScreenSession(
             return ToolDispatcher.Glance(JsonObject(obs.content - "ok"), null, shotId, obs.observations)
         }
         if (adaptiveVision) {
-            val obs = screenAttempt { observe(withImage = false, adaptiveImage = visionEnabled) } ?: return null
+            val obs = screenAttempt { observe(withImage = false, adaptiveImage = seesImages) } ?: return null
             val shotId = (obs.content["screenshotId"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return null
             return ToolDispatcher.Glance(JsonObject(obs.content - "ok"), obs.image, shotId, obs.observations)
         }
@@ -322,12 +324,12 @@ internal class ScreenSession(
         val read = if (lastRead() != text) interfaceRead(s, ocr.orEmpty()) else null
         // The same rules as observe: to prevent screenshots, the page will not be taken; only the main
         // model can view the pictures, and then the pictures will be left for review.
-        val imageReason = if (adaptiveVision && visionEnabled && tree.poor) tree.reason else null
-        val sendImage = visionEnabled && (!adaptiveVision || imageReason != null)
+        val imageReason = if (adaptiveVision && seesImages && tree.poor) tree.reason else null
+        val sendImage = seesImages && (!adaptiveVision || imageReason != null)
         val png = if ((recordFrames || sendImage) && textOnlyDepth == 0 && !s.protected) {
             screenAttempt { screen.screenshotPng() }
         } else null
-        val kept = png?.takeIf { visionEnabled }
+        val kept = png?.takeIf { seesImages }
         shots.remember(Recall(shotId, shots.step, s.packageName, kept, text))
         // The old mode always attached images; the graded mode only attached images when elements were
         // obviously insufficient.

@@ -37,6 +37,7 @@ object CircleToAskSender {
             author = Author.User,
         )
 
+        (model as? com.meenai.mina.core.router.FreeKeyRouter)?.startTask(promptText, hasImage = true, charCount = promptText.length)
         return model.complete(SYSTEM_PROMPT, listOf(message), emptyList())
     }
 

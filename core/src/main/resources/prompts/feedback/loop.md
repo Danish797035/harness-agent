@@ -201,6 +201,12 @@ Captured at: {{time}}
 Text on the screen (each line starts with the position of its centre x,y, 0–999, top-left is 0,0; in a chat, bubbles on the left are from the other person and bubbles on the right are the user's own):
 {{lines}}
 
+## user_screen.detail_visual
+Screen id: {{id}}
+App: {{app}}{{package}}
+Captured at: {{time}}
+The screenshot is attached directly to the user's message. Inspect the attached image to answer.
+
 ## user_screen.no_text
 No text was read on the screen.
 

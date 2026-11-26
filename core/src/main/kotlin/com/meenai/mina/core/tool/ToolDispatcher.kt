@@ -130,7 +130,7 @@ class ToolDispatcher internal constructor(
     /** Picture viewing model; when it is empty (there is no model that can view pictures in the settings), no visual tools are provided. */
     val vision: VisionService? get() = ctx.config.vision
     /** The main model itself can be seen in the picture. */
-    val seesImages: Boolean get() = ctx.config.visionEnabled
+    val seesImages: Boolean get() = ctx.config.effectiveVisionEnabled
     /** After the writing operation is successful, wait until the interface is stable before reading another screen, and put the difference with the previous screen into the screen field of the result. */
     val inlineScreen: Boolean get() = ctx.config.inlineScreen
     /** What the user said this time, the quotation of memory_save is checked accordingly; AgentLoop adds it. */

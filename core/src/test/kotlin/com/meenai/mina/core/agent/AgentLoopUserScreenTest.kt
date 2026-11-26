@@ -147,4 +147,86 @@ class AgentLoopUserScreenTest {
         assertTrue(result.content.contains("周六那个聚会你还去吗"))
         assertTrue(result.content.contains("\"imageAttached\":true"))
     }
+
+    @Test fun circleToAskWithEmptyOcrSwitchesNonVisionRouterToVisionAndAvoidsNoTextFraming() = runBlocking {
+        val noOcrScreen = UserScreen("s_circle", at, "com.example.gallery", "Gallery", lines = emptyList())
+        val circleSource = object : UserScreenSource {
+            override suspend fun screen(id: String) = noOcrScreen.takeIf { id == "s_circle" }
+            override suspend fun image(id: String) = png.takeIf { id == "s_circle" }
+        }
+        val blindCalls = mutableListOf<List<com.meenai.mina.core.model.Message>>()
+        val visionCalls = mutableListOf<List<com.meenai.mina.core.model.Message>>()
+        val blindModel = object : com.meenai.mina.core.model.ChatModel {
+            override val name = "blind-light"
+            override val capabilities = com.meenai.mina.core.model.Capabilities(
+                toolCalls = true, vision = false, contextTokens = 32_000, reasoning = false,
+            )
+            override suspend fun complete(
+                system: String,
+                messages: List<com.meenai.mina.core.model.Message>,
+                tools: List<com.meenai.mina.core.model.ToolSpec>,
+            ): ModelReply {
+                blindCalls += messages
+                return answerReply("hi")
+            }
+        }
+        val visionModel = object : com.meenai.mina.core.model.ChatModel {
+            override val name = "vision-capable"
+            override val capabilities = com.meenai.mina.core.model.Capabilities(
+                toolCalls = true, vision = true, contextTokens = 64_000, reasoning = false,
+            )
+            override suspend fun complete(
+                system: String,
+                messages: List<com.meenai.mina.core.model.Message>,
+                tools: List<com.meenai.mina.core.model.ToolSpec>,
+            ): ModelReply {
+                visionCalls += messages
+                return answerReply("It is a mountain landscape.")
+            }
+        }
+        val router = com.meenai.mina.core.router.FreeKeyRouter(
+            listOf(
+                com.meenai.mina.core.router.RouterCandidate(
+                    "blind-light", "p1", blindModel, curatedRank = 10,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main, com.meenai.mina.core.router.picker.ModelRole.Light),
+                ),
+                com.meenai.mina.core.router.RouterCandidate(
+                    "vision-capable", "p2", visionModel, curatedRank = 5,
+                    roles = setOf(com.meenai.mina.core.router.picker.ModelRole.Main, com.meenai.mina.core.router.picker.ModelRole.Vision),
+                ),
+            ),
+            delayMs = {},
+        )
+        // First turn: plain text "hi" leaves router on blind-light
+        router.startTask("hi", hasImage = false)
+        assertEquals("blind-light", router.activeCandidate?.id)
+
+        // Second turn: Circle-to-Ask with empty OCR lines
+        val goal = UserScreenMessage.compose("s_circle", "What is in this circled area?")
+        val spec = RunSpec(RunId("r_circle"), goal, "c_circle", emptyList())
+        val tools = toolDispatcher(
+            FakeScreen(),
+            visionEnabled = router.capabilities.vision,
+            runSpec = spec,
+            userScreens = circleSource,
+            visionCheck = { router.capabilities.vision },
+        )
+        AgentLoop(
+            router,
+            tools,
+            "B",
+            zone = ZoneOffset.UTC,
+            userScreens = circleSource,
+            freeKeyRouter = router,
+        ).run(goal)
+
+        assertEquals("vision-capable", router.activeCandidate?.id)
+        assertEquals(0, blindCalls.size)
+        assertEquals(1, visionCalls.size)
+        val req = visionCalls.single().withoutRuntime()
+        assertTrue("Part.Image must be attached to user message", req.any { m -> m.parts.any { it is Part.Image } })
+        val screenDetail = req.firstOrNull { ContextBuilder.kindOf(it) == ContextKind.UserScreen }?.let { ContextBuilder.bodyOf(it) }.orEmpty()
+        assertFalse("Must not inject 'No text was read on the screen' when image is attached", screenDetail.contains("No text was read on the screen"))
+        assertFalse("Must not tell vision model it cannot see the image", screenDetail.contains("You cannot see this image"))
+    }
 }

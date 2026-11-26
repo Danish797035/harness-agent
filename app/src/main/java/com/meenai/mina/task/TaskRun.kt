@@ -799,7 +799,8 @@ class TaskRun(
                         appPacing = { pace.appPacing() }, appPace = { PlacePace.of(catalog.appPace(it)) }, appIdleScroll = { IdleScroll(Random.Default) },
                         sandbox = sandbox, workspace = { conversationId }, runSpec = childSpec,
                         conversationId = conversationId, inlineScreen = speed.inlineScreen,
-                        adaptiveVision = speed.adaptiveVision)
+                        adaptiveVision = speed.adaptiveVision,
+                        visionCheck = { model.capabilities.vision })
                     AgentLoop(model, childTools, SystemPrompt.identity(), maxSteps = childSpec.stepBudget ?: AgentLoop.UNLIMITED_STEPS,
                         // The subtask follows the inquiry/autonomous; it also passes the level when
                         // asked, and the step in the subtask that costs money will not be done.
@@ -885,6 +886,7 @@ class TaskRun(
                     ))
                     file.absolutePath
                 },
+                visionCheck = { model.capabilities.vision },
                 isSensitivePackage = { pkg ->
                     if (pkg.isNullOrBlank()) false
                     else com.meenai.mina.capsule.CapsuleSecurityPolicy.isSensitiveApp(pkg, (service.application as HarnessApp).appAccess.current())

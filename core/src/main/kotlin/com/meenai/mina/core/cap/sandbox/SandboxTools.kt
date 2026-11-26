@@ -98,6 +98,7 @@ internal class SandboxTools(
     /** When starting to run the skill script (parameters: skill directory/script and parameters); if not given, press the command to report. */
     private val onScript: ((String) -> Unit)? = null,
     private val prepareWaitMs: Long = PREPARE_WAIT_MS,
+    private val visionCheck: (() -> Boolean)? = null,
 ) {
     /** Device support provides tools: the running environment is prepared in the background when it is first started, and waits for it when the tool is called. */
     fun available(): Boolean = sandbox.status() !is SandboxStatus.Unsupported
@@ -277,7 +278,7 @@ internal class SandboxTools(
         val size = g.size
         val ext = g.name.substringAfterLast('.', "").lowercase()
         IMAGE_TYPES[ext]?.let { type ->
-            if (!visionEnabled) return notText(path, size, type, "This is an image, and the current model cannot view images.")
+            if (!(visionCheck?.invoke() ?: visionEnabled)) return notText(path, size, type, "This is an image, and the current model cannot view images.")
             if (size > MAX_IMAGE) return fail("file_too_large", "$path is ${size / MB} MB; images over 5 MB are not returned. Make a smaller copy first.")
             return ToolExecution(okObj { put("path", path); put("size", size); put("type", type) }, image = g.read(0, size.toInt()))
         }

@@ -45,15 +45,32 @@ object UserScreenPrompt {
      * [askVision], if you can’t see the picture, you can ask the picture model. The page that does not
      * allow screenshots only says that the screenshot cannot be taken and how to reply.
      */
-    fun detail(screen: UserScreen, noWords: Boolean, askVision: Boolean, zone: ZoneId): String {
+    fun detail(
+        screen: UserScreen,
+        noWords: Boolean,
+        askVision: Boolean,
+        zone: ZoneId,
+        imageAttached: Boolean = false,
+    ): String {
         if (screen.blocked) return Feedback["user_screen.blocked_reply"]
-        val lines = if (screen.lines.isEmpty()) Feedback["user_screen.no_text"]
-            else Untrusted.wrap(screen.lines.joinToString("\n") { "(${it.x},${it.y}) ${it.text}" })
-        val head = Feedback.format(
-            "user_screen.detail", "id" to screen.id, "app" to screen.app,
-            "package" to (screen.packageName?.takeIf { it != screen.app }?.let { "($it)" }.orEmpty()),
-            "time" to time(screen.takenAt, zone), "lines" to lines,
-        )
+        val pkgSuffix = screen.packageName?.takeIf { it != screen.app }?.let { "($it)" }.orEmpty()
+        val head = if (screen.lines.isEmpty() && imageAttached) {
+            Feedback.format(
+                "user_screen.detail_visual",
+                "id" to screen.id,
+                "app" to screen.app,
+                "package" to pkgSuffix,
+                "time" to time(screen.takenAt, zone),
+            )
+        } else {
+            val lines = if (screen.lines.isEmpty()) Feedback["user_screen.no_text"]
+                else Untrusted.wrap(screen.lines.joinToString("\n") { "(${it.x},${it.y}) ${it.text}" })
+            Feedback.format(
+                "user_screen.detail", "id" to screen.id, "app" to screen.app,
+                "package" to pkgSuffix,
+                "time" to time(screen.takenAt, zone), "lines" to lines,
+            )
+        }
         return listOfNotNull(head, Feedback["user_screen.ask_vision"].takeIf { askVision }, Feedback["user_screen.no_words"].takeIf { noWords })
             .joinToString("\n\n")
     }

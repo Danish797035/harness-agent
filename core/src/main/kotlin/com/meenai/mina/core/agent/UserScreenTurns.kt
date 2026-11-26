@@ -18,9 +18,9 @@ import java.time.ZoneId
 internal class UserScreenTurns(
     private val source: UserScreenSource?,
     private val zone: ZoneId,
-    private val seesImages: Boolean,
+    private val seesImages: () -> Boolean,
     /** Can you please tell me the details about the view model (there is view_user_screen and there is a view model, but the main model cannot see the image). */
-    private val canAskVision: Boolean,
+    private val canAskVision: () -> Boolean,
     private val image: (ByteArray) -> Part.Image,
     /** This sentence gives Quan a full screen (recorded in the evidence ledger). */
     private val seen: (UserScreen) -> Unit = {},
@@ -36,18 +36,28 @@ internal class UserScreenTurns(
     private val cache = HashMap<String, UserScreen?>()
 
     /** When this sentence is accompanied by the screen, it is replaced by the appearance given to the model; when it is not provided, it is null. */
-    suspend fun render(raw: String): Rendered? {
+    suspend fun render(raw: String, attachImages: Boolean = seesImages()): Rendered? {
         val p = UserScreenMessage.parse(raw)
         if (!p.hasScreen) return null
         val screens = p.screens.map { it to load(it) }
         screens.forEach { (_, s) -> s?.let(seen) }
         val said = screens.mapIndexed { i, (id, s) -> UserScreenPrompt.said(id, s, if (i == screens.lastIndex) p.words else "", zone) }
             .joinToString("\n")
-        val images = if (!seesImages) emptyList() else screens.mapNotNull { (id, s) ->
-            if (s == null || s.blocked) null else read { source?.image(id) }?.let(image)
+        val attachedIds = HashSet<String>()
+        val images = if (!attachImages) emptyList() else screens.mapNotNull { (id, s) ->
+            if (s == null || s.blocked) null else read { source?.image(id) }?.let(image)?.also { attachedIds += id }
         }
-        val details = screens.mapNotNull { (_, s) ->
-            s?.let { "user's screen · ${it.app}" to UserScreenPrompt.detail(it, p.words.isEmpty(), canAskVision && !it.blocked, zone) }
+        val askVision = canAskVision()
+        val details = screens.mapNotNull { (id, s) ->
+            s?.let {
+                "user's screen · ${it.app}" to UserScreenPrompt.detail(
+                    screen = it,
+                    noWords = p.words.isEmpty(),
+                    askVision = askVision && !it.blocked,
+                    zone = zone,
+                    imageAttached = id in attachedIds,
+                )
+            }
         }
         return Rendered(said, images, details, p.words)
     }
@@ -62,7 +72,7 @@ internal class UserScreenTurns(
 
     /** When answering with the screen (Mina double-clicked the capsule when asking you): Change it to a paragraph of text, and use the review tool to view the screenshot. */
     suspend fun asText(raw: String): String {
-        val r = render(raw) ?: return raw
+        val r = render(raw, attachImages = false) ?: return raw
         return (listOf(r.said) + r.details.map { it.second }).joinToString("\n\n")
     }
 
