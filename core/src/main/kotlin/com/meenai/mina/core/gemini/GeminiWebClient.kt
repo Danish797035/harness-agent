@@ -701,7 +701,8 @@ object GeminiWebClient {
 
     /**
      * Uploads an image to Gemini Web's content-push endpoint and returns the remote path
-     * (e.g. `/contrib_service/ttl_1d/...`) for inclusion in `StreamGenerate`, or null on failure.
+     * (e.g. `/contrib_service/ttl_1d/...`) for inclusion in `StreamGenerate`.
+     * Throws a [ModelError] with the HTTP status/error details on failure instead of returning null.
      */
     fun uploadImage(
         http: OkHttpClient,
@@ -709,7 +710,16 @@ object GeminiWebClient {
         bytes: ByteArray,
         mime: String = "image/jpeg",
         filename: String = "image.jpg",
-    ): String? = runCatching {
+    ): String {
+        if (bytes.isEmpty()) {
+            ChatTrace.record("gemini upload failed: empty image bytes")
+            throw ModelError.BadResponse("Gemini Web image upload failed: empty image bytes")
+        }
+        val effectiveCookies = cookieSnapshot().ifBlank { session.cookies }
+        if (effectiveCookies.isBlank()) {
+            ChatTrace.record("gemini upload failed: missing session cookies")
+            throw ModelError.BadResponse("Gemini Web image upload failed: signed-in session cookies are missing")
+        }
         val uploadClient = http.newBuilder()
             .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .build()
@@ -723,22 +733,32 @@ object GeminiWebClient {
             .header("Origin", BASE_URL)
             .header("Referer", "$BASE_URL/")
             .header("User-Agent", userAgentFor(session))
+            .header("Cookie", sanitizeCookieHeader(effectiveCookies))
             .post(body)
-        if (session.cookies.isNotBlank()) {
-            reqBuilder.header("Cookie", sanitizeCookieHeader(session.cookies))
+        val resp = try {
+            uploadClient.newCall(reqBuilder.build()).execute()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ChatTrace.record("gemini upload error: ${ChatTrace.describe(e)}")
+            throw ModelError.Network(e)
         }
-        uploadClient.newCall(reqBuilder.build()).execute().use { resp ->
-            val text = resp.body?.string()?.trim().orEmpty()
-            if (resp.isSuccessful && text.startsWith("/")) {
+        return resp.use {
+            val text = it.body?.string()?.trim().orEmpty()
+            if (it.isSuccessful && text.startsWith("/")) {
                 text
             } else {
-                ChatTrace.record("gemini upload failed http=${resp.code} body=${text.take(120)}")
-                null
+                ChatTrace.record("gemini upload failed http=${it.code} body=${text.take(200)}")
+                when {
+                    it.code == 429 -> throw ModelError.RateLimited(null)
+                    it.code >= 500 -> throw ModelError.Server(it.code)
+                    else -> throw ModelError.BadResponse(
+                        "Gemini Web image upload failed (HTTP ${it.code}): ${text.take(160).ifBlank { "unexpected response" }}"
+                    )
+                }
             }
         }
-    }.onFailure {
-        ChatTrace.record("gemini upload error: ${ChatTrace.describe(it)}")
-    }.getOrNull()
+    }
 
     fun buildInnerRequestJson(
         prompt: String,

@@ -1,8 +1,7 @@
 package com.meenai.mina.image
 
 import com.meenai.mina.core.image.ImageClient
-import java.net.ConnectException
-import java.net.SocketTimeoutException
+import kotlinx.coroutines.CancellationException
 
 /**
  * Composite LM Arena client:
@@ -24,6 +23,8 @@ class CompositeArenaImageClient(
         try {
             logger?.invoke("CompositeArenaImageClient: checking remote/local harness service first...")
             return remoteClient.generate(apiKey, model, prompt, size)
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             logger?.invoke("CompositeArenaImageClient: remote microservice unavailable (${t.message}), seamlessly running Native In-App LM Arena automation")
             return nativeClient.generate(apiKey, model, prompt, size)
@@ -38,6 +39,8 @@ class CompositeArenaImageClient(
     ): ByteArray {
         try {
             return remoteClient.edit(apiKey, model, prompt, imageBase64)
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             logger?.invoke("CompositeArenaImageClient: remote microservice unavailable for edit (${t.message}), seamlessly running Native In-App LM Arena for edit")
             return nativeClient.edit(apiKey, model, prompt, imageBase64)

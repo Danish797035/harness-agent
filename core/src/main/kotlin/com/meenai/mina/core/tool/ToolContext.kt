@@ -48,7 +48,10 @@ internal class ToolConfig(
     val onImageSaved: ((bytes: ByteArray, prompt: String, model: String) -> String)? = null,
     val attachedPhoto: com.meenai.mina.core.image.AttachedPhoto? = null,
     val isSensitivePackage: ((String?) -> Boolean)? = null,
-)
+    val visionCheck: (() -> Boolean)? = null,
+) {
+    val effectiveVisionEnabled: Boolean get() = visionCheck?.invoke() ?: visionEnabled
+}
 
 /**
  * Things that are common when the tool is executed: configuration, verification materials, things put in

@@ -33,6 +33,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -211,12 +212,17 @@ class AppFreeKeyRouterTest {
         assertTrue(realStatus.current.value.isPinned)
         assertEquals("GLM-4.7 Flash", realStatus.current.value.name)
 
-        // When pinned, routing is disabled: pick candidate always returns pinned candidate
+        // Text-only pinned model locks compatible non-vision roles (Light/Main),
+        // while ModelRole.Vision strictly requires a vision-capable candidate.
         val pickedVision = router.pickBestCandidate(ModelRole.Vision)
-        assertEquals("glm-4.7-flash", pickedVision?.id)
+        assertTrue(pickedVision == null || pickedVision.model.capabilities.vision)
+        assertNotEquals("glm-4.7-flash", pickedVision?.id)
 
         val pickedLight = router.pickBestCandidate(ModelRole.Light)
         assertEquals("glm-4.7-flash", pickedLight?.id)
+
+        val pickedMain = router.pickBestCandidate(ModelRole.Main)
+        assertEquals("glm-4.7-flash", pickedMain?.id)
 
         // Unpin
         realStatus.pinModel(null)
@@ -723,5 +729,23 @@ class AppFreeKeyRouterTest {
         AppFreeKeyRouter.clearGeminiWebAuthFailure(cooldown)
         assertFalse(cooldown.isKeyBad("gemini_web"))
         assertTrue("After a fresh login the router must be able to use Gemini Web", router.checkCachedQuota(candidate))
+    }
+
+    @Test
+    fun createGeminiCandidatesDefaultsNullVisionToFalse() {
+        val candidates = AppFreeKeyRouter.createGeminiCandidates(
+            apiKey = "test-key",
+            http = okhttp3.OkHttpClient(),
+            listedModels = listOf(
+                ListedModel("gemini-text-only", vision = null, toolCalls = true),
+                ListedModel("gemini-vision-verified", vision = true, toolCalls = true),
+            ),
+        )
+        val unlisted = candidates.first { it.id == "gemini-text-only" }
+        val verified = candidates.first { it.id == "gemini-vision-verified" }
+        assertFalse("Unverified Gemini listed model should default vision to false", unlisted.model.capabilities.vision)
+        assertFalse(ModelRole.Vision in unlisted.roles)
+        assertTrue("Explicitly vision=true model should keep vision enabled", verified.model.capabilities.vision)
+        assertTrue(ModelRole.Vision in verified.roles)
     }
 }

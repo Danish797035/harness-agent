@@ -305,7 +305,10 @@ class AgentLoop(
                 }
             }
         } catch (e: CancellationException) {
-            if (!cancelRequested) throw e
+            if (!cancelRequested) {
+                _state.value = TaskState.Cancelled
+                throw e
+            }
             TaskState.Cancelled
         } finally {
             job = null
@@ -358,17 +361,55 @@ class AgentLoop(
         job?.cancel()
     }
 
+    private suspend fun hasAttachedImageInput(raw: String): Boolean {
+        val parsedScreens = com.meenai.mina.core.userscreen.UserScreenMessage.parse(raw).screens
+        if (parsedScreens.isNotEmpty() && userScreens != null) {
+            val hasScreenImage = parsedScreens.any { id ->
+                try {
+                    val s = userScreens.screen(id)
+                    s != null && !s.blocked && userScreens.image(id) != null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (hasScreenImage) return true
+        }
+        return AttachmentLines.parse(raw).files.any { (path, _) ->
+            path.substringAfterLast('.', "").lowercase() in IMAGE_ATTACHMENT_EXTS
+        }
+    }
+
     private suspend fun loop(raw: String, rawPrior: List<Turn>, inbox: RunInbox?): TaskState {
+        // If the opening message or prior turns carry an unblocked user screenshot or image attachment,
+        // ensure FreeKeyRouter switches to a vision-capable candidate BEFORE UserScreenTurns
+        // decides whether to attach Part.Image.
+        val priorHasImage = rawPrior.any { t ->
+            hasAttachedImageInput(t.userText) || t.steers.any { hasAttachedImageInput(it) }
+        }
+        val rawHasImage = hasAttachedImageInput(raw) || priorHasImage
+        if (activeRouter != null && rawHasImage) {
+            activeRouter?.startTask(raw, hasImage = true, charCount = raw.length)
+        }
         // The screen sent by the user: this sentence is for the whole (that sentence, screenshot,
         // details), and the harvest in the previous rounds is one row; the replaced sentence is used
         // below.
-        val shots = UserScreenTurns(userScreens, zone, tools.seesImages, canAskVision = !tools.seesImages && tools.vision != null && tools.definitions().any { it.name == VIEW_USER_SCREEN },
-            image = { tools.modelImage(it, null) }, seen = tools::noteUserScreen).also { screens = it }
+        val canUseViewUserScreen = tools.vision != null && tools.definitions().any { it.name == VIEW_USER_SCREEN }
+        val shots = UserScreenTurns(
+            source = userScreens,
+            zone = zone,
+            seesImages = { activeRouter?.capabilities?.vision ?: tools.seesImages },
+            canAskVision = { !(activeRouter?.capabilities?.vision ?: tools.seesImages) && canUseViewUserScreen },
+            image = { tools.modelImage(it, null) },
+            seen = tools::noteUserScreen,
+        ).also { screens = it }
         user.answerText = shots::asText
         val opening = shots.render(raw)
         val task = opening?.said ?: raw
         taskText = task
-        val routerDifficulty = activeRouter?.startTask(task, hasImage = opening?.images?.isNotEmpty() == true, charCount = task.length)
+        val hasOpeningImage = rawHasImage || opening?.images?.isNotEmpty() == true
+        val routerDifficulty = activeRouter?.startTask(task, hasImage = hasOpeningImage, charCount = task.length)
         if (routerDifficulty == TaskDifficulty.Heavy && activeRouter?.pinnedModelId == null) {
             emit(RunEvent.State(now(), "difficulty_classified", "Mushkil task hai — behtar model use kar raha hoon"))
         }
@@ -609,7 +650,7 @@ class AgentLoop(
                     val router = activeRouter
                     if (router != null && emptyReplySwitches < 2) {
                         val currentModelName = _activeModelName.value ?: router.activeCandidate?.id
-                        val next = router.failoverEmptyReply(currentModelName, reason = "Empty reply from previous model")
+                        val next = router.failoverEmptyReply(currentModelName, reason = "Empty reply from previous model", hasImages = stepHasImages)
                         if (next != null) {
                             emptyReplySwitches++
                             emptyNudged = false
@@ -919,6 +960,9 @@ class AgentLoop(
 
     private suspend fun appendSteers(history: MutableList<Message>, updates: List<RunInbox.UserSteer>): Boolean {
         updates.forEach { update ->
+            if (activeRouter != null && hasAttachedImageInput(update.text)) {
+                activeRouter?.prepareStep(0, hasImages = true)
+            }
             val shown = screens?.render(update.text)
             val words = ownWords(update.text, shown)
             if (words.isNotBlank()) latestWords = words
@@ -1192,6 +1236,8 @@ class AgentLoop(
 
         /** The user clicked "I finished it myself". */
         val USER_FINISHED_NOTE: String get() = Feedback["user_finished_note"]
+
+        private val IMAGE_ATTACHMENT_EXTS = setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif")
     }
 
     private fun now() = clock()

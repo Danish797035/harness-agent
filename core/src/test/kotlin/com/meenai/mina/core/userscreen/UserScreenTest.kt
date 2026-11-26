@@ -100,4 +100,15 @@ class UserScreenTest {
         val rich = (0 until 10).map { el("第 $it 行", 500, 50 + it * 80) }
         assertFalse(UserScreenText.needsOcr(ScreenSnapshot("u", "com.example.chat", rich, 1080, 2400)))
     }
+
+    @Test fun detailSkipsNoTextFramingWhenImageIsAttached() {
+        val noTextScreen = UserScreen("s1", at, "com.example.gallery", "Gallery", lines = emptyList())
+        val withImage = UserScreenPrompt.detail(noTextScreen, noWords = false, askVision = false, zone = zone, imageAttached = true)
+        assertFalse(withImage.contains("No text was read on the screen"))
+        assertTrue(withImage.contains("Inspect the attached image"))
+
+        val withoutImage = UserScreenPrompt.detail(noTextScreen, noWords = false, askVision = true, zone = zone, imageAttached = false)
+        assertTrue(withoutImage.contains("No text was read on the screen"))
+        assertTrue(withoutImage.contains("You cannot see this image"))
+    }
 }

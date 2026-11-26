@@ -121,10 +121,11 @@ fun toolDispatcher(
     onImageSaved: ((bytes: ByteArray, prompt: String, model: String) -> String)? = null,
     attachedPhoto: com.meenai.mina.core.image.AttachedPhoto? = null,
     isSensitivePackage: ((String?) -> Boolean)? = null,
+    visionCheck: (() -> Boolean)? = null,
 ): ToolDispatcher {
     val config = ToolConfig(visionEnabled, skills, recordFrames, vision, inlineScreen, adaptiveVision, memory, profile, utterances, conversationId,
         imageOps, scheduleTrigger, scheduleAdmin, runSpec, childHost, userScreens, personalSkills, selfConfig, runRecords,
-        imageService, onImageProgress, onImageSaved, attachedPhoto, isSensitivePackage)
+        imageService, onImageProgress, onImageSaved, attachedPhoto, isSensitivePackage, visionCheck)
     val providers: List<CapabilityProvider> = listOf(
         object : CapabilityProvider {
             override val id = PHONE
@@ -137,7 +138,7 @@ fun toolDispatcher(
         object : CapabilityProvider {
             override val id = SANDBOX
             override fun open(spec: RunSpec) = SandboxCapability(sandbox, workspace, visionEnabled,
-                onSandboxCommand, onSandboxProgress, onSandboxPreparing, onSandboxScript)
+                onSandboxCommand, onSandboxProgress, onSandboxPreparing, onSandboxScript, visionCheck)
         },
     ) + mcpServers.map(::McpClientProvider)
     return RunAssembler(providers).assemble(runSpec, config, stableRefs, FORMER_PREFIX, RENAMED, RETIRED, MOVED)

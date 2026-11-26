@@ -272,9 +272,15 @@ class CapsuleController(
                 keeper.page,
             ) { s, _, kept -> s.copy(kept = kept) }.collect(::render)
         }
-        // When the talking panel comes out, it fills the entire screen (dark the back), and when it is
-        // retracted, it returns to no size.
-        scope.launch { snapshotFlow { talk.active }.collect { panelWindow?.setFullScreen(it) } }
+        // When the talking panel comes out, it fills the entire screen (dark the back), and becomes
+        // touchable/focusable whenever direct panel buttons (Cancel/Send) are active.
+        scope.launch {
+            snapshotFlow { talk.active to (!talk.byTouch || talk.released) }.collect { (active, interactive) ->
+                panelWindow?.setFullScreen(active)
+                panelWindow?.setTouchable(active && interactive)
+                panelWindow?.setFocusable(active && interactive, showIme = false)
+            }
+        }
         // Improved dialogue for the round when post-stop explanations were written (or failed to be
         // written): reread the noted turns
         scope.launch { tasks.summarizing.collect { threadOf?.let(::loadPast) } }
@@ -441,6 +447,7 @@ class CapsuleController(
             it.onTouch(::wake)
         }
         cardW.onBack(::back)
+        panel?.onBack { if (talk.active) talk.abort() }
         watchIme(service)
         return ball
     }
@@ -1318,7 +1325,7 @@ class CapsuleController(
 
     private fun hasCircleVisionModel(app: HarnessApp): Boolean =
         app.providers.configFor(ModelRole.Vision) != null ||
-            app.providers.configFor(ModelRole.Main) != null ||
+            app.providers.configFor(ModelRole.Main)?.capabilities?.vision == true ||
             app.freeKeyRouter.candidates.any {
                 it.model.capabilities.vision ||
                     it.roles.contains(com.meenai.mina.core.router.picker.ModelRole.Vision)
@@ -1509,7 +1516,14 @@ class CapsuleController(
                     refresh()
                 } else {
                     // Pure fallback via direct vision query if workspace storage failed
-                    val visionModel = app.providers.modelFor(ModelRole.Vision) ?: app.providers.modelFor(ModelRole.Main)
+                    val visionModel: ChatModel? = if (app.freeKeyRouter.candidates.isNotEmpty()) {
+                        app.freeKeyRouter.resetTask()
+                        app.freeKeyRouter.startTask(promptText, hasImage = true, charCount = promptText.length)
+                        app.freeKeyRouter
+                    } else {
+                        app.providers.modelFor(ModelRole.Vision)
+                            ?: app.providers.modelFor(ModelRole.Main)?.takeIf { it.capabilities.vision }
+                    }
                     val ocrNote = ocrLines.joinToString("\n") { it.text }.takeIf { it.isNotBlank() }
                     val enrichedPrompt = if (ocrNote != null) "$promptText\n\n[Text in selected region]:\n$ocrNote" else promptText
                     val reply = visionModel?.let { vm ->

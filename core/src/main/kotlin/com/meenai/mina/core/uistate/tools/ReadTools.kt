@@ -28,8 +28,8 @@ internal class Observe(f: ScreenFamily) : ScreenTool(f, "observe") {
     override val def by lazy { ToolDef(name, describe()) }
 
     override suspend fun execute(a: Args, ctx: ToolContext) = ctx.session.observe(
-        withImage = ctx.config.visionEnabled && !ctx.config.adaptiveVision,
-        adaptiveImage = ctx.config.visionEnabled && ctx.config.adaptiveVision,
+        withImage = ctx.config.effectiveVisionEnabled && !ctx.config.adaptiveVision,
+        adaptiveImage = ctx.config.effectiveVisionEnabled && ctx.config.adaptiveVision,
     )
 }
 
@@ -49,7 +49,7 @@ internal class Screenshot(f: ScreenFamily) : ScreenTool(f, "screenshot") {
     override val risk = Risk.Read
     override val def by lazy { ToolDef(name, describe()) }
 
-    override fun usable(ctx: ToolContext) = ctx.config.visionEnabled
+    override fun usable(ctx: ToolContext) = ctx.config.effectiveVisionEnabled
 
     override suspend fun execute(a: Args, ctx: ToolContext): ToolExecution {
         val screen = ctx.screen

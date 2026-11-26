@@ -1125,6 +1125,260 @@ class GeminiWebModelTest {
         assertTrue("StreamGenerate payload must contain uploaded image path", bodyDecoded.contains("/contrib_service/ttl_1d/test_crop.jpg"))
     }
 
+    @Test
+    fun failedImageUploadThrowsWithHttpStatusAndDisablesVisionCapability() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden upload"))
+        // Session refresh attempt returns signed-out page so refresh does not succeed.
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        assertTrue(model.capabilities.vision)
+
+        val b64 = java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4))
+        val imgMsg = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image(b64, "image/jpeg", 200, 200), Part.Text("What is this?")),
+                Author.User,
+            )
+        )
+
+        val err = try {
+            model.complete("sys", imgMsg, emptyList())
+            throw AssertionError("Expected BadResponse when image upload fails")
+        } catch (e: ModelError.BadResponse) {
+            e
+        }
+
+        assertTrue("Error must include HTTP status: ${err.message}", err.message!!.contains("403"))
+        assertFalse("Vision capability must become false after upload failure", model.capabilities.vision)
+        // Only the failed upload + refresh GET should occur; StreamGenerate must NOT be called without the image.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun imageTurnInGuestSessionUploadsImageAndNeverDropsToTextOnlyGuest() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("/contrib_service/ttl_1d/from_guest_flagged.jpg"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("This is a cat."))))
+
+        val model = GeminiWebModel(
+            session = session.copy(guestMode = true),
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val b64 = java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4))
+        val imgMsg = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image(b64, "image/jpeg", 200, 200), Part.Text("What is this?")),
+                Author.User,
+            )
+        )
+
+        val reply = model.complete("sys", imgMsg, emptyList())
+        assertEquals(Part.Text("This is a cat."), reply.parts.first { it is Part.Text })
+        server.takeRequest() // upload
+        val genReq = server.takeRequest()
+        val bodyDecoded = java.net.URLDecoder.decode(genReq.body.readUtf8(), "UTF-8")
+        assertTrue(bodyDecoded.contains("/contrib_service/ttl_1d/from_guest_flagged.jpg"))
+        assertTrue(model.capabilities.vision)
+    }
+
+    @Test(expected = ModelError.BadResponse::class)
+    fun imageStreamFailureDoesNotFallBackToTextOnlyGuest() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("/contrib_service/ttl_1d/ok_upload.jpg"))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""[["er",null,null,null,null,400]]"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val b64 = java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4))
+        val imgMsg = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image(b64, "image/jpeg", 200, 200), Part.Text("What is this?")),
+                Author.User,
+            )
+        )
+
+        model.complete("sys", imgMsg, emptyList())
+    }
+
+    @Test
+    fun failedGeminiWebImageUploadTriggersRouterFailoverToRealVisionModel() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden upload"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html><body>Sign in</body></html>"))
+
+        val geminiWeb = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        var backupCalls = 0
+        val backupVision = object : ChatModel {
+            override val name = "openrouter/vision-backup"
+            override val capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 128_000, reasoning = false)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
+                backupCalls++
+                return ModelReply(listOf(Part.Text("Saw the screenshot on backup")), StopReason.EndTurn, null)
+            }
+        }
+
+        val router = com.meenai.mina.core.router.FreeKeyRouter(
+            listOf(
+                com.meenai.mina.core.router.RouterCandidate(
+                    "gemini-4-hydrogen", "gemini_web", geminiWeb, curatedRank = 92,
+                    roles = setOf(
+                        com.meenai.mina.core.router.picker.ModelRole.Main,
+                        com.meenai.mina.core.router.picker.ModelRole.Vision,
+                    ),
+                ),
+                com.meenai.mina.core.router.RouterCandidate(
+                    "openrouter/vision-backup", "openrouter", backupVision, curatedRank = 50,
+                    roles = setOf(
+                        com.meenai.mina.core.router.picker.ModelRole.Main,
+                        com.meenai.mina.core.router.picker.ModelRole.Vision,
+                    ),
+                ),
+            ),
+            delayMs = {},
+            preferences = object : com.meenai.mina.core.router.RouterPreferences {
+                override fun getManualRole(role: String): String? =
+                    if (role.equals("vision", ignoreCase = true)) "gemini-4-hydrogen" else null
+            },
+        )
+
+        val b64 = java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4))
+        val imgMsg = listOf(
+            Message(
+                Role.User,
+                listOf(Part.Image(b64, "image/jpeg", 200, 200), Part.Text("What is this?")),
+                Author.User,
+            )
+        )
+
+        val reply = router.complete("sys", imgMsg, emptyList())
+        assertEquals(Part.Text("Saw the screenshot on backup"), reply.parts.first())
+        assertEquals(1, backupCalls)
+        assertEquals("openrouter/vision-backup", router.activeCandidate?.id)
+        assertFalse(geminiWeb.capabilities.vision)
+        // Subsequent vision pick must skip the blocked GeminiWebModel even if manual Vision role still names it.
+        assertEquals(
+            "openrouter/vision-backup",
+            router.pickBestCandidate(com.meenai.mina.core.router.picker.ModelRole.Vision)?.id,
+        )
+    }
+
+    @Test
+    fun nonEmptyThinkingSetsEmittedAnyAndPreventsMidStreamGuestReset() = runTest {
+        GeminiWebClient.clearCookies()
+        fun chunk(text: String, thoughts: String): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_mid"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+                for (i in 2..36) add(JsonPrimitive(null as String?))
+                add(buildJsonArray { add(buildJsonArray { add(JsonPrimitive(thoughts)) }) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        // Emits non-empty thinking, then encounters an explicit stream error ("er") mid-stream.
+        val erFrame = """[["er",null,null,null,null,"midstream failure"]]"""
+        val partialThoughtThenError = makeStreamData(chunk("", "Thinking step 1...")) +
+            "${erFrame.length}\n$erFrame\n"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(partialThoughtThenError))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(textPayload("Should not switch mid-thought"))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val receivedThinking = mutableListOf<String>()
+        try {
+            model.completeStreamingWithThinking(
+                system = "sys",
+                messages = userMsg,
+                tools = emptyList(),
+                onText = {},
+                onThinking = { receivedThinking += it },
+            )
+            fail("Expected BadResponse after mid-stream error once thinking already emitted")
+        } catch (_: ModelError.BadResponse) {
+            // Expected: non-empty onThinking marked emittedAny = true, preventing silent guest reset
+        }
+        assertEquals(1, server.requestCount)
+        assertTrue(receivedThinking.any { it.contains("Thinking step 1") })
+    }
+
+    @Test
+    fun streamingCodeBlockIsNotSuppressedWhileToolCallFenceIsStripped() = runTest {
+        fun chunk(text: String): String {
+            val candidate = buildJsonArray {
+                add(JsonPrimitive("rc_code"))
+                add(buildJsonArray { add(JsonPrimitive(text)) })
+            }
+            return buildJsonArray {
+                repeat(4) { add(JsonPrimitive(null as String?)) }
+                add(buildJsonArray { add(candidate) })
+            }.toString()
+        }
+
+        val codeSample = "```kotlin\nfun hello() = \"world\"\n```"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(chunk(codeSample))))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-hydrogen",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(jar = GeminiWebClient.cookieJar),
+        )
+        val streamed = mutableListOf<String>()
+        val reply = model.completeStreamingWithThinking("sys", userMsg, emptyList(), { streamed += it }, {})
+        assertTrue("Leading code block must remain visible in streamed output", streamed.any { it.contains("fun hello()") })
+        assertEquals(codeSample, (reply.parts.first { it is Part.Text } as Part.Text).text)
+    }
+
+    @Test
+    fun uploadImageUsesLatestRotatedCookieSnapshot() {
+        GeminiWebClient.clearCookies()
+        GeminiWebClient.seedCookies("__Secure-1PSID=orig_sid; __Secure-1PSIDTS=stale_ts")
+        // Simulate server rotating __Secure-1PSIDTS into the cookie jar
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Set-Cookie", "__Secure-1PSIDTS=rotated_ts; Path=/; Secure")
+                .setBody("ok")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("/contrib_service/ttl_1d/uploaded.jpg"))
+
+        val client = redirectingClient(jar = GeminiWebClient.cookieJar)
+        client.newCall(okhttp3.Request.Builder().url("https://gemini.google.com/rotate").build()).execute().close()
+        server.takeRequest()
+
+        val staleSession = session.copy(cookies = "__Secure-1PSID=orig_sid; __Secure-1PSIDTS=stale_ts")
+        val path = GeminiWebClient.uploadImage(client, staleSession, byteArrayOf(1, 2, 3), "image/jpeg", "test.jpg")
+        assertEquals("/contrib_service/ttl_1d/uploaded.jpg", path)
+
+        val uploadReq = server.takeRequest()
+        assertTrue(uploadReq.getHeader("Cookie").orEmpty().contains("rotated_ts"))
+    }
+
     /** A response body that sends [prefix] and then holds the connection open. */
     private class StreamBody(private val input: java.io.InputStream) : okhttp3.ResponseBody() {
         override fun contentType() = null

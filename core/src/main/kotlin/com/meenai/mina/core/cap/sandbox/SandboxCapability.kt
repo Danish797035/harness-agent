@@ -28,10 +28,11 @@ internal class SandboxCapability(
     onProgress: (String) -> Unit,
     onPreparing: () -> Unit,
     onScript: ((String) -> Unit)?,
+    visionCheck: (() -> Boolean)? = null,
 ) : Capability {
     override val id = SANDBOX
 
-    val runner = port?.let { SandboxTools(it, workspace, visionEnabled, onCommand = onCommand, onProgress = onProgress, onPreparing = onPreparing, onScript = onScript) }
+    val runner = port?.let { SandboxTools(it, workspace, visionEnabled, onCommand = onCommand, onProgress = onProgress, onPreparing = onPreparing, onScript = onScript, visionCheck = visionCheck) }
 
     /** The device supports sandboxing (tools are provided and may be in preparation). */
     fun available(): Boolean = runner?.available() == true

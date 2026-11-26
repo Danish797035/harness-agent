@@ -65,7 +65,7 @@ internal object ViewUserScreen : AgentTool {
             put("message", Feedback["user_screen.blocked_reply"])
         })
         val png = read { source.image(id) }
-        val sees = ctx.config.visionEnabled && png != null
+        val sees = ctx.config.effectiveVisionEnabled && png != null
         val vision = ctx.config.vision
         val answer = if (!sees && question != null && png != null && vision != null) read { vision.ask(ROLE, question, listOf(png)) } else null
         val text = textOf(screen)

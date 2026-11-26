@@ -23,6 +23,7 @@ class PollinationsImageClient(
         .readTimeout(60, TimeUnit.SECONDS)
         .build(),
     private val logger: ((String) -> Unit)? = null,
+    private val baseUrl: String = "https://image.pollinations.ai",
 ) : ImageClient {
 
     override suspend fun generate(
@@ -31,7 +32,9 @@ class PollinationsImageClient(
         prompt: String,
         size: String?,
     ): ByteArray {
-        val encodedPrompt = URLEncoder.encode(prompt, "UTF-8")
+        val encodedPrompt = URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")
+        val apiModel = model.trim().removeSuffix("-pollinations").ifBlank { "flux" }
+        val encodedModel = URLEncoder.encode(apiModel, "UTF-8").replace("+", "%20")
         val seed = Random.nextInt(1, 999999)
         var width = 1024
         var height = 1024
@@ -44,7 +47,7 @@ class PollinationsImageClient(
                 height = h
             }
         }
-        val url = "https://image.pollinations.ai/prompt/$encodedPrompt?model=flux&width=$width&height=$height&nologo=true&seed=$seed"
+        val url = "${baseUrl.trimEnd('/')}/prompt/$encodedPrompt?model=$encodedModel&width=$width&height=$height&nologo=true&seed=$seed"
 
         logger?.invoke("PollinationsImageClient: fetching image from $url")
         val request = Request.Builder()
@@ -67,6 +70,11 @@ class PollinationsImageClient(
                             if (cont.isActive) cont.resumeWithException(ImageClientException("Pollinations error HTTP ${res.code}: ${res.message}"))
                             return
                         }
+                        val contentType = res.header("Content-Type")?.trim()?.lowercase().orEmpty()
+                        if (!contentType.startsWith("image/")) {
+                            if (cont.isActive) cont.resumeWithException(ImageClientException("Pollinations returned non-image content-type: $contentType"))
+                            return
+                        }
                         val bytes = res.body?.bytes()
                         if (bytes == null || bytes.isEmpty()) {
                             if (cont.isActive) cont.resumeWithException(ImageClientException("Pollinations returned empty image payload"))
@@ -85,6 +93,6 @@ class PollinationsImageClient(
         prompt: String,
         imageBase64: String,
     ): ByteArray {
-        return generate(apiKey, model, prompt, null)
+        throw UnsupportedOperationException("Pollinations does not support image editing")
     }
 }

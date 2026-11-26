@@ -188,8 +188,8 @@ class FreeKeyRouterWireTest {
 
     @Test
     fun pinnedNoRouting() = runTest {
-        val weakPinned = mockModel("pinned_model") { _, _, _, _ -> simpleReply }
-        val strongModel = mockModel("strong_model") { _, _, _, _ -> simpleReply }
+        val weakPinned = mockModel("pinned_model", vision = true) { _, _, _, _ -> simpleReply }
+        val strongModel = mockModel("strong_model", vision = true) { _, _, _, _ -> simpleReply }
 
         val candidates = listOf(
             RouterCandidate("pinned_model", "p_weak", weakPinned, curatedRank = 1),

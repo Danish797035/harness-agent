@@ -52,7 +52,7 @@ private const val IDLE_AFTER_TOKENS_MS = 15_000L
 class GeminiWebModel(
     private var session: GeminiWebSession,
     private val model: String,
-    override val capabilities: Capabilities,
+    capabilities: Capabilities,
     private val http: OkHttpClient,
     private val headers: Map<String, String> = emptyMap(),
     private val reasoningEffort: String? = null,
@@ -64,6 +64,20 @@ class GeminiWebModel(
     /** Optional dynamic lookup for live thinking/effort selection from the bottom sheet. */
     private val reasoningEffortProvider: (() -> String?)? = null,
 ) : StreamingChatModel {
+
+    private val baseCapabilities: Capabilities = capabilities
+
+    @Volatile
+    private var imageUploadBlocked: Boolean = false
+
+    override val capabilities: Capabilities
+        get() {
+            val visionSupported = baseCapabilities.vision &&
+                !imageUploadBlocked &&
+                session.signedIn &&
+                session.cookies.isNotBlank()
+            return if (visionSupported == baseCapabilities.vision) baseCapabilities else baseCapabilities.copy(vision = visionSupported)
+        }
 
     override val name: String get() = model
 
@@ -105,6 +119,10 @@ class GeminiWebModel(
             .orEmpty()
             .ifEmpty { messages.flatMap { it.parts }.filterIsInstance<Part.Image>().takeLast(1) }
 
+        if (imageAttachments.isNotEmpty() && !capabilities.vision) {
+            throw ModelError.BadResponse("Gemini Web cannot view images (session not signed in or image upload unavailable)")
+        }
+
         val modelHeader = GeminiWebClient.buildModelHeader(
             modelHexId,
             capacity = session.capacity,
@@ -126,19 +144,25 @@ class GeminiWebModel(
         // and nothing has been streamed yet, retry once as a guest instead of
         // failing the user's message. Quota answers (429/5xx) never fall back.
         var guestAttempt = false
+        var emittedText = false
         var emittedAny = false
         var uploadedImages: List<Pair<String, String>>? = null
         // Guest calls must not inherit the account cookies from the shared jar.
         val guestHttp by lazy { http.newBuilder().cookieJar(CookieJar.NO_COOKIES).build() }
         val emit: (String) -> Unit = { text ->
-            if (text.isNotEmpty()) emittedAny = true
+            if (text.isNotEmpty()) {
+                emittedText = true
+                emittedAny = true
+            }
             onText(text)
         }
         val emitThinking: (String) -> Unit = { thoughts ->
+            if (thoughts.isNotEmpty()) emittedAny = true
             onThinking(thoughts)
         }
-        fun startGuestAttempt(reason: String): Boolean {
-            if (guestAttempt || session.cookies.isBlank() || emittedAny) return false
+        fun startGuestAttempt(reason: String, allowThoughtsOnly: Boolean = false): Boolean {
+            val alreadyEmitted = if (allowThoughtsOnly) emittedText else emittedAny
+            if (guestAttempt || session.cookies.isBlank() || alreadyEmitted || imageAttachments.isNotEmpty()) return false
             guestAttempt = true
             onThinking("")
             ChatTrace.record("gemini guest fallback reason=$reason")
@@ -146,7 +170,8 @@ class GeminiWebModel(
         }
         // A session that already failed over once stays on guest traffic: retrying
         // the account first on every message would add the same silent wait again.
-        if (session.guestMode && session.cookies.isNotBlank()) {
+        // Guest requests cannot attach uploaded images, so image turns still use the signed-in path.
+        if (session.guestMode && session.cookies.isNotBlank() && imageAttachments.isEmpty()) {
             guestAttempt = true
         }
         // The `at` token (SNlM0e) is what marks a request as the signed-in account;
@@ -165,16 +190,50 @@ class GeminiWebModel(
 
         while (true) {
             val bl = currentSession.cfb2h.ifBlank { DEFAULT_BUILD_LABEL }
-            val activeUploads = if (!guestAttempt && imageAttachments.isNotEmpty()) {
-                uploadedImages ?: imageAttachments.mapIndexedNotNull { idx, img ->
-                    val rawBytes = runCatching { java.util.Base64.getDecoder().decode(img.pngBase64) }.getOrNull()
-                        ?: return@mapIndexedNotNull null
-                    val ext = if (img.mime.contains("png", ignoreCase = true)) "png" else "jpg"
-                    val filename = "screen_${idx + 1}.$ext"
-                    GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
-                        ?.let { path -> path to filename }
-                }.also { uploadedImages = it }
+            val activeUploads = if (imageAttachments.isNotEmpty()) {
+                uploadedImages ?: run {
+                    val uploads = mutableListOf<Pair<String, String>>()
+                    for ((idx, img) in imageAttachments.withIndex()) {
+                        val rawBytes = runCatching { java.util.Base64.getDecoder().decode(img.pngBase64) }
+                            .getOrNull()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: throw ModelError.BadResponse("Gemini Web image attachment could not be decoded")
+                        val ext = if (img.mime.contains("png", ignoreCase = true)) "png" else "jpg"
+                        val filename = "screen_${idx + 1}.$ext"
+                        val path = try {
+                            GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
+                        } catch (e: ModelError.BadResponse) {
+                            val isAuthOrSession = e.message?.let { msg ->
+                                msg.contains("HTTP 400") || msg.contains("HTTP 401") || msg.contains("HTTP 403")
+                            } == true
+                            if (isAuthOrSession && !refreshed) {
+                                val next = refreshSession(currentSession)
+                                if (next != null) {
+                                    refreshed = true
+                                    currentSession = next
+                                    try {
+                                        GeminiWebClient.uploadImage(http, currentSession, rawBytes, img.mime, filename)
+                                    } catch (retryErr: ModelError.BadResponse) {
+                                        imageUploadBlocked = true
+                                        throw retryErr
+                                    }
+                                } else {
+                                    imageUploadBlocked = true
+                                    throw e
+                                }
+                            } else {
+                                imageUploadBlocked = true
+                                throw e
+                            }
+                        }
+                        uploads += path to filename
+                    }
+                    uploads.also { uploadedImages = it }
+                }
             } else emptyList()
+            if (imageAttachments.isNotEmpty() && activeUploads.size != imageAttachments.size) {
+                throw ModelError.BadResponse("Gemini Web image upload incomplete: expected ${imageAttachments.size}, got ${activeUploads.size}")
+            }
             val innerReqJson = GeminiWebClient.buildInnerRequestJson(
                 prompt, modelNumber, thinkingFlag, uuid, activeUploads
             )
@@ -272,7 +331,7 @@ class GeminiWebModel(
                 // account endpoint sometimes does that. Guest traffic answers with
                 // text, so give it the same one-shot retry.
                 if (cleanText.isBlank() && fullThoughts.isNotBlank() &&
-                    startGuestAttempt("thoughts-only reply")
+                    startGuestAttempt("thoughts-only reply", allowThoughtsOnly = true)
                 ) {
                     continue
                 }
@@ -640,10 +699,11 @@ class GeminiWebModel(
         if (!text.contains('{') && !text.contains("```") && !text.contains('[') && !text.contains(']') && !text.contains('}')) {
             return cleanupText(text)
         }
-        var s = text.replace(Regex("""```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```"""), "")
-            .replace(Regex("""```(?:json)?\s*\{[\s\S]*?"name"[\s\S]*?\}\s*```"""), "")
-            .replace(Regex("""```(?:json)?[\s\S]*?```"""), "")
-            .replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
+        var s = text.replace(Regex("""```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```""")) { match ->
+            val lang = match.groupValues[1]
+            val body = match.groupValues[2].trim()
+            if (isToolCallFenceBody(body, lang)) "" else match.value
+        }.replace(Regex("""\{[\s\S]*?"tool_calls"\s*:[\s\S]*?\}"""), "")
         val trimmed = s.trim()
         // A real answer can be JSON too. Only hide a leading block when it is
         // actually a tool call (or a partially streamed one), not every brace.
@@ -651,7 +711,7 @@ class GeminiWebModel(
             return if (looksLikeToolCallJson(trimmed)) "" else cleanupText(s)
         }
         if (trimmed.startsWith("```")) {
-            return ""
+            return if (looksLikeToolCallFence(trimmed)) "" else cleanupText(s)
         }
         val firstBrace = s.indexOf('{')
         val firstBracket = s.indexOf('[')
@@ -659,11 +719,32 @@ class GeminiWebModel(
         val cutIndex = listOf(firstBrace, firstBracket, firstFence).filter { it >= 0 }.minOrNull() ?: -1
         if (cutIndex >= 0) {
             val suffix = s.substring(cutIndex).trim()
-            if (looksLikeToolCallJson(suffix)) {
+            val suppress = if (suffix.startsWith("```")) looksLikeToolCallFence(suffix) else looksLikeToolCallJson(suffix)
+            if (suppress) {
                 return cleanupText(s.substring(0, cutIndex).trim())
             }
         }
         return cleanupText(s)
+    }
+
+    private fun looksLikeToolCallFence(fencedText: String): Boolean {
+        val afterTicks = fencedText.trim().removePrefix("```")
+        val nl = afterTicks.indexOf('\n')
+        return if (nl < 0) {
+            val head = afterTicks.trim()
+            head.isEmpty() || head.equals("json", ignoreCase = true) || looksLikeToolCallJson(head)
+        } else {
+            val lang = afterTicks.substring(0, nl).trim()
+            val body = afterTicks.substring(nl + 1).trim()
+            isToolCallFenceBody(body, lang)
+        }
+    }
+
+    private fun isToolCallFenceBody(body: String, lang: String): Boolean {
+        if (body.isEmpty()) return lang.isEmpty() || lang.equals("json", ignoreCase = true)
+        return looksLikeToolCallJson(body) ||
+            (body.startsWith("{") && body.contains("\"name\"", ignoreCase = true) &&
+                body.contains("\"arguments\"", ignoreCase = true))
     }
 
     /**

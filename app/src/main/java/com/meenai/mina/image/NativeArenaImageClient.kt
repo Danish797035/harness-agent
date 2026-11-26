@@ -60,6 +60,6 @@ class NativeArenaImageClient(
         prompt: String,
         imageBase64: String,
     ): ByteArray {
-        return generate(apiKey, model, "$prompt [with reference image]", null)
+        throw UnsupportedOperationException("LM Arena WebView does not support image editing")
     }
 }
