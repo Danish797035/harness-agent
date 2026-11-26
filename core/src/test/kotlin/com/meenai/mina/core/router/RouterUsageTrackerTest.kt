@@ -1,6 +1,7 @@
 package com.meenai.mina.core.router
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.ZonedDateTime
@@ -46,5 +47,16 @@ class RouterUsageTrackerTest {
             RouterUsageTracker.IST_ZONE,
         ).toInstant().toEpochMilli()
         assertEquals(1, RouterUsageTracker.getTodayCalls("Qwen/Qwen2.5-72B-Instruct", nowMs = tUtcMidnight))
+    }
+
+    @Test
+    fun updatesFlowIncrementsImmediatelyOnRecordAndClear() {
+        val before = RouterUsageTracker.updates.value
+        RouterUsageTracker.recordCall("gemini-4-hydrogen", "gemini_web")
+        val afterFirst = RouterUsageTracker.updates.value
+        assertTrue("updates flow must increment on recordCall", afterFirst > before)
+
+        RouterUsageTracker.clear()
+        assertTrue("updates flow must increment on clear", RouterUsageTracker.updates.value > afterFirst)
     }
 }

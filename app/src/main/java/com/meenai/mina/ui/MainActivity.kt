@@ -121,7 +121,10 @@ class MainActivity : ComponentActivity() {
         com.meenai.mina.about.UpdateAutomation.onAppOpened(this, (application as HarnessApp).updates)
         // The computer connection is open but the service is not there (it was stopped by the system and
         // failed to get up from the background): the interface is restored when it is in the foreground.
-        (application as HarnessApp).mcp.ensureRunning()
+        val app = application as HarnessApp
+        app.mcp.ensureRunning()
+        // Auto-connect / warm up active model session & quota on foreground return/startup.
+        app.chat.warmUpIfNeeded()
     }
 
     override fun onResume() {
@@ -357,6 +360,7 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
             // other pages): make up for rounds saved elsewhere, and pick up tasks started elsewhere.
             LifecycleStartEffect(Unit) {
                 app.chat.refresh()
+                app.chat.warmUpIfNeeded()
                 onStopOrDispose {}
             }
             ChatWithDrawer(

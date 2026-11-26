@@ -26,9 +26,17 @@ import com.meenai.mina.task.SteerNote
 import com.meenai.mina.task.SteerState
 import com.meenai.mina.ui.PipPhysics.Corner
 import com.meenai.mina.core.cap.web.AttachedPage
+import com.meenai.mina.core.gemini.GeminiUsage
+import com.meenai.mina.core.gemini.GeminiUsageWindow
+import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.userscreen.UserScreenMessage
+import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.ConnectionStatus
+import com.meenai.mina.ui.router.ConnectionWarmupResult
+import com.meenai.mina.ui.router.FakeRouterStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -2091,5 +2099,121 @@ class ChatViewModelTest {
         emit(TaskState.Running(2, "phone_type_text", tool = "phone_type_text"))
         ex = vm.ui.value.exchanges.single()
         assertEquals("Typing…", liveLine(ex))
+    }
+
+    @Test fun remainingQuotaPercentUpdatesInRealTimeOnLaunchAndAfterTurns() = runTest {
+        RouterUsageTracker.clear()
+        try {
+            val routerStatus = FakeRouterStatus(
+                initialModel = ActiveModel(
+                    id = "gemini-4-hydrogen",
+                    name = "Gemini 4 Hydrogen",
+                    provider = "Google Gemini",
+                    usedToday = 4,
+                    limit = 100,
+                    tierLabel = "Pro Plan",
+                )
+            )
+            val vm = ChatViewModel(
+                backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+                routerStatus = routerStatus,
+                dailyBudget = { 100 },
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            runCurrent()
+
+            // Fallback daily budget calculation: 100 - 4 = 96% remaining
+            assertEquals(96.0, vm.remainingQuotaPercent.value, 0.01)
+            assertEquals("96.0%", vm.quotaSnapshot.value.formattedPercent)
+
+            // Recording a call immediately updates remainingQuotaPercent via RouterUsageTracker.updates
+            repeat(5) {
+                RouterUsageTracker.recordCall("gemini-4-hydrogen", "gemini_web")
+            }
+            runCurrent()
+            assertEquals(95.0, vm.remainingQuotaPercent.value, 0.01)
+
+            // When server reports exact fractional quota (9.2% used => 90.8% left), show exact %
+            routerStatus.setCurrentModel(
+                ActiveModel(
+                    id = "gemini-4-hydrogen",
+                    name = "Gemini 4 Hydrogen",
+                    provider = "Google Gemini",
+                    usedToday = 5,
+                    limit = 100,
+                    remainingPercent = 90.8,
+                    isExactQuota = true,
+                    tierLabel = "Pro Plan",
+                    windowLabel = "5h window",
+                )
+            )
+            runCurrent()
+            assertEquals(90.8, vm.remainingQuotaPercent.value, 0.01)
+            assertEquals("90.8%", vm.quotaSnapshot.value.formattedPercent)
+
+            // After completing a turn + recording another call, remaining % decrements immediately
+            assertTrue(vm.send("check status", ok))
+            RouterUsageTracker.recordCall("gemini-4-hydrogen", "gemini_web")
+            emit(TaskState.Succeeded("All done"))
+            runCurrent()
+            assertEquals(89.8, vm.remainingQuotaPercent.value, 0.01)
+        } finally {
+            RouterUsageTracker.clear()
+        }
+    }
+
+    @Test fun startupAutoConnectTransitionsFromConnectingToConnectedAndSignInExpired() = runTest {
+        RouterUsageTracker.clear()
+        try {
+            val io = StandardTestDispatcher(testScheduler)
+            val routerStatus = FakeRouterStatus(
+                initialModel = ActiveModel(
+                    id = "gemini-4-hydrogen",
+                    name = "Gemini 4 Hydrogen",
+                    provider = "Google Gemini",
+                    tierLabel = "Pro Plan",
+                )
+            )
+            var nextOutcome = ConnectionWarmupResult(
+                status = ConnectionStatus.SignInRequired,
+                detail = "Google Gemini session expired",
+            )
+            val vm = ChatViewModel(
+                backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+                routerStatus = routerStatus,
+                warmUpConnection = { nextOutcome },
+                ioDispatcher = io,
+            )
+
+            // Before IO dispatcher runs, launch warm-up immediately signals Connecting (amber dot)
+            assertEquals(ConnectionStatus.Connecting, vm.connectionStatus.value)
+            assertEquals(ConnectionStatus.Connecting, routerStatus.connectionStatus.value)
+
+            runCurrent()
+            assertEquals(ConnectionStatus.SignInRequired, vm.connectionStatus.value)
+            assertEquals("Google Gemini session expired", vm.connectionDetail.value)
+            assertEquals(ConnectionStatus.SignInRequired, routerStatus.connectionStatus.value)
+
+            // After re-signing in, warmUpIfNeeded reconnects, applies GeminiUsage %, and turns Connected
+            nextOutcome = ConnectionWarmupResult(
+                status = ConnectionStatus.Connected,
+                geminiUsage = GeminiUsage(
+                    daily = GeminiUsageWindow(
+                        percentUsed = 9,
+                        resetsAtEpochMs = 1_800_000_000_000L,
+                        fractionUsed = 0.092,
+                    )
+                ),
+            )
+            vm.warmUpIfNeeded()
+            assertEquals(ConnectionStatus.Connecting, vm.connectionStatus.value)
+            runCurrent()
+
+            assertEquals(ConnectionStatus.Connected, vm.connectionStatus.value)
+            assertEquals(ConnectionStatus.Connected, routerStatus.connectionStatus.value)
+            assertEquals(90.8, vm.remainingQuotaPercent.value, 0.01)
+        } finally {
+            RouterUsageTracker.clear()
+        }
     }
 }

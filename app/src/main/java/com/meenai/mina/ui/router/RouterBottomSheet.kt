@@ -9,14 +9,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -67,13 +71,12 @@ import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
 
 /**
- * Bottom sheet opened upon tapping the router chip:
- * - Current model & why chosen ("abhi ka model, kyun chuna")
- * - Search bar & Capability filter chips (Free, Vision, Tools, Long Context)
- * - Favourites & Recent models
- * - Each provider's today quota, capability badges & cooldown
- * - Direct tap to select/pin model, with warning dialog for exhausted models
- * - "Pin this model" button (disabled when no candidates available)
+ * Bottom sheet opened from the bottom chat composer model pill:
+ * - Live connection status + one-tap re-sign-in / retry when expired
+ * - Active model & live remaining quota % bar with reset/count details
+ * - Compact Thinking / Effort control (Auto, Fast, Medium, Thinking)
+ * - Search & capability filters
+ * - All configured models grouped by provider with one-tap switching
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,8 +88,16 @@ fun RouterBottomSheet(
     modifier: Modifier = Modifier,
     onRefresh: (() -> Unit)? = null,
     onSelectModel: ((String) -> Unit)? = null,
+    onSelectModelWithProvider: ((String, String) -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     preferencesStore: ModelPreferencesStore? = null,
+    quotaSnapshot: QuotaSnapshot? = null,
+    connectionStatus: ConnectionStatus = ConnectionStatus.Idle,
+    connectionDetail: String? = null,
+    thinkingEffort: String? = null,
+    onSelectThinkingEffort: ((String?) -> Unit)? = null,
+    onReconnectSignIn: (() -> Unit)? = null,
+    onRetryConnect: (() -> Unit)? = null,
 ) {
     val colors = MinaTheme.colors
     val context = LocalContext.current
@@ -97,25 +108,24 @@ fun RouterBottomSheet(
     val savedProviders by store.providers.collectAsState()
     val savedRoles by store.roles.collectAsState()
     val savedConfigs by store.configs.collectAsState()
+    val storedEffort by prefStore.thinkingEffort.collectAsState()
+    val currentEffort = thinkingEffort ?: storedEffort
 
     val connectedProviderIds = remember(savedProviders) { savedProviders.map { it.id }.toSet() }
     val connectedProviderNames = remember(savedProviders) { savedProviders.map { it.name.lowercase() }.toSet() }
 
-    val connectedUsages = remember(usages, connectedProviderIds, connectedProviderNames, savedConfigs) {
-        val configuredModels = savedConfigs.map { it.model }.toSet()
-        usages.filter { u ->
-            u.providerId in connectedProviderIds ||
-                u.provider.lowercase() in connectedProviderNames ||
-                (u.provider.contains("Gemini", ignoreCase = true) && savedProviders.any { it.name.contains("Gemini", ignoreCase = true) })
-        }.map { u ->
-            val isGemini = u.provider.contains("Gemini", ignoreCase = true)
-            if (isGemini) {
-                u
-            } else if (u.models.size > 6) {
-                val matching = u.models.filter { it.modelId in configuredModels }
-                u.copy(models = if (matching.isNotEmpty()) matching else u.models.take(4))
-            } else {
-                u
+    val connectedUsages = remember(usages, savedProviders, connectedProviderIds, connectedProviderNames) {
+        if (savedProviders.isEmpty()) {
+            usages
+        } else {
+            usages.filter { u ->
+                u.providerId in connectedProviderIds ||
+                    u.provider.lowercase() in connectedProviderNames ||
+                    savedProviders.any { p ->
+                        AppFreeKeyRouter.providerMatches(p, u.providerId) ||
+                            AppFreeKeyRouter.providerMatches(p, u.provider)
+                    } ||
+                    (u.provider.contains("Gemini", ignoreCase = true) && savedProviders.any { it.name.contains("Gemini", ignoreCase = true) })
             }
         }
     }
@@ -125,6 +135,10 @@ fun RouterBottomSheet(
     var favorites by remember { mutableStateOf(prefStore.getFavorites()) }
     var recents by remember { mutableStateOf(prefStore.getRecentModels()) }
     var unavailableDialogModel by remember { mutableStateOf<ModelQuotaLine?>(null) }
+
+    val effectiveQuota = remember(quotaSnapshot, activeModel) {
+        quotaSnapshot ?: QuotaCalculator.compute(activeModel)
+    }
 
     LaunchedEffect(Unit) {
         onRefresh?.invoke()
@@ -164,17 +178,22 @@ fun RouterBottomSheet(
         ModelPickerLogic.filterModels(allModels, searchQuery, selectedFilter)
     }
 
-    fun handleModelClick(model: ModelQuotaLine) {
+    fun selectAndClose(modelId: String, providerId: String = "") {
+        prefStore.recordRecent(modelId)
+        recents = prefStore.getRecentModels()
+        when {
+            onSelectModelWithProvider != null -> onSelectModelWithProvider(modelId, providerId)
+            onSelectModel != null -> onSelectModel(modelId)
+            else -> onPinClick()
+        }
+        onDismiss()
+    }
+
+    fun handleModelClick(model: ModelQuotaLine, providerId: String = "") {
         if (model.quotaState == QuotaState.Exhausted) {
             unavailableDialogModel = model
         } else {
-            prefStore.recordRecent(model.modelId)
-            recents = prefStore.getRecentModels()
-            if (onSelectModel != null) {
-                onSelectModel(model.modelId)
-            } else {
-                onPinClick()
-            }
+            selectAndClose(model.modelId, providerId)
         }
     }
 
@@ -197,17 +216,66 @@ fun RouterBottomSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Text(
-                text = stringResource(R.string.router_sheet_title),
-                style = MinaType.Title,
-                color = colors.ink,
-                modifier = Modifier.padding(bottom = 12.dp),
+            // Sheet Header: Title + Live Connection Pill
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.router_sheet_title),
+                    style = MinaType.Title,
+                    color = colors.ink,
+                )
+                ConnectionStatusPill(
+                    status = connectionStatus,
+                    onClick = {
+                        when (connectionStatus) {
+                            ConnectionStatus.SignInRequired -> onReconnectSignIn?.invoke()
+                            ConnectionStatus.Error -> (onRetryConnect ?: onRefresh)?.invoke()
+                            else -> onRefresh?.invoke()
+                        }
+                    },
+                )
+            }
+
+            // Re-sign-in / Retry banner when session expired or network failed
+            if (connectionStatus == ConnectionStatus.SignInRequired || connectionStatus == ConnectionStatus.Error) {
+                ConnectionAlertBanner(
+                    status = connectionStatus,
+                    detail = connectionDetail,
+                    onAction = {
+                        if (connectionStatus == ConnectionStatus.SignInRequired) {
+                            onReconnectSignIn?.invoke()
+                        } else {
+                            (onRetryConnect ?: onRefresh)?.invoke()
+                        }
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+            // Live Quota & Active Model Hero Card
+            SheetQuotaHeroCard(
+                active = activeModel,
+                quota = effectiveQuota,
+                onPinClick = onPinClick,
             )
 
-            // Current Model & Selection Reason (Hero Card)
-            ActiveModelHeroCard(
-                active = activeModel,
-                onPinClick = onPinClick,
+            Spacer(Modifier.height(12.dp))
+
+            // Compact Thinking / Effort Selector
+            ThinkingEffortBar(
+                selectedEffort = currentEffort,
+                onSelect = { effort ->
+                    if (onSelectThinkingEffort != null) {
+                        onSelectThinkingEffort(effort)
+                    } else {
+                        prefStore.setThinkingEffort(effort)
+                    }
+                },
             )
 
             Spacer(Modifier.height(14.dp))
@@ -233,11 +301,12 @@ fun RouterBottomSheet(
                         val isCurrent = activeModel.id.equals(cfg.model, ignoreCase = true)
                         val isGemini = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.name.contains("Gemini", ignoreCase = true)
                         val matchingLine = usages.flatMap { it.models }.firstOrNull { it.modelId.equals(cfg.model, ignoreCase = true) }
-                        val todayCount = matchingLine?.todayRequests ?: 0
-                        val quotaBadge = if (isGemini) {
-                            if (todayCount > 0) "$todayCount · ${stringResource(R.string.router_pro_plan)}" else stringResource(R.string.router_pro_plan)
-                        } else {
-                            "$todayCount ${stringResource(R.string.router_today)}"
+                        val quotaBadge = when {
+                            matchingLine?.remainingPercent != null -> QuotaSnapshot.formatPercent(matchingLine.remainingPercent)
+                            isGemini -> stringResource(R.string.router_pro_plan)
+                            matchingLine?.todayRequests != null && matchingLine.todayRequests > 0 ->
+                                "${matchingLine.todayRequests} ${stringResource(R.string.router_today)}"
+                            else -> stringResource(R.string.router_status_ready)
                         }
                         ConfiguredRoleRow(
                             role = role,
@@ -245,19 +314,21 @@ fun RouterBottomSheet(
                             icon = icon,
                             isCurrent = isCurrent,
                             quotaBadge = quotaBadge,
-                            onClick = {
-                                prefStore.recordRecent(cfg.model)
-                                recents = prefStore.getRecentModels()
-                                if (onSelectModel != null) {
-                                    onSelectModel(cfg.model)
-                                } else {
-                                    onPinClick()
-                                }
-                            }
+                            onClick = { selectAndClose(cfg.model, cfg.providerId) },
                         )
                     }
                 }
                 Spacer(Modifier.height(14.dp))
+            }
+
+            if (allModels.size > 4 || searchQuery.isNotBlank()) {
+                SheetSearchAndFilterBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    selectedFilter = selectedFilter,
+                    onFilterChange = { selectedFilter = it },
+                )
+                Spacer(Modifier.height(10.dp))
             }
 
             val isSearchingOrFiltered = searchQuery.isNotBlank() || selectedFilter != ModelPickerFilter.All
@@ -287,18 +358,22 @@ fun RouterBottomSheet(
                                     modifier = Modifier.padding(horizontal = 14.dp),
                                 )
                             }
+                            val matchedUsage = connectedUsages.firstOrNull { u ->
+                                u.models.any { it.modelId.equals(model.modelId, ignoreCase = true) }
+                            }
                             ModelQuotaRow(
                                 model = model,
                                 isFavorite = favorites.contains(model.modelId),
-                                isPinned = activeModel.isPinned && activeModel.id == model.modelId,
+                                isPinned = activeModel.isPinned && activeModel.id.equals(model.modelId, ignoreCase = true),
+                                isSelected = activeModel.id.equals(model.modelId, ignoreCase = true),
                                 onToggleFavorite = { handleToggleFavorite(model.modelId) },
-                                onClick = { handleModelClick(model) },
+                                onClick = { handleModelClick(model, matchedUsage?.providerId.orEmpty()) },
                             )
                         }
                     }
                 }
             } else {
-                // Connected Providers Quota & Models
+                // Connected Providers Quota & Models (all configured models grouped by provider)
                 if (connectedUsages.isNotEmpty()) {
                     GroupLabel(stringResource(R.string.router_connected_providers))
                     GroupCard {
@@ -315,8 +390,9 @@ fun RouterBottomSheet(
                                 isFirst = index == 0,
                                 favorites = favorites,
                                 pinnedModelId = if (activeModel.isPinned) activeModel.id else null,
+                                activeModelId = activeModel.id,
                                 onToggleFavorite = { handleToggleFavorite(it) },
-                                onModelClick = { handleModelClick(it) },
+                                onModelClick = { handleModelClick(it, usage.providerId) },
                             )
                         }
                     }
@@ -361,6 +437,475 @@ fun RouterBottomSheet(
 
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun ConnectionStatusPill(
+    status: ConnectionStatus,
+    onClick: () -> Unit,
+) {
+    val c = MinaTheme.colors
+    val (dotColor, bgColor, textColor, label) = when (status) {
+        ConnectionStatus.Connected -> Quad(c.ok, c.okSoft, c.ok, stringResource(R.string.router_conn_connected))
+        ConnectionStatus.Connecting -> Quad(c.warnSolid, c.warnSoft, c.warn, stringResource(R.string.router_conn_connecting))
+        ConnectionStatus.SignInRequired -> Quad(c.bad, c.badSoft, c.bad, stringResource(R.string.router_signin_short))
+        ConnectionStatus.Error -> Quad(c.bad, c.badSoft, c.bad, stringResource(R.string.router_retry_connect))
+        ConnectionStatus.Idle -> Quad(c.ink3, c.fill, c.ink3, stringResource(R.string.router_status_ready))
+    }
+    Row(
+        modifier = Modifier
+            .clip(MinaShapes.Pill)
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .testTag("sheet-connection-pill"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+        Text(
+            text = label,
+            style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            color = textColor,
+        )
+    }
+}
+
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+@Composable
+private fun ConnectionAlertBanner(
+    status: ConnectionStatus,
+    detail: String?,
+    onAction: () -> Unit,
+) {
+    val c = MinaTheme.colors
+    val isSignIn = status == ConnectionStatus.SignInRequired
+    val title = if (isSignIn) {
+        stringResource(R.string.router_conn_signin_required)
+    } else {
+        stringResource(R.string.router_conn_error)
+    }
+    val actionLabel = if (isSignIn) {
+        stringResource(R.string.router_resign_in)
+    } else {
+        stringResource(R.string.router_retry_connect)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isSignIn) c.warnSoft else c.badSoft)
+            .border(1.dp, (if (isSignIn) c.warnSolid else c.bad).copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onAction)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("reconnect-banner"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = title,
+                style = MinaType.Body.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                color = if (isSignIn) c.warn else c.bad,
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    text = detail,
+                    style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                    color = c.ink2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .clip(MinaShapes.Pill)
+                .background(if (isSignIn) c.warnSolid else c.bad)
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Text(
+                text = actionLabel,
+                style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SheetQuotaHeroCard(
+    active: ActiveModel,
+    quota: QuotaSnapshot,
+    onPinClick: () -> Unit,
+) {
+    val c = MinaTheme.colors
+    val hasModel = active.id.isNotBlank() && active.name != "No model"
+    val barColor = when {
+        !hasModel -> c.ink3
+        quota.remainingPercent > 30.0 -> c.ok
+        quota.remainingPercent > 10.0 -> c.warnSolid
+        else -> c.bad
+    }
+    val pctFraction = (quota.remainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+    val resetCountdown = remember(quota.resetsAtEpochMs) { formatResetCountdown(quota.resetsAtEpochMs) }
+    val weeklyResetCountdown = remember(quota.weeklyResetsAtEpochMs) { formatResetCountdown(quota.weeklyResetsAtEpochMs) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(c.surface)
+            .border(1.dp, c.hair, RoundedCornerShape(18.dp))
+            .padding(14.dp)
+            .testTag("active-model-hero-card"),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AiLogo(
+                providerOrModel = active.id.ifBlank { active.name },
+                size = 38.dp,
+                corner = 10.dp,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = if (hasModel) active.name else stringResource(R.string.settings_not_set),
+                    style = MinaType.Title.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                    color = c.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 2.dp),
+                ) {
+                    val subLabel = listOfNotNull(
+                        active.provider.takeIf { it.isNotBlank() },
+                        quota.tierLabel.takeIf { it.isNotBlank() && !it.equals(active.provider, ignoreCase = true) },
+                    ).joinToString(" · ")
+                    if (subLabel.isNotBlank()) {
+                        Text(
+                            text = subLabel,
+                            style = MinaType.Caption.copy(fontSize = 12.sp),
+                            color = c.ink2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (active.isPinned) {
+                        Box(
+                            modifier = Modifier
+                                .clip(MinaShapes.Pill)
+                                .background(c.accentSoft)
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.router_model_pinned),
+                                style = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                color = c.accent,
+                            )
+                        }
+                    }
+                }
+            }
+            if (hasModel) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(MinaShapes.Pill)
+                        .background(barColor.copy(alpha = 0.14f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .testTag("sheet-quota-percent"),
+                ) {
+                    Text(
+                        text = quota.formattedPercent,
+                        style = MinaType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                        color = barColor,
+                    )
+                }
+            }
+        }
+
+        if (hasModel) {
+            Spacer(Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(CircleShape)
+                    .background(c.hair.copy(alpha = 0.45f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(pctFraction)
+                        .clip(CircleShape)
+                        .background(barColor),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val leftSummary = buildString {
+                    if (quota.windowLabel.isNotBlank()) {
+                        append(quota.windowLabel)
+                        append(" · ")
+                    }
+                    append(stringResource(R.string.router_quota_left_pct, quota.formattedPercent))
+                }
+                Text(
+                    text = leftSummary,
+                    style = MinaType.Caption.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    color = c.ink2,
+                )
+                val rightSummary = when {
+                    resetCountdown != null -> stringResource(R.string.router_quota_resets_in, resetCountdown)
+                    quota.limitCount != null && quota.limitCount > 0 ->
+                        stringResource(R.string.router_quota_requests_ratio, quota.usedCount, quota.limitCount)
+                    else -> stringResource(R.string.router_quota_requests_used, quota.usedCount)
+                }
+                Text(
+                    text = rightSummary,
+                    style = MinaType.Caption.copy(fontSize = 12.sp),
+                    color = c.ink3,
+                )
+            }
+
+            if (quota.weeklyRemainingPercent != null) {
+                Spacer(Modifier.height(8.dp))
+                val weeklyFrac = (quota.weeklyRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+                val weeklyColor = when {
+                    quota.weeklyRemainingPercent > 30.0 -> c.ok
+                    quota.weeklyRemainingPercent > 10.0 -> c.warnSolid
+                    else -> c.bad
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.router_quota_weekly_left,
+                            QuotaSnapshot.formatPercent(quota.weeklyRemainingPercent),
+                        ),
+                        style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                        color = c.ink3,
+                    )
+                    if (weeklyResetCountdown != null) {
+                        Text(
+                            text = stringResource(R.string.router_quota_resets_in, weeklyResetCountdown),
+                            style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                            color = c.ink3,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(c.hair.copy(alpha = 0.35f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(weeklyFrac)
+                            .clip(CircleShape)
+                            .background(weeklyColor),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThinkingEffortBar(
+    selectedEffort: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val c = MinaTheme.colors
+    val normalizedSelected = when (selectedEffort?.trim()?.lowercase()) {
+        "fast", "low" -> "low"
+        "medium" -> "medium"
+        "high", "thinking" -> "high"
+        else -> null
+    }
+    val options = listOf(
+        null to stringResource(R.string.router_effort_auto),
+        "low" to stringResource(R.string.router_effort_fast),
+        "medium" to stringResource(R.string.router_effort_medium),
+        "high" to stringResource(R.string.router_effort_thinking),
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.fill)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("thinking-effort-row"),
+    ) {
+        Text(
+            text = stringResource(R.string.router_thinking_title),
+            style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            color = c.ink3,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            options.forEach { (value, label) ->
+                val active = normalizedSelected == value
+                val keyTag = value ?: "auto"
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(MinaShapes.Pill)
+                        .background(if (active) c.surface else Color.Transparent)
+                        .border(
+                            width = if (active) 1.dp else 0.5.dp,
+                            color = if (active) c.accent.copy(alpha = 0.6f) else c.hair.copy(alpha = 0.7f),
+                            shape = MinaShapes.Pill,
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(vertical = 7.dp)
+                        .testTag("effort-$keyTag"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        style = MinaType.Caption.copy(
+                            fontSize = 12.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                        ),
+                        color = if (active) c.accent else c.ink2,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetSearchAndFilterBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    selectedFilter: ModelPickerFilter,
+    onFilterChange: (ModelPickerFilter) -> Unit,
+) {
+    val c = MinaTheme.colors
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.fill)
+                .border(0.5.dp, c.hair, RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = MinaIcons.Search,
+                contentDescription = null,
+                tint = c.ink3,
+                modifier = Modifier.size(16.dp),
+            )
+            Box(Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.router_search_hint),
+                        style = MinaType.Caption.copy(fontSize = 13.sp),
+                        color = c.ink3,
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = MinaType.Body.copy(fontSize = 13.5.sp, color = c.ink),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().testTag("router-search-field"),
+                )
+            }
+            if (query.isNotEmpty()) {
+                Icon(
+                    imageVector = MinaIcons.Close,
+                    contentDescription = "Clear",
+                    tint = c.ink3,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clickable { onQueryChange("") },
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val filters = listOf(
+                ModelPickerFilter.All to stringResource(R.string.router_filter_all),
+                ModelPickerFilter.Free to stringResource(R.string.router_filter_free),
+                ModelPickerFilter.Vision to stringResource(R.string.router_filter_vision),
+                ModelPickerFilter.Tools to stringResource(R.string.router_filter_tools),
+                ModelPickerFilter.LongContext to stringResource(R.string.router_filter_long_context),
+            )
+            filters.forEach { (filter, label) ->
+                val selected = selectedFilter == filter
+                Box(
+                    modifier = Modifier
+                        .clip(MinaShapes.Pill)
+                        .background(if (selected) c.accentSoft else c.fill)
+                        .border(
+                            width = if (selected) 1.dp else 0.5.dp,
+                            color = if (selected) c.accent.copy(alpha = 0.5f) else c.hair,
+                            shape = MinaShapes.Pill,
+                        )
+                        .clickable { onFilterChange(filter) }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        text = label,
+                        style = MinaType.Caption.copy(
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        ),
+                        color = if (selected) c.accent else c.ink2,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatResetCountdown(resetsAtEpochMs: Long?): String? {
+    val target = resetsAtEpochMs ?: return null
+    val diffMs = target - System.currentTimeMillis()
+    if (diffMs <= 0L) return null
+    val totalMinutes = (diffMs / 60_000L).toInt()
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours >= 24 -> "${hours / 24}d ${hours % 24}h"
+        hours > 0 -> "${hours}h ${minutes}m"
+        minutes > 0 -> "${minutes}m"
+        else -> "< 1m"
     }
 }
 
@@ -464,6 +1009,7 @@ fun ProviderUsageBlock(
     isFirst: Boolean,
     favorites: Set<String> = emptySet(),
     pinnedModelId: String? = null,
+    activeModelId: String? = null,
     onToggleFavorite: (String) -> Unit = {},
     onModelClick: (ModelQuotaLine) -> Unit = {},
 ) {
@@ -637,7 +1183,8 @@ fun ProviderUsageBlock(
                 ModelQuotaRow(
                     model = model,
                     isFavorite = favorites.contains(model.modelId),
-                    isPinned = pinnedModelId == model.modelId,
+                    isPinned = pinnedModelId?.equals(model.modelId, ignoreCase = true) == true,
+                    isSelected = activeModelId?.equals(model.modelId, ignoreCase = true) == true,
                     onToggleFavorite = { onToggleFavorite(model.modelId) },
                     onClick = { onModelClick(model) },
                 )
@@ -654,6 +1201,7 @@ fun ModelQuotaRow(
     modifier: Modifier = Modifier,
     isFavorite: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onClick: () -> Unit = {},
 ) {
@@ -680,8 +1228,24 @@ fun ModelQuotaRow(
     }
 
     val (statusText, statusColor) = when (model.quotaState) {
-        QuotaState.Ready -> stringResource(R.string.router_quota_ready) to colors.ok
-        QuotaState.Low -> stringResource(R.string.router_quota_low) to colors.warn
+        QuotaState.Ready -> {
+            val pct = model.remainingPercent
+            if (pct != null) {
+                val pctColor = when {
+                    pct > 30.0 -> colors.ok
+                    pct > 10.0 -> colors.warnSolid
+                    else -> colors.bad
+                }
+                QuotaSnapshot.formatPercent(pct) to pctColor
+            } else {
+                stringResource(R.string.router_quota_ready) to colors.ok
+            }
+        }
+        QuotaState.Low -> {
+            val pct = model.remainingPercent
+            val label = if (pct != null) QuotaSnapshot.formatPercent(pct) else stringResource(R.string.router_quota_low)
+            label to colors.warnSolid
+        }
         QuotaState.Exhausted -> {
             if (model.cooldownMinutes > 0) {
                 stringResource(R.string.router_status_cooldown, model.cooldownMinutes) to colors.bad
@@ -699,6 +1263,7 @@ fun ModelQuotaRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
+            .background(if (isSelected) colors.accentSoft.copy(alpha = 0.55f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 7.dp, horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -841,6 +1406,15 @@ fun ModelQuotaRow(
                         fontSize = 11.sp,
                     ),
                     color = statusColor,
+                )
+            }
+
+            if (isSelected) {
+                Icon(
+                    imageVector = MinaIcons.Check,
+                    contentDescription = "Selected",
+                    tint = colors.accent,
+                    modifier = Modifier.size(16.dp),
                 )
             }
 

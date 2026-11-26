@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -71,5 +72,78 @@ class GeminiWebClientCookieTest {
         assertTrue(merged.contains("__Secure-1PSIDTS=new"))
         assertFalse(merged.contains("__Secure-1PSIDTS=old"))
         assertFalse(merged.contains("NID="))
+    }
+
+    @Test
+    fun warmUpSessionRefreshesMissingSnlm0eAndValidatesSignedInProbe() = runTest {
+        GeminiWebClient.clearCookies()
+        val html = """<script>window.WIZ_global_data = {"SNlM0e":"fresh-at","cfb2h":"boq_gemini-web-uiserver_20261125.01_p0","FdrFJe":"sid"};</script>"""
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .addHeader("Set-Cookie", "__Secure-1PSIDTS=rotated-ts; Path=/; Secure")
+                .setBody(html)
+        )
+        val innerProbe = """[null,null,null,null,null,null,null,null,null,null,null,null,null,null,1000,[["56fdd199312815e2","Hydrogen","Gemini 4 Hydrogen","Everyday",null,null,null,null,null,1,null,"Gemini 4 Hydrogen","Everyday",null,null,null,null,1]],[16],[]]"""
+        val escapedInner = innerProbe.replace("\"", "\\\"")
+        val probeBody = ")]}'\n[[\"wrb.fr\",\"otAQ7b\",\"$escapedInner\"]]\n"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(probeBody))
+
+        val client = OkHttpClient.Builder()
+            .cookieJar(GeminiWebClient.cookieJar)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val initial = GeminiWebSession(
+            cookies = "__Secure-1PSID=test-sid; __Secure-1PSIDTS=old-ts",
+            snlm0e = "",
+            cfb2h = "",
+            signedIn = true,
+        )
+        val outcome = GeminiWebClient.warmUpSession(client, initial)
+        assertTrue("Expected Ready outcome, got $outcome", outcome is GeminiWarmupOutcome.Ready)
+        val ready = outcome as GeminiWarmupOutcome.Ready
+        assertEquals("fresh-at", ready.session.snlm0e)
+        assertTrue(ready.session.cookies.contains("__Secure-1PSIDTS=rotated-ts"))
+        assertEquals("56fdd199312815e2", ready.session.defaultModelId)
+    }
+
+    @Test
+    fun warmUpSessionReportsSignInExpiredWhenProbeIs1016AndRefreshFails() = runTest {
+        GeminiWebClient.clearCookies()
+        val innerProbe = """[null,null,null,null,null,null,null,null,null,null,null,null,null,null,1016,[]]"""
+        val escapedInner = innerProbe.replace("\"", "\\\"")
+        val probeBody = ")]}'\n[[\"wrb.fr\",\"otAQ7b\",\"$escapedInner\"]]\n"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(probeBody))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("<html>accounts.google.com/ServiceLogin</html>"))
+
+        val client = OkHttpClient.Builder()
+            .cookieJar(GeminiWebClient.cookieJar)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val initial = GeminiWebSession(
+            cookies = "__Secure-1PSID=expired-sid",
+            snlm0e = "old-at",
+            cfb2h = "test-bl",
+            signedIn = true,
+        )
+        val outcome = GeminiWebClient.warmUpSession(client, initial)
+        assertTrue("Expected SignInExpired outcome, got $outcome", outcome is GeminiWarmupOutcome.SignInExpired)
     }
 }

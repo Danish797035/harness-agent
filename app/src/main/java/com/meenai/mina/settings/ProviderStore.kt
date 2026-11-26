@@ -632,6 +632,47 @@ class ProviderStore(
     }
 
     /**
+     * Builds a metered [ChatModel] for any listed/configured model of [provider] so unified routing
+     * and one-tap model switching can invoke every connected provider (Claude, OpenAI, ChatGPT,
+     * xAI, Gemini, OpenRouter, custom endpoints) through the same adapter path as [modelFor].
+     */
+    fun buildCandidateModel(
+        provider: Provider,
+        modelId: String,
+        capabilities: Capabilities,
+        endpoint: ModelEndpoint? = null,
+        reasoningEffort: String? = null,
+        thinkingTypes: List<String>? = null,
+        session: ModelSession = ModelSession.fresh(),
+    ): ChatModel {
+        val settings = provider.contextSettings[modelId]
+        val effectiveCaps = if (settings == null) capabilities else capabilities.copy(
+            contextTokens = settings.windowTokens ?: capabilities.contextTokens,
+            compactionTriggerTokens = settings.triggerTokens,
+        )
+        val cfg = ProviderConfig(
+            id = "${provider.id}:$modelId",
+            kind = provider.kind,
+            baseUrl = provider.baseUrl,
+            model = modelId,
+            capabilities = effectiveCaps,
+            name = provider.name,
+            providerId = provider.id,
+        )
+        val source = UsageSource(provider.id, provider.name, modelId, UsagePurpose.of(ModelRole.Main))
+        return modelFactory(
+            cfg,
+            providerKey(provider.id),
+            endpoint,
+            ClientSetup(
+                headers = headers(provider.sessionHeader, session),
+                reasoningEffort = reasoningEffort,
+                thinkingTypes = thinkingTypes,
+            ),
+        ).metered(source, usage)
+    }
+
+    /**
      * Trial call of "Test and Save": The service provider has not yet saved it, build [model] according
      * to the same path as the real task ([modelFactory], the same request header), bring a tool without
      * parameters ([PROBE_TOOL]), and ask it to call; the reply limit is very short (if the protocol

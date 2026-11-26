@@ -286,9 +286,17 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.ui.router.ModelPreferencesStore.get(this)
     }
 
+    private fun currentReasoningEffort(): String? =
+        modelPreferences.getThinkingEffort()
+            ?: providers.roles.value.reasoningEffort(com.meenai.mina.core.model.ModelRole.Main)
+
     val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {
         com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
-        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(providers, preferences = modelPreferences)
+        com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(
+            store = providers,
+            preferences = modelPreferences,
+            reasoningEffortProvider = ::currentReasoningEffort,
+        )
     }
 
     val routerStatus: com.meenai.mina.ui.router.RouterStatus by lazy {
@@ -303,6 +311,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                     cfg.model to pName
                 } else null
             },
+            preferencesStore = modelPreferences,
+            dailyBudgetProvider = { FeatureFlags.get(this).usageDailyBudget() },
         )
     }
 
@@ -386,6 +396,11 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             keptPage = pageKeeper.page,
             closeKept = { pageKeeper.close(com.meenai.mina.core.cap.web.KeptPageClose.User) },
             runningModel = taskState.activeModel,
+            routerStatus = routerStatus,
+            dailyBudget = { FeatureFlags.get(app).usageDailyBudget() },
+            warmUpConnection = {
+                com.meenai.mina.ui.router.AppFreeKeyRouter.warmUpActiveConnection(providers, freeKeyRouter)
+            },
         )
     }
 
@@ -434,9 +449,17 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch {
             providers.repairGeminiWebBindings()
             var appliedMainModel: String? = null
-            kotlinx.coroutines.flow.combine(providers.providers, providers.roles, providers.keysRevision) { list, _, _ -> list }.collect {
+            kotlinx.coroutines.flow.combine(
+                providers.providers,
+                providers.roles,
+                providers.keysRevision,
+                modelPreferences.thinkingEffort,
+            ) { list, _, _, _ -> list }.collect {
                 providers.repairGeminiWebBindings()
-                val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(providers)
+                val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(
+                    store = providers,
+                    reasoningEffortProvider = ::currentReasoningEffort,
+                )
                 freeKeyRouter.updateCandidates(candidates)
                 val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
                 if (mainModel != null) {

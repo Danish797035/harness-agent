@@ -95,5 +95,24 @@
     <string name="router_connected_providers">Connected Providers</string>
     <string name="router_manage_in_settings">Manage All Models in Settings</string>
     <string name="router_pro_plan">Pro Plan</string>
+    <string name="router_conn_connecting">Connecting…</string>
+    <string name="router_conn_connected">Connected</string>
+    <string name="router_conn_signin_required">Session expired · Sign in</string>
+    <string name="router_conn_error">Connection issue</string>
+    <string name="router_resign_in">Sign in again</string>
+    <string name="router_retry_connect">Retry</string>
+    <string name="router_signin_short">Sign in</string>
+    <string name="router_thinking_title">Thinking</string>
+    <string name="router_effort_auto">Auto</string>
+    <string name="router_effort_fast">Fast</string>
+    <string name="router_effort_medium">Medium</string>
+    <string name="router_effort_thinking">Thinking</string>
+    <string name="router_quota_remaining_title">Quota Remaining</string>
+    <string name="router_quota_left_pct">%1$s left</string>
+    <string name="router_quota_resets_in">Resets in %1$s</string>
+    <string name="router_quota_weekly_left">Weekly %1$s left</string>
+    <string name="router_quota_requests_ratio">%1$d/%2$d used</string>
+    <string name="router_quota_requests_used">%1$d used today</string>
+    <string name="router_select_model">Select Model</string>
 </resources>
 

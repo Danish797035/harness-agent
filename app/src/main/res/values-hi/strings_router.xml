@@ -95,5 +95,24 @@
     <string name="router_connected_providers">कनेक्टेड प्रोवाइडर</string>
     <string name="router_manage_in_settings">सेटिंग्स में सभी मॉडल प्रबंधित करें</string>
     <string name="router_pro_plan">प्रो प्लान</string>
+    <string name="router_conn_connecting">कनेक्ट हो रहा है…</string>
+    <string name="router_conn_connected">कनेक्टेड</string>
+    <string name="router_conn_signin_required">सत्र समाप्त · साइन इन करें</string>
+    <string name="router_conn_error">कनेक्शन समस्या</string>
+    <string name="router_resign_in">दोबारा साइन इन करें</string>
+    <string name="router_retry_connect">पुनः प्रयास करें</string>
+    <string name="router_signin_short">साइन इन</string>
+    <string name="router_thinking_title">सोच स्तर</string>
+    <string name="router_effort_auto">ऑटो</string>
+    <string name="router_effort_fast">तेज़</string>
+    <string name="router_effort_medium">मध्यम</string>
+    <string name="router_effort_thinking">गहरा</string>
+    <string name="router_quota_remaining_title">शेष कोटा</string>
+    <string name="router_quota_left_pct">%1$s शेष</string>
+    <string name="router_quota_resets_in">%1$s में रीसेट</string>
+    <string name="router_quota_weekly_left">साप्ताहिक %1$s शेष</string>
+    <string name="router_quota_requests_ratio">%1$d/%2$d उपयोग</string>
+    <string name="router_quota_requests_used">आज %1$d उपयोग</string>
+    <string name="router_select_model">मॉडल चुनें</string>
 </resources>
 

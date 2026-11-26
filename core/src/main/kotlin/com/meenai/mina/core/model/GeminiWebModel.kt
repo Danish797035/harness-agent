@@ -61,6 +61,8 @@ class GeminiWebModel(
     private val firstTokenTimeoutMs: Long = 90_000L,
     /** How long a stream may stall after its first frame before it is cut (test hook). */
     private val idleTimeoutMs: Long = IDLE_AFTER_TOKENS_MS,
+    /** Optional dynamic lookup for live thinking/effort selection from the bottom sheet. */
+    private val reasoningEffortProvider: (() -> String?)? = null,
 ) : StreamingChatModel {
 
     override val name: String get() = model
@@ -92,7 +94,8 @@ class GeminiWebModel(
         val isChat = isConversational(messages)
         val effectiveTools = if (isChat) emptyList() else tools
         val prompt = formatPrompt(system, messages, effectiveTools)
-        val thinkingFlag = if (isChat) 1 else GeminiWebClient.thinkingFlagFor(reasoningEffort)
+        val effectiveEffort = reasoningEffortProvider?.invoke() ?: reasoningEffort
+        val thinkingFlag = if (isChat) 1 else GeminiWebClient.thinkingFlagFor(effectiveEffort)
         val (modelHexId, modelNumber) = GeminiWebClient.resolveModel(model, session)
         val uuid = UUID.randomUUID().toString().uppercase()
 

@@ -6,14 +6,21 @@ import com.meenai.mina.core.cap.web.AttachedPage
 import com.meenai.mina.settings.FeatureFlags
 import com.meenai.mina.ui.components.keepsKeyboard
 import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.AppFreeKeyRouter
+import com.meenai.mina.ui.router.ConnectionStatus
 import com.meenai.mina.ui.router.LocalRouterStatus
+import com.meenai.mina.ui.router.ModelCallStatus
+import com.meenai.mina.ui.router.QuotaSnapshot
 import com.meenai.mina.ui.router.RouterBottomSheet
-import com.meenai.mina.ui.router.RouterChip
 import com.meenai.mina.ui.router.RouterStatus
 import com.meenai.mina.ui.router.SwitchEvent
 import com.meenai.mina.ui.router.SwitchNoticeToast
 import com.meenai.mina.ui.router.resolveDisplayModel
 import com.meenai.mina.ui.router.waitModelName
+import com.meenai.mina.core.gemini.GeminiWebClient
+import com.meenai.mina.settings.ProviderStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.meenai.mina.ui.image.GeneratedImageCard
 import com.meenai.mina.ui.image.GeneratedImageUi
 import com.meenai.mina.image.ImageStorageManager
@@ -196,7 +203,16 @@ fun ChatScreen(
 ) {
     val routerActiveModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
+    val quotaSnapshot by vm.quotaSnapshot.collectAsState()
+    val vmConnStatus by vm.connectionStatus.collectAsState()
+    val routerConnStatus by routerStatus.connectionStatus.collectAsState()
+    val connectionStatus = if (vmConnStatus != ConnectionStatus.Idle) vmConnStatus else routerConnStatus
+    val vmConnDetail by vm.connectionDetail.collectAsState()
+    val routerConnDetail by routerStatus.connectionDetail.collectAsState()
+    val connectionDetail = vmConnDetail ?: routerConnDetail
+    val thinkingEffort by routerStatus.thinkingEffort.collectAsState()
     var sheetOpen by remember { mutableStateOf(false) }
+    var geminiSignInOpen by remember { mutableStateOf(false) }
     var latestSwitchEvent by remember { mutableStateOf<SwitchEvent?>(null) }
     val ui by vm.ui.collectAsState()
     val last = ui.exchanges.lastOrNull()
@@ -392,15 +408,11 @@ fun ChatScreen(
                     null -> Color.Unspecified
                 },
             )
-            RouterChip(
-                activeModel = activeModel,
-                onClick = {
-                    routerStatus.refresh()
-                    sheetOpen = true
-                },
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
         }
+
+        val activeIsGeminiWeb = activeModel.provider.contains("Gemini", ignoreCase = true) ||
+            activeModel.id.startsWith("gemini-", ignoreCase = true)
+        val connectedProviderCount = remember(routerUsages) { routerUsages.count { it.models.isNotEmpty() } }
 
         Composer(
             Modifier.align(Alignment.BottomCenter).behindMenu(menuOpen) { lift.value }.onSizeChanged { composerHeight = it.height },
@@ -433,6 +445,17 @@ fun ChatScreen(
             steerTarget = last?.goal?.let(ChatCopy::plainTitle),
             onVoiceHolding = { voiceHolding = it },
             editRequest = editRequest,
+            activeModel = activeModel,
+            quotaSnapshot = quotaSnapshot,
+            connectionStatus = connectionStatus,
+            onModelPillClick = {
+                if (connectionStatus == ConnectionStatus.SignInRequired && activeIsGeminiWeb && connectedProviderCount <= 1) {
+                    geminiSignInOpen = true
+                } else {
+                    routerStatus.refresh()
+                    sheetOpen = true
+                }
+            },
         )
 
         AgentPip(
@@ -499,17 +522,57 @@ fun ChatScreen(
                     }
                 },
                 onSelectModel = { modelId ->
-                    if (activeModel.isPinned && activeModel.id == modelId) {
-                        routerStatus.pinModel(null)
-                    } else {
-                        routerStatus.pinModel(modelId)
-                    }
+                    routerStatus.selectModel(modelId)
+                    vm.refreshQuota()
+                },
+                onSelectModelWithProvider = { modelId, providerId ->
+                    routerStatus.selectModel(modelId, providerId.takeIf { it.isNotBlank() })
+                    vm.refreshQuota()
                 },
                 onDismiss = { sheetOpen = false },
                 onRefresh = { routerStatus.refresh() },
                 onOpenSettings = {
                     sheetOpen = false
                     openSettings()
+                },
+                quotaSnapshot = quotaSnapshot,
+                connectionStatus = connectionStatus,
+                connectionDetail = connectionDetail,
+                thinkingEffort = thinkingEffort,
+                onSelectThinkingEffort = { effort ->
+                    routerStatus.setThinkingEffort(effort)
+                },
+                onReconnectSignIn = {
+                    sheetOpen = false
+                    geminiSignInOpen = true
+                },
+                onRetryConnect = {
+                    vm.warmUpActiveConnection()
+                },
+            )
+        }
+
+        if (geminiSignInOpen) {
+            GeminiWebLoginDialog(
+                onDismiss = { geminiSignInOpen = false },
+                onSuccess = { session ->
+                    geminiSignInOpen = false
+                    scope.launch {
+                        val connectedProvider = withContext(Dispatchers.IO) {
+                            val providerStore = ProviderStore.get(context)
+                            val p = providerStore.connectGeminiWeb(session, GeminiWebClient.DEFAULT_MODELS)
+                            AppFreeKeyRouter.clearGeminiWebAuthFailure()
+                            p
+                        }
+                        val targetModel = activeModel.id.takeIf { it.startsWith("gemini-", ignoreCase = true) }
+                            ?: "gemini-4-argon"
+                        routerStatus.selectModel(targetModel, connectedProvider.id)
+                        vm.warmUpActiveConnection()
+                    }
+                },
+                onError = { msg ->
+                    geminiSignInOpen = false
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -1485,6 +1548,10 @@ internal fun Composer(
     steerTarget: String? = null,
     /** True when pressing to speak: the conversation content will be blurred. */
     onVoiceHolding: (Boolean) -> Unit = {},
+    activeModel: ActiveModel = ActiveModel(),
+    quotaSnapshot: QuotaSnapshot = QuotaSnapshot(),
+    connectionStatus: ConnectionStatus = ConnectionStatus.Idle,
+    onModelPillClick: (() -> Unit)? = null,
 ) {
     val c = MinaTheme.colors
     val vh = rememberVoiceHold(voice, onVoiceText)
@@ -1591,93 +1658,122 @@ internal fun Composer(
                 VoiceFloat(vh, vState, title, backdrop, reduceMotion)
             }
             Box(Modifier.fillMaxWidth()) {
-            GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop) {
-                if (attachPanel != null) {
-                    val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
+            GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop, shape = ComposerShape) {
+                Column(Modifier.fillMaxWidth()) {
                     Box(
-                        Modifier.size(MinaSize.IconButton).clip(CircleShape)
-                            .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
-                        contentAlignment = Alignment.Center,
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 4.dp),
                     ) {
-                        Icon(MinaIcons.Plus, label, Modifier.size(MinaSize.Icon).graphicsLayer { rotationZ = turn }, tint = c.ink)
-                    }
-                }
-                Box(Modifier.weight(1f).padding(start = if (attachPanel != null) 2.dp else 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
-                    val converting = vState is HoldToTalk.State.Converting
-                    if (text.isEmpty() && !converting) {
-                        if (vh != null) VoicePlaceholder(mode)
-                        else Text(ChatCopy.placeholder(mode, hasHistory), style = MinaType.Body, color = c.ink3, maxLines = 1)
-                    }
-                    BasicTextField(
-                        shownValue,
-                        { v -> fieldValue = v; if (v.text != text) onText(v.text) },
-                        Modifier.fillMaxWidth().testTag("composer-field").focusRequester(field)
-                            .alpha(if (converting) 0f else 1f)
-                            // Click on the input box when the panel is open: the panel gives way to the
-                            // keyboard
-                            .onFocusChanged {
-                                fieldFocused = it.isFocused
-                                if (it.isFocused && panel == Panel.Open) panel = Panel.Yielding
-                            },
-                        textStyle = MinaType.Body.copy(color = c.ink),
-                        cursorBrush = SolidColor(c.accent),
-                        maxLines = 5,
-                    )
-                    // After the service provider releases the button, rotate: circle in the input box
-                    // and fill in the transferred words.
-                    if (converting) VoiceConverting(Modifier.align(Alignment.CenterStart))
-                    if (voiceGesture && vh != null) {
-                        Box(Modifier.matchParentSize().holdToTalk(vh) { field.requestFocus(); keyboard?.show() })
-                    }
-                }
-                val canSend = AttachTray.canSend(text, attachments, importing)
-                // After the keyboard comes out, press and hold the input box to allow the system to
-                // select words; press and hold the microphone to listen, and click and hold only to
-                // prompt
-                if (fieldFocused && vh != null) {
-                    val hint = stringResource(R.string.voice_hold_to_talk)
-                    Box(
-                        Modifier.size(MinaSize.IconButton).testTag("composer-mic").holdToTalk(vh) { vh.toast = hint },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(MinaIcons.Mic, hint, Modifier.size(MinaSize.Icon), tint = c.ink)
-                    }
-                }
-                // The task stops while it is running; after writing a word, send another one. If it is
-                // sent, it will be handed over to the current task.
-                if (busy) {
-                    val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
-                    Box(
-                        Modifier.size(MinaSize.IconButton).clip(CircleShape)
-                            .clickable(onClickLabel = pauseLabel, onClick = onPause),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            if (paused) MinaIcons.Play else MinaIcons.Pause, pauseLabel,
-                            Modifier.size(20.dp), tint = c.ink,
+                        val converting = vState is HoldToTalk.State.Converting
+                        if (text.isEmpty() && !converting) {
+                            if (vh != null) VoicePlaceholder(mode)
+                            else Text(ChatCopy.placeholder(mode, hasHistory), style = MinaType.Body, color = c.ink3, maxLines = 1)
+                        }
+                        BasicTextField(
+                            shownValue,
+                            { v -> fieldValue = v; if (v.text != text) onText(v.text) },
+                            Modifier.fillMaxWidth().testTag("composer-field").focusRequester(field)
+                                .alpha(if (converting) 0f else 1f)
+                                // Click on the input box when the panel is open: the panel gives way to the
+                                // keyboard
+                                .onFocusChanged {
+                                    fieldFocused = it.isFocused
+                                    if (it.isFocused && panel == Panel.Open) panel = Panel.Yielding
+                                },
+                            textStyle = MinaType.Body.copy(color = c.ink),
+                            cursorBrush = SolidColor(c.accent),
+                            maxLines = 5,
                         )
+                        // After the service provider releases the button, rotate: circle in the input box
+                        // and fill in the transferred words.
+                        if (converting) VoiceConverting(Modifier.align(Alignment.CenterStart))
+                        if (voiceGesture && vh != null) {
+                            Box(Modifier.matchParentSize().holdToTalk(vh) { field.requestFocus(); keyboard?.show() })
+                        }
                     }
-                    Box(
-                        Modifier.size(MinaSize.IconButton).background(c.ink, CircleShape).clip(CircleShape)
-                            .clickable(onClickLabel = stringResource(R.string.chat_stop), onClick = onStop),
-                        contentAlignment = Alignment.Center,
+
+                    val canSend = AttachTray.canSend(text, attachments, importing)
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(26.dp), tint = c.bg)
-                    }
-                }
-                if (!busy || canSend) {
-                    Box(
-                        Modifier.size(MinaSize.IconButton)
-                            .background(if (canSend) c.accent else c.greySoft, CircleShape)
-                            .clip(CircleShape)
-                            .clickable(enabled = canSend, onClickLabel = stringResource(R.string.chat_send)) { panel = Panel.Closed; onSend() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(20.dp), tint = if (canSend) c.onAccent else c.ink3)
+                        Row(
+                            Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (attachPanel != null) {
+                                val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
+                                Box(
+                                    Modifier.size(MinaSize.IconButton).clip(CircleShape)
+                                        .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(MinaIcons.Plus, label, Modifier.size(MinaSize.Icon).graphicsLayer { rotationZ = turn }, tint = c.ink)
+                                }
+                            }
+                            if (onModelPillClick != null) {
+                                ComposerModelPill(
+                                    activeModel = activeModel,
+                                    quotaSnapshot = quotaSnapshot,
+                                    connectionStatus = connectionStatus,
+                                    onClick = onModelPillClick,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
+                        }
+
+                        // After the keyboard comes out, press and hold the input box to allow the system to
+                        // select words; press and hold the microphone to listen, and click and hold only to
+                        // prompt
+                        if (fieldFocused && vh != null) {
+                            val hint = stringResource(R.string.voice_hold_to_talk)
+                            Box(
+                                Modifier.size(MinaSize.IconButton).testTag("composer-mic").holdToTalk(vh) { vh.toast = hint },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(MinaIcons.Mic, hint, Modifier.size(MinaSize.Icon), tint = c.ink)
+                            }
+                        }
+                        // The task stops while it is running; after writing a word, send another one. If it is
+                        // sent, it will be handed over to the current task.
+                        if (busy) {
+                            val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
+                            Box(
+                                Modifier.size(MinaSize.IconButton).clip(CircleShape)
+                                    .clickable(onClickLabel = pauseLabel, onClick = onPause),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    if (paused) MinaIcons.Play else MinaIcons.Pause, pauseLabel,
+                                    Modifier.size(20.dp), tint = c.ink,
+                                )
+                            }
+                            Box(
+                                Modifier.size(MinaSize.IconButton).background(c.ink, CircleShape).clip(CircleShape)
+                                    .clickable(onClickLabel = stringResource(R.string.chat_stop), onClick = onStop),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(26.dp), tint = c.bg)
+                            }
+                        }
+                        if (!busy || canSend) {
+                            Box(
+                                Modifier.size(MinaSize.IconButton)
+                                    .background(if (canSend) c.accent else c.greySoft, CircleShape)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = canSend, onClickLabel = stringResource(R.string.chat_send)) { panel = Panel.Closed; onSend() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(20.dp), tint = if (canSend) c.onAccent else c.ink3)
+                            }
+                        }
                     }
                 }
             }
-            if (vh != null) VoiceBarCover(vh, vState, reduceMotion, Modifier.matchParentSize())
+            if (vh != null) VoiceBarCover(vh, vState, reduceMotion, Modifier.matchParentSize(), shape = ComposerShape)
             }
             if (vh != null) VoiceSheetHost(vh, onPickSpeech)
             if (panel != Panel.Closed && attachPanel != null) {
@@ -1696,6 +1792,100 @@ internal fun Composer(
                 }
             }
         }
+    }
+}
+
+private val ComposerShape = RoundedCornerShape(24.dp)
+
+@Composable
+private fun ComposerModelPill(
+    activeModel: ActiveModel,
+    quotaSnapshot: QuotaSnapshot,
+    connectionStatus: ConnectionStatus,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = MinaTheme.colors
+    val hasModel = activeModel.id.isNotBlank() && activeModel.name != "No model"
+    val dotColor = when (connectionStatus) {
+        ConnectionStatus.Connected -> c.ok
+        ConnectionStatus.Connecting -> c.warnSolid
+        ConnectionStatus.SignInRequired, ConnectionStatus.Error -> c.bad
+        ConnectionStatus.Idle -> when (activeModel.callStatus) {
+            ModelCallStatus.Success -> c.ok
+            ModelCallStatus.Failure -> c.bad
+            ModelCallStatus.Untested -> c.ink3
+        }
+    }
+    val pctColor = when {
+        quotaSnapshot.remainingPercent > 30.0 -> c.ok
+        quotaSnapshot.remainingPercent > 10.0 -> c.warnSolid
+        else -> c.bad
+    }
+    val modelLabel = if (hasModel) {
+        activeModel.name.ifBlank { activeModel.id }
+    } else {
+        stringResource(R.string.router_select_model)
+    }
+
+    Row(
+        modifier = modifier
+            .clip(MinaShapes.Pill)
+            .background(c.fill.copy(alpha = 0.85f))
+            .border(0.5.dp, c.hair.copy(alpha = 0.8f), MinaShapes.Pill)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .testTag("composer-model-pill"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(dotColor)
+                .testTag("composer-model-dot"),
+        )
+        Text(
+            text = modelLabel,
+            style = MinaType.Caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+            color = c.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (hasModel) {
+            val badgeText = if (connectionStatus == ConnectionStatus.SignInRequired) {
+                stringResource(R.string.router_signin_short)
+            } else {
+                quotaSnapshot.formattedPercent
+            }
+            val badgeColor = if (connectionStatus == ConnectionStatus.SignInRequired) c.bad else pctColor
+            Box(
+                modifier = Modifier
+                    .clip(MinaShapes.Pill)
+                    .background(badgeColor.copy(alpha = 0.14f))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("composer-quota-percent"),
+            ) {
+                Text(
+                    text = badgeText,
+                    style = MinaType.Caption.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFeatureSettings = "tnum",
+                    ),
+                    color = badgeColor,
+                    maxLines = 1,
+                )
+            }
+        }
+        Icon(
+            imageVector = MinaIcons.ChevronDown,
+            contentDescription = stringResource(R.string.router_chip_desc),
+            tint = c.ink3,
+            modifier = Modifier.size(13.dp),
+        )
     }
 }
 

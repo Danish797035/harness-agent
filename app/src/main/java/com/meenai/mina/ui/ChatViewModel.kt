@@ -33,7 +33,9 @@ import com.meenai.mina.task.SteerNote
 import com.meenai.mina.task.SteerState
 import com.meenai.mina.task.unconsumed
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,10 +49,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.tool.ToolIndex
 import com.meenai.mina.core.assembly.knownTools
 import com.meenai.mina.core.cap.web.AttachedPage
 import com.meenai.mina.core.userscreen.UserScreenMessage
+import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.ConnectionStatus
+import com.meenai.mina.ui.router.ConnectionWarmupResult
+import com.meenai.mina.ui.router.QuotaCalculator
+import com.meenai.mina.ui.router.QuotaSnapshot
+import com.meenai.mina.ui.router.RealRouterStatus
+import com.meenai.mina.ui.router.RouterStatus
 
 /** What the interface can do for the task service; it is implemented by TaskService on the real machine, and is replaced by recording calls in the test. */
 interface TaskActions {
@@ -408,6 +419,14 @@ class ChatViewModel(
     private val closeKept: () -> Unit = {},
     /** Model name/ID currently answering the shown running task. */
     private val runningModel: StateFlow<String?> = MutableStateFlow(null),
+    /** Optional router status backed by [FreeKeyRouter] for live quota % and startup connection state. */
+    private val routerStatus: RouterStatus? = null,
+    /** Configured daily request budget used when a provider does not report exact server limits. */
+    private val dailyBudget: () -> Int = { QuotaCalculator.PRO_PLAN_DEFAULT_LIMIT },
+    /** Non-blocking startup warm-up callback run on [ioDispatcher] at launch/reconnect. */
+    private val warmUpConnection: (suspend () -> ConnectionWarmupResult)? = null,
+    /** Dispatcher used for startup connection warm-up (injectable for unit tests). */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** The user closes the page left in the background on the conversation page. */
     fun closeKeptPage() = closeKept()
@@ -420,6 +439,31 @@ class ChatViewModel(
     val deleted: StateFlow<Set<String>> = _deleted.asStateFlow()
     /** It hasn’t been deleted yet. */
     private val deleting = mutableSetOf<String>()
+
+    private val _quotaTrigger = MutableStateFlow(0L)
+    private val _quotaSnapshot = MutableStateFlow(computeQuotaSnapshot())
+    /** Live remaining quota snapshot (0.0%–100.0% + window/reset details) for the active model. */
+    val quotaSnapshot: StateFlow<QuotaSnapshot> = _quotaSnapshot.asStateFlow()
+
+    private val _remainingQuotaPercent = MutableStateFlow(_quotaSnapshot.value.remainingPercent)
+    /** Real-time remaining quota percentage (0.0–100.0) updated at launch and after every turn. */
+    val remainingQuotaPercent: StateFlow<Double> = _remainingQuotaPercent.asStateFlow()
+
+    private val _connectionStatus = MutableStateFlow(
+        when {
+            warmUpConnection != null -> ConnectionStatus.Connecting
+            routerStatus != null -> routerStatus.connectionStatus.value
+            else -> ConnectionStatus.Idle
+        }
+    )
+    /** Live connection/session warm-up status for the bottom pill dot. */
+    val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
+
+    private val _connectionDetail = MutableStateFlow<String?>(null)
+    val connectionDetail: StateFlow<String?> = _connectionDetail.asStateFlow()
+
+    private var warmUpJob: Job? = null
+    private var lastWarmUpAtMs: Long = 0L
 
     /** In addition to this dialogue on the screen, there are dialogues in which tasks are running or queued ("Another n tasks in progress" at the top). */
     val otherRunning: StateFlow<List<String>> = combine(activeConversations, _ui.map { it.conversationId }.distinctUntilChanged()) { active, current ->
@@ -524,6 +568,129 @@ class ChatViewModel(
         scope.launch { activeConversations.collect { fillGoal() } }
         scope.launch { summarizing.collect { set -> _ui.update { ui -> ui.copy(exchanges = ui.exchanges.map { withSummarizing(it, set) }) } } }
         scope.launch { runningModel.collect { if (ownTask()) onRunningModel(it) } }
+
+        // Keep live remaining quota percentage synchronized with router state and every completed model call.
+        scope.launch {
+            val currentFlow = routerStatus?.current ?: MutableStateFlow(ActiveModel())
+            val usageFlow = routerStatus?.usage ?: MutableStateFlow(emptyList())
+            combine(
+                currentFlow,
+                usageFlow,
+                RouterUsageTracker.updates,
+                _quotaTrigger,
+                runningModel,
+            ) { _, _, _, _, _ ->
+                computeQuotaSnapshot()
+            }.collect { snap ->
+                _quotaSnapshot.value = snap
+                _remainingQuotaPercent.value = snap.remainingPercent
+            }
+        }
+
+        if (warmUpConnection != null) {
+            warmUpActiveConnection()
+        }
+    }
+
+    private fun computeQuotaSnapshot(): QuotaSnapshot {
+        val active = routerStatus?.current?.value
+        if (active == null) {
+            val runningId = runningModel.value?.takeIf { it.isNotBlank() }
+            val used = if (runningId != null) RouterUsageTracker.getTodayCalls(runningId) else 0
+            val budget = dailyBudget().coerceAtLeast(1)
+            val rem = (((budget - used).coerceAtLeast(0)) * 100.0 / budget).coerceIn(0.0, 100.0)
+            return QuotaSnapshot(
+                remainingPercent = rem,
+                isExactServerQuota = false,
+                windowLabel = "Daily budget",
+                usedCount = used,
+                limitCount = budget,
+            )
+        }
+        if (active.id.isBlank() || active.name == "No model") {
+            return QuotaSnapshot(remainingPercent = 0.0, usedCount = 0, limitCount = 0)
+        }
+        val trackerCalls = RouterUsageTracker.getTodayCalls(active.id)
+        val effectiveUsed = maxOf(active.usedToday, trackerCalls)
+        return if (active.isExactQuota) {
+            // If exact server quota is tracked by RealRouterStatus, it already incorporates post-fetch local calls;
+            // if backed by FakeRouterStatus in tests, reflect any newer RouterUsageTracker calls cleanly.
+            val deltaSince = (trackerCalls - active.usedToday).coerceAtLeast(0)
+            val budget = dailyBudget().coerceAtLeast(1)
+            val limit = active.limit?.takeIf { it > 0 } ?: active.quotaTotal.takeIf { it > 0 } ?: budget
+            val adjustedPct = if (routerStatus is RealRouterStatus) {
+                active.remainingPercent
+            } else {
+                (active.remainingPercent - (deltaSince * 100.0) / limit).coerceIn(0.0, 100.0)
+            }
+            QuotaSnapshot(
+                remainingPercent = adjustedPct,
+                isExactServerQuota = true,
+                windowLabel = active.windowLabel.ifBlank { "Quota" },
+                tierLabel = active.tierLabel.ifBlank { active.provider },
+                usedCount = effectiveUsed,
+                limitCount = active.limit ?: active.quotaTotal.takeIf { it > 0 },
+                resetsAtEpochMs = active.resetsAtEpochMs,
+                weeklyRemainingPercent = active.weeklyRemainingPercent,
+                weeklyResetsAtEpochMs = active.weeklyResetsAtEpochMs,
+            )
+        } else {
+            QuotaCalculator.compute(
+                active = active.copy(usedToday = effectiveUsed),
+                configuredDailyBudget = dailyBudget(),
+            )
+        }
+    }
+
+    /** Refreshes the computed quota snapshot and requests server quota updates if available. */
+    fun refreshQuota() {
+        _quotaTrigger.update { it + 1 }
+        val snap = computeQuotaSnapshot()
+        _quotaSnapshot.value = snap
+        _remainingQuotaPercent.value = snap.remainingPercent
+        routerStatus?.refresh()
+    }
+
+    /** Non-blocking background warm-up on [ioDispatcher] to pre-validate session and warm HTTP/TLS. */
+    fun warmUpActiveConnection() {
+        val runner = warmUpConnection ?: return
+        warmUpJob?.cancel()
+        lastWarmUpAtMs = clock()
+        _connectionStatus.value = ConnectionStatus.Connecting
+        _connectionDetail.value = null
+        routerStatus?.setConnectionStatus(ConnectionStatus.Connecting, null)
+        warmUpJob = scope.launch {
+            val result = withContext(ioDispatcher) {
+                runCatching { runner() }.getOrElse { e ->
+                    if (e is CancellationException) throw e
+                    ConnectionWarmupResult(ConnectionStatus.Error, e.message)
+                }
+            }
+            _connectionStatus.value = result.status
+            _connectionDetail.value = result.detail
+            routerStatus?.setConnectionStatus(result.status, result.detail)
+            result.geminiUsage?.let { usage ->
+                routerStatus?.setGeminiUsage(
+                    usage = usage,
+                    callsAtFetch = RouterUsageTracker.getTodayProviderCalls("gemini_web"),
+                )
+            }
+            result.openRouterInfo?.let { info ->
+                (routerStatus as? RealRouterStatus)?.setOpenRouterKeyInfo(info)
+            }
+            refreshQuota()
+        }
+    }
+
+    /** Re-warms connection when returning to foreground if not currently connecting and stale (> 60s) or errored. */
+    fun warmUpIfNeeded(staleAfterMs: Long = 60_000L) {
+        if (warmUpConnection == null) return
+        val status = _connectionStatus.value
+        if (status == ConnectionStatus.Connecting) return
+        val elapsed = clock() - lastWarmUpAtMs
+        if (status != ConnectionStatus.Connected || elapsed >= staleAfterMs) {
+            warmUpActiveConnection()
+        }
     }
 
     private fun onRunningModel(modelId: String?) {
@@ -1279,6 +1446,7 @@ class ChatViewModel(
             // This round may have been saved in the conversation and added to the screen: press the run
             // number and merge it into one
             _ui.value.conversationId?.let(::syncSaved)
+            refreshQuota()
             if (s is TaskState.Succeeded) {
                 lingerJob = scope.launch {
                     delay(DONE_LINGER_MS)

@@ -1,7 +1,13 @@
 package com.meenai.mina.ui.router
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.meenai.mina.core.gemini.GeminiUsage
+import com.meenai.mina.core.gemini.GeminiUsageFetch
+import com.meenai.mina.core.gemini.GeminiWebClient
+import com.meenai.mina.core.gemini.GeminiWebSession
+import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ModelRole
+import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.router.FreeKeyRouter
 import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.core.router.ModelHealthTracker
@@ -9,6 +15,8 @@ import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.router.picker.ChatModelFilter
 import com.meenai.mina.core.router.picker.CuratedTiers
 import com.meenai.mina.core.router.preset.ZaiPreset
+import com.meenai.mina.settings.ProviderConfig
+import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +50,175 @@ enum class ModelCallStatus {
     Failure,
 }
 
+/** Live startup/session connection state for the active model/provider pill. */
+enum class ConnectionStatus {
+    Idle,
+    Connecting,
+    Connected,
+    SignInRequired,
+    Error,
+}
+
+/** Result produced by background connection warm-up on app launch or reconnect. */
+data class ConnectionWarmupResult(
+    val status: ConnectionStatus,
+    val detail: String? = null,
+    val geminiUsage: GeminiUsage? = null,
+    val openRouterInfo: OpenRouterKeyInfo? = null,
+)
+
+/** Real-time remaining quota snapshot for the active model (0.0%–100.0%). */
+data class QuotaSnapshot(
+    val remainingPercent: Double = 100.0,
+    val isExactServerQuota: Boolean = false,
+    val windowLabel: String = "",
+    val tierLabel: String = "",
+    val usedCount: Int = 0,
+    val limitCount: Int? = null,
+    val resetsAtEpochMs: Long? = null,
+    val weeklyRemainingPercent: Double? = null,
+    val weeklyResetsAtEpochMs: Long? = null,
+) {
+    val formattedPercent: String
+        get() = formatPercent(remainingPercent)
+
+    companion object {
+        fun formatPercent(pct: Double): String =
+            String.format(java.util.Locale.US, "%.1f%%", pct.coerceIn(0.0, 100.0))
+    }
+}
+
+/**
+ * Computes real-time remaining quota % (0.0–100.0) from exact provider usage when available,
+ * falling back to the configured daily/tier window limit when no server limit is reported.
+ */
+object QuotaCalculator {
+    const val PRO_PLAN_DEFAULT_LIMIT = 100
+    const val ULTRA_PLAN_DEFAULT_LIMIT = 200
+    const val FREE_TIER_DEFAULT_LIMIT = 50
+
+    fun compute(
+        active: ActiveModel,
+        geminiUsage: GeminiUsage? = null,
+        geminiUsageCallsAtFetch: Int = 0,
+        todayProviderCalls: Int = active.usedToday,
+        magicubeBalance: Double? = null,
+        todayMagicubeSpent: Double = 0.0,
+        configuredDailyBudget: Int = PRO_PLAN_DEFAULT_LIMIT,
+        geminiCapacity: Int = 2,
+    ): QuotaSnapshot {
+        if (active.id.isBlank() || active.name == "No model") {
+            return QuotaSnapshot(remainingPercent = 0.0, usedCount = 0, limitCount = 0)
+        }
+        val budget = configuredDailyBudget.coerceAtLeast(1)
+        if (active.isExactQuota && geminiUsage == null && magicubeBalance == null) {
+            return QuotaSnapshot(
+                remainingPercent = active.remainingPercent.coerceIn(0.0, 100.0),
+                isExactServerQuota = true,
+                windowLabel = active.windowLabel.ifBlank { "Quota" },
+                tierLabel = active.tierLabel.ifBlank { active.provider },
+                usedCount = active.usedToday,
+                limitCount = active.limit ?: active.quotaTotal.takeIf { it > 0 },
+                resetsAtEpochMs = active.resetsAtEpochMs,
+                weeklyRemainingPercent = active.weeklyRemainingPercent,
+                weeklyResetsAtEpochMs = active.weeklyResetsAtEpochMs,
+            )
+        }
+        val isGeminiWeb = active.provider.equals("Google Gemini", ignoreCase = true) ||
+            active.provider.equals("gemini_web", ignoreCase = true)
+
+        if (isGeminiWeb) {
+            val tierUpper = geminiUsage?.tier?.uppercase().orEmpty()
+            val (tierLabel, tierLimit) = when {
+                "ULTRA" in tierUpper -> "Ultra Plan" to maxOf(budget, ULTRA_PLAN_DEFAULT_LIMIT)
+                "PRO" in tierUpper || geminiCapacity >= 2 -> "Pro Plan" to budget
+                else -> "Free" to minOf(budget, FREE_TIER_DEFAULT_LIMIT).coerceAtLeast(1)
+            }
+            val daily = geminiUsage?.daily
+            val weekly = geminiUsage?.weekly
+            if (daily != null) {
+                val baseRem = (100.0 - daily.fractionUsed * 100.0).coerceIn(0.0, 100.0)
+                val deltaCalls = (todayProviderCalls - geminiUsageCallsAtFetch).coerceAtLeast(0)
+                val deltaPct = (deltaCalls * 100.0) / tierLimit
+                val remaining = (baseRem - deltaPct).coerceIn(0.0, 100.0)
+                val weeklyRem = weekly?.let { (100.0 - it.fractionUsed * 100.0).coerceIn(0.0, 100.0) }
+                return QuotaSnapshot(
+                    remainingPercent = remaining,
+                    isExactServerQuota = true,
+                    windowLabel = "5h window",
+                    tierLabel = tierLabel,
+                    usedCount = todayProviderCalls,
+                    limitCount = null,
+                    resetsAtEpochMs = daily.resetsAtEpochMs,
+                    weeklyRemainingPercent = weeklyRem,
+                    weeklyResetsAtEpochMs = weekly?.resetsAtEpochMs,
+                )
+            }
+            if (weekly != null) {
+                val baseRem = (100.0 - weekly.fractionUsed * 100.0).coerceIn(0.0, 100.0)
+                val deltaCalls = (todayProviderCalls - geminiUsageCallsAtFetch).coerceAtLeast(0)
+                val deltaPct = (deltaCalls * 100.0) / tierLimit
+                val remaining = (baseRem - deltaPct).coerceIn(0.0, 100.0)
+                return QuotaSnapshot(
+                    remainingPercent = remaining,
+                    isExactServerQuota = true,
+                    windowLabel = "Weekly",
+                    tierLabel = tierLabel,
+                    usedCount = todayProviderCalls,
+                    limitCount = null,
+                    resetsAtEpochMs = weekly.resetsAtEpochMs,
+                    weeklyRemainingPercent = remaining,
+                    weeklyResetsAtEpochMs = weekly.resetsAtEpochMs,
+                )
+            }
+            val remaining = (((tierLimit - active.usedToday).coerceAtLeast(0)) * 100.0 / tierLimit).coerceIn(0.0, 100.0)
+            return QuotaSnapshot(
+                remainingPercent = remaining,
+                isExactServerQuota = false,
+                windowLabel = "Daily window",
+                tierLabel = tierLabel,
+                usedCount = active.usedToday,
+                limitCount = tierLimit,
+            )
+        }
+
+        val explicitLimit = active.limit?.takeIf { it > 0 } ?: active.quotaTotal.takeIf { it > 0 }
+        if (explicitLimit != null) {
+            val remaining = (((explicitLimit - active.usedToday).coerceAtLeast(0)) * 100.0 / explicitLimit).coerceIn(0.0, 100.0)
+            return QuotaSnapshot(
+                remainingPercent = remaining,
+                isExactServerQuota = !active.isEstimate,
+                windowLabel = "Daily limit",
+                tierLabel = active.provider,
+                usedCount = active.usedToday,
+                limitCount = explicitLimit,
+            )
+        }
+
+        if (active.provider.equals("ModelScope", ignoreCase = true) && magicubeBalance != null) {
+            val totalCapacity = (magicubeBalance + todayMagicubeSpent).coerceAtLeast(1.0)
+            val remaining = ((magicubeBalance / totalCapacity) * 100.0).coerceIn(0.0, 100.0)
+            return QuotaSnapshot(
+                remainingPercent = remaining,
+                isExactServerQuota = true,
+                windowLabel = "Magicube",
+                tierLabel = "ModelScope",
+                usedCount = active.usedToday,
+            )
+        }
+
+        val remaining = (((budget - active.usedToday).coerceAtLeast(0)) * 100.0 / budget).coerceIn(0.0, 100.0)
+        return QuotaSnapshot(
+            remainingPercent = remaining,
+            isExactServerQuota = false,
+            windowLabel = "Daily budget",
+            tierLabel = active.provider.ifBlank { "Free" },
+            usedCount = active.usedToday,
+            limitCount = budget,
+        )
+    }
+}
+
 /**
  * Currently active model metadata for Router UI.
  */
@@ -59,6 +236,13 @@ data class ActiveModel(
     val canPin: Boolean = true,
     val cooldownUntilMs: Long = 0L,
     val callStatus: ModelCallStatus = ModelCallStatus.Untested,
+    val remainingPercent: Double = 100.0,
+    val isExactQuota: Boolean = false,
+    val tierLabel: String = "",
+    val windowLabel: String = "",
+    val resetsAtEpochMs: Long? = null,
+    val weeklyRemainingPercent: Double? = null,
+    val weeklyResetsAtEpochMs: Long? = null,
 )
 
 enum class ModelStatusKind {
@@ -104,6 +288,7 @@ data class ModelQuotaLine(
     val quotaState: QuotaState = QuotaState.Ready,
     val exhaustedReason: String? = null,
     val rank: Int? = null,
+    val remainingPercent: Double? = null,
 )
 
 /**
@@ -235,7 +420,16 @@ interface RouterStatus {
     val usage: StateFlow<List<ProviderUsage>>
     val events: Flow<SwitchEvent>
     val switchHistory: List<SwitchEvent> get() = emptyList()
+    val connectionStatus: StateFlow<ConnectionStatus> get() = MutableStateFlow(ConnectionStatus.Connected)
+    val connectionDetail: StateFlow<String?> get() = MutableStateFlow(null)
+    val thinkingEffort: StateFlow<String?> get() = MutableStateFlow(null)
     fun pinModel(modelId: String?)
+    fun selectModel(modelId: String, providerId: String? = null) {
+        pinModel(modelId)
+    }
+    fun setThinkingEffort(effort: String?) {}
+    fun setConnectionStatus(status: ConnectionStatus, detail: String? = null) {}
+    fun setGeminiUsage(usage: GeminiUsage?, callsAtFetch: Int = RouterUsageTracker.getTodayProviderCalls("gemini_web")) {}
     fun refresh()
 }
 
@@ -248,9 +442,27 @@ class RealRouterStatus(
     val store: ProviderStore? = null,
     val getFallbackModel: (() -> Pair<String, String>?)? = null,
     var openRouterKeyClient: OpenRouterKeyClient = HttpOpenRouterKeyClient(),
+    val preferencesStore: ModelPreferencesStore? = null,
+    val dailyBudgetProvider: () -> Int = { QuotaCalculator.PRO_PLAN_DEFAULT_LIMIT },
+    val geminiUsageFetcher: suspend (GeminiWebSession) -> GeminiUsageFetch? = { session ->
+        runCatching { GeminiWebClient.fetchUsage(GeminiWebClient.geminiWebHttp, session) }.getOrNull()
+    },
 ) : RouterStatus {
 
     private var cachedOpenRouterKeyInfo: OpenRouterKeyInfo? = null
+    private var cachedGeminiUsage: GeminiUsage? = null
+    private var geminiCallsAtFetch: Int = 0
+
+    private val _connectionStatus = MutableStateFlow(ConnectionStatus.Idle)
+    override val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
+
+    private val _connectionDetail = MutableStateFlow<String?>(null)
+    override val connectionDetail: StateFlow<String?> = _connectionDetail.asStateFlow()
+
+    private val _thinkingEffort = MutableStateFlow(
+        preferencesStore?.getThinkingEffort() ?: store?.roles?.value?.reasoningEffort(ModelRole.Main)
+    )
+    override val thinkingEffort: StateFlow<String?> = _thinkingEffort.asStateFlow()
 
     private val _current = MutableStateFlow(computeActiveModel())
     override val current: StateFlow<ActiveModel> = _current.asStateFlow()
@@ -302,13 +514,64 @@ class RealRouterStatus(
                     _usage.value = computeUsage()
                 }
             }
+            scope.launch {
+                store.roles.collect { roles ->
+                    if (preferencesStore == null) {
+                        _thinkingEffort.value = roles.reasoningEffort(ModelRole.Main)
+                    }
+                    _current.value = computeActiveModel()
+                    _usage.value = computeUsage()
+                }
+            }
+        }
+        if (preferencesStore != null) {
+            scope.launch {
+                preferencesStore.thinkingEffort.collect { effort ->
+                    _thinkingEffort.value = effort
+                }
+            }
+        }
+        scope.launch {
+            var first = true
+            RouterUsageTracker.updates.collect {
+                if (first) {
+                    first = false
+                    return@collect
+                }
+                _current.value = computeActiveModel()
+                _usage.value = computeUsage()
+                refreshServerQuotasAsync()
+            }
         }
     }
 
     override fun refresh() {
         _current.value = computeActiveModel()
         _usage.value = computeUsage()
+        refreshServerQuotasAsync()
+    }
+
+    private fun refreshServerQuotasAsync() {
         refreshOpenRouterKeyAsync()
+        refreshGeminiUsageAsync()
+    }
+
+    fun refreshGeminiUsageAsync() {
+        val s = store ?: return
+        val webProvider = s.geminiWebProvider() ?: return
+        val session = s.geminiWebSession(webProvider.id) ?: return
+        scope.launch(Dispatchers.IO) {
+            val fetched = geminiUsageFetcher(session) ?: return@launch
+            if (fetched.session != session) {
+                s.updateGeminiWebSession(webProvider.id, fetched.session)
+            }
+            if (fetched.usage != null) {
+                setGeminiUsage(
+                    usage = fetched.usage,
+                    callsAtFetch = RouterUsageTracker.getTodayProviderCalls("gemini_web"),
+                )
+            }
+        }
     }
 
     fun refreshOpenRouterKeyAsync() {
@@ -330,6 +593,69 @@ class RealRouterStatus(
         _usage.value = computeUsage()
     }
 
+    override fun setGeminiUsage(usage: GeminiUsage?, callsAtFetch: Int) {
+        cachedGeminiUsage = usage
+        geminiCallsAtFetch = callsAtFetch
+        _current.value = computeActiveModel()
+        _usage.value = computeUsage()
+    }
+
+    override fun setConnectionStatus(status: ConnectionStatus, detail: String?) {
+        _connectionStatus.value = status
+        _connectionDetail.value = detail
+    }
+
+    override fun setThinkingEffort(effort: String?) {
+        val normalized = effort?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        preferencesStore?.setThinkingEffort(normalized)
+        _thinkingEffort.value = normalized
+        val storeMapped = when (normalized) {
+            "fast" -> "low"
+            else -> normalized
+        }
+        store?.setReasoningEffort(ModelRole.Main, storeMapped)
+    }
+
+    override fun selectModel(modelId: String, providerId: String?) {
+        if (modelId.isBlank()) {
+            pinModel(null)
+            return
+        }
+        val matchedCandidate = router.candidates.firstOrNull { cand ->
+            cand.id.equals(modelId, ignoreCase = true) && (providerId == null || run {
+                val p = store?.providers?.value?.firstOrNull { it.id == providerId }
+                p == null || AppFreeKeyRouter.providerMatches(p, cand.provider)
+            })
+        } ?: router.candidates.firstOrNull { it.id.equals(modelId, ignoreCase = true) }
+
+        if (matchedCandidate != null) {
+            router.pinModel(matchedCandidate.id)
+        } else {
+            router.pinModel(modelId)
+        }
+
+        store?.let { s ->
+            val targetProvider = providerId?.let { s.provider(it) }
+                ?: matchedCandidate?.let { cand ->
+                    s.providers.value.firstOrNull { AppFreeKeyRouter.providerMatches(it, cand.provider) }
+                }
+            if (targetProvider != null) {
+                val listed = targetProvider.models?.firstOrNull { it.id.equals(modelId, ignoreCase = true) }
+                val preset = ProviderPresets.forBaseUrl(targetProvider.baseUrl) ?: ProviderPresets.forHost(targetProvider.baseUrl)
+                val caps = matchedCandidate?.model?.capabilities ?: Capabilities(
+                    toolCalls = listed?.toolCalls ?: preset?.capabilities?.toolCalls ?: true,
+                    vision = listed?.vision ?: preset?.capabilities?.vision ?: ChatModelFilter.supportsVision(modelId, false),
+                    contextTokens = listed?.contextTokens ?: preset?.capabilities?.contextTokens ?: 128_000,
+                    reasoning = listed?.reasoning ?: preset?.capabilities?.reasoning ?: false,
+                    promptCaching = preset?.capabilities?.promptCaching ?: PromptCaching.Implicit,
+                )
+                s.use(ModelRole.Main, targetProvider.id, matchedCandidate?.id ?: modelId, caps)
+            }
+        }
+        _current.value = computeActiveModel()
+        _usage.value = computeUsage()
+    }
+
     override fun pinModel(modelId: String?) {
         if (router.candidates.isEmpty()) {
             return
@@ -337,19 +663,12 @@ class RealRouterStatus(
         if (modelId.isNullOrBlank()) {
             router.unpinModel()
         } else {
-            router.pinModel(modelId)
+            val candidate = router.candidates.find { it.id.equals(modelId, ignoreCase = true) }
+            router.pinModel(candidate?.id ?: modelId)
             store?.let { s ->
-                val candidate = router.candidates.find { it.id == modelId }
                 if (candidate != null) {
                     val p = s.providers.value.firstOrNull { prov ->
-                        when (candidate.provider.lowercase()) {
-                            "gemini_web" -> AppFreeKeyRouter.isGeminiWebProvider(prov)
-                            "openrouter" -> AppFreeKeyRouter.isOpenRouterProvider(prov)
-                            "zai", "z.ai" -> AppFreeKeyRouter.isZaiProvider(prov)
-                            "modelscope" -> AppFreeKeyRouter.isModelScopeProvider(prov)
-                            "gemini" -> AppFreeKeyRouter.isGeminiProvider(prov)
-                            else -> prov.id == candidate.provider || prov.name.contains(candidate.provider, ignoreCase = true)
-                        }
+                        AppFreeKeyRouter.providerMatches(prov, candidate.provider)
                     }
                     if (p != null) {
                         s.use(ModelRole.Main, p.id, candidate.id, candidate.model.capabilities)
@@ -358,6 +677,7 @@ class RealRouterStatus(
             }
         }
         _current.value = computeActiveModel()
+        _usage.value = computeUsage()
     }
 
     private fun computeActiveModel(): ActiveModel {
@@ -369,6 +689,8 @@ class RealRouterStatus(
             router.candidates.firstOrNull { it.id.equals(mainModelId, ignoreCase = true) }
         } else null
         val active = router.activeCandidate ?: configuredActive ?: router.candidates.firstOrNull()
+        val budget = dailyBudgetProvider().coerceAtLeast(1)
+        val geminiWebCap = store?.geminiWebProvider()?.let { store.geminiWebSession(it.id)?.capacity } ?: 2
         if (active == null) {
             val fallback = getFallbackModel?.invoke()
                 ?: store?.configFor(ModelRole.Main)?.let { cfg ->
@@ -381,7 +703,7 @@ class RealRouterStatus(
                 val used = RouterUsageTracker.getTodayCalls(modelId)
                 val isGeminiWebFallback = providerName.equals("Google Gemini", ignoreCase = true) ||
                     providerName.equals("gemini_web", ignoreCase = true)
-                return ActiveModel(
+                val base = ActiveModel(
                     id = modelId,
                     name = formatModelName(modelId),
                     provider = formatProvider(providerName),
@@ -394,6 +716,23 @@ class RealRouterStatus(
                     isPinned = false,
                     canPin = false,
                     cooldownUntilMs = 0L,
+                )
+                val snap = QuotaCalculator.compute(
+                    active = base,
+                    geminiUsage = if (isGeminiWebFallback) cachedGeminiUsage else null,
+                    geminiUsageCallsAtFetch = geminiCallsAtFetch,
+                    todayProviderCalls = if (isGeminiWebFallback) RouterUsageTracker.getTodayProviderCalls("gemini_web") else used,
+                    configuredDailyBudget = budget,
+                    geminiCapacity = geminiWebCap,
+                )
+                return base.copy(
+                    remainingPercent = snap.remainingPercent,
+                    isExactQuota = snap.isExactServerQuota,
+                    tierLabel = snap.tierLabel,
+                    windowLabel = snap.windowLabel,
+                    resetsAtEpochMs = snap.resetsAtEpochMs,
+                    weeklyRemainingPercent = snap.weeklyRemainingPercent,
+                    weeklyResetsAtEpochMs = snap.weeklyResetsAtEpochMs,
                 )
             }
             return ActiveModel(
@@ -409,13 +748,14 @@ class RealRouterStatus(
                 isPinned = false,
                 canPin = false,
                 cooldownUntilMs = 0L,
+                remainingPercent = 0.0,
             )
         }
 
         val rawId = status.currentModel ?: active.id
         val id = if (rawId.contains("carbon", ignoreCase = true)) "gemini-4-argon" else rawId
         val provider = status.provider ?: active.provider
-        val isPinned = router.pinnedModelId != null && (router.pinnedModelId == id)
+        val isPinned = router.pinnedModelId != null && (router.pinnedModelId.equals(id, ignoreCase = true))
         val cooldownMs = router.cooldownStore.getRemainingCooldownMs(id)
         val cooldownUntil = if (cooldownMs > 0L) System.currentTimeMillis() + cooldownMs else 0L
 
@@ -442,7 +782,7 @@ class RealRouterStatus(
             }
         }
 
-        return ActiveModel(
+        val base = ActiveModel(
             id = id,
             name = formatModelName(id),
             provider = formatProvider(provider),
@@ -457,6 +797,29 @@ class RealRouterStatus(
             cooldownUntilMs = cooldownUntil,
             callStatus = callStatus,
         )
+        val isModelScope = provider.equals("modelscope", ignoreCase = true)
+        val todayMsSpent = if (isModelScope) {
+            RouterUsageTracker.getTodayProviderCalls("modelscope") * modelScopeMagicubeCost(id)
+        } else 0.0
+        val snap = QuotaCalculator.compute(
+            active = base,
+            geminiUsage = if (isGeminiWeb) cachedGeminiUsage else null,
+            geminiUsageCallsAtFetch = geminiCallsAtFetch,
+            todayProviderCalls = if (isGeminiWeb) RouterUsageTracker.getTodayProviderCalls("gemini_web") else usedToday,
+            magicubeBalance = if (isModelScope) MagicubeLedger.totalBalance() else null,
+            todayMagicubeSpent = todayMsSpent,
+            configuredDailyBudget = budget,
+            geminiCapacity = geminiWebCap,
+        )
+        return base.copy(
+            remainingPercent = snap.remainingPercent,
+            isExactQuota = snap.isExactServerQuota,
+            tierLabel = snap.tierLabel,
+            windowLabel = snap.windowLabel,
+            resetsAtEpochMs = snap.resetsAtEpochMs,
+            weeklyRemainingPercent = snap.weeklyRemainingPercent,
+            weeklyResetsAtEpochMs = snap.weeklyResetsAtEpochMs,
+        )
     }
 
     private fun computeUsage(): List<ProviderUsage> {
@@ -470,6 +833,8 @@ class RealRouterStatus(
         }
 
         if (providerEntries.isEmpty()) return emptyList()
+        val budget = dailyBudgetProvider().coerceAtLeast(1)
+        val geminiWebCap = store?.geminiWebProvider()?.let { store.geminiWebSession(it.id)?.capacity } ?: 2
 
         return providerEntries.map { (pName, providerObj) ->
             val providerKeyName = providerObj?.name ?: pName
@@ -492,7 +857,8 @@ class RealRouterStatus(
 
             // 1. Router candidates matching this provider
             router.candidates.filter {
-                it.provider.equals(pName, ignoreCase = true) ||
+                if (providerObj != null) AppFreeKeyRouter.providerMatches(providerObj, it.provider)
+                else it.provider.equals(pName, ignoreCase = true) ||
                     it.provider.equals(providerId, ignoreCase = true) ||
                     (isZai && it.provider.equals("zai", ignoreCase = true)) ||
                     (isModelScope && it.provider.equals("modelscope", ignoreCase = true)) ||
@@ -511,8 +877,10 @@ class RealRouterStatus(
                     freeModels.forEach { modelIds.add(it.id) }
                 } else if (isModelScope && p.models?.isNotEmpty() == true) {
                     p.models.filter { AppFreeKeyRouter.isModelScopeChatModel(it) }.forEach { modelIds.add(it.id) }
-                } else if (p.models?.isNotEmpty() == true && p.models.size <= 8) {
-                    p.models.forEach { modelIds.add(it.id) }
+                } else if (p.models?.isNotEmpty() == true) {
+                    p.models.filter { it.chat != false && it.usable && !ChatModelFilter.isExcluded(it.id) }
+                        .take(24)
+                        .forEach { modelIds.add(it.id) }
                 }
 
                 p.typedModels.forEach { modelIds.add(it) }
@@ -586,7 +954,7 @@ class RealRouterStatus(
                 val isFree = candidate?.isFree
                     ?: (mId.endsWith(":free") || isModelScope || isZai)
 
-                val (quotaState, exhaustedReason) = if (isGeminiWeb) {
+                val (quotaState, exhaustedReason) = if (isGeminiWeb && !isBadKey) {
                     QuotaState.Ready to null
                 } else {
                     ModelPickerLogic.computeQuotaState(
@@ -602,16 +970,34 @@ class RealRouterStatus(
                     )
                 }
 
+                val lineSnap = QuotaCalculator.compute(
+                    active = ActiveModel(
+                        id = mId,
+                        name = formatModelName(mId),
+                        provider = if (isGeminiWeb) "Google Gemini" else formatProvider(providerKeyName),
+                        usedToday = todayRequests,
+                        limit = limit,
+                        isEstimate = if (isGeminiWeb) false else isEstimate,
+                    ),
+                    geminiUsage = if (isGeminiWeb) cachedGeminiUsage else null,
+                    geminiUsageCallsAtFetch = geminiCallsAtFetch,
+                    todayProviderCalls = if (isGeminiWeb) RouterUsageTracker.getTodayProviderCalls("gemini_web") else todayRequests,
+                    magicubeBalance = magicubeBal,
+                    todayMagicubeSpent = if (isModelScope) (costPerCall ?: 0.0) * todayRequests else 0.0,
+                    configuredDailyBudget = budget,
+                    geminiCapacity = geminiWebCap,
+                )
+
                 ModelQuotaLine(
                     modelId = mId,
                     modelName = formatModelName(mId),
                     todayRequests = todayRequests,
                     limit = limit,
                     isEstimate = if (isGeminiWeb) false else isEstimate,
-                    status = if (isGeminiWeb) ModelStatusKind.Ready else status,
+                    status = if (isGeminiWeb && !isBadKey) ModelStatusKind.Ready else status,
                     cooldownMinutes = cooldownMin,
                     costPerCall = costPerCall,
-                    costInfo = if (isGeminiWeb) "Pro Plan" else costInfo,
+                    costInfo = if (isGeminiWeb) (lineSnap.tierLabel.ifBlank { "Pro Plan" }) else costInfo,
                     provider = formatProvider(providerKeyName),
                     supportsVision = supportsVision,
                     supportsTools = supportsTools,
@@ -620,6 +1006,7 @@ class RealRouterStatus(
                     quotaState = quotaState,
                     exhaustedReason = exhaustedReason,
                     rank = runCatching { AppFreeKeyRouter.getRankingsRepository().findRankingIndex(mId) }.getOrNull(),
+                    remainingPercent = lineSnap.remainingPercent,
                 )
             }
 
@@ -659,6 +1046,10 @@ class RealRouterStatus(
         "zai" -> "Z.ai"
         "modelscope" -> "ModelScope"
         "gemini" -> "Gemini"
+        "anthropic" -> "Claude"
+        "openai" -> "OpenAI"
+        "chatgpt" -> "ChatGPT"
+        "xai" -> "xAI"
         else -> provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 
@@ -732,6 +1123,16 @@ fun resolveDisplayModel(
     }
     val usedToday = matchedLine?.todayRequests ?: RouterUsageTracker.getTodayCalls(liveId)
     val limit = matchedLine?.limit
+    val fallbackPct = matchedLine?.remainingPercent ?: QuotaCalculator.compute(
+        ActiveModel(
+            id = liveId,
+            name = formatRouterModelName(liveId),
+            provider = matchedProvider?.provider ?: "",
+            usedToday = usedToday,
+            limit = limit,
+            isEstimate = false,
+        )
+    ).remainingPercent
     return ActiveModel(
         id = liveId,
         name = formatRouterModelName(liveId),
@@ -746,6 +1147,9 @@ fun resolveDisplayModel(
         canPin = routerModel.canPin,
         cooldownUntilMs = 0L,
         callStatus = ModelCallStatus.Untested,
+        remainingPercent = fallbackPct,
+        isExactQuota = matchedLine?.let { !it.isEstimate } ?: false,
+        tierLabel = matchedLine?.costInfo ?: matchedProvider?.provider.orEmpty(),
     )
 }
 
@@ -783,6 +1187,15 @@ class FakeRouterStatus(
     private val _usage = MutableStateFlow(initialUsage)
     override val usage: StateFlow<List<ProviderUsage>> = _usage.asStateFlow()
 
+    private val _connectionStatus = MutableStateFlow(ConnectionStatus.Connected)
+    override val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
+
+    private val _connectionDetail = MutableStateFlow<String?>(null)
+    override val connectionDetail: StateFlow<String?> = _connectionDetail.asStateFlow()
+
+    private val _thinkingEffort = MutableStateFlow<String?>(null)
+    override val thinkingEffort: StateFlow<String?> = _thinkingEffort.asStateFlow()
+
     private val _events = MutableSharedFlow<SwitchEvent>(
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -802,11 +1215,40 @@ class FakeRouterStatus(
         }
     }
 
+    override fun setThinkingEffort(effort: String?) {
+        _thinkingEffort.value = effort
+    }
+
+    override fun setConnectionStatus(status: ConnectionStatus, detail: String?) {
+        _connectionStatus.value = status
+        _connectionDetail.value = detail
+    }
+
+    override fun setGeminiUsage(usage: GeminiUsage?, callsAtFetch: Int) {
+        if (usage == null) return
+        val rem = usage.daily?.let { (100.0 - it.fractionUsed * 100.0).coerceIn(0.0, 100.0) }
+        val weeklyRem = usage.weekly?.let { (100.0 - it.fractionUsed * 100.0).coerceIn(0.0, 100.0) }
+        _current.update { cur ->
+            cur.copy(
+                remainingPercent = rem ?: cur.remainingPercent,
+                isExactQuota = rem != null || cur.isExactQuota,
+                windowLabel = if (rem != null) "5h window" else cur.windowLabel,
+                resetsAtEpochMs = usage.daily?.resetsAtEpochMs ?: cur.resetsAtEpochMs,
+                weeklyRemainingPercent = weeklyRem ?: cur.weeklyRemainingPercent,
+                weeklyResetsAtEpochMs = usage.weekly?.resetsAtEpochMs ?: cur.weeklyResetsAtEpochMs,
+            )
+        }
+    }
+
     override fun refresh() {}
 
     fun emitSwitch(event: SwitchEvent) {
         _history.add(event)
         _events.tryEmit(event)
+    }
+
+    fun setCurrentModel(model: ActiveModel) {
+        _current.value = model
     }
 
     fun updateCurrent(model: ActiveModel) {

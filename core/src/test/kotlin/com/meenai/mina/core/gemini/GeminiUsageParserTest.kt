@@ -99,4 +99,16 @@ class GeminiUsageParserTest {
         """.trimIndent()
         assertEquals(100, GeminiUsageParser.parse(high)?.daily?.percentUsed)
     }
+
+    @Test
+    fun fractionalPercentagePreservesSubPercentPrecision() {
+        val bodyFrac = """
+            {"data":{"viewer":{"rpcs":{"getUsageInfo":{"subscriptionTier":"GOOGLE_AI_PRO","pools":[
+              {"poolType":"GXU_FIVE_HOURLY","percentageUsed":0.092,"gxu":{"windowRefreshesAt":"2026-11-22T04:21:00Z"}}
+            ]}}}}}
+        """.trimIndent()
+        val parsed = GeminiUsageParser.parse(bodyFrac)!!
+        assertEquals(9, parsed.daily?.percentUsed)
+        assertEquals(0.092, parsed.daily?.fractionUsed ?: 0.0, 0.0001)
+    }
 }

@@ -1,5 +1,7 @@
 package com.meenai.mina.ui.router
 
+import com.meenai.mina.core.gemini.GeminiUsage
+import com.meenai.mina.core.gemini.GeminiWarmupOutcome
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import com.meenai.mina.core.model.Capabilities
@@ -7,6 +9,7 @@ import com.meenai.mina.core.model.GeminiModel
 import com.meenai.mina.core.model.GeminiWebModel
 import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.model.OpenAiCompatModel
+import com.meenai.mina.core.net.NetProxy
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.router.FreeKeyRouter
@@ -30,9 +33,12 @@ import com.meenai.mina.settings.ProviderPresets
 import com.meenai.mina.settings.ProviderStore
 import android.content.Context
 import java.io.File
+import java.util.concurrent.TimeUnit
 import com.meenai.mina.core.router.ModelCooldownStore
 import com.meenai.mina.core.router.picker.FileModelStatsStore
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * Helper to build FreeKeyRouter candidates from user-configured API keys.
@@ -58,7 +64,8 @@ object AppFreeKeyRouter {
      */
     fun createCandidates(
         store: ProviderStore,
-        http: OkHttpClient = OkHttpClient(),
+        http: OkHttpClient = sharedApiHttp,
+        reasoningEffortProvider: (() -> String?)? = null,
     ): List<RouterCandidate> {
         val list = mutableListOf<RouterCandidate>()
         store.repairGeminiWebBindings()
@@ -68,23 +75,38 @@ object AppFreeKeyRouter {
                 isGeminiWebProvider(p) -> {
                     val session = store.geminiWebSession(p.id)
                     if (session != null && session.signedIn) {
-                        list.addAll(createGeminiWebCandidates(session, http, p.models) { newSess ->
-                            store.updateGeminiWebSession(p.id, newSess)
-                        })
+                        list.addAll(
+                            createGeminiWebCandidates(
+                                session = session,
+                                http = http,
+                                listedModels = p.models,
+                                reasoningEffortProvider = reasoningEffortProvider,
+                            ) { newSess ->
+                                store.updateGeminiWebSession(p.id, newSess)
+                            }
+                        )
                     }
                 }
                 else -> {
                     val key = store.providerKey(p.id)?.trim()
-                    if (!key.isNullOrBlank()) {
+                    val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+                    val isSelfHosted = preset?.selfHosted == true
+                    val hasAccountAuth = when (p.kind) {
+                        ProviderConfig.Kind.ChatGpt -> store.chatGptSession(p.id)?.signedIn == true
+                        ProviderConfig.Kind.Xai -> store.accountSession(p.id)?.signedIn == true
+                        else -> false
+                    }
+                    if (!key.isNullOrBlank() || isSelfHosted || hasAccountAuth) {
                         when {
-                            isOpenRouterProvider(p) -> list.addAll(createOpenRouterCandidates(key, http, p.models))
-                            isZaiProvider(p) -> list.addAll(ZaiPreset.createCandidates(key, http))
-                            isModelScopeProvider(p) -> list.addAll(createModelScopeCandidates(key, http, p.models))
-                            isGeminiProvider(p) -> list.addAll(createGeminiCandidates(key, http, p.models, p.baseUrl))
-                            isGroqProvider(p) -> list.addAll(createGroqCandidates(key, http, p.models, p.baseUrl))
-                            isDeepSeekProvider(p) -> list.addAll(createDeepSeekCandidates(key, http, p.models, p.baseUrl))
-                            isKimiProvider(p) -> list.addAll(createKimiCandidates(key, http, p.models, p.baseUrl))
-                            isMiniMaxProvider(p) -> list.addAll(createMiniMaxCandidates(key, http, p.models, p.baseUrl))
+                            isOpenRouterProvider(p) -> list.addAll(createOpenRouterCandidates(key.orEmpty(), http, p.models))
+                            isZaiProvider(p) -> list.addAll(ZaiPreset.createCandidates(key.orEmpty(), http))
+                            isModelScopeProvider(p) -> list.addAll(createModelScopeCandidates(key.orEmpty(), http, p.models))
+                            isGeminiProvider(p) -> list.addAll(createGeminiCandidates(key.orEmpty(), http, p.models, p.baseUrl))
+                            isGroqProvider(p) -> list.addAll(createGroqCandidates(key.orEmpty(), http, p.models, p.baseUrl))
+                            isDeepSeekProvider(p) -> list.addAll(createDeepSeekCandidates(key.orEmpty(), http, p.models, p.baseUrl))
+                            isKimiProvider(p) -> list.addAll(createKimiCandidates(key.orEmpty(), http, p.models, p.baseUrl))
+                            isMiniMaxProvider(p) -> list.addAll(createMiniMaxCandidates(key.orEmpty(), http, p.models, p.baseUrl))
+                            else -> list.addAll(createStoreBackedCandidates(store, p, reasoningEffortProvider))
                         }
                     }
                 }
@@ -145,6 +167,244 @@ object AppFreeKeyRouter {
         }
 
         return list
+    }
+
+    private val sharedApiHttp: OkHttpClient by lazy {
+        NetProxy.shared.client(
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+        )
+    }
+
+    /**
+     * Non-blocking startup warm-up for the currently active model/provider:
+     * - For `GeminiWeb`: seeds cookies, refreshes `SNlM0e` / `cfb2h` / rotated cookies, validates `GetUserStatus`,
+     *   pre-warms the `gemini.google.com` HTTP/2 + TLS socket, and fetches live quota %.
+     * - For API providers: pre-warms TLS/HTTP connection (and fetches OpenRouter key quota when applicable).
+     */
+    suspend fun warmUpActiveConnection(
+        store: ProviderStore,
+        router: FreeKeyRouter,
+        openRouterKeyClient: OpenRouterKeyClient = HttpOpenRouterKeyClient(sharedApiHttp),
+        http: OkHttpClient = sharedApiHttp,
+    ): ConnectionWarmupResult {
+        val activeCandidate = router.activeCandidate
+        val mainCfg = store.configFor(com.meenai.mina.core.model.ModelRole.Main)
+        val activeProvider = when {
+            activeCandidate != null -> store.providers.value.firstOrNull { providerMatches(it, activeCandidate.provider) }
+            mainCfg != null -> store.provider(mainCfg.providerId)
+            else -> store.providers.value.firstOrNull()
+        }
+
+        if (activeCandidate == null && mainCfg == null && activeProvider == null) {
+            return ConnectionWarmupResult(ConnectionStatus.Idle)
+        }
+
+        val isGeminiWeb = activeCandidate?.provider.equals("gemini_web", ignoreCase = true) ||
+            (activeProvider != null && isGeminiWebProvider(activeProvider))
+
+        if (isGeminiWeb) {
+            val webProvider = activeProvider ?: store.geminiWebProvider()
+                ?: return ConnectionWarmupResult(ConnectionStatus.SignInRequired, "Google Gemini not connected")
+            val session = store.geminiWebSession(webProvider.id)
+                ?: return ConnectionWarmupResult(ConnectionStatus.SignInRequired, "Sign in to Google Gemini")
+            return when (val outcome = GeminiWebClient.warmUpSession(GeminiWebClient.geminiWebHttp, session)) {
+                is GeminiWarmupOutcome.Ready -> {
+                    if (outcome.session != session) {
+                        store.updateGeminiWebSession(webProvider.id, outcome.session)
+                    }
+                    clearGeminiWebAuthFailure(router.cooldownStore)
+                    val usageFetch = runCatching {
+                        GeminiWebClient.fetchUsage(GeminiWebClient.geminiWebHttp, outcome.session)
+                    }.getOrNull()
+                    if (usageFetch != null && usageFetch.session != outcome.session) {
+                        store.updateGeminiWebSession(webProvider.id, usageFetch.session)
+                    }
+                    ConnectionWarmupResult(
+                        status = ConnectionStatus.Connected,
+                        geminiUsage = usageFetch?.usage,
+                    )
+                }
+                is GeminiWarmupOutcome.SignInExpired -> {
+                    ConnectionWarmupResult(ConnectionStatus.SignInRequired, outcome.reason)
+                }
+                is GeminiWarmupOutcome.NetworkError -> {
+                    ConnectionWarmupResult(ConnectionStatus.Error, outcome.reason)
+                }
+            }
+        }
+
+        val providerName = activeCandidate?.provider ?: activeProvider?.name ?: mainCfg?.name.orEmpty()
+        if (router.cooldownStore.isKeyBad(providerName) ||
+            (activeProvider != null && router.cooldownStore.isKeyBad(activeProvider.id))
+        ) {
+            return ConnectionWarmupResult(ConnectionStatus.Error, "API key is invalid or expired")
+        }
+
+        if (providerName.equals(OPENROUTER_PROVIDER, ignoreCase = true) ||
+            (activeProvider != null && isOpenRouterProvider(activeProvider))
+        ) {
+            val key = resolveOpenRouterKey(store)
+                ?: return ConnectionWarmupResult(ConnectionStatus.SignInRequired, "OpenRouter API key missing")
+            val keyInfo = openRouterKeyClient.getKeyInfo(key)
+            if (keyInfo != null) {
+                return ConnectionWarmupResult(ConnectionStatus.Connected, openRouterInfo = keyInfo)
+            }
+            return preWarmHttpEndpoint(http, "$OPENROUTER_BASE_URL/models", "Bearer $key", headerName = "Authorization")
+        }
+
+        val baseUrl = activeProvider?.baseUrl?.takeIf { it.isNotBlank() }
+            ?: mainCfg?.baseUrl?.takeIf { it.isNotBlank() }
+            ?: return ConnectionWarmupResult(ConnectionStatus.Connected)
+        val kind = activeProvider?.kind ?: mainCfg?.kind ?: ProviderConfig.Kind.OpenAiCompat
+        val token = when (kind) {
+            ProviderConfig.Kind.ChatGpt -> activeProvider?.id?.let { store.chatGptSession(it)?.accessToken }
+            ProviderConfig.Kind.Xai -> activeProvider?.id?.let { store.accountSession(it)?.accessToken }
+            else -> activeProvider?.id?.let { store.providerKey(it) }
+        }?.trim()
+
+        val targetUrl = when (kind) {
+            ProviderConfig.Kind.Gemini -> baseUrl.trimEnd('/') + "/v1beta/models"
+            ProviderConfig.Kind.Anthropic -> baseUrl.trimEnd('/') + "/v1/models"
+            else -> baseUrl.trimEnd('/') + "/models"
+        }
+        val (authHeader, authValue) = when {
+            token.isNullOrBlank() -> null to null
+            kind == ProviderConfig.Kind.Gemini -> "x-goog-api-key" to token
+            kind == ProviderConfig.Kind.Anthropic -> "x-api-key" to token
+            else -> "Authorization" to "Bearer $token"
+        }
+        val extraHeaders = if (kind == ProviderConfig.Kind.Anthropic) {
+            mapOf("anthropic-version" to "2023-06-01")
+        } else {
+            emptyMap()
+        }
+        return preWarmHttpEndpoint(http, targetUrl, authValue, authHeader, extraHeaders)
+    }
+
+    private fun preWarmHttpEndpoint(
+        http: OkHttpClient,
+        url: String,
+        authValue: String?,
+        headerName: String?,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): ConnectionWarmupResult {
+        val warmHttp = http.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
+        val reqBuilder = Request.Builder().url(url).get()
+        if (!headerName.isNullOrBlank() && !authValue.isNullOrBlank()) {
+            reqBuilder.header(headerName, authValue)
+        }
+        extraHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+        return try {
+            warmHttp.newCall(reqBuilder.build()).execute().use { resp ->
+                when (resp.code) {
+                    401, 403 -> ConnectionWarmupResult(ConnectionStatus.SignInRequired, "Authentication failed (HTTP ${resp.code})")
+                    else -> ConnectionWarmupResult(ConnectionStatus.Connected)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ConnectionWarmupResult(ConnectionStatus.Error, e.message ?: "Connection failed")
+        }
+    }
+
+    fun providerMatches(p: Provider, candidateProvider: String): Boolean {
+        val cand = candidateProvider.lowercase()
+        return p.id.equals(candidateProvider, ignoreCase = true) ||
+            p.name.equals(candidateProvider, ignoreCase = true) ||
+            (cand == "gemini_web" && isGeminiWebProvider(p)) ||
+            (cand == "openrouter" && isOpenRouterProvider(p)) ||
+            ((cand == "zai" || cand == "z.ai") && isZaiProvider(p)) ||
+            (cand == "modelscope" && isModelScopeProvider(p)) ||
+            (cand == "gemini" && isGeminiProvider(p)) ||
+            (cand == "groq" && isGroqProvider(p)) ||
+            (cand == "deepseek" && isDeepSeekProvider(p)) ||
+            (cand == "kimi" && isKimiProvider(p)) ||
+            (cand == "minimax" && isMiniMaxProvider(p)) ||
+            (cand == "anthropic" && p.kind == ProviderConfig.Kind.Anthropic) ||
+            (cand == "openai" && p.kind == ProviderConfig.Kind.OpenAiResponses) ||
+            (cand == "chatgpt" && p.kind == ProviderConfig.Kind.ChatGpt) ||
+            (cand == "xai" && p.kind == ProviderConfig.Kind.Xai)
+    }
+
+    fun canonicalProviderId(p: Provider): String = when {
+        isGeminiWebProvider(p) -> "gemini_web"
+        isOpenRouterProvider(p) -> OPENROUTER_PROVIDER
+        isZaiProvider(p) -> "zai"
+        isModelScopeProvider(p) -> ModelScopePreset.PROVIDER_ID
+        isGeminiProvider(p) -> "gemini"
+        isGroqProvider(p) -> "groq"
+        isDeepSeekProvider(p) -> "deepseek"
+        isKimiProvider(p) -> "kimi"
+        isMiniMaxProvider(p) -> "minimax"
+        p.kind == ProviderConfig.Kind.Anthropic -> "anthropic"
+        p.kind == ProviderConfig.Kind.OpenAiResponses -> "openai"
+        p.kind == ProviderConfig.Kind.ChatGpt -> "chatgpt"
+        p.kind == ProviderConfig.Kind.Xai -> "xai"
+        else -> p.id
+    }
+
+    private fun createStoreBackedCandidates(
+        store: ProviderStore,
+        p: Provider,
+        reasoningEffortProvider: (() -> String?)?,
+    ): List<RouterCandidate> {
+        val preset = ProviderPresets.forBaseUrl(p.baseUrl) ?: ProviderPresets.forHost(p.baseUrl)
+        val isSelfHosted = preset?.selfHosted == true
+        val providerId = canonicalProviderId(p)
+        val configuredIds = store.configs.value.filter { it.providerId == p.id }.map { it.model }
+        val listedById = p.models.orEmpty().associateBy { it.id }
+        val orderedIds = linkedSetOf<String>().apply {
+            configuredIds.forEach { add(it) }
+            p.typedModels.forEach { add(it) }
+            p.models.orEmpty()
+                .filter { it.chat != false && it.usable && !ChatModelFilter.isExcluded(it.id) }
+                .take(24)
+                .forEach { add(it.id) }
+        }
+        val activeEffort = reasoningEffortProvider?.invoke() ?: store.roles.value.reasoningEffort(com.meenai.mina.core.model.ModelRole.Main)
+        return orderedIds.map { modelId ->
+            val listed = listedById[modelId]
+            val caps = Capabilities(
+                toolCalls = listed?.toolCalls ?: preset?.capabilities?.toolCalls ?: true,
+                vision = listed?.vision ?: preset?.capabilities?.vision ?: ChatModelFilter.supportsVision(modelId, false),
+                contextTokens = listed?.contextTokens ?: preset?.capabilities?.contextTokens ?: 128_000,
+                reasoning = listed?.reasoning ?: preset?.capabilities?.reasoning ?: (p.kind == ProviderConfig.Kind.Anthropic || p.kind == ProviderConfig.Kind.OpenAiResponses || p.kind == ProviderConfig.Kind.ChatGpt || p.kind == ProviderConfig.Kind.Xai),
+                promptCaching = preset?.capabilities?.promptCaching ?: PromptCaching.Implicit,
+            )
+            val effortForModel = activeEffort?.takeIf { e ->
+                val allowed = listed?.reasoningEfforts
+                when {
+                    allowed != null -> e in allowed
+                    p.kind == ProviderConfig.Kind.OpenAiResponses || p.kind == ProviderConfig.Kind.ChatGpt || p.kind == ProviderConfig.Kind.Xai -> true
+                    p.kind == ProviderConfig.Kind.Anthropic -> caps.reasoning && e in listOf("low", "medium", "high")
+                    else -> false
+                }
+            }
+            val model = store.buildCandidateModel(
+                provider = p,
+                modelId = modelId,
+                capabilities = caps,
+                endpoint = listed?.endpoint,
+                reasoningEffort = effortForModel,
+                thinkingTypes = listed?.thinkingTypes,
+            )
+            RouterCandidate(
+                id = modelId,
+                provider = providerId,
+                model = model,
+                curatedRank = 0,
+                isFree = isSelfHosted,
+                roles = buildSet {
+                    add(ModelRole.Main)
+                    if (caps.vision) add(ModelRole.Vision)
+                    if (caps.contextTokens >= 64_000) add(ModelRole.Long)
+                },
+            )
+        }
     }
 
     private var sharedRankingsRepo: ModelRankingsRepository? = null
@@ -246,8 +506,9 @@ object AppFreeKeyRouter {
         statsTracker: ModelStatsTracker = getStatsTracker(),
         cooldownStore: ModelCooldownStore = getCooldownStore(),
         preferences: com.meenai.mina.core.router.RouterPreferences = com.meenai.mina.core.router.DefaultRouterPreferences,
+        reasoningEffortProvider: (() -> String?)? = null,
     ): FreeKeyRouter = createRouterForCandidates(
-        candidates = createCandidates(store, http),
+        candidates = createCandidates(store, http, reasoningEffortProvider = reasoningEffortProvider),
         http = http,
         rankingsRepository = rankingsRepository,
         probeService = probeService,
@@ -680,6 +941,7 @@ object AppFreeKeyRouter {
         session: GeminiWebSession,
         http: OkHttpClient,
         listedModels: List<ListedModel>? = null,
+        reasoningEffortProvider: (() -> String?)? = null,
         onSessionUpdated: ((GeminiWebSession) -> Unit)? = null,
     ): List<RouterCandidate> {
         val models = if (!listedModels.isNullOrEmpty()) {
@@ -702,6 +964,7 @@ object AppFreeKeyRouter {
                 capabilities = caps,
                 http = GeminiWebClient.geminiWebHttp,
                 onSessionUpdated = onSessionUpdated,
+                reasoningEffortProvider = reasoningEffortProvider,
             )
             val rank = when {
                 m.id.contains("argon", ignoreCase = true) -> 98

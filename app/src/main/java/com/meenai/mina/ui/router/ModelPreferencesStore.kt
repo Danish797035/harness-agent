@@ -5,11 +5,32 @@ import android.content.SharedPreferences
 import com.meenai.mina.core.router.AutoStrategy
 import com.meenai.mina.core.router.RouterPreferences
 import com.meenai.mina.core.router.SpecialistMode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 typealias SpecialistMode = com.meenai.mina.core.router.SpecialistMode
 typealias AutoStrategy = com.meenai.mina.core.router.AutoStrategy
 
 class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPreferences {
+
+    private val _thinkingEffort = MutableStateFlow(readThinkingEffort())
+    val thinkingEffort: StateFlow<String?> = _thinkingEffort.asStateFlow()
+
+    private fun readThinkingEffort(): String? =
+        prefs.getString(KEY_THINKING_EFFORT, null)?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
+    fun getThinkingEffort(): String? = readThinkingEffort()
+
+    fun setThinkingEffort(effort: String?) {
+        val normalized = effort?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        if (normalized == null) {
+            prefs.edit().remove(KEY_THINKING_EFFORT).apply()
+        } else {
+            prefs.edit().putString(KEY_THINKING_EFFORT, normalized).apply()
+        }
+        _thinkingEffort.value = normalized
+    }
 
     fun getFavorites(): Set<String> {
         return prefs.getStringSet(KEY_FAVORITES, emptySet()).orEmpty()
@@ -167,6 +188,7 @@ class ModelPreferencesStore(private val prefs: SharedPreferences) : RouterPrefer
         private const val KEY_HIDDEN_PROVIDERS = "hidden_providers"
         private const val KEY_HIDDEN_MODELS = "hidden_models"
         private const val KEY_MANUAL_ROLE_PREFIX = "manual_role_"
+        private const val KEY_THINKING_EFFORT = "thinking_effort"
         const val MAX_RECENTS = 5
 
         val DEFAULT_PROVIDER_ORDER = listOf(

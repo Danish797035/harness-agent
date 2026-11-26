@@ -13,7 +13,12 @@ import java.time.OffsetDateTime
 import kotlin.math.roundToInt
 
 /** A usage window: what percentage is used (0..100) and when it resets (epoch milliseconds). */
-data class GeminiUsageWindow(val percentUsed: Int, val resetsAtEpochMs: Long)
+data class GeminiUsageWindow(
+    val percentUsed: Int,
+    val resetsAtEpochMs: Long,
+    /** Exact fractional usage in [0.0, 1.0] for sub-percent remaining quota display (e.g. 90.8%). */
+    val fractionUsed: Double = (percentUsed / 100.0).coerceIn(0.0, 1.0),
+)
 
 /**
  * Gemini account's own usage, from the Usage limits page of the Gemini web page: [daily] is the current
@@ -96,6 +101,7 @@ object GeminiUsageParser {
         return GeminiUsageWindow(
             percentUsed = (fraction * 100.0).roundToInt().coerceIn(0, 100),
             resetsAtEpochMs = epochMs,
+            fractionUsed = fraction.coerceIn(0.0, 1.0),
         )
     }
 

@@ -61,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -393,7 +394,13 @@ internal fun Modifier.holdToTalk(vh: VoiceHold, onTap: () -> Unit): Modifier {
 
 /** The entire input field turns blue when pressed (turns red when slid up to cancel), with the waveform in the middle and "release to fill"; cover the glass input field. */
 @Composable
-internal fun VoiceBarCover(vh: VoiceHold, state: HoldToTalk.State, reduceMotion: Boolean, modifier: Modifier = Modifier) {
+internal fun VoiceBarCover(
+    vh: VoiceHold,
+    state: HoldToTalk.State,
+    reduceMotion: Boolean,
+    modifier: Modifier = Modifier,
+    shape: Shape = CircleShape,
+) {
     val s = state as? HoldToTalk.State.Listening
     if (!vh.holding || s == null) return
     val c = MinaTheme.colors
@@ -403,7 +410,7 @@ internal fun VoiceBarCover(vh: VoiceHold, state: HoldToTalk.State, reduceMotion:
         else -> stringResource(R.string.voice_release_convert)
     }
     Row(
-        modifier.clip(CircleShape).background(if (s.cancelArmed) c.bad else c.accent).testTag("voice-bar"),
+        modifier.clip(shape).background(if (s.cancelArmed) c.bad else c.accent).testTag("voice-bar"),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {

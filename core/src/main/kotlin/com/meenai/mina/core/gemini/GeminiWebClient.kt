@@ -466,6 +466,141 @@ object GeminiWebClient {
         return GeminiUsageFetch(attempt.usage, next)
     }
 
+    /**
+     * Non-blocking startup warm-up for a saved [GeminiWebSession]:
+     * seeds the shared cookie jar, refreshes missing/stale `SNlM0e` or `cfb2h`,
+     * and validates the session via `GetUserStatus` while pre-warming the HTTP/2 TLS socket.
+     */
+    suspend fun warmUpSession(http: OkHttpClient, session: GeminiWebSession): GeminiWarmupOutcome {
+        if (!session.signedIn || session.cookies.isBlank()) {
+            return GeminiWarmupOutcome.SignInExpired("Google Gemini session is signed out.")
+        }
+        if (cookieSnapshot().isBlank()) seedCookies(session.cookies)
+        val warmHttp = http.newBuilder()
+            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        var current = session
+        var refreshedFromPage = false
+        val needsPageRefresh = current.cfb2h.isBlank() ||
+            current.snlm0e.isBlank() ||
+            isStaleBuildLabel(current.cfb2h)
+
+        if (needsPageRefresh) {
+            refreshedFromPage = true
+            val fetched = try {
+                fetchSessionFromCookies(
+                    warmHttp,
+                    cookieSnapshot().ifBlank { current.cookies },
+                    userAgentFor(current),
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: ModelError.SignInExpired) {
+                ChatTrace.record("gemini warmup page refresh expired: ${e.message}")
+                return GeminiWarmupOutcome.SignInExpired(e.message ?: "Google Gemini session expired.")
+            } catch (e: Exception) {
+                ChatTrace.record("gemini warmup page refresh error: ${ChatTrace.describe(e)}")
+                return GeminiWarmupOutcome.NetworkError(e.message ?: "Network error while warming Gemini")
+            }
+            current = mergeRefreshedSession(current, fetched)
+            seedCookies(current.cookies)
+        }
+
+        val probeResult = runCatching { probeSession(warmHttp, current) }
+        val probe = probeResult.getOrElse { err ->
+            if (err is kotlinx.coroutines.CancellationException) throw err
+            if (err is ModelError.SignInExpired && !refreshedFromPage) {
+                val retried = tryRefreshAndProbe(warmHttp, current)
+                if (retried != null) return retried
+            }
+            if (err is ModelError.SignInExpired) {
+                return GeminiWarmupOutcome.SignInExpired(err.message ?: "Google Gemini session expired.")
+            }
+            ChatTrace.record("gemini warmup probe error: ${ChatTrace.describe(err)}")
+            return if (refreshedFromPage && current.snlm0e.isNotBlank() && err !is ModelError.Network) {
+                GeminiWarmupOutcome.Ready(withLatestCookies(current), null)
+            } else {
+                GeminiWarmupOutcome.NetworkError(err.message ?: "Could not reach Google Gemini")
+            }
+        }
+
+        if (probe.signedIn) {
+            val merged = mergeProbeIntoSession(withLatestCookies(current), probe)
+            return GeminiWarmupOutcome.Ready(merged, probe)
+        }
+
+        if (!refreshedFromPage) {
+            val retried = tryRefreshAndProbe(warmHttp, current)
+            if (retried != null) return retried
+        }
+
+        val expiredStatus = probe.status == 1016 || probe.status == 1033 || probe.status == 1040 || probe.status == 1042
+        return if (expiredStatus) {
+            GeminiWarmupOutcome.SignInExpired(probe.statusMessage())
+        } else {
+            GeminiWarmupOutcome.NetworkError(probe.statusMessage())
+        }
+    }
+
+    private suspend fun tryRefreshAndProbe(http: OkHttpClient, old: GeminiWebSession): GeminiWarmupOutcome? {
+        val fetched = try {
+            fetchSessionFromCookies(http, cookieSnapshot().ifBlank { old.cookies }, userAgentFor(old))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: ModelError.SignInExpired) {
+            return GeminiWarmupOutcome.SignInExpired(e.message ?: "Google Gemini session expired.")
+        } catch (e: Exception) {
+            return GeminiWarmupOutcome.NetworkError(e.message ?: "Network error while refreshing Gemini")
+        }
+        val merged = mergeRefreshedSession(old, fetched)
+        seedCookies(merged.cookies)
+        val probe = try {
+            probeSession(http, merged)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: ModelError.SignInExpired) {
+            return GeminiWarmupOutcome.SignInExpired(e.message ?: "Google Gemini session expired.")
+        } catch (e: Exception) {
+            return GeminiWarmupOutcome.Ready(withLatestCookies(merged), null)
+        }
+        return if (probe.signedIn) {
+            GeminiWarmupOutcome.Ready(mergeProbeIntoSession(withLatestCookies(merged), probe), probe)
+        } else {
+            GeminiWarmupOutcome.SignInExpired(probe.statusMessage())
+        }
+    }
+
+    private fun mergeRefreshedSession(old: GeminiWebSession, fetched: GeminiWebSession): GeminiWebSession =
+        fetched.copy(
+            email = old.email.ifBlank { fetched.email },
+            capacity = old.capacity,
+            capacityField = old.capacityField,
+            defaultModelId = old.defaultModelId.ifBlank { fetched.defaultModelId },
+            defaultModelNumber = if (old.defaultModelNumber > 0) old.defaultModelNumber else fetched.defaultModelNumber,
+            guestMode = false,
+            savedAtMs = System.currentTimeMillis(),
+        )
+
+    private fun mergeProbeIntoSession(session: GeminiWebSession, probe: GeminiProbe): GeminiWebSession =
+        session.copy(
+            capacity = probe.capacity,
+            capacityField = probe.capacityField,
+            defaultModelId = probe.models.firstOrNull()?.id?.ifBlank { session.defaultModelId } ?: session.defaultModelId,
+            defaultModelNumber = probe.models.firstOrNull()?.modelNumber?.takeIf { it > 0 } ?: session.defaultModelNumber,
+            guestMode = false,
+            savedAtMs = System.currentTimeMillis(),
+        )
+
+    private fun withLatestCookies(session: GeminiWebSession): GeminiWebSession {
+        val latest = cookieSnapshot()
+        return if (latest.isNotBlank() && latest != session.cookies) {
+            session.copy(cookies = latest, savedAtMs = System.currentTimeMillis())
+        } else {
+            session
+        }
+    }
+
     /** Sending UsagePageQuery;[needsRefresh] once indicates that the login status/token may have expired and it is worth changing to a new session and trying again. */
     private fun requestUsage(http: OkHttpClient, session: GeminiWebSession): UsageAttempt {
         val payload = buildJsonObject {
@@ -681,6 +816,13 @@ object GeminiWebClient {
         extendedThinking: Boolean,
         uuid: String
     ): String = buildInnerRequestJson(prompt, modelNumber, if (extendedThinking) 2 else 1, uuid)
+}
+
+/** Result of the startup warm-up for a saved Gemini Web session. */
+sealed interface GeminiWarmupOutcome {
+    data class Ready(val session: GeminiWebSession, val probe: GeminiProbe? = null) : GeminiWarmupOutcome
+    data class SignInExpired(val reason: String) : GeminiWarmupOutcome
+    data class NetworkError(val reason: String) : GeminiWarmupOutcome
 }
 
 /** The result of a usage read: [usage] is empty, indicating that it was not read this time, and [session] may be a new session that has been refreshed. */

@@ -1,5 +1,7 @@
 package com.meenai.mina.ui.router
 
+import com.meenai.mina.core.gemini.GeminiUsage
+import com.meenai.mina.core.gemini.GeminiUsageWindow
 import com.meenai.mina.i18n.EnglishTexts
 import com.meenai.mina.i18n.HindiTexts
 import com.meenai.mina.settings.FeatureFlags
@@ -359,6 +361,71 @@ class RouterUiTest {
 
         val exhaustedLine = line.copy(todayRequests = 50, quotaState = QuotaState.Exhausted)
         assertEquals(QuotaState.Exhausted, exhaustedLine.quotaState)
+    }
+
+    @Test
+    fun quotaCalculator_computesExactAndFallbackPercentagesCleanly() {
+        // Exact server quota preserves fractional percentage (e.g., 90.8%)
+        val exact = ActiveModel(
+            id = "gemini-4-hydrogen",
+            name = "Gemini 4 Hydrogen",
+            provider = "Google Gemini",
+            remainingPercent = 90.8,
+            isExactQuota = true,
+            tierLabel = "Pro Plan",
+            windowLabel = "5h window",
+        )
+        val exactSnap = QuotaCalculator.compute(exact)
+        assertEquals(90.8, exactSnap.remainingPercent, 0.01)
+        assertEquals("90.8%", exactSnap.formattedPercent)
+        assertTrue(exactSnap.isExactServerQuota)
+
+        // Pro plan fallback uses configured/default daily budget (100)
+        val proFallback = ActiveModel(
+            id = "gemini-4-argon",
+            name = "Gemini 4 Argon",
+            provider = "Google Gemini",
+            usedToday = 4,
+            limit = null,
+            reason = "Google One AI (Pro Plan)",
+        )
+        val proSnap = QuotaCalculator.compute(proFallback, configuredDailyBudget = 100)
+        assertEquals(96.0, proSnap.remainingPercent, 0.01)
+        assertEquals("96.0%", proSnap.formattedPercent)
+        assertFalse(proSnap.isExactServerQuota)
+
+        // Explicit limit uses model limit over configured budget
+        val limited = ActiveModel(
+            id = "google/gemini-2.0-flash:free",
+            name = "Gemini 2.0 Flash",
+            provider = "OpenRouter",
+            usedToday = 25,
+            limit = 50,
+        )
+        val limitedSnap = QuotaCalculator.compute(limited, configuredDailyBudget = 100)
+        assertEquals(50.0, limitedSnap.remainingPercent, 0.01)
+    }
+
+    @Test
+    fun fakeRouterStatus_tracksThinkingEffortAndGeminiUsage() {
+        val status = FakeRouterStatus(
+            initialModel = ActiveModel(id = "gemini-4-argon", name = "Gemini 4 Argon", provider = "Google Gemini")
+        )
+        assertNull(status.thinkingEffort.value)
+        status.setThinkingEffort("high")
+        assertEquals("high", status.thinkingEffort.value)
+
+        status.setConnectionStatus(ConnectionStatus.Connected)
+        assertEquals(ConnectionStatus.Connected, status.connectionStatus.value)
+
+        status.setGeminiUsage(
+            GeminiUsage(
+                daily = GeminiUsageWindow(percentUsed = 13, resetsAtEpochMs = 1_800_000_000_000L, fractionUsed = 0.125),
+                weekly = GeminiUsageWindow(percentUsed = 5, resetsAtEpochMs = 1_900_000_000_000L, fractionUsed = 0.05),
+            )
+        )
+        assertEquals(87.5, status.current.value.remainingPercent, 0.01)
+        assertEquals(95.0, status.current.value.weeklyRemainingPercent ?: 0.0, 0.01)
     }
 }
 
