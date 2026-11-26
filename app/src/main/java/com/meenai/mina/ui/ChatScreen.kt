@@ -86,11 +86,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -151,8 +153,6 @@ import com.meenai.mina.ui.components.PageBackground
 import com.meenai.mina.ui.components.TopBar
 import com.meenai.mina.ui.components.cardSurface
 import com.meenai.mina.ui.components.floatShadow
-import com.meenai.mina.ui.components.glassSource
-import com.meenai.mina.ui.components.rememberGlassBackdrop
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaMotion
 import com.meenai.mina.ui.theme.MinaShapes
@@ -162,9 +162,12 @@ import com.meenai.mina.ui.viewer.FileViewer
 import com.meenai.mina.ui.theme.MinaType
 import com.meenai.mina.voice.HoldToTalk
 import com.meenai.mina.voice.VoiceSource
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalTime
@@ -269,6 +272,7 @@ fun ChatScreen(
     var previousScrollMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var previousConversation by rememberSaveable { mutableStateOf<String?>(null) }
     val tailThresholdPx = with(density) { 240.dp.roundToPx() }
+    val streamBottomPadPx = with(density) { 12.dp.roundToPx() }
     LaunchedEffect(listState, tailThresholdPx) {
         var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress to listState.nearTail(tailThresholdPx) }.collect { (scrolling, nearTail) ->
@@ -279,7 +283,16 @@ fun ChatScreen(
 
     // The same piece of content is not re-scrolled when returning to the chat; new developments are only
     // scrolled when following the end.
-    val scrollMarker = "${ui.conversationId}:${ui.exchanges.size}:${last?.steps?.size}:${last?.steers?.size}:${last?.status?.hashCode()}:${ui.blocked?.hashCode()}"
+    val scrollMarker = remember(
+        ui.conversationId,
+        ui.exchanges.size,
+        last?.steps?.size,
+        last?.steers?.size,
+        last?.status,
+        ui.blocked,
+    ) {
+        "${ui.conversationId}:${ui.exchanges.size}:${last?.steps?.size}:${last?.steers?.size}:${last?.status?.hashCode()}:${ui.blocked?.hashCode()}"
+    }
     LaunchedEffect(scrollMarker) {
         if (previousScrollMarker == scrollMarker) return@LaunchedEffect
         val firstEntry = previousScrollMarker == null
@@ -294,18 +307,26 @@ fun ChatScreen(
             else listState.animateScrollToItem(count - 1)
         }
     }
-    // When the flowing text grows, it follows the bottom; when the user actively scrolls up, it does not
-    // pull back.
-    LaunchedEffect(last?.draft?.length) {
-        if (last?.draft.isNullOrEmpty() || !followingTail || listState.isScrollInProgress) return@LaunchedEffect
-        val layout = listState.layoutInfo
-        val end = layout.totalItemsCount - 1
-        val draft = layout.visibleItemsInfo.firstOrNull { it.index == end } ?: return@LaunchedEffect
-        val tailGap = draft.offset + draft.size - layout.viewportEndOffset
-        if (tailGap > with(density) { 240.dp.roundToPx() }) return@LaunchedEffect
-        val viewport = layout.viewportEndOffset - layout.viewportStartOffset
-        val offset = (draft.size - viewport + with(density) { 12.dp.roundToPx() }).coerceAtLeast(0)
-        listState.scrollToItem(end, offset)
+    // When the flowing text grows, throttle scroll-to-tail at ~120ms so streaming tokens do not
+    // force a layout pass on every token; when the user actively scrolls up, do not pull back.
+    val latestExchange by rememberUpdatedState(last)
+    @OptIn(FlowPreview::class)
+    LaunchedEffect(last?.id) {
+        if (last?.id == null) return@LaunchedEffect
+        snapshotFlow { latestExchange?.draft?.length }
+            .distinctUntilChanged()
+            .sample(120L)
+            .collect { len ->
+                if (len == null || len <= 0 || !followingTail || listState.isScrollInProgress) return@collect
+                val layout = listState.layoutInfo
+                val end = layout.totalItemsCount - 1
+                val draft = layout.visibleItemsInfo.firstOrNull { it.index == end } ?: return@collect
+                val tailGap = draft.offset + draft.size - layout.viewportEndOffset
+                if (tailGap > tailThresholdPx) return@collect
+                val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                val offset = (draft.size - viewport + streamBottomPadPx).coerceAtLeast(0)
+                listState.scrollToItem(end, offset)
+            }
     }
 
     // The input field becomes taller (mostly due to the pop-up of the input method, or attachments, or
@@ -320,7 +341,6 @@ fun ChatScreen(
     }
 
     val c = MinaTheme.colors
-    val backdrop = rememberGlassBackdrop()
     val context = LocalContext.current
     val flags = remember { FeatureFlags.get(context) }
     val showNotice = flags.showSwitchNotice()
@@ -356,7 +376,7 @@ fun ChatScreen(
             LocalRouterStatus provides routerStatus,
         ) {
             LazyColumn(
-                Modifier.fillMaxSize().behindMenu(menuOpen) { lift.value }.voiceDim(voiceHolding, reduceMotion).glassSource(backdrop),
+                Modifier.fillMaxSize().behindMenu(menuOpen) { lift.value }.voiceDim(voiceHolding, reduceMotion),
                 state = listState,
                 contentPadding = with(density) {
                     PaddingValues(
@@ -417,7 +437,6 @@ fun ChatScreen(
 
         Composer(
             Modifier.align(Alignment.BottomCenter).behindMenu(menuOpen) { lift.value }.onSizeChanged { composerHeight = it.height },
-            backdrop = backdrop,
             text = input,
             onText = { input = it },
             mode = ui.composer,
@@ -691,7 +710,7 @@ private fun LazyListScope.exchange(
     val (joined, waiting) = steersAroundDraft(ex.steers)
     joined.forEach(::steer)
     ex.draft?.takeIf(String::isNotBlank)?.let { draft ->
-        item(key = "draft:${ex.id}", contentType = "draft") { DraftText(draft, ex.waitingForModel) }
+        item(key = "draft:${ex.id}", contentType = "draft") { DraftText(draft) }
     }
     waiting.forEach(::steer)
     if (ex.status != ExchangeStatus.Working) {
@@ -746,8 +765,8 @@ private fun LazyListScope.exchange(
                         (context.applicationContext as? com.meenai.mina.HarnessApp)?.imageSettings?.setPinnedModel(com.meenai.mina.core.image.ImageRole.Image, model)
                         val basePrompt = ex.goal.takeIf { it.isNotBlank() } ?: prompt
                         val promptWithoutModel = basePrompt
-                            .replace(Regex("""\b(?:generate\s+with|using)\s+[\w./-]+\b:?""", RegexOption.IGNORE_CASE), "")
-                            .replace(Regex("""\bwith\s+[\w./-]+\b""", RegexOption.IGNORE_CASE), "")
+                            .replace(REGEN_PREFIX_RE, "")
+                            .replace(REGEN_WITH_RE, "")
                             .trim()
                         val target = "Generate with $model: $promptWithoutModel"
                         vm.send(target, com.meenai.mina.settings.Prerequisites.Check(emptyList()))
@@ -918,19 +937,23 @@ private val ChatThumbWidth = 110.dp
 
 /** Generating answers: placed on the same light gray background as completed answers. */
 @Composable
-private fun DraftText(text: String, generating: Boolean) {
+private fun DraftText(text: String) {
+    val c = MinaTheme.colors
+    val answerStyle = remember(c) { AnswerText.copy(color = c.ink) }
     MarkdownText(
-        text, AnswerText.copy(color = MinaTheme.colors.ink),
-        Modifier.fillMaxWidth().padding(bottom = 12.dp).answerSurface(), streaming = generating,
+        text, answerStyle,
+        Modifier.fillMaxWidth().padding(bottom = 12.dp).answerSurface(), streaming = true,
     )
 }
 
 /** Interject and hand over the reply that has been said before to the model: it has the same base and characters as the answer, and you can copy, quote, and select text by pressing and holding it. */
 @Composable
 private fun FinishedReply(text: String, key: String) {
+    val c = MinaTheme.colors
+    val answerStyle = remember(c) { AnswerText.copy(color = c.ink) }
     Box(Modifier.padding(bottom = 4.dp)) {
         AnswerArea(key, text, Modifier.fillMaxWidth().answerSurface()) {
-            MarkdownText(text, AnswerText.copy(color = MinaTheme.colors.ink), streaming = false)
+            MarkdownText(text, answerStyle, streaming = false)
         }
     }
 }
@@ -944,12 +967,14 @@ private fun FinishedReply(text: String, key: String) {
  */
 @Composable
 private fun AnswerArea(key: String, answer: String, modifier: Modifier, content: @Composable () -> Unit) {
+    val c = MinaTheme.colors
+    val answerStyle = remember(c) { AnswerText.copy(color = c.ink) }
     val plain = remember(answer) { MarkdownModel.toPlainText(answer) }
     MessageArea(
         key, QuoteMessage.From.Mina, plain, "selectable-answer", modifier,
         lifted = {
-            LiftedMessage(MinaShapes.AnswerBubble, MinaTheme.colors.surface) {
-                MarkdownText(answer, AnswerText.copy(color = MinaTheme.colors.ink), Modifier.padding(horizontal = 14.dp, vertical = 12.dp), streaming = false)
+            LiftedMessage(MinaShapes.AnswerBubble, c.surface) {
+                MarkdownText(answer, answerStyle, Modifier.padding(horizontal = 14.dp, vertical = 12.dp), streaming = false)
             }
         },
     ) { content() }
@@ -958,9 +983,11 @@ private fun AnswerArea(key: String, answer: String, modifier: Modifier, content:
 /** The reply that was interrupted by the interruption: The same background as the answer, with the words in a secondary color, and a line of small words below "Interrupted by your new message." */
 @Composable
 private fun InterruptedReply(text: String) {
+    val c = MinaTheme.colors
+    val interruptedStyle = remember(c) { AnswerText.copy(color = c.ink2) }
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-        MarkdownText(text, AnswerText.copy(color = MinaTheme.colors.ink2), Modifier.fillMaxWidth().answerSurface(), streaming = false)
-        Text(stringResource(R.string.steer_interrupted_reply), Modifier.padding(top = 3.dp, start = 4.dp), style = MinaType.Hint, color = MinaTheme.colors.ink3)
+        MarkdownText(text, interruptedStyle, Modifier.fillMaxWidth().answerSurface(), streaming = false)
+        Text(stringResource(R.string.steer_interrupted_reply), Modifier.padding(top = 3.dp, start = 4.dp), style = MinaType.Hint, color = c.ink3)
     }
 }
 
@@ -987,15 +1014,8 @@ private fun WorkBlock(
 ) {
     val c = MinaTheme.colors
     val paused = ChatCopy.paused(ex.status)
-    val elapsed = rememberElapsed(ex.startedAt)
     val isWaitingForModel = ex.waitingForModel
-    val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
-    val progressText = if (isWaitingForModel) {
-        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi, thinkingEnabled = thinkingEnabled)
-    } else {
-        ex.line.takeIf { it.isNotBlank() } ?: ex.liveAction ?: ChatCopy.progressLine(ex)
-    }
     var thinkingExpanded by remember(ex.id) { mutableStateOf(false) }
     val liveThinking = ex.thinking?.trim()?.takeIf { it.isNotEmpty() }
     Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
@@ -1008,11 +1028,24 @@ private fun WorkBlock(
                 Modifier.size(16.dp), spinning = !paused && !reduceMotion,
                 track = if (paused) c.warnSoft else c.accentSoft, head = if (paused) c.warnSolid else c.accent,
             )
-            Text(
-                progressText, Modifier.weight(1f), style = NowText, color = c.ink,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-            if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
+            if (isWaitingForModel) {
+                ModelWaitProgressText(
+                    startedAt = ex.startedAt,
+                    activeModelName = activeModelName,
+                    isHindi = isHindi,
+                    thinkingEnabled = thinkingEnabled,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                val staticProgress = ex.line.takeIf { it.isNotBlank() } ?: ex.liveAction ?: ChatCopy.progressLine(ex)
+                Text(
+                    staticProgress, Modifier.weight(1f), style = NowText, color = c.ink,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (ex.startedAt > 0L) {
+                ElapsedClockText(startedAt = ex.startedAt)
+            }
         }
         if (thinkingEnabled && liveThinking != null) {
             ThinkingProcessBox(
@@ -1021,7 +1054,7 @@ private fun WorkBlock(
                 expanded = thinkingExpanded,
                 onToggle = { thinkingExpanded = !thinkingExpanded },
                 modifier = Modifier.padding(top = 6.dp, start = 26.dp),
-                label = ChatCopy.thinkingCardLabel(modelWaitSeconds, isHindi = isHindi),
+                startedAt = ex.startedAt,
                 cardTestTag = "work-thinking-card",
             )
         }
@@ -1034,7 +1067,7 @@ private fun WorkBlock(
                 stringResource(R.string.chat_view_process),
                 Modifier.padding(top = 2.dp).clip(MinaShapes.Pill).clickable(role = Role.Button) { openRun(id) }
                     .padding(horizontal = 4.dp, vertical = 4.dp).testTag("work-view-process"),
-                style = DoneText.copy(fontStyle = FontStyle.Italic, textDecoration = TextDecoration.Underline), color = c.ink3,
+                style = ViewProcessText, color = c.ink3,
             )
         }
         if (backgroundNote) {
@@ -1047,6 +1080,56 @@ private fun WorkBlock(
             }
         }
     }
+}
+
+/** Leaf composable isolating 1-second model wait ticks from parent [WorkBlock]. */
+@Composable
+private fun ModelWaitProgressText(
+    startedAt: Long,
+    activeModelName: String,
+    isHindi: Boolean,
+    thinkingEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val c = MinaTheme.colors
+    var elapsedMs by remember(startedAt) {
+        mutableLongStateOf(if (startedAt > 0L) (System.currentTimeMillis() - startedAt).coerceAtLeast(0L) else 0L)
+    }
+    LaunchedEffect(startedAt) {
+        if (startedAt <= 0L) {
+            elapsedMs = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            val now = System.currentTimeMillis()
+            elapsedMs = (now - startedAt).coerceAtLeast(0L)
+            delay(1_000L - now % 1_000L)
+        }
+    }
+    val waitSeconds = (elapsedMs / 1000L).toInt()
+    val label = ChatCopy.modelWaitLabel(waitSeconds, activeModelName, isHindi = isHindi, thinkingEnabled = thinkingEnabled)
+    Text(
+        label, modifier, style = NowText, color = c.ink,
+        maxLines = 2, overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** Leaf composable isolating 1-second elapsed clock ticks from parent [WorkBlock] and LazyColumn. */
+@Composable
+private fun ElapsedClockText(startedAt: Long) {
+    if (startedAt <= 0L) return
+    val c = MinaTheme.colors
+    var elapsedMs by remember(startedAt) {
+        mutableLongStateOf((System.currentTimeMillis() - startedAt).coerceAtLeast(0L))
+    }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            elapsedMs = (now - startedAt).coerceAtLeast(0L)
+            delay(1_000L - now % 1_000L)
+        }
+    }
+    Text(ChatCopy.clock(elapsedMs), style = ClockText, color = c.ink3)
 }
 
 /** Real-time usage: number of calls, tokens entered and exited this time, how much context is used, and how much is left. */
@@ -1073,21 +1156,8 @@ private fun UsageLine(u: com.meenai.mina.core.usage.RunUsage) {
     }
     Text(
         listOfNotNull(calls, tokens, context, quota).joinToString(" · "), Modifier.padding(top = 3.dp),
-        style = NoteText.copy(fontFeatureSettings = "tnum"), color = c.ink3,
+        style = UsageTnumText, color = c.ink3,
     )
-}
-
-/** The time since [startedAt], updated every second; it is null when the starting time is not known (it is 0). */
-@Composable
-private fun rememberElapsed(startedAt: Long): Long? {
-    if (startedAt <= 0L) return null
-    val now by produceState(System.currentTimeMillis(), startedAt) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(1_000L - value % 1_000L)
-        }
-    }
-    return (now - startedAt).coerceAtLeast(0L)
 }
 
 private enum class Dot { Done, Current, Paused, Dim }
@@ -1211,17 +1281,16 @@ private fun StepDot(dot: Dot) {
 /** Circle: light-colored ring with a solid color on top. When [spinning] is false (the animation is turned off, it stops and waits for you), it stops in place. */
 @Composable
 internal fun Spinner(modifier: Modifier, spinning: Boolean, track: Color, head: Color) {
-    val turn = if (!spinning) 0f else rememberInfiniteTransition(label = "spin").animateFloat(
+    val turnState = if (!spinning) null else rememberInfiniteTransition(label = "spin").animateFloat(
         0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart), label = "spin",
-    ).value
+    )
+    val headBrush = remember(head) {
+        Brush.sweepGradient(0f to Color.Transparent, 0.62f to Color.Transparent, 0.63f to head, 0.88f to head, 0.89f to Color.Transparent)
+    }
     Box(
-        modifier.graphicsLayer { rotationZ = turn }
+        modifier.graphicsLayer { rotationZ = turnState?.value ?: 0f }
             .border(2.dp, track, CircleShape)
-            .border(
-                2.dp,
-                Brush.sweepGradient(0f to Color.Transparent, 0.62f to Color.Transparent, 0.63f to head, 0.88f to head, 0.89f to Color.Transparent),
-                CircleShape,
-            ),
+            .border(2.dp, headBrush, CircleShape),
     )
 }
 
@@ -1296,6 +1365,60 @@ private fun CompactThinkingHeader(ex: Exchange) {
     }
 }
 
+private val ThinkingCardShape = RoundedCornerShape(10.dp)
+
+private fun lastLinesPreview(text: String, maxLines: Int, maxChars: Int = 220): String {
+    if (text.isEmpty() || maxLines <= 0) return ""
+    var count = 0
+    var pos = text.length
+    val lowerBound = (text.length - maxChars * 4).coerceAtLeast(0)
+    while (pos > lowerBound) {
+        val idx = text.lastIndexOf('\n', pos - 1)
+        if (idx < 0 || idx < lowerBound) {
+            pos = lowerBound
+            break
+        }
+        count++
+        if (count >= maxLines) {
+            pos = idx + 1
+            break
+        }
+        pos = idx
+    }
+    val slice = text.substring(pos)
+    return if (slice.length > maxChars) slice.takeLast(maxChars) else slice
+}
+
+@Composable
+private fun ThinkingTimerLabel(startedAt: Long, isHindi: Boolean, label: String?, modifier: Modifier = Modifier) {
+    val c = MinaTheme.colors
+    if (label != null || startedAt <= 0L) {
+        Text(
+            label ?: if (isHindi) "Soch raha hai" else "Thinking process",
+            style = ThinkingLabelText,
+            color = c.ink2,
+            modifier = modifier,
+        )
+        return
+    }
+    var seconds by remember(startedAt) {
+        mutableIntStateOf(((System.currentTimeMillis() - startedAt).coerceAtLeast(0L) / 1000L).toInt())
+    }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            seconds = ((now - startedAt).coerceAtLeast(0L) / 1000L).toInt()
+            delay(1_000L - now % 1_000L)
+        }
+    }
+    Text(
+        ChatCopy.thinkingCardLabel(seconds, isHindi = isHindi),
+        style = ThinkingLabelText,
+        color = c.ink2,
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun ThinkingProcessBox(
     thinking: String,
@@ -1305,16 +1428,16 @@ private fun ThinkingProcessBox(
     modifier: Modifier = Modifier,
     previewLines: Int = 4,
     label: String? = null,
+    startedAt: Long = 0L,
     cardTestTag: String = "thinking-process-card",
 ) {
     val c = MinaTheme.colors
-    val thinkingShape = RoundedCornerShape(10.dp)
     Column(
         modifier
             .fillMaxWidth()
-            .clip(thinkingShape)
+            .clip(ThinkingCardShape)
             .background(c.fill.copy(alpha = 0.65f))
-            .border(0.5.dp, c.hair, thinkingShape)
+            .border(0.5.dp, c.hair, ThinkingCardShape)
             .clickable(role = Role.Button, onClick = onToggle)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .testTag(cardTestTag),
@@ -1325,10 +1448,10 @@ private fun ThinkingProcessBox(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(MinaIcons.Spark, null, Modifier.size(12.dp), tint = c.accent)
-            Text(
-                label ?: if (isHindi) "Soch raha hai" else "Thinking process",
-                style = NoteText.copy(fontWeight = FontWeight.Medium),
-                color = c.ink2,
+            ThinkingTimerLabel(
+                startedAt = startedAt,
+                isHindi = isHindi,
+                label = label,
                 modifier = Modifier.weight(1f),
             )
             Text(
@@ -1337,10 +1460,8 @@ private fun ThinkingProcessBox(
                 color = c.ink3,
             )
         }
-        val snippet = if (expanded) {
-            thinking
-        } else {
-            thinking.lines().takeLast(previewLines).joinToString("\n").takeLast(220)
+        val snippet = remember(thinking, expanded, previewLines) {
+            if (expanded) thinking else lastLinesPreview(thinking, previewLines)
         }
         Text(
             snippet,
@@ -1695,7 +1816,7 @@ internal fun Composer(
             panel = Panel.Open
         }
     }
-    val turn by animateFloatAsState(if (panel == Panel.Open) 45f else 0f, if (reduceMotion) snap() else tween(200), label = "plus")
+    val turnState = animateFloatAsState(if (panel == Panel.Open) 45f else 0f, if (reduceMotion) snap() else tween(200), label = "plus")
     Box(
         modifier.fillMaxWidth()
             .background(fade)
@@ -1779,7 +1900,7 @@ internal fun Composer(
                                         .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(MinaIcons.Plus, label, Modifier.size(MinaSize.Icon).graphicsLayer { rotationZ = turn }, tint = c.ink)
+                                    Icon(MinaIcons.Plus, label, Modifier.size(MinaSize.Icon).graphicsLayer { rotationZ = turnState.value }, tint = c.ink)
                                 }
                             }
                             if (onModelPillClick != null) {
@@ -1894,10 +2015,7 @@ private fun ThinkingModePill(
     ) {
         Text(
             text = label,
-            style = MinaType.Caption.copy(
-                fontSize = 11.5.sp,
-                fontWeight = if (thinkingEnabled) FontWeight.SemiBold else FontWeight.Medium,
-            ),
+            style = if (thinkingEnabled) ThinkingPillSelectedText else ThinkingPillText,
             color = textColor,
             maxLines = 1,
         )
@@ -1956,7 +2074,7 @@ private fun ComposerModelPill(
         )
         Text(
             text = modelLabel,
-            style = MinaType.Caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+            style = ModelPillLabelText,
             color = scheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1978,11 +2096,7 @@ private fun ComposerModelPill(
             ) {
                 Text(
                     text = badgeText,
-                    style = MinaType.Caption.copy(
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFeatureSettings = "tnum",
-                    ),
+                    style = QuotaBadgeText,
                     color = badgeColor,
                     maxLines = 1,
                 )
@@ -2007,6 +2121,8 @@ private const val YIELD_MS = 700L
 /** The position of the vertical line (counted from the left); the step points and the center of the circle are all on this line. */
 private val StepRail = 8.dp
 
+private val REGEN_PREFIX_RE = Regex("""\b(?:generate\s+with|using)\s+[\w./-]+\b:?""", RegexOption.IGNORE_CASE)
+private val REGEN_WITH_RE = Regex("""\bwith\s+[\w./-]+\b""", RegexOption.IGNORE_CASE)
 private val FileTileShape = RoundedCornerShape(10.dp)
 private val EmptyLead = TextStyle(fontSize = 15.sp, lineHeight = 21.sp)
 private val ExampleText = TextStyle(fontSize = 15.sp, lineHeight = 21.sp)
@@ -2018,7 +2134,14 @@ private val ClockText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontFe
 private val StepText = TextStyle(fontSize = 14.sp, lineHeight = 19.sp)
 private val StepCurrentText = TextStyle(fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium)
 private val NoteText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp)
+private val ThinkingLabelText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium)
+private val UsageTnumText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontFeatureSettings = "tnum")
 private val DoneText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
+private val ViewProcessText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fontStyle = FontStyle.Italic, textDecoration = TextDecoration.Underline)
+private val ThinkingPillText = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
+private val ThinkingPillSelectedText = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
+private val ModelPillLabelText = TextStyle(fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
+private val QuotaBadgeText = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
 private val NeedTitle = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold)
 private val CardBody = TextStyle(fontSize = 14.sp, lineHeight = 21.5.sp)
 private val PillText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)

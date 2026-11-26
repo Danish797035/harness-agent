@@ -1,6 +1,7 @@
 package com.meenai.mina.chat
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import com.meenai.mina.core.agent.Turn
 import com.meenai.mina.core.memory.MemoryNote
 import com.meenai.mina.core.memory.NoteKind
@@ -28,6 +29,40 @@ class ConversationStore(private val dir: File) {
     constructor(context: Context) : this(File(context.filesDir, "conversations"))
 
     fun newConversation(): String = UUID.randomUUID().toString()
+
+    private data class CachedRecords(
+        val modified: Long,
+        val length: Long,
+        val value: List<Pair<Turn, List<SharedFile>>>,
+    )
+
+    private data class CachedMeta<T>(
+        val exists: Boolean,
+        val modified: Long,
+        val length: Long,
+        val value: T?,
+    )
+
+    private val recordsCache = object : LinkedHashMap<String, CachedRecords>(129, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedRecords>?): Boolean = size > 128
+    }
+    private val titleCache = object : LinkedHashMap<String, CachedMeta<String>>(257, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedMeta<String>>?): Boolean = size > 256
+    }
+    private val pinCache = object : LinkedHashMap<String, CachedMeta<Long>>(257, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedMeta<Long>>?): Boolean = size > 256
+    }
+    private val pageCache = object : LinkedHashMap<String, CachedMeta<PageOrigin>>(257, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedMeta<PageOrigin>>?): Boolean = size > 256
+    }
+    @Volatile
+    private var lastListSnapshot: List<ConversationSummary>? = null
+
+    fun cachedList(): List<ConversationSummary>? = lastListSnapshot
+
+    fun peekCachedRecords(conversationId: String): List<Pair<Turn, List<SharedFile>>>? = synchronized(this) {
+        recordsCache[safe(conversationId)]?.value
+    }
 
     private val _changes = MutableSharedFlow<String>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -98,12 +133,23 @@ class ConversationStore(private val dir: File) {
                 val id = f.name.removeSuffix(".json")
                 val first = turns(id).firstOrNull() ?: return@mapNotNull null
                 ConversationSummary(id, title(id) ?: first.userText, f.lastModified(), pinnedAt(id), pageOrigin(id))
-            }
+            }.also { lastListSnapshot = it }
 
     /** A good title for the conversation (see [ConversationTitler]); if not, it is null if it cannot be read. The title is placed in the `.title` file next to the conversation file, leaving the format of the conversation file unchanged. */
     @Synchronized
-    fun title(conversationId: String): String? =
-        runCatching { titleFile(conversationId).takeIf { it.isFile }?.readText()?.trim() }.getOrNull()?.takeIf(String::isNotEmpty)
+    fun title(conversationId: String): String? {
+        val k = safe(conversationId)
+        val f = titleFile(conversationId)
+        val exists = f.isFile
+        val modified = if (exists) f.lastModified() else 0L
+        val length = if (exists) f.length() else 0L
+        titleCache[k]?.let { c ->
+            if (c.exists == exists && c.modified == modified && c.length == length) return c.value
+        }
+        val parsed = if (exists) runCatching { f.readText().trim() }.getOrNull()?.takeIf(String::isNotEmpty) else null
+        titleCache[k] = CachedMeta(exists, modified, length, parsed)
+        return parsed
+    }
 
     /**
      * Deleted conversations. The "rewrite" that arrived after deletion (the title created in the
@@ -121,7 +167,13 @@ class ConversationStore(private val dir: File) {
      */
     @Synchronized
     fun delete(conversationId: String) {
-        deleted += safe(conversationId)
+        val key = safe(conversationId)
+        deleted += key
+        recordsCache.remove(key)
+        titleCache.remove(key)
+        pinCache.remove(key)
+        pageCache.remove(key)
+        lastListSnapshot = lastListSnapshot?.filterNot { it.id == conversationId }
         val main = file(conversationId).name
         dir.listFiles { f ->
             f.isFile && (f.name == main || f.name.startsWith("$main.") || f.name == titleFile(conversationId).name || f.name == pinFile(conversationId).name ||
@@ -153,28 +205,53 @@ class ConversationStore(private val dir: File) {
 
     private fun writeTitle(conversationId: String, title: String): Boolean {
         val t = title.trim()
-        if (t.isEmpty() || safe(conversationId) in deleted) return false
+        val k = safe(conversationId)
+        if (t.isEmpty() || k in deleted) return false
         dir.mkdirs()
-        val ok = runCatching { titleFile(conversationId).writeText(t) }.isSuccess
-        if (ok) _changes.tryEmit(conversationId)
+        val f = titleFile(conversationId)
+        val ok = runCatching { f.writeText(t) }.isSuccess
+        if (ok) {
+            titleCache[k] = CachedMeta(true, f.lastModified(), f.length(), t)
+            _changes.tryEmit(conversationId)
+        } else {
+            titleCache.remove(k)
+        }
         return ok
     }
 
     /** The time when the conversation was pinned to the top; if it is not pinned or cannot be read, it is null. Place it in the `.pin` file next to the conversation file. */
     @Synchronized
-    fun pinnedAt(conversationId: String): Long? =
-        runCatching { pinFile(conversationId).takeIf { it.isFile }?.readText()?.trim()?.toLongOrNull() }.getOrNull()
+    fun pinnedAt(conversationId: String): Long? {
+        val k = safe(conversationId)
+        val f = pinFile(conversationId)
+        val exists = f.isFile
+        val modified = if (exists) f.lastModified() else 0L
+        val length = if (exists) f.length() else 0L
+        pinCache[k]?.let { c ->
+            if (c.exists == exists && c.modified == modified && c.length == length) return c.value
+        }
+        val parsed = if (exists) runCatching { f.readText().trim().toLongOrNull() }.getOrNull() else null
+        pinCache[k] = CachedMeta(exists, modified, length, parsed)
+        return parsed
+    }
 
     /** Pin it to the top ([pinned] is true, note the time [at]) or cancel the pin. Deleted conversations remain unchanged. Changed to return true. */
     @Synchronized
     fun setPinned(conversationId: String, pinned: Boolean, at: Long = System.currentTimeMillis()): Boolean {
-        if (safe(conversationId) in deleted) return false
+        val k = safe(conversationId)
+        if (k in deleted) return false
         val f = pinFile(conversationId)
         val ok = if (pinned) {
             dir.mkdirs()
             runCatching { f.writeText(at.toString()) }.isSuccess
         } else !f.exists() || f.delete()
-        if (ok) _changes.tryEmit(conversationId)
+        if (ok) {
+            if (pinned) pinCache[k] = CachedMeta(true, f.lastModified(), f.length(), at)
+            else pinCache[k] = CachedMeta(false, 0L, 0L, null)
+            _changes.tryEmit(conversationId)
+        } else {
+            pinCache.remove(k)
+        }
         return ok
     }
 
@@ -185,20 +262,40 @@ class ConversationStore(private val dir: File) {
      * not have this file.
      */
     @Synchronized
-    fun pageOrigin(conversationId: String): PageOrigin? = runCatching {
-        val f = pageFile(conversationId).takeIf { it.isFile } ?: return@runCatching null
-        val o = Json.parseToJsonElement(f.readText()) as? JsonObject ?: return@runCatching null
-        PageOrigin(str(o, "url") ?: return@runCatching null, str(o, "host") ?: return@runCatching null, str(o, "title").orEmpty())
-    }.getOrNull()
+    fun pageOrigin(conversationId: String): PageOrigin? {
+        val k = safe(conversationId)
+        val f = pageFile(conversationId)
+        val exists = f.isFile
+        val modified = if (exists) f.lastModified() else 0L
+        val length = if (exists) f.length() else 0L
+        pageCache[k]?.let { c ->
+            if (c.exists == exists && c.modified == modified && c.length == length) return c.value
+        }
+        val parsed = if (exists) {
+            runCatching {
+                val o = Json.parseToJsonElement(f.readText()) as? JsonObject ?: return@runCatching null
+                PageOrigin(str(o, "url") ?: return@runCatching null, str(o, "host") ?: return@runCatching null, str(o, "title").orEmpty())
+            }.getOrNull()
+        } else null
+        pageCache[k] = CachedMeta(exists, modified, length, parsed)
+        return parsed
+    }
 
     /** Note which page the conversation begins on (change to the latest page when you continue on the same page). Deleted conversations remain unchanged. Returns true if written. */
     @Synchronized
     fun setPageOrigin(conversationId: String, origin: PageOrigin): Boolean {
-        if (safe(conversationId) in deleted) return false
+        val k = safe(conversationId)
+        if (k in deleted) return false
         dir.mkdirs()
+        val f = pageFile(conversationId)
         val json = buildJsonObject { put("url", origin.url); put("host", origin.host); put("title", origin.title) }
-        val ok = runCatching { pageFile(conversationId).writeText(json.toString()) }.isSuccess
-        if (ok) _changes.tryEmit(conversationId)
+        val ok = runCatching { f.writeText(json.toString()) }.isSuccess
+        if (ok) {
+            pageCache[k] = CachedMeta(true, f.lastModified(), f.length(), origin)
+            _changes.tryEmit(conversationId)
+        } else {
+            pageCache.remove(k)
+        }
         return ok
     }
 
@@ -209,9 +306,20 @@ class ConversationStore(private val dir: File) {
     /** Each round is accompanied by the files (file cards) exported for that round. */
     @Synchronized
     fun records(conversationId: String): List<Pair<Turn, List<SharedFile>>> {
+        val k = safe(conversationId)
         val f = file(conversationId)
-        if (!f.isFile) return emptyList()
-        return read(f).orEmpty()
+        if (!f.isFile) {
+            recordsCache.remove(k)
+            return emptyList()
+        }
+        val modified = f.lastModified()
+        val length = f.length()
+        recordsCache[k]?.let { cached ->
+            if (cached.modified == modified && cached.length == length) return cached.value
+        }
+        val parsed = read(f) ?: return emptyList()
+        recordsCache[k] = CachedRecords(modified, length, parsed)
+        return parsed
     }
 
     /** Returns null if it cannot be read (not a JSON array). */
@@ -312,12 +420,14 @@ class ConversationStore(private val dir: File) {
         })
         // Write the temporary file first and then rename it. If it is killed in the middle of writing,
         // half of the file will not be left.
-        val tmp = File(dir, "${file(conversationId).name}.tmp")
+        val dest = file(conversationId)
+        val tmp = File(dir, "${dest.name}.tmp")
         tmp.writeText(json.toString())
-        if (!tmp.renameTo(file(conversationId))) {
-            file(conversationId).writeText(json.toString())
+        if (!tmp.renameTo(dest)) {
+            dest.writeText(json.toString())
             tmp.delete()
         }
+        recordsCache[safe(conversationId)] = CachedRecords(dest.lastModified(), dest.length(), all)
         _changes.tryEmit(conversationId)
     }
 
@@ -344,6 +454,7 @@ class ConversationStore(private val dir: File) {
     private fun safe(id: String) = id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
 }
 
+@Immutable
 data class ConversationSummary(val id: String, val title: String, val updatedAt: Long, val pinnedAt: Long? = null, val page: PageOrigin? = null)
 
 /**
@@ -353,11 +464,13 @@ data class ConversationSummary(val id: String, val title: String, val updatedAt:
  * up, instead of guessing based on "which conversation file was last written" - the newly opened
  * conversation does not have a file yet, and the guessed one will be the previous one.
  */
+@Immutable
 sealed interface CurrentChat {
-    data object Fresh : CurrentChat
+    @Immutable data object Fresh : CurrentChat
 
-    data class Open(val id: String) : CurrentChat
+    @Immutable data class Open(val id: String) : CurrentChat
 }
 
 /** Which page the conversation starts from: URL, host name, page title (empty string if not). */
+@Immutable
 data class PageOrigin(val url: String, val host: String, val title: String = "")

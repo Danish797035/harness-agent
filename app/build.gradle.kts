@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+composeCompiler {
+    featureFlags.add(org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag.OptimizeNonSkippingGroups)
+}
+
 // google-services.json ko repo me commit mat karo — CI me GitHub Secret se generate hota hai.
 // Agar file na ho to build/tests ke liye fallback mock config generate karo.
 val gmsFile = file("google-services.json")
@@ -137,11 +141,12 @@ android {
         }
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
-            // R8 needs keep rules for kotlinx.serialization, reflection and the
-            // JS bridges; enable shrinking only after a device test of the
-            // minified build.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
         // The package used to check the fluency: it is not debuggable like the release version (the
         // debugging package is not pre-compiled, the interface is several times slower, and the feel
@@ -177,6 +182,7 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.webkit)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)

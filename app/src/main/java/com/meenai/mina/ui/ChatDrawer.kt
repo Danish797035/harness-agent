@@ -46,14 +46,18 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -68,14 +72,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.chat.ConversationSummary
 import com.meenai.mina.settings.Prerequisites
-import com.meenai.mina.ui.components.GlassBlurSupported
 import com.meenai.mina.ui.components.KeyboardDismissArea
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -107,6 +108,7 @@ import java.util.Locale
 import com.meenai.mina.i18n.uiLocale
 
 /** A conversation in the sidebar. [id] is null, which means the current conversation has not been saved in the conversation list. */
+@Immutable
 data class DrawerConversation(
     val id: String?,
     val title: String,
@@ -123,6 +125,7 @@ data class DrawerConversation(
 )
 
 /** Conversation segments in the sidebar: ongoing, pinned, and recent. */
+@Immutable
 data class DrawerSections(
     val running: List<DrawerConversation>,
     val recent: List<DrawerConversation>,
@@ -130,6 +133,7 @@ data class DrawerSections(
 )
 
 /** How the current conversation looks in the sidebar: whether there are any tasks running, title, subtitle (what is being done). */
+@Immutable
 data class CurrentConversation(val id: String?, val running: Boolean, val title: String, val subtitle: String)
 
 /**
@@ -264,14 +268,14 @@ fun ChatDrawer(
             if (sections.running.isNotEmpty()) {
                 // Go to the "Backstage Screen" page on the right side of the "In Progress" section: see
                 // which app and real-time screen are being used for each running task.
-                item("h-running") { RunningLabel(onScreens) }
-                items(sections.running, key = { "r-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                item("h-running", contentType = "running_label") { RunningLabel(onScreens) }
+                items(sections.running, key = { "r-${it.id}" }, contentType = { "drawer_conversation" }) { ConversationEntry(it, onOpen, onActions) }
             }
             // When the conversation cannot be changed, the explanation is placed above the first saved
             // conversation (top or most recent).
             val busyNote: LazyListScope.() -> Unit = {
                 if (!canSwitch) {
-                    item("busy") {
+                    item("busy", contentType = "busy_note") {
                         Text(
                             stringResource(R.string.drawer_busy), Modifier.padding(start = 24.dp, end = 24.dp, bottom = 6.dp),
                             style = MinaType.Hint, color = c.ink3,
@@ -280,16 +284,16 @@ fun ChatDrawer(
                 }
             }
             if (sections.pinned.isNotEmpty()) {
-                item("h-pinned") { SectionLabel(stringResource(R.string.drawer_pinned)) }
+                item("h-pinned", contentType = "section_label") { SectionLabel(stringResource(R.string.drawer_pinned)) }
                 busyNote()
-                items(sections.pinned, key = { "p-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                items(sections.pinned, key = { "p-${it.id}" }, contentType = { "drawer_conversation" }) { ConversationEntry(it, onOpen, onActions) }
             }
             if (sections.recent.isNotEmpty()) {
-                item("h-recent") { SectionLabel(stringResource(R.string.drawer_recent)) }
+                item("h-recent", contentType = "section_label") { SectionLabel(stringResource(R.string.drawer_recent)) }
                 if (sections.pinned.isEmpty()) busyNote()
-                items(sections.recent, key = { "c-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                items(sections.recent, key = { "c-${it.id}" }, contentType = { "drawer_conversation" }) { ConversationEntry(it, onOpen, onActions) }
             }
-            item("end") { Box(Modifier.height(12.dp)) }
+            item("end", contentType = "spacer") { Box(Modifier.height(12.dp)) }
         }
         // Settings and About are fixed side by side at the bottom of the sidebar. No matter how many
         // conversations there are, they will not be squeezed out: Settings is on the left, About is on
@@ -512,6 +516,8 @@ fun ChatWithDrawer(
     /** The page entered from the sidebar has just returned: open the sidebar on the spot and return to the way it was before entering. */
     reopen: Boolean = false,
     onReopened: () -> Unit = {},
+    cachedConversations: () -> List<ConversationSummary>? = { null },
+    asyncLoad: Boolean = false,
     content: @Composable (openDrawer: () -> Unit) -> Unit,
 ) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -572,22 +578,33 @@ fun ChatWithDrawer(
     val menuOpen = acting != null
     Box(Modifier.fillMaxSize()) {
         ModalNavigationDrawer(
-            // When the menu is open, the entire screen behind it (dialog page and sidebar) is blurred
-            // (from Android 12 onwards; earlier it only dimmed), and the menu is only readable when it
-            // is accessible.
+            // When the menu is open, the content behind it is dimmed and hidden from accessibility;
+            // using lightweight alpha instead of full-screen per-frame BlurEffect keeps animations smooth.
             modifier = if (!menuOpen) Modifier else Modifier
-                .then(
-                    if (GlassBlurSupported) Modifier.graphicsLayer {
-                        val r = MenuBlur.toPx() * lift.value
-                        renderEffect = if (r >= 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
-                    } else Modifier,
-                )
+                .graphicsLayer { alpha = 1f - 0.14f * lift.value }
                 .clearAndSetSemantics {},
             drawerContent = {
-                // The disk is only read when it is opened; it will be read again every time it is opened
-                // or if there is a dialogue change in the storage while it is open.
-                val all = remember(open, revision) { if (open) conversations() else emptyList() }
-                val stored = remember(open, revision, ui.conversationId) { if (open) ui.conversationId?.let(conversationTitle) else null }
+                // The disk is only read when opened (offloaded to Dispatchers.IO in app runtime) and
+                // re-read if conversations change in storage while open.
+                val initialAll = remember(open) { if (open && asyncLoad) cachedConversations().orEmpty() else emptyList() }
+                val all by produceState(initialAll, open, revision, asyncLoad) {
+                    if (!open) {
+                        value = emptyList()
+                    } else if (!asyncLoad) {
+                        value = conversations()
+                    } else {
+                        if (value.isEmpty()) cachedConversations()?.let { value = it }
+                        value = withContext(Dispatchers.IO) { conversations() }
+                    }
+                }
+                val stored by produceState<String?>(null, open, revision, ui.conversationId, asyncLoad) {
+                    val id = ui.conversationId
+                    value = when {
+                        !open || id == null -> null
+                        !asyncLoad -> conversationTitle(id)
+                        else -> withContext(Dispatchers.IO) { conversationTitle(id) }
+                    }
+                }
                 val last = ui.exchanges.lastOrNull()
                 val running = vm.busy()
                 val current = CurrentConversation(

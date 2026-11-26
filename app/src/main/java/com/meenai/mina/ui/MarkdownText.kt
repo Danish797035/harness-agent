@@ -4,8 +4,6 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -38,7 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
@@ -53,12 +51,19 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.meenai.mina.ui.image.ImageBitmapCache
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.viewer.FileViewer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private val MdCodeShape = RoundedCornerShape(10.dp)
+private val MdBarShape = RoundedCornerShape(2.dp)
+private val MdImageShape = RoundedCornerShape(12.dp)
+private val MdErrorShape = RoundedCornerShape(10.dp)
+private val MdTableShape = RoundedCornerShape(2.dp)
 
 /** Display a response in Markdown; streaming draft previews with temporarily closed syntax. */
 @Composable
@@ -68,8 +73,10 @@ fun MarkdownText(markdown: String, style: TextStyle, modifier: Modifier = Modifi
     val colors = MinaTheme.colors
     val styles = remember(colors) { MarkdownModel.Styles.of(colors) }
     val blocks = if (streaming) {
-        val parsed by produceState<List<MdBlock>>(emptyList(), markdown, styles) {
-            value = withContext(Dispatchers.Default) { MarkdownModel.parseStreaming(markdown, styles) }
+        val initial = remember(markdown, styles) { MarkdownModel.cachedStreaming(markdown, styles).orEmpty() }
+        val parsed by produceState<List<MdBlock>>(initial, markdown, styles) {
+            value = MarkdownModel.cachedStreaming(markdown, styles)
+                ?: withContext(Dispatchers.Default) { MarkdownModel.parseStreaming(markdown, styles) }
         }
         parsed
     } else remember(markdown, styles) { MarkdownModel.parse(markdown, styles) }
@@ -111,13 +118,13 @@ private fun Block(b: MdBlock, style: TextStyle, depth: Int) {
             ),
         )
         is MdBlock.Code -> Box(
-            Modifier.fillMaxWidth().background(MinaTheme.colors.fill, RoundedCornerShape(10.dp))
+            Modifier.fillMaxWidth().background(MinaTheme.colors.fill, MdCodeShape)
                 .horizontalScroll(rememberScrollState()).padding(horizontal = 11.dp, vertical = 9.dp),
         ) {
             Text(b.code, style = style.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 19.sp), softWrap = false)
         }
         is MdBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
-            Box(Modifier.width(3.dp).fillMaxHeight().background(MinaTheme.colors.hair, RoundedCornerShape(2.dp)))
+            Box(Modifier.width(3.dp).fillMaxHeight().background(MinaTheme.colors.hair, MdBarShape))
             Blocks(b.blocks, style.copy(color = MinaTheme.colors.ink2), Modifier.padding(start = 10.dp), depth + 1)
         }
         is MdBlock.ListBlock -> Column(verticalArrangement = Arrangement.spacedBy(if (b.tight) 3.dp else 8.dp)) {
@@ -139,25 +146,26 @@ private fun Block(b: MdBlock, style: TextStyle, depth: Int) {
 private fun MarkdownImage(image: MdBlock.Image, style: TextStyle) {
     val context = LocalContext.current
     val rawDest = image.destination.trim()
-    val localPath = if (rawDest.startsWith("file://")) rawDest.removePrefix("file://") else rawDest
+    val localPath = remember(rawDest) { if (rawDest.startsWith("file://")) rawDest.removePrefix("file://") else rawDest }
     val file = remember(localPath) { File(localPath) }
-    val exists = remember(file) { file.exists() && file.isFile && file.canRead() }
-
-    val bitmap = remember(file.absolutePath, if (exists) file.lastModified() else 0L) {
-        if (exists) {
-            runCatching { decodeSampledBitmap(file.absolutePath, 2048) }.getOrNull()
-        } else null
+    val cachedBitmap = remember(localPath) {
+        if (localPath.isNotBlank()) ImageBitmapCache.peekByPath(localPath) else null
+    }
+    val bitmap by produceState<ImageBitmap?>(cachedBitmap, localPath) {
+        if (cachedBitmap != null) value = cachedBitmap
+        value = if (localPath.isNotBlank()) ImageBitmapCache.loadFromFile(localPath) else null
     }
 
-    if (bitmap != null) {
+    val currentBitmap = bitmap
+    if (currentBitmap != null) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = currentBitmap,
             contentDescription = image.alt.ifBlank { null },
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 360.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(MdImageShape)
                 .clickable {
                     val uri = try {
                         FileProvider.getUriForFile(context, "${context.packageName}.attachfiles", file)
@@ -173,8 +181,8 @@ private fun MarkdownImage(image: MdBlock.Image, style: TextStyle) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(c.fill, RoundedCornerShape(10.dp))
-                .border(0.5.dp, c.hair, RoundedCornerShape(10.dp))
+                .background(c.fill, MdErrorShape)
+                .border(0.5.dp, c.hair, MdErrorShape)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -205,19 +213,6 @@ private fun MarkdownImage(image: MdBlock.Image, style: TextStyle) {
     }
 }
 
-private fun decodeSampledBitmap(filePath: String, maxDimension: Int): Bitmap? {
-    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(filePath, options)
-    if (options.outWidth <= 0 || options.outHeight <= 0) return null
-    var sampleSize = 1
-    val longest = maxOf(options.outWidth, options.outHeight)
-    while (longest / sampleSize > maxDimension) {
-        sampleSize *= 2
-    }
-    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    return BitmapFactory.decodeFile(filePath, decodeOptions)
-}
-
 /** Table: Each column takes the widest cell in the column (there is an upper limit, and if it exceeds the line break), each row takes the highest cell in the row; the entire table can be slid left or right. */
 @Composable
 private fun TableBlock(t: MdBlock.Table, style: TextStyle) {
@@ -240,7 +235,7 @@ private fun TableBlock(t: MdBlock.Table, style: TextStyle) {
                     }
                 }
             },
-            modifier = Modifier.border(0.5.dp, MinaTheme.colors.hair, RoundedCornerShape(2.dp)),
+            modifier = Modifier.border(0.5.dp, MinaTheme.colors.hair, MdTableShape),
         ) { measurables, _ ->
             val maxCol = 240.dp.roundToPx()
             val minCol = 48.dp.roundToPx()

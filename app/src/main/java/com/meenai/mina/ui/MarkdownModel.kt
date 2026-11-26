@@ -1,5 +1,6 @@
 package com.meenai.mina.ui
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -44,26 +45,31 @@ import com.meenai.mina.ui.theme.LightColors
 import com.meenai.mina.ui.theme.MinaColors
 
 /** The display model parsed by Markdown in the answer: block-level structure + styled inline text. Pure data, does not rely on interfaces. */
+@Immutable
 sealed interface MdBlock {
-    data class Para(val text: AnnotatedString) : MdBlock
-    data class Heading(val level: Int, val text: AnnotatedString) : MdBlock
-    data class Code(val info: String, val code: String) : MdBlock
-    data class Quote(val blocks: List<MdBlock>) : MdBlock
+    @Immutable data class Para(val text: AnnotatedString) : MdBlock
+    @Immutable data class Heading(val level: Int, val text: AnnotatedString) : MdBlock
+    @Immutable data class Code(val info: String, val code: String) : MdBlock
+    @Immutable data class Quote(val blocks: List<MdBlock>) : MdBlock
     /** [start] is null is an unordered list; each list item is a set of blocks. */
-    data class ListBlock(val start: Int?, val tight: Boolean, val items: List<List<MdBlock>>) : MdBlock
+    @Immutable data class ListBlock(val start: Int?, val tight: Boolean, val items: List<List<MdBlock>>) : MdBlock
     /** The number of cells in each row is completed to the number of columns in the header. */
-    data class Table(val header: List<AnnotatedString>, val rows: List<List<AnnotatedString>>) : MdBlock
-    data class Image(val destination: String, val alt: String) : MdBlock
-    data object Rule : MdBlock
+    @Immutable data class Table(val header: List<AnnotatedString>, val rows: List<List<AnnotatedString>>) : MdBlock
+    @Immutable data class Image(val destination: String, val alt: String) : MdBlock
+    @Immutable data object Rule : MdBlock
 }
 
 object MarkdownModel {
     /** No matter how deeply nested the references or lists are, they will be displayed as plain text to avoid recursion too deep. */
     private const val MAX_DEPTH = 12
+    private const val PARSE_CACHE_LIMIT = 160
+    private const val STREAM_CACHE_LIMIT = 32
+    private const val CACHE_MAX_MARKDOWN_LEN = 48_000
     private val LINK_SCHEMES = setOf("http", "https", "mailto", "tel")
 
     /** The style of inline code and links; the color follows the dark and light colors, and is given by the current color matching where it is displayed. */
-    class Styles(val code: SpanStyle, val link: TextLinkStyles) {
+    @Immutable
+    data class Styles(val code: SpanStyle, val link: TextLinkStyles) {
         companion object {
             fun of(c: MinaColors) = Styles(
                 code = SpanStyle(fontFamily = FontFamily.Monospace, background = c.fill),
@@ -74,21 +80,73 @@ object MarkdownModel {
         }
     }
 
+    private data class ParseKey(val markdown: String, val styles: Styles)
+    private val cacheLock = Any()
+    private val parseCache = object : LinkedHashMap<ParseKey, List<MdBlock>>(PARSE_CACHE_LIMIT + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ParseKey, List<MdBlock>>?): Boolean =
+            size > PARSE_CACHE_LIMIT
+    }
+    private val streamCache = object : LinkedHashMap<ParseKey, List<MdBlock>>(STREAM_CACHE_LIMIT + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ParseKey, List<MdBlock>>?): Boolean =
+            size > STREAM_CACHE_LIMIT
+    }
+    private val plainCache = object : LinkedHashMap<String, String>(PARSE_CACHE_LIMIT + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean =
+            size > PARSE_CACHE_LIMIT
+    }
+
     private val parser: Parser = Parser.builder()
         .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
         .build()
 
     /** When parsing fails (including any accidents caused by half-written streaming text), the entire paragraph is displayed as plain text. */
-    fun parse(markdown: String, styles: Styles = Styles.Light): List<MdBlock> = try {
-        blocks(parser.parse(markdown), 0, styles)
-    } catch (e: Exception) {
-        plain(markdown)
-    } catch (e: StackOverflowError) {
-        plain(markdown)
+    fun parse(markdown: String, styles: Styles = Styles.Light): List<MdBlock> {
+        if (markdown.isEmpty()) return emptyList()
+        val key = if (markdown.length <= CACHE_MAX_MARKDOWN_LEN) ParseKey(markdown, styles) else null
+        if (key != null) {
+            synchronized(cacheLock) {
+                parseCache[key]?.let { return it }
+            }
+        }
+        val computed = try {
+            blocks(parser.parse(markdown), 0, styles)
+        } catch (e: Exception) {
+            plain(markdown)
+        } catch (e: StackOverflowError) {
+            plain(markdown)
+        }
+        if (key != null) {
+            synchronized(cacheLock) {
+                parseCache[key] = computed
+            }
+        }
+        return computed
+    }
+
+    internal fun cachedStreaming(markdown: String, styles: Styles = Styles.Light): List<MdBlock>? {
+        if (markdown.isEmpty()) return emptyList()
+        if (markdown.length > CACHE_MAX_MARKDOWN_LEN) return null
+        val key = ParseKey(markdown, styles)
+        return synchronized(cacheLock) { streamCache[key] }
     }
 
     /** Streaming snippets can be stopped in the middle of the grammar; only the tail is completed when displayed, and the actual answer is not modified. */
-    fun parseStreaming(markdown: String, styles: Styles = Styles.Light): List<MdBlock> = parse(StreamingMarkdown.preview(markdown), styles)
+    fun parseStreaming(markdown: String, styles: Styles = Styles.Light): List<MdBlock> {
+        if (markdown.isEmpty()) return emptyList()
+        val key = if (markdown.length <= CACHE_MAX_MARKDOWN_LEN) ParseKey(markdown, styles) else null
+        if (key != null) {
+            synchronized(cacheLock) {
+                streamCache[key]?.let { return it }
+            }
+        }
+        val computed = parse(StreamingMarkdown.preview(markdown), styles)
+        if (key != null) {
+            synchronized(cacheLock) {
+                streamCache[key] = computed
+            }
+        }
+        return computed
+    }
 
     /**
      * Answer the plain text after removing the Markdown symbols (for copying and quoting): paragraphs,
@@ -96,7 +154,22 @@ object MarkdownModel {
      * list is on one line, preceded by "•" or "1."; each line of quotation is preceded by ">"; each line
      * of the table is one line, and tabs are used between cells; no separators are required.
      */
-    fun toPlainText(markdown: String): String = blocksText(parse(markdown)).trim()
+    fun toPlainText(markdown: String): String {
+        if (markdown.isBlank()) return ""
+        val cacheable = markdown.length <= CACHE_MAX_MARKDOWN_LEN
+        if (cacheable) {
+            synchronized(cacheLock) {
+                plainCache[markdown]?.let { return it }
+            }
+        }
+        val computed = blocksText(parse(markdown)).trim()
+        if (cacheable) {
+            synchronized(cacheLock) {
+                plainCache[markdown] = computed
+            }
+        }
+        return computed
+    }
 
     private fun blocksText(blocks: List<MdBlock>, sep: String = "\n\n"): String = blocks.mapNotNull { b ->
         when (b) {

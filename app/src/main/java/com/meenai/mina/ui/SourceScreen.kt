@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
@@ -33,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -43,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.meenai.mina.ui.components.PageBackground
+import com.meenai.mina.ui.image.ImageBitmapCache
 import com.meenai.mina.ui.components.GroupCard
 import com.meenai.mina.ui.components.EmptyNote
 import com.meenai.mina.ui.components.TopBar
@@ -96,14 +95,16 @@ fun SourceScreen(vm: SourceViewModel, onBack: () -> Unit) {
     }
 }
 
+private val SourceShotShape = RoundedCornerShape(12.dp)
+
 @Composable
 private fun SourceShot(vm: SourceViewModel, id: Int) {
     val image by produceState<ImageBitmap?>(null, vm, id) {
-        value = withContext(Dispatchers.IO) { vm.screen(id)?.let { BitmapFactory.decodeFile(it.path) }?.asImageBitmap() }
+        value = withContext(Dispatchers.IO) { vm.screen(id)?.let { ImageBitmapCache.loadFromFileSync(it.path) } }
     }
     var zoomed by remember { mutableStateOf(false) }
     image?.let {
-        Image(it, stringResource(R.string.source_image), Modifier.fillMaxWidth().padding(top = 10.dp).clip(RoundedCornerShape(12.dp))
+        Image(it, stringResource(R.string.source_image), Modifier.fillMaxWidth().padding(top = 10.dp).clip(SourceShotShape)
             .clickable(onClickLabel = stringResource(R.string.zoom_in)) { zoomed = true },
             contentScale = ContentScale.FillWidth)
         if (zoomed) ZoomedShot(it) { zoomed = false }

@@ -4,7 +4,6 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.trPlural
 import androidx.compose.ui.res.stringResource
 import android.content.ActivityNotFoundException
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -47,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +62,7 @@ import com.meenai.mina.ui.components.StepItem
 import com.meenai.mina.ui.components.StepState
 import com.meenai.mina.ui.components.TopBar
 import com.meenai.mina.ui.components.ValueTone
+import com.meenai.mina.ui.image.ImageBitmapCache
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
@@ -368,17 +367,18 @@ private fun TagChip(t: Tag) {
     )
 }
 
+private val TimelineShotShape = RoundedCornerShape(12.dp)
+
 /** Picture then: decoding in background thread; just saying when file has been cleaned. */
 @Composable
 private fun Shot(vm: RunTimelineViewModel, id: Int, step: Int) {
-    val image by produceState<ImageBitmap?>(null, id) {
-        value = withContext(Dispatchers.IO) { vm.screen(id)?.let { BitmapFactory.decodeFile(it.path) }?.asImageBitmap() }
+    val image by produceState<ImageBitmap?>(null, vm, id) {
+        value = withContext(Dispatchers.IO) { vm.screen(id)?.let { ImageBitmapCache.loadFromFileSync(it.path) } }
     }
-    val shape = RoundedCornerShape(12.dp)
     image?.let {
         Image(
             it, stringResource(R.string.timeline_step_screen, step),
-            Modifier.padding(top = 8.dp).widthIn(max = 220.dp).clip(shape).background(MinaTheme.colors.fill, shape),
+            Modifier.padding(top = 8.dp).widthIn(max = 220.dp).clip(TimelineShotShape).background(MinaTheme.colors.fill, TimelineShotShape),
             contentScale = ContentScale.FillWidth,
         )
     }
