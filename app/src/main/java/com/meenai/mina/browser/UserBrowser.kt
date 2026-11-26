@@ -21,12 +21,14 @@ import com.meenai.mina.core.cap.web.WebUrlPolicy
 import com.meenai.mina.core.uistate.PageDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
@@ -69,6 +71,7 @@ data class BrowserPage(
  * continue to be used without being destroyed; when the user touches the page ([userTouched]), the task
  * borrowed from it is told. Only called on the main thread.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class UserBrowser private constructor(private val app: Context) {
     val sites: SiteRegistry = WebSites.registry(app)
     private val dir = File(app.filesDir, "web")
@@ -83,6 +86,8 @@ class UserBrowser private constructor(private val app: Context) {
 
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val wrapper = MutableContextWrapper(app)
     private var tab: WebTab? = null
     /** Stack of parent tabs when nested popup windows are opened (last = immediate opener). */
@@ -130,7 +135,7 @@ class UserBrowser private constructor(private val app: Context) {
         val t = tab ?: return
         val url = currentUrl() ?: return
         val host = WebUrlPolicy.host(url) ?: return
-        modes.set(host, desktop)
+        ioScope.launch { modes.set(host, desktop) }
         loginHost = null
         navigate(t, url)
     }
@@ -152,9 +157,13 @@ class UserBrowser private constructor(private val app: Context) {
                 _notice.value = tr(R.string.browser_not_logged_in)
                 return
             }
-            sites.markLoggedIn(site)
-            currentUrl()?.let(WebUrlPolicy::host)?.takeIf { it != site && BrowserFavorites.siteKey(it) == BrowserFavorites.siteKey(site) }?.let(sites::markLoggedIn)
-            WebTab.cookieManager().flush()
+            val currentHost = currentUrl()?.let(WebUrlPolicy::host)
+                ?.takeIf { it != site && BrowserFavorites.siteKey(it) == BrowserFavorites.siteKey(site) }
+            ioScope.launch {
+                sites.markLoggedIn(site)
+                currentHost?.let(sites::markLoggedIn)
+                WebTab.cookieManager().flush()
+            }
             Log.i(TAG, "browser login confirmed for $site ($state)")
             _notice.value = LOGGED_IN_NOTICE
             closePage()
@@ -365,7 +374,10 @@ class UserBrowser private constructor(private val app: Context) {
             if (tab !== this@UserBrowser.tab) return
             refresh()
             val url = tab.view.url
-            if (url != null && url.startsWith("http")) tab.view.title?.let { recent.retitle(url, it) }
+            val title = tab.view.title
+            if (url != null && url.startsWith("http") && title != null) {
+                ioScope.launch { recent.retitle(url, title) }
+            }
         }
 
         override fun onPageFinished(tab: WebTab) {
@@ -373,8 +385,11 @@ class UserBrowser private constructor(private val app: Context) {
             refresh()
             val url = tab.view.url ?: return
             if (!url.startsWith("http")) return
-            recent.add(url, tab.view.title?.takeIf { it != url })
-            WebTab.cookieManager().flush()
+            val title = tab.view.title?.takeIf { it != url }
+            ioScope.launch {
+                recent.add(url, title)
+                WebTab.cookieManager().flush()
+            }
             readName(tab, url)
             scheduleProbe(tab, 0)
         }
@@ -384,19 +399,36 @@ class UserBrowser private constructor(private val app: Context) {
             val host = tab.view.url?.takeIf { it.startsWith("http") }?.let(WebUrlPolicy::host) ?: return
             if (icon.width < MIN_ICON_PX || icon.height < MIN_ICON_PX) return
             val side = minOf(maxOf(icon.width, icon.height), MAX_ICON_PX)
-            val scaled = runCatching { Bitmap.createScaledBitmap(icon, side, side, true) }.getOrNull() ?: return
+            val iconCopy = runCatching {
+                if (icon.isRecycled) null else icon.copy(icon.config ?: Bitmap.Config.ARGB_8888, false)
+            }.getOrNull() ?: return
             scope.launch {
-                val targets = looks.iconTargets(host)
-                val saved = withContext(Dispatchers.IO) {
-                    targets.filter { h ->
+                val pngBytes = withContext(Dispatchers.Default) {
+                    var scaled: Bitmap? = null
+                    try {
+                        scaled = Bitmap.createScaledBitmap(iconCopy, side, side, true)
+                        ByteArrayOutputStream().use { out ->
+                            if (scaled.compress(Bitmap.CompressFormat.PNG, 100, out)) out.toByteArray() else null
+                        }
+                    } catch (_: Throwable) {
+                        null
+                    } finally {
+                        if (scaled != null && scaled !== iconCopy) scaled.recycle()
+                        iconCopy.recycle()
+                    }
+                } ?: return@launch
+                withContext(ioDispatcher) {
+                    val targets = looks.iconTargets(host)
+                    val saved = targets.filter { h ->
                         runCatching {
                             val f = looks.iconFile(h)
                             f.parentFile?.mkdirs()
-                            f.outputStream().use { scaled.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                            f.writeBytes(pngBytes)
+                            true
                         }.getOrDefault(false)
                     }
+                    saved.forEach(looks::iconSaved)
                 }
-                saved.forEach(looks::iconSaved)
             }
         }
 
@@ -484,20 +516,23 @@ class UserBrowser private constructor(private val app: Context) {
                 return@Runnable
             }
             LoginProbe.probe(t) { host, state ->
-                val known = sites.list().any { it.host == host }
                 val login = loginHost
-                val wasIn = login != null && BrowserFavorites.loggedIn(sites.list(), login)
-                when {
-                    known -> sites.loginObserved(host, state)
-                    state == LoginState.SignedIn -> sites.markLoggedIn(host)
-                    else -> Unit
+                ioScope.launch {
+                    val list = sites.list()
+                    val known = list.any { it.host == host }
+                    val wasIn = login != null && BrowserFavorites.loggedIn(list, login)
+                    when {
+                        known -> sites.loginObserved(host, state)
+                        state == LoginState.SignedIn -> sites.markLoggedIn(host)
+                        else -> Unit
+                    }
+                    // When "Login Mina", you can see that you have logged in: tell the user (the banner is
+                    // closed with the login status)
+                    if (login != null && !wasIn && state == LoginState.SignedIn && BrowserFavorites.siteKey(host) == BrowserFavorites.siteKey(login)) {
+                        _notice.value = LOGGED_IN_NOTICE
+                    }
+                    Log.i(TAG, "browser login probe $host: $state (known=$known)")
                 }
-                // When "Login Mina", you can see that you have logged in: tell the user (the banner is
-                // closed with the login status)
-                if (login != null && !wasIn && state == LoginState.SignedIn && BrowserFavorites.siteKey(host) == BrowserFavorites.siteKey(login)) {
-                    _notice.value = LOGGED_IN_NOTICE
-                }
-                Log.i(TAG, "browser login probe $host: $state (known=$known)")
             }
         }
         probe = run
@@ -512,7 +547,7 @@ class UserBrowser private constructor(private val app: Context) {
             if (t.destroyed) return@evaluateJavascript
             val (declared, title) = SiteNames.parse(raw) ?: return@evaluateJavascript
             val (name, rank) = SiteNames.pick(declared, title, SiteNames.isHomePage(url)) ?: return@evaluateJavascript
-            looks.named(host, name, rank)
+            ioScope.launch { looks.named(host, name, rank) }
         }
     }
 

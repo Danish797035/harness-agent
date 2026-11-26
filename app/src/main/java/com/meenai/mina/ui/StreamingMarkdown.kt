@@ -1,25 +1,59 @@
 package com.meenai.mina.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
 /** Lines that have not yet been output can be previewed in Markdown; these temporary characters will not be entered into the message record. */
 internal object StreamingMarkdown {
+    private const val PREVIEW_CACHE_LIMIT = 64
+    private const val PREVIEW_CACHE_MAX_LEN = 32_768
+    private val INLINE_TRIGGERS = charArrayOf('*', '_', '~', '`')
+
     private data class Open(val marker: String, val index: Int)
     private val unfinishedLink = Regex("""!?\[([^\]\n]*)\]\([^\)\n]*$""")
     private val unfinishedLabel = Regex("""!?\[([^\]\n]*)$""")
     private val fenceLine = Regex("""^ {0,3}(`{3,}|~{3,})(.*)$""")
+    private val tableDividerCell = Regex(""":?-+:?""")
+    private val cacheLock = Any()
+    private val previewCache = object : LinkedHashMap<String, String>(PREVIEW_CACHE_LIMIT + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean =
+            size > PREVIEW_CACHE_LIMIT
+    }
+
+    @Composable
+    fun rememberPreview(markdown: String): String = remember(markdown) { preview(markdown) }
 
     fun preview(markdown: String): String {
         if (markdown.isEmpty()) return markdown
+        if (markdown.length <= PREVIEW_CACHE_MAX_LEN) {
+            synchronized(cacheLock) {
+                previewCache[markdown]?.let { return it }
+            }
+        }
+        val computed = computePreview(markdown)
+        if (markdown.length <= PREVIEW_CACHE_MAX_LEN) {
+            synchronized(cacheLock) {
+                previewCache[markdown] = computed
+            }
+        }
+        return computed
+    }
+
+    private fun computePreview(markdown: String): String {
         // The punctuation in the code block is the content, and unclosed links or tables cannot be used
         // as typesetting syntax to change.
         if (insideFence(markdown)) return markdown
         // When the URL has not been collected, the link text will be displayed first to prevent
         // [text](https://... from being directly exposed.
-        val link = unfinishedLink.find(markdown) ?: unfinishedLabel.find(markdown)
+        val link = if (markdown.indexOf('[') >= 0) {
+            unfinishedLink.find(markdown) ?: unfinishedLabel.find(markdown)
+        } else null
         val visible = if (link == null) markdown else markdown.replaceRange(link.range, link.groupValues[1])
         return closeInline(softenPendingTable(visible))
     }
 
     private fun insideFence(source: String): Boolean {
+        if (!source.contains("```") && !source.contains("~~~")) return false
         var fence: String? = null
         for (line in source.lineSequence()) {
             val marker = fenceLine.matchEntire(line) ?: continue
@@ -31,6 +65,7 @@ internal object StreamingMarkdown {
     }
 
     private fun softenPendingTable(source: String): String {
+        if (!source.contains('|')) return source
         val lines = source.split('\n').toMutableList()
         if (lines.size >= 2 && lines.zipWithNext().any { (header, separator) ->
                 header.trimStart().startsWith('|') && completeDivider(separator, cells(header).size)
@@ -49,7 +84,7 @@ internal object StreamingMarkdown {
     private fun cells(line: String): List<String> = line.trim().trim('|').split('|').map(String::trim)
 
     private fun completeDivider(line: String, columns: Int): Boolean = columns > 0 &&
-        cells(line).let { parts -> parts.size == columns && parts.all { it.matches(Regex(""":?-+:?""")) } }
+        cells(line).let { parts -> parts.size == columns && parts.all { it.matches(tableDividerCell) } }
 
     private fun runLength(source: String, start: Int, c: Char): Int {
         var end = start
@@ -58,6 +93,7 @@ internal object StreamingMarkdown {
     }
 
     private fun closeInline(source: String): String {
+        if (source.indexOfAny(INLINE_TRIGGERS) < 0) return source
         val opened = mutableListOf<Open>()
         var fence: String? = null
         var code: String? = null

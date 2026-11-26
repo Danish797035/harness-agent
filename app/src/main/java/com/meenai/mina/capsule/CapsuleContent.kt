@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -38,13 +39,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.StrokeCap
@@ -155,8 +156,9 @@ fun CapsuleContent(
     onTalk: (() -> Unit)? = null,
     talkLabel: String = "",
 ) {
-    // Fade and restore slowly; when the animation is turned off, change directly
-    val shown = if (MinaTheme.reduceMotion) alpha else animateFloatAsState(alpha, tween(FADE_MS), label = "fade").value
+    // Fade and restore slowly; defer state read to graphicsLayer so parent does not recompose each frame
+    val shownState = if (MinaTheme.reduceMotion) null else animateFloatAsState(alpha, tween(FADE_MS), label = "fade")
+    val alphaProvider: () -> Float = { shownState?.value ?: alpha }
     val a11y = Modifier.semantics {
         customActions = listOfNotNull(
             onSwapSide?.let { f -> CustomAccessibilityAction(CapsuleCopy.SWAP_SIDE) { f(); true } },
@@ -166,18 +168,27 @@ fun CapsuleContent(
     }
     Box(modifier.padding(CapsuleShadowRoom)) {
         if (view.kind == CapsuleKind.HandedOver) TakeoverBar(view, onStop, onHandBack)
-        else Capsule(view, side == DockSide.Right, onTap, tapLabel, a11y, shown, flash, holding)
+        else Capsule(view, side == DockSide.Right, onTap, tapLabel, a11y, alphaProvider, flash, holding)
     }
 }
 
 /** A capsule or unfolded capsule: the same glass bottom, the visible width slowly changes between the two (only changes when drawing, see [Morph]); [end] is attached to the right (icon on the right). */
 @Composable
-private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, tapLabel: String, a11y: Modifier, alpha: Float, flash: Int, holding: Boolean) {
+private fun Capsule(
+    view: CapsuleView.Shown,
+    end: Boolean,
+    onTap: () -> Unit,
+    tapLabel: String,
+    a11y: Modifier,
+    alphaProvider: () -> Float,
+    flash: Int,
+    holding: Boolean,
+) {
     val c = MinaTheme.colors
     // Long press while talking: Zoom in a little, and there is a blue border around the outside (drawn
-    // in the shadow border, the window size remains unchanged)
-    val press = if (MinaTheme.reduceMotion) (if (holding) 1f else 0f)
-        else animateFloatAsState(if (holding) 1f else 0f, tween(HOLD_MS), label = "hold").value
+    // in drawBehind/graphicsLayer without forcing Capsule recomposition per frame)
+    val pressState = if (MinaTheme.reduceMotion) null else animateFloatAsState(if (holding) 1f else 0f, tween(HOLD_MS), label = "hold")
+    val staticPress = if (holding) 1f else 0f
     val need = view.kind.needsYou || view.needCount > 0
     // Screen capture: The white light goes from bright to non-existent, which means the screen flashes
     // when taking a screenshot; it does not flash when the animation is turned off.
@@ -191,9 +202,11 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
     }
     Box(
         Modifier.graphicsLayer {
+            val press = pressState?.value ?: staticPress
             scaleX = 1f + HOLD_SCALE * press
             scaleY = 1f + HOLD_SCALE * press
         }.drawBehind {
+            val press = pressState?.value ?: staticPress
             if (press <= 0f) return@drawBehind
             val ring = HoldRing.toPx()
             val r = size.height / 2 + ring / 2
@@ -205,7 +218,7 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
     ) {
         Box(
             Modifier.testTag(if (view.pill) "capsule" else "capsule-ball")
-                .morphGlass(morph, end, c, need, alpha)
+                .morphGlass(morph, end, c, need, alphaProvider, glow)
                 .clickable(onClickLabel = tapLabel, role = Role.Button, onClick = onTap)
                 .then(if (view.pill) Modifier else Modifier.semantics { contentDescription = CapsuleCopy.describe(view) })
                 .then(a11y)
@@ -213,14 +226,6 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
         ) {
             if (view.pill) PillRow(view, end, need)
             else Box(Modifier.size(CapsuleHeight), contentAlignment = Alignment.Center) { CapsuleLogo() }
-            if (glow.value > 0f) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .clip(EdgePill(morph.width.value, end))
-                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = glow.value)),
-                )
-            }
         }
         // The outer ring and corner mark do not fade with the bottom; when retracted, they stick to the
         // side of the icon and do not follow the unfinished width.
@@ -284,18 +289,18 @@ private fun LiveDot(c: MinaColors) {
 /** Need you: Orange dots, a light orange circle outside, exhale and inhale; do not move when the animation is turned off. */
 @Composable
 private fun BreathingDot(c: MinaColors) {
-    val halo = breathe(still = 0f)
+    val haloState = rememberBreatheState()
     Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(14.dp).graphicsLayer { alpha = halo }.background(c.warnSoft, MinaShapes.Pill))
+        Box(Modifier.size(14.dp).graphicsLayer { alpha = haloState?.value ?: 0f }.background(c.warnSoft, MinaShapes.Pill))
         Box(Modifier.size(8.dp).background(c.warnSolid, MinaShapes.Pill))
     }
 }
 
-/** One breath and one breath (0..1 round trip); when the animation is turned off, it stops at [still]. */
+/** One breath (0..1 round trip); null when animations are turned off. */
 @Composable
-private fun breathe(still: Float): Float = if (MinaTheme.reduceMotion) still else rememberInfiniteTransition(label = "breathe").animateFloat(
+private fun rememberBreatheState(): State<Float>? = if (MinaTheme.reduceMotion) null else rememberInfiniteTransition(label = "breathe").animateFloat(
     0f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "breathe",
-).value
+)
 
 /** The outer circle of an icon: a blue arc rotates around during work (it stays still in a full circle when the animation is turned off), a gray circle when waiting for conditions, and you are required to deal with an orange circle and exhale; the rest is empty. */
 @Composable
@@ -308,19 +313,21 @@ private fun Ring(kind: CapsuleKind, need: Boolean, modifier: Modifier) {
         else -> return
     }
     val spin = kind == CapsuleKind.Running && !need && !MinaTheme.reduceMotion
-    val angle = if (!spin) 0f else rememberInfiniteTransition(label = "spin").animateFloat(
+    val angleState = if (!spin) null else rememberInfiniteTransition(label = "spin").animateFloat(
         0f, 360f, infiniteRepeatable(tween(SPIN_MS, easing = LinearEasing)), label = "spin",
-    ).value
-    val strength = if (need) 0.45f + 0.55f * breathe(still = 1f) else 1f
+    )
+    val breatheState = if (need) rememberBreatheState() else null
     Canvas(modifier.testTag("capsule-ring")) {
         val stroke = 2.dp.toPx()
         if (size.width <= stroke || size.height <= stroke) return@Canvas
         val topLeft = Offset(stroke / 2, stroke / 2)
         val box = Size(size.width - stroke, size.height - stroke)
         if (spin) {
+            val angle = angleState?.value ?: 0f
             drawArc(c.accentSoft, 0f, 360f, useCenter = false, topLeft = topLeft, size = box, style = Stroke(stroke))
             drawArc(color, angle - 90f, 100f, useCenter = false, topLeft = topLeft, size = box, style = Stroke(stroke, cap = StrokeCap.Round))
         } else {
+            val strength = if (need) 0.45f + 0.55f * (breatheState?.value ?: 1f) else 1f
             drawArc(color.copy(alpha = strength), 0f, 360f, useCenter = false, topLeft = topLeft, size = box, style = Stroke(stroke))
         }
     }
@@ -406,23 +413,44 @@ private fun Modifier.morphLayout(m: Morph, end: Boolean): Modifier = layout { me
  * for shadow, crop, background color and stroke, and only redraw the layer when the width changes.
  * [alpha] Light background and icon inside.
  */
-private fun Modifier.morphGlass(m: Morph, end: Boolean, c: MinaColors, need: Boolean, alpha: Float): Modifier =
+private fun Modifier.morphGlass(
+    m: Morph,
+    end: Boolean,
+    c: MinaColors,
+    need: Boolean,
+    alphaProvider: () -> Float,
+    flashGlow: Animatable<Float, *>,
+): Modifier =
     graphicsLayer {
-        this.alpha = alpha
+        this.alpha = alphaProvider()
         shadowElevation = 8.dp.toPx()
         ambientShadowColor = c.floatShadow.copy(alpha = 0.25f)
         spotShadowColor = c.floatShadow.copy(alpha = 0.3f)
-        shape = EdgePill(m.width.value, end)
+        val mw = m.width.value
+        shape = if (mw > 0f && ceil(mw).toInt() != m.hold) EdgePill(mw, end) else MinaShapes.Pill
         clip = true
     }.drawWithContent {
-        val pill = EdgePill(m.width.value, end)
-        val o = pill.createOutline(size, layoutDirection, this)
-        drawOutline(o, c.surface.copy(alpha = 0.95f))
-        if (need) drawOutline(o, c.warnSoft)
+        val mw = m.width.value
+        val w = if (mw > 0f) mw.coerceAtMost(size.width) else size.width
+        val left = if (end) size.width - w else 0f
+        val topLeft = Offset(left, 0f)
+        val rectSize = Size(w, size.height)
+        val radius = CornerRadius(size.height / 2f, size.height / 2f)
+        drawRoundRect(c.surface.copy(alpha = 0.95f), topLeft, rectSize, radius)
+        if (need) drawRoundRect(c.warnSoft, topLeft, rectSize, radius)
         drawContent()
+        val g = flashGlow.value
+        if (g > 0f) drawRoundRect(Color.White.copy(alpha = g), topLeft, rectSize, radius)
         val stroke = (if (need) 1.dp else 0.5.dp).toPx()
-        drawOutline(EdgePill(m.width.value, end, inset = stroke / 2).createOutline(size, layoutDirection, this),
-            if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge, style = Stroke(stroke))
+        val half = stroke / 2f
+        val br = (size.height / 2f - half).coerceAtLeast(0f)
+        drawRoundRect(
+            color = if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge,
+            topLeft = Offset(left + half, half),
+            size = Size((w - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
+            cornerRadius = CornerRadius(br, br),
+            style = Stroke(stroke),
+        )
     }
 
 /** A capsule shape with a width of [width] (0 or beyond) and close to one side (right side in the case of [end]); [inset] is drawn inwards (for drawing strokes). */

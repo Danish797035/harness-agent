@@ -2,6 +2,7 @@ package com.meenai.mina.settings
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import com.meenai.mina.core.agent.ContextLimits
 import com.meenai.mina.core.chatgpt.ChatGptAuth
 import com.meenai.mina.core.chatgpt.ChatGptSession
@@ -42,6 +43,10 @@ import com.meenai.mina.core.usage.UsageSink
 import com.meenai.mina.core.usage.UsageSource
 import com.meenai.mina.core.usage.metered
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +82,7 @@ import java.util.concurrent.TimeUnit
  * "which model to use for which purpose", and configurations are created as they choose and deleted when
  * no one uses them.
  */
+@Immutable
 data class ProviderConfig(
     val id: String,
     val kind: Kind,
@@ -145,6 +151,7 @@ data class ProviderConfig(
  * the model once or passing it once, it will be cleared (see [ProviderStore.rememberModels],
  * [ProviderStore.markVerified]).
  */
+@Immutable
 data class Provider(
     val id: String,
     val name: String,
@@ -180,6 +187,7 @@ data class Provider(
 }
 
 /** The window left blank will inherit the selected model configuration, and the trigger points left blank will be automatically calculated by the core. */
+@Immutable
 data class ModelContextSettings(val windowTokens: Int? = null, val triggerTokens: Int? = null) {
     fun limits(modelWindow: Int): ContextLimits = ContextLimits.of(windowTokens ?: modelWindow, triggerTokens)
 
@@ -188,11 +196,12 @@ data class ModelContextSettings(val windowTokens: Int? = null, val triggerTokens
 }
 
 /** What to choose for a purpose: a specific model, use the main model, or not (you can only use it if you look at the picture). */
+@Immutable
 sealed interface RoleChoice {
     /** Use the model configuration [configId]. */
-    data class Model(val configId: String) : RoleChoice
-    data object SameAsMain : RoleChoice
-    data object Off : RoleChoice
+    @Immutable data class Model(val configId: String) : RoleChoice
+    @Immutable data object SameAsMain : RoleChoice
+    @Immutable data object Off : RoleChoice
 }
 
 /**
@@ -201,6 +210,7 @@ sealed interface RoleChoice {
  * means it has not been selected. It is not used by default when viewing pictures, and the main model is
  * used by default for lightweight.
  */
+@Immutable
 data class RoleChoices(
     val main: String? = null,
     val vision: RoleChoice = RoleChoice.Off,
@@ -315,6 +325,7 @@ class ProviderStore(
     val xaiAuth: XaiAuth = defaultXaiAuth,
     /** OpenRouter account authorization (change Key). */
     val openRouterAuth: OpenRouterAuth = defaultOpenRouterAuth,
+    private val writeScope: CoroutineScope? = null,
     /**
      * Create a callable model: configuration, Key, interface specified separately for this model in the
      * service provider list (if not null, according to the configured interface type and address),
@@ -323,6 +334,7 @@ class ProviderStore(
     modelFactory: ((ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel)? = null,
 ) {
     private val modelFactory: (ProviderConfig, String?, ModelEndpoint?, ClientSetup) -> ChatModel = modelFactory ?: ::buildModel
+    private val writeLock = Any()
     /** One copy for each ChatGPT service provider: only one is exchanging tokens at the same time. */
     private val chatGptTokens = mutableMapOf<String, ChatGptTokens>()
     /** One copy for each subscription account, and just like ChatGPT, only one is exchanging tokens at the same time. */
@@ -351,6 +363,8 @@ class ProviderStore(
 
     /** Service provider id → encrypted Key. */
     private var keys: Map<String, String> = emptyMap()
+    /** In-memory cache of decrypted keys to avoid repeated Keystore Binder IPC on hot paths. */
+    private val decryptedKeys = mutableMapOf<String, String>()
 
     init {
         dir.mkdirs()
@@ -386,9 +400,12 @@ class ProviderStore(
         _configs.value.firstOrNull { it.id == configId }?.let { providerKey(it.providerId) }
 
     /** The key of the service provider. If it cannot be unlocked (for example, the keystore is cleared by the system), it is treated as if there is no Key. */
-    fun providerKey(providerId: String): String? {
-        val enc = synchronized(this) { keys[providerId] } ?: return null
-        return runCatching { String(cipher.decrypt(decode(enc))) }.getOrNull()
+    fun providerKey(providerId: String): String? = synchronized(this) {
+        decryptedKeys[providerId]?.let { return it }
+        val enc = keys[providerId] ?: return null
+        val plain = runCatching { String(cipher.decrypt(decode(enc))) }.getOrNull() ?: return null
+        decryptedKeys[providerId] = plain
+        plain
     }
 
     /** Does this service provider have a Key stored in it (you don’t need to fill it in for local services). */
@@ -1082,8 +1099,14 @@ class ProviderStore(
     }
 
     private fun setKey(providerId: String, apiKey: String) {
-        keys = if (apiKey.isEmpty()) keys - providerId else keys + (providerId to encode(cipher.encrypt(apiKey.toByteArray())))
-        writeAtomically(keyFile, keysJson())
+        if (apiKey.isEmpty()) {
+            keys = keys - providerId
+            decryptedKeys.remove(providerId)
+        } else {
+            keys = keys + (providerId to encode(cipher.encrypt(apiKey.toByteArray())))
+            decryptedKeys[providerId] = apiKey
+        }
+        scheduleWrite(keyFile, keysJson())
         _keysRevision.value++
     }
 
@@ -1094,19 +1117,24 @@ class ProviderStore(
     }
 
     private fun load() {
+        decryptedKeys.clear()
         var configHealthy = true
         var root: JsonObject? = null
+        var rawConfigText: String? = null
 
         if (configFile.isFile) {
-            root = readJsonObject(configFile)
+            rawConfigText = runCatching { configFile.readText() }.getOrNull()
+            root = rawConfigText?.let(::parseJsonObjectText)
             if (root == null) {
                 // Not valid JSON (truncated write, hand edit, full disk). Never
                 // replace it with an empty config: try the last good copy and
                 // otherwise leave the file untouched so the user can recover it.
-                val backup = readJsonObject(configBackup)
-                if (backup != null) {
+                val backupText = runCatching { configBackup.takeIf { it.isFile }?.readText() }.getOrNull()
+                val backup = backupText?.let(::parseJsonObjectText)
+                if (backup != null && backupText != null) {
                     root = backup
-                    runCatching { writeAtomically(configFile, configBackup.readText()) }
+                    rawConfigText = backupText
+                    scheduleWrite(configFile, backupText)
                 } else {
                     configHealthy = false
                 }
@@ -1136,10 +1164,11 @@ class ProviderStore(
         if (keyFile.isFile) {
             var obj = readJsonObject(keyFile)
             if (obj == null) {
-                val backup = readJsonObject(keyBackup)
-                if (backup != null) {
+                val backupText = runCatching { keyBackup.takeIf { it.isFile }?.readText() }.getOrNull()
+                val backup = backupText?.let(::parseJsonObjectText)
+                if (backup != null && backupText != null) {
                     obj = backup
-                    runCatching { writeAtomically(keyFile, keyBackup.readText()) }
+                    scheduleWrite(keyFile, backupText)
                 } else {
                     keysHealthy = false
                 }
@@ -1155,10 +1184,10 @@ class ProviderStore(
         }
 
         if (configFile.isFile && !configBackup.isFile) {
-            runCatching { configFile.copyTo(configBackup, overwrite = true) }
+            scheduleBackup(configFile, configBackup)
         }
         if (keyFile.isFile && !keyBackup.isFile) {
-            runCatching { keyFile.copyTo(keyBackup, overwrite = true) }
+            scheduleBackup(keyFile, keyBackup)
         }
 
         migrate()
@@ -1170,9 +1199,12 @@ class ProviderStore(
         prune()
         if (configFile.isFile) {
             val text = configJson()
-            if (runCatching { configFile.readText() }.getOrNull() != text) writeAtomically(configFile, text)
+            if (rawConfigText != text) scheduleWrite(configFile, text)
         }
     }
+
+    private fun parseJsonObjectText(text: String): JsonObject? =
+        runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
 
     private fun readJsonObject(file: File): JsonObject? =
         runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull()
@@ -1228,7 +1260,8 @@ class ProviderStore(
         val ids = _providers.value.map { it.id }.toSet()
         if (keys.keys.any { it !in ids }) {
             keys = keys.filterKeys { it in ids }
-            writeAtomically(keyFile, keysJson())
+            decryptedKeys.keys.retainAll(ids)
+            scheduleWrite(keyFile, keysJson())
         }
     }
 
@@ -1316,7 +1349,36 @@ class ProviderStore(
     private fun JsonObject.str(k: String) = this[k]!!.jsonPrimitive.content
     private fun JsonObject.positiveInt(k: String) = (this[k] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
 
-    private fun writeConfig() = writeAtomically(configFile, configJson())
+    private fun writeConfig() = scheduleWrite(configFile, configJson())
+
+    private fun scheduleWrite(f: File, text: String) {
+        val scope = writeScope
+        if (scope == null) {
+            writeAtomically(f, text)
+        } else {
+            scope.launch {
+                synchronized(writeLock) {
+                    runCatching { writeAtomically(f, text) }
+                        .onFailure { Log.w("ProviderStore", "Async write failed for ${f.name}", it) }
+                }
+            }
+        }
+    }
+
+    private fun scheduleBackup(source: File, backup: File) {
+        val scope = writeScope
+        if (scope == null) {
+            runCatching { source.copyTo(backup, overwrite = true) }
+        } else {
+            scope.launch {
+                synchronized(writeLock) {
+                    if (source.isFile && !backup.isFile) {
+                        runCatching { source.copyTo(backup, overwrite = true) }
+                    }
+                }
+            }
+        }
+    }
 
     private fun configJson(providers: List<Provider> = _providers.value): String {
         val root = buildJsonObject {
@@ -1500,7 +1562,13 @@ class ProviderStore(
 
         /** The one in the product (App built): configured under files/settings, the Key is encrypted with the Android keystore, and the usage is recorded as [usage]. */
         fun create(context: Context, usage: UsageSink, userAgent: String): ProviderStore =
-            ProviderStore(File(context.applicationContext.filesDir, "settings"), KeystoreKeyCipher(), usage, userAgent = userAgent)
+            ProviderStore(
+                File(context.applicationContext.filesDir, "settings"),
+                KeystoreKeyCipher(),
+                usage,
+                userAgent = userAgent,
+                writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1)),
+            )
 
         /** The share shared within the App (given by [Owner]). */
         fun get(context: Context): ProviderStore = (context.applicationContext as? Owner)?.providers

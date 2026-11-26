@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,6 +105,8 @@ private class StoredScreenShots(private val context: Context) : ScreenShots {
 
     companion object {
         val cache = LruCache<String, ShownScreen>(24)
+
+        fun cached(conversationId: String, id: String): ShownScreen? = cache.get("$conversationId/$id")
     }
 }
 
@@ -123,8 +126,16 @@ fun screenThumbnail(bytes: ByteArray): ImageBitmap? = runCatching {
 @Composable
 fun rememberShownScreen(conversationId: String?, id: String): ShownScreen? {
     val context = LocalContext.current
-    val shots = LocalScreenShots.current ?: StoredScreenShots(context)
-    val shown by produceState<ShownScreen?>(null, conversationId, id) {
+    val customShots = LocalScreenShots.current
+    val shots = customShots ?: remember(context) { StoredScreenShots(context) }
+    val initial = remember(customShots, conversationId, id) {
+        if (customShots == null && conversationId != null) StoredScreenShots.cached(conversationId, id) else null
+    }
+    val shown by produceState<ShownScreen?>(initial, shots, conversationId, id) {
+        if (initial != null) {
+            value = initial
+            return@produceState
+        }
         value = conversationId?.let { runCatching { shots.load(it, id) }.getOrNull() }
     }
     return shown

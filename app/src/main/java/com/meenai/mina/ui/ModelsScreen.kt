@@ -561,9 +561,11 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
     var filter by rememberSaveable { mutableStateOf("") }
     var using by remember { mutableStateOf<ModelOption?>(null) }
     val state = ui.listing[p.id]
-    val all = ui.sortedOptions(p)
+    val all = remember(p, ui.providers, ui.configs, ui.roles) { ui.sortedOptions(p) }
     val q = filter.trim()
-    val shown = all.filter { q.isEmpty() || it.id.contains(q, ignoreCase = true) }
+    val shown = remember(all, q) {
+        if (q.isEmpty()) all else all.filter { it.id.contains(q, ignoreCase = true) }
+    }
     PageBackground {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars).windowInsetsPadding(WindowInsets.ime)) {
             TopBar(ModelsCopy.allModelsTitle(ModelsCopy.providerName(p)), MinaIcons.Back, onBack, stringResource(R.string.back), right = {
@@ -578,12 +580,12 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
                 else -> Unit
             }
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
-                itemsIndexed(shown, key = { _, o -> o.id }) { i, o ->
+                itemsIndexed(shown, key = { _, o -> o.id }, contentType = { _, _ -> "model_row" }) { i, o ->
                     Box(Modifier.fillMaxWidth().clip(rowShape(i, shown.size)).background(c.surface)) {
                         ModelRow(o, ui.rolesOf(p.id, o.id), first = i == 0) { using = o }
                     }
                 }
-                item {
+                item(key = "footer", contentType = "footer") {
                     FooterNote(
                         if (q.isNotEmpty() && shown.isEmpty()) ModelsCopy.NO_MATCH else ModelsCopy.allModelsNote(all.size),
                         Modifier.padding(top = 10.dp),
@@ -595,11 +597,17 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
     using?.let { o -> UseAsSheet(ui, p, o.id, onUse = { role -> actions.use(role, o.id) }, onVision = { actions.setVision(o.id, it) }, onDismiss = { using = null }) }
 }
 
+private val RowSingleShape = RoundedCornerShape(MinaRadius.Card)
+private val RowTopShape = RoundedCornerShape(topStart = MinaRadius.Card, topEnd = MinaRadius.Card)
+private val RowMiddleShape = RoundedCornerShape(0.dp)
+private val RowBottomShape = RoundedCornerShape(bottomStart = MinaRadius.Card, bottomEnd = MinaRadius.Card)
+
 /** When a card is split into lazy-loaded rows, the corners of each row will be rounded: the first row will be rounded at the top, and the last row will be rounded at the bottom. */
-private fun rowShape(i: Int, n: Int): RoundedCornerShape {
-    val r = MinaRadius.Card
-    return RoundedCornerShape(topStart = if (i == 0) r else 0.dp, topEnd = if (i == 0) r else 0.dp,
-        bottomStart = if (i == n - 1) r else 0.dp, bottomEnd = if (i == n - 1) r else 0.dp)
+private fun rowShape(i: Int, n: Int): RoundedCornerShape = when {
+    n <= 1 -> RowSingleShape
+    i == 0 -> RowTopShape
+    i == n - 1 -> RowBottomShape
+    else -> RowMiddleShape
 }
 
 /** One line of model: model name (same width) and label, with the right side indicating what purpose it is working for. */

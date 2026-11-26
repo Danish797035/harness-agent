@@ -1,5 +1,6 @@
 package com.meenai.mina.settings
 
+import androidx.compose.runtime.Immutable
 import com.meenai.mina.core.model.Capabilities
 import com.meenai.mina.core.model.ListedModel
 import com.meenai.mina.core.router.picker.ChatModelFilter
@@ -16,6 +17,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * [Provider.visionOverrides]). If it is not said, it is null; if it is not said, it is included in
  * [capabilities].
  */
+@Immutable
 data class ModelOption(
     val id: String,
     val capabilities: Capabilities,

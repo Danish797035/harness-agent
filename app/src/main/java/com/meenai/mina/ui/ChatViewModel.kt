@@ -1,5 +1,6 @@
 package com.meenai.mina.ui
 
+import androidx.compose.runtime.Immutable
 import com.meenai.mina.R
 import com.meenai.mina.cap.web.KeptPage
 import com.meenai.mina.i18n.tr
@@ -110,6 +111,7 @@ enum class StepState { Ok, Run, Wait, Dim }
  * step, list them one by one - the title of one line is a summary. If you want to see what it clicked
  * and typed, look here.
  */
+@Immutable
 data class StepAction(val label: String, val target: String?, val effect: String?, val failed: Boolean)
 
 /**
@@ -118,31 +120,34 @@ data class StepAction(val label: String, val target: String?, val effect: String
  * is the intention written by the model for that step (empty when not written), [subtitle] is the
  * explanation when it was unsuccessful, and is usually empty.
  */
+@Immutable
 data class StepRow(val step: Int, val title: String, val subtitle: String, val state: StepState, val reason: String = "") {
     /** The explanation of this step on the interface: the model's own words, if not, use the tool's explanation. */
     val text: String get() = reason.ifEmpty { title }
 }
 
+@Immutable
 sealed interface ExchangeStatus {
-    data object Working : ExchangeStatus
-    data object WaitingUnlock : ExchangeStatus
+    @Immutable data object Working : ExchangeStatus
+    @Immutable data object WaitingUnlock : ExchangeStatus
     /** [item]/[amount]/[address] are listed separately on the card when payment is taken over. */
+    @Immutable
     data class NeedsTakeover(
         val reason: String, val message: String,
         val item: String? = null, val amount: String? = null, val address: String? = null,
     ) : ExchangeStatus
-    data class NeedsInput(val prompt: String, val options: List<String>?) : ExchangeStatus
+    @Immutable data class NeedsInput(val prompt: String, val options: List<String>?) : ExchangeStatus
     /**
      * Wait for the user to agree to an operation that costs money (you can only agree this time);
      * [title] "Requires your consent: <action>", [body] One field per line (App, object, complete content,
      * amount). [key] is the number of this declaration. The button carries it and clicking on the old
      * card does not count.
      */
-    data class NeedsConfirmation(val title: String, val body: String, val key: Int) : ExchangeStatus
+    @Immutable data class NeedsConfirmation(val title: String, val body: String, val key: Int) : ExchangeStatus
     /** Stop and wait; click "Continue" at [resumable] and continue, otherwise it will automatically continue after the conditions are met ("Continue" will not be given on the card). */
-    data class Paused(val why: String, val resumable: Boolean = true) : ExchangeStatus
+    @Immutable data class Paused(val why: String, val resumable: Boolean = true) : ExchangeStatus
     /** It has not started yet and is in the start queue; it will start automatically when it is your turn and can only be canceled. */
-    data class Queued(val why: String) : ExchangeStatus
+    @Immutable data class Queued(val why: String) : ExchangeStatus
     /**
      * [verified] is false, which means it has been completed but failed to be verified, and [note] is
      * the reason; there is no green check at this time. [unconfirmed] are a few places in the answer
@@ -152,6 +157,7 @@ sealed interface ExchangeStatus {
      * itself in the old record; the new answer source is taken from the running record (see
      * [evidenceSource]).
      */
+    @Immutable
     data class Done(
         val answer: String, val evidence: String?, val verified: Boolean = true, val note: String? = null,
         val unconfirmed: List<String> = emptyList(), val reviewed: Boolean = true,
@@ -162,14 +168,14 @@ sealed interface ExchangeStatus {
             else -> note?.let { tr(R.string.chat_unverified_because, it) } ?: tr(R.string.chat_unverified)
         }
     }
-    data class Failed(val reason: String, val retryable: Boolean = false) : ExchangeStatus
+    @Immutable data class Failed(val reason: String, val retryable: Boolean = false) : ExchangeStatus
     /**
      * The user stopped. [summary] is the explanation added after stopping (what has been done and what
      * has not been done), which is regarded as the answer for this round; it is null when it has not
      * been written yet and there is nothing to explain. [summarizing] The explanation is still being
      * written ("organizing what has been done...").
      */
-    data class Cancelled(val summary: String? = null, val summarizing: Boolean = false) : ExchangeStatus
+    @Immutable data class Cancelled(val summary: String? = null, val summarizing: Boolean = false) : ExchangeStatus
 }
 
 /**
@@ -177,6 +183,7 @@ sealed interface ExchangeStatus {
  * indicates the task (with steps) that was run after opening the app this time. [runId] is the running
  * record that can be viewed after the task is completed; it is null when running or there is no record.
  */
+@Immutable
 data class Exchange(
     val goal: String,
     val steps: List<StepRow>,
@@ -281,6 +288,7 @@ interface LearningActions {
  * and size; copy it into the conversation workspace when sending. For [photo], there are thumbnails
  * above the input box, and the rest are small file cards.
  */
+@Immutable
 data class PendingAttachment(val uri: String, val name: String, val size: Long, val photo: Boolean = AttachmentMessage.isPhoto(name))
 
 enum class PipMode { Running, NeedsYou, Done }
@@ -292,6 +300,7 @@ enum class PipMode { Running, NeedsYou, Done }
  * button in the lower right corner (click it to open it again; it turns orange when you want to handle
  * it). Just turn off this task, and the next task will still have a small screen.
  */
+@Immutable
 data class PipUi(
     val visible: Boolean = false,
     val mode: PipMode = PipMode.Running,
@@ -308,6 +317,7 @@ enum class ComposerMode {
     Answer,
 }
 
+@Immutable
 data class ChatUi(
     val conversationId: String? = null,
     val exchanges: List<Exchange> = emptyList(),
@@ -437,6 +447,10 @@ class ChatViewModel(
     private val thinkingModeFlag: () -> Boolean = { false },
     /** Persists user changes to the Thinking mode toggle. */
     private val persistThinkingMode: (Boolean) -> Unit = {},
+    /** Minimum interval (ms) between streaming draft/thinking UI updates; coalesces rapid token bursts. */
+    private val streamThrottleMs: Long = DEFAULT_STREAM_THROTTLE_MS,
+    /** Offloads conversation disk reads/writes onto [ioDispatcher] in app runtime (false preserves sync test behavior). */
+    private val asyncStoreIo: Boolean = false,
 ) {
     /** The user closes the page left in the background on the conversation page. */
     fun closeKeptPage() = closeKept()
@@ -554,6 +568,18 @@ class ChatViewModel(
     private var screenSeen = false
     /** The user has turned off the small screen of the task being tracked (cleared when changing tasks, see [PipUi.closed]). */
     private var pipClosed = false
+    private var streamWindowJob: Job? = null
+    private var pendingStreamState: TaskState.Running? = null
+    private var lastFlushedRunning: TaskState.Running? = null
+    private var loadConversationJob: Job? = null
+    private var openGeneration = 0L
+
+    private fun resetStreamThrottle() {
+        streamWindowJob?.cancel()
+        streamWindowJob = null
+        pendingStreamState = null
+        lastFlushedRunning = null
+    }
 
     init {
         // Even when the switch is off, follow the dialogue in the status bar: Tasks from other dialogues
@@ -564,9 +590,17 @@ class ChatViewModel(
         // fill in the saved one.
         scope.launch {
             store.changes.collect { id ->
-                if (id == _ui.value.conversationId) syncSaved(id)
-                // Someone has saved the deleted conversation again: List it again
-                if (id in _deleted.value && id !in deleting && store.turns(id).isNotEmpty()) _deleted.update { it - id }
+                if (asyncStoreIo) {
+                    if (id == _ui.value.conversationId) syncSavedAsync(id)
+                    if (id in _deleted.value && id !in deleting) {
+                        val restored = withContext(ioDispatcher) { store.turns(id).isNotEmpty() }
+                        if (restored && id !in deleting) _deleted.update { it - id }
+                    }
+                } else {
+                    if (id == _ui.value.conversationId) syncSaved(id)
+                    // Someone has saved the deleted conversation again: List it again
+                    if (id in _deleted.value && id !in deleting && store.turns(id).isNotEmpty()) _deleted.update { it - id }
+                }
             }
         }
         // In parallel, only the takeover progress of the task of this dialogue on the screen is
@@ -581,14 +615,31 @@ class ChatViewModel(
         scope.launch { sandboxReady.collect { r -> _ui.update { it.copy(attachEnabled = r) } } }
         scope.launch { sharedFiles.collect { if (ownTask()) onSharedFiles(it) } }
         scope.launch { generatedImages.collect { if (ownTask()) onGeneratedImages(it) } }
-        scope.launch { runNotes.collect { notes -> _ui.update { ui -> ui.copy(exchanges = ui.exchanges.map { withNotes(it, notes) }) } } }
+        scope.launch {
+            runNotes.collect { notes ->
+                if (notes.isEmpty()) return@collect
+                _ui.update { ui ->
+                    var changed = false
+                    val mapped = ui.exchanges.map { ex -> withNotes(ex, notes).also { if (it !== ex) changed = true } }
+                    if (changed) ui.copy(exchanges = mapped) else ui
+                }
+            }
+        }
         scope.launch { activities.collect { if (ownTask()) onActivities(it) } }
         scope.launch { steers.collect { if (ownTask()) onSteers(it) } }
         // The task is registered into the task list (the original words can be retrieved) may be later
         // than its first state: the question and answer followed at that time will be supplemented with
         // the original words.
         scope.launch { activeConversations.collect { fillGoal() } }
-        scope.launch { summarizing.collect { set -> _ui.update { ui -> ui.copy(exchanges = ui.exchanges.map { withSummarizing(it, set) }) } } }
+        scope.launch {
+            summarizing.collect { set ->
+                _ui.update { ui ->
+                    var changed = false
+                    val mapped = ui.exchanges.map { ex -> withSummarizing(ex, set).also { if (it !== ex) changed = true } }
+                    if (changed) ui.copy(exchanges = mapped) else ui
+                }
+            }
+        }
         scope.launch { runningModel.collect { if (ownTask()) onRunningModel(it) } }
 
         // Keep live remaining quota percentage synchronized with router state and every completed model call.
@@ -808,6 +859,7 @@ class ChatViewModel(
 
     private fun withNotes(ex: Exchange, notes: Map<String, RunNotes>): Exchange {
         val n = ex.runId?.let(notes::get) ?: return ex
+        if (ex.memoryNotes == n.memoryNotes && ex.usedMemory == n.usedMemory && ex.skillNotes == n.skillNotes) return ex
         return ex.copy(memoryNotes = n.memoryNotes, usedMemory = n.usedMemory, skillNotes = n.skillNotes)
     }
 
@@ -1156,7 +1208,9 @@ class ChatViewModel(
         when {
             current == null -> {
                 if (!s.active()) return
-                _ui.update { it.copy(conversationId = conversationId, exchanges = saved(conversationId)) }
+                val cached = cachedSaved(conversationId)
+                _ui.update { it.copy(conversationId = conversationId, exchanges = cached ?: if (asyncStoreIo) emptyList() else saved(conversationId)) }
+                if (asyncStoreIo) syncSavedAsync(conversationId)
             }
             current != conversationId -> {
                 val live = _ui.value.exchanges.getOrNull(liveIndex)
@@ -1175,10 +1229,33 @@ class ChatViewModel(
     fun switchTo(conversationId: String) {
         refreshParallel()
         if (!parallel()) return openConversation(conversationId)
+        resetStreamThrottle()
+        loadConversationJob?.cancel()
+        val gen = ++openGeneration
         lingerJob?.cancel()
         if (conversationId != _ui.value.conversationId) parkLive()
-        val past = saved(conversationId)
         liveIndex = -1
+        if (asyncStoreIo) {
+            val cachedPast = cachedSaved(conversationId)
+            if (cachedPast != null) {
+                _ui.update { ChatUi(conversationId = conversationId, exchanges = cachedPast, takeoverStage = Takeover.Stage.None) }
+                markCurrent(CurrentChat.Open(conversationId))
+                if (conversationId in activeConversations.value) follow(conversationId, unpark(conversationId))
+                syncSavedAsync(conversationId)
+                return
+            }
+            _ui.update { ChatUi(conversationId = conversationId, exchanges = emptyList(), takeoverStage = Takeover.Stage.None) }
+            markCurrent(CurrentChat.Open(conversationId))
+            loadConversationJob = scope.launch {
+                val past = withContext(ioDispatcher) { saved(conversationId) }
+                if (gen != openGeneration || _ui.value.conversationId != conversationId) return@launch
+                applySyncSaved(conversationId, past)
+                if (conversationId !in activeConversations.value) { unpark(conversationId); return@launch }
+                follow(conversationId, unpark(conversationId))
+            }
+            return
+        }
+        val past = saved(conversationId)
         // Conversations without tasks do not take over the progress of other tasks.
         _ui.update { ChatUi(conversationId = conversationId, exchanges = past, takeoverStage = Takeover.Stage.None) }
         markCurrent(CurrentChat.Open(conversationId))
@@ -1235,6 +1312,16 @@ class ChatViewModel(
     fun refresh() {
         refreshParallel()
         val id = _ui.value.conversationId ?: return
+        if (asyncStoreIo) {
+            scope.launch {
+                val stored = withContext(ioDispatcher) { saved(id) }
+                if (_ui.value.conversationId != id) return@launch
+                applySyncSaved(id, stored)
+                if (id !in activeConversations.value || pendingStart?.isActive == true) return@launch
+                follow(id, if (parallel()) unpark(id) else null)
+            }
+            return
+        }
         syncSaved(id)
         if (id !in activeConversations.value || pendingStart?.isActive == true) return
         // If the switch is turned off and you are not changing the dialogue during the task, you have to
@@ -1243,9 +1330,22 @@ class ChatViewModel(
         follow(id, if (parallel()) unpark(id) else null)
     }
 
+    private fun mapStoredRecords(records: List<Pair<Turn, List<SharedFile>>>): List<Exchange> =
+        records.map { (t, files) -> withSummarizing(withNotes(fromTurn(t).copy(files = files), runNotes.value)) }
+
+    private fun cachedSaved(conversationId: String): List<Exchange>? =
+        store.peekCachedRecords(conversationId)?.let(::mapStoredRecords)
+
     /** The saved rounds of this conversation, together with the exported files of each round and the memory and skill tips at the moment. */
     private fun saved(conversationId: String): List<Exchange> =
-        runCatching { store.records(conversationId) }.getOrDefault(emptyList()).map { (t, files) -> withSummarizing(withNotes(fromTurn(t).copy(files = files), runNotes.value)) }
+        mapStoredRecords(runCatching { store.records(conversationId) }.getOrDefault(emptyList()))
+
+    private fun syncSavedAsync(conversationId: String) {
+        scope.launch {
+            val stored = withContext(ioDispatcher) { saved(conversationId) }
+            applySyncSaved(conversationId, stored)
+        }
+    }
 
     /**
      * The dialogue in the storage has changed (a round was saved after running elsewhere, and a certain
@@ -1255,7 +1355,10 @@ class ChatViewModel(
      * continued; the questions and answers that are being followed are left at the end.
      */
     private fun syncSaved(conversationId: String) {
-        val stored = saved(conversationId)
+        applySyncSaved(conversationId, saved(conversationId))
+    }
+
+    private fun applySyncSaved(conversationId: String, stored: List<Exchange>) {
         _ui.update { ui ->
             if (ui.conversationId != conversationId) return@update ui
             val live = ui.exchanges.getOrNull(liveIndex)
@@ -1284,6 +1387,7 @@ class ChatViewModel(
 
     /** Stop: The task is invalidated together with the interrupts that have not been handed over to it (interruptions are no longer regarded as the next thing). */
     fun cancel() {
+        resetStreamThrottle()
         _ui.update { ui ->
             val exchanges = ui.exchanges.toMutableList()
             if (liveIndex in exchanges.indices) exchanges[liveIndex] = exchanges[liveIndex].let { ex ->
@@ -1356,8 +1460,30 @@ class ChatViewModel(
         refreshParallel()
         if (parallel()) return switchTo(id)
         if (busy()) return
-        val past = saved(id)
+        resetStreamThrottle()
+        loadConversationJob?.cancel()
+        val gen = ++openGeneration
         liveIndex = -1
+        if (asyncStoreIo) {
+            val cachedPast = cachedSaved(id)
+            if (cachedPast != null) {
+                _ui.update { ChatUi(conversationId = id, exchanges = cachedPast, takeoverStage = it.takeoverStage, attachEnabled = it.attachEnabled) }
+                markCurrent(CurrentChat.Open(id))
+                if (id in activeConversations.value) follow(id)
+                syncSavedAsync(id)
+                return
+            }
+            _ui.update { ChatUi(conversationId = id, exchanges = emptyList(), takeoverStage = it.takeoverStage, attachEnabled = it.attachEnabled) }
+            markCurrent(CurrentChat.Open(id))
+            loadConversationJob = scope.launch {
+                val past = withContext(ioDispatcher) { saved(id) }
+                if (gen != openGeneration || _ui.value.conversationId != id) return@launch
+                applySyncSaved(id, past)
+                if (id in activeConversations.value) follow(id)
+            }
+            return
+        }
+        val past = saved(id)
         _ui.update { ChatUi(conversationId = id, exchanges = past, takeoverStage = it.takeoverStage, attachEnabled = it.attachEnabled) }
         markCurrent(CurrentChat.Open(id))
         // The task of this conversation started elsewhere (suspended capsule, timed task): open it and
@@ -1371,7 +1497,11 @@ class ChatViewModel(
      * Failure to write will not affect the interface.
      */
     private fun markCurrent(current: CurrentChat) {
-        runCatching { store.setCurrent(current) }
+        if (asyncStoreIo) {
+            scope.launch(ioDispatcher) { runCatching { store.setCurrent(current) } }
+        } else {
+            runCatching { store.setCurrent(current) }
+        }
     }
 
     fun newConversation() {
@@ -1379,6 +1509,9 @@ class ChatViewModel(
         if (parallel()) {
             // Other tasks may still be running: give the new conversation a number first, so that its
             // status will not be regarded as this conversation.
+            resetStreamThrottle()
+            loadConversationJob?.cancel()
+            openGeneration++
             lingerJob?.cancel()
             parkLive()
             liveIndex = -1
@@ -1389,6 +1522,9 @@ class ChatViewModel(
             return
         }
         if (busy()) return
+        resetStreamThrottle()
+        loadConversationJob?.cancel()
+        openGeneration++
         liveIndex = -1
         _ui.update { ChatUi(takeoverStage = it.takeoverStage, attachEnabled = it.attachEnabled) }
         markCurrent(CurrentChat.Fresh)
@@ -1414,17 +1550,29 @@ class ChatViewModel(
     /** The user renamed the conversation [id] in the sidebar: to [title](remove the blanks at both ends; do not change the empty ones). The title created later will not cover it up again. */
     fun renameConversation(id: String, title: String) {
         if (id in _deleted.value) return
-        runCatching { store.rename(id, title) }
+        if (asyncStoreIo) {
+            scope.launch(ioDispatcher) { if (id !in _deleted.value) runCatching { store.rename(id, title) } }
+        } else {
+            runCatching { store.rename(id, title) }
+        }
     }
 
     /** Pin or unpin conversation [id] in the sidebar. */
     fun setPinned(id: String, pinned: Boolean) {
         if (id in _deleted.value) return
-        runCatching { store.setPinned(id, pinned, clock()) }
+        val at = clock()
+        if (asyncStoreIo) {
+            scope.launch(ioDispatcher) { if (id !in _deleted.value) runCatching { store.setPinned(id, pinned, at) } }
+        } else {
+            runCatching { store.setPinned(id, pinned, at) }
+        }
     }
 
     /** The dialogue on the screen was deleted: it no longer related to its tasks (those that had not yet been handed over to the service were immediately discarded) and replaced with a new empty dialogue. */
     private fun startOver(id: String) {
+        resetStreamThrottle()
+        loadConversationJob?.cancel()
+        openGeneration++
         lingerJob?.cancel()
         pendingStart?.cancel()
         pendingStart = null
@@ -1453,6 +1601,47 @@ class ChatViewModel(
     fun canSwitch() = parallel() || !busy()
 
     private fun onState(s: TaskState) {
+        if (s is TaskState.Running) {
+            if (streamThrottleMs <= 0L || liveIndex < 0) {
+                resetStreamThrottle()
+                lastFlushedRunning = s
+                applyTaskState(s)
+                return
+            }
+            val windowActive = streamWindowJob?.isActive == true
+            if (!windowActive || s.hasStructuralChangeFrom(lastFlushedRunning)) {
+                streamWindowJob?.cancel()
+                pendingStreamState = null
+                lastFlushedRunning = s
+                applyTaskState(s)
+                val windowConvoId = _ui.value.conversationId
+                streamWindowJob = scope.launch {
+                    delay(streamThrottleMs)
+                    val trailing = pendingStreamState
+                    pendingStreamState = null
+                    streamWindowJob = null
+                    if (trailing != null && liveIndex >= 0 && _ui.value.conversationId == windowConvoId) {
+                        lastFlushedRunning = trailing
+                        applyTaskState(trailing)
+                    }
+                }
+            } else {
+                pendingStreamState = s
+            }
+            return
+        }
+
+        val pending = pendingStreamState
+        if (pending != null && (s is TaskState.Held || s is TaskState.WaitingTakeover || s is TaskState.WaitingInput) &&
+            pending.thinking != lastFlushedRunning?.thinking
+        ) {
+            applyTaskState(pending)
+        }
+        resetStreamThrottle()
+        applyTaskState(s)
+    }
+
+    private fun applyTaskState(s: TaskState) {
         if (liveIndex < 0) {
             // The task does not start here (for example, it was running before the interface was
             // rebuilt): it is then displayed, but there is no user sentence
@@ -1505,7 +1694,9 @@ class ChatViewModel(
             liveIndex = -1
             // This round may have been saved in the conversation and added to the screen: press the run
             // number and merge it into one
-            _ui.value.conversationId?.let(::syncSaved)
+            _ui.value.conversationId?.let { id ->
+                if (asyncStoreIo) syncSavedAsync(id) else syncSaved(id)
+            }
             if (s is TaskState.Succeeded) {
                 markConnected()
                 lingerJob = scope.launch {
@@ -1564,7 +1755,25 @@ class ChatViewModel(
 
     companion object {
         const val DONE_LINGER_MS = 3_000L
+        const val DEFAULT_STREAM_THROTTLE_MS = 45L
 
+        private fun TaskState.Running.hasStructuralChangeFrom(prev: TaskState.Running?): Boolean {
+            if (prev == null) return true
+            if (step != prev.step || tool != prev.tool || note != prev.note ||
+                progress != prev.progress || reason != prev.reason ||
+                narration != prev.narration || actionTarget != prev.actionTarget
+            ) return true
+            if ((preview == null) != (prev.preview == null)) return true
+            if ((thinking == null) != (prev.thinking == null)) return true
+            return false
+        }
+
+        private fun ExchangeStatus.stepCategory(): Int = when (this) {
+            ExchangeStatus.Working -> 0
+            is ExchangeStatus.Done -> 1
+            is ExchangeStatus.Failed, is ExchangeStatus.Cancelled -> 2
+            else -> 3
+        }
 
         private fun TaskState.active() = when (this) {
             TaskState.Idle, is TaskState.Succeeded, is TaskState.Failed, TaskState.Cancelled -> false
@@ -1580,10 +1789,24 @@ class ChatViewModel(
             this is ExchangeStatus.NeedsTakeover || this is ExchangeStatus.NeedsInput || this is ExchangeStatus.Paused ||
                 this is ExchangeStatus.NeedsConfirmation
 
-        internal fun reduce(ex: Exchange, s: TaskState, appLabel: (String) -> String = { it }, toolLabel: (String) -> String = { it }): Exchange =
-            state(ex, s, appLabel).let {
-                it.copy(steps = rows(it, toolLabel, appLabel), stepActions = actionsOf(it.activities, appLabel, toolLabel))
+        internal fun reduce(ex: Exchange, s: TaskState, appLabel: (String) -> String = { it }, toolLabel: (String) -> String = { it }): Exchange {
+            val updated = state(ex, s, appLabel)
+            val activitiesSame = updated.activities === ex.activities
+            val notesSame = updated.notes === ex.notes
+            val statusSame = updated.status.stepCategory() == ex.status.stepCategory()
+            val nextSteps = if (activitiesSame && notesSame && statusSame && (ex.steps.isNotEmpty() || updated.activities.isEmpty())) {
+                ex.steps
+            } else {
+                rows(updated, toolLabel, appLabel)
             }
+            val nextActions = if (activitiesSame && (ex.stepActions.isNotEmpty() || updated.activities.isEmpty())) {
+                ex.stepActions
+            } else {
+                actionsOf(updated.activities, appLabel, toolLabel)
+            }
+            return if (nextSteps === updated.steps && nextActions === updated.stepActions) updated
+            else updated.copy(steps = nextSteps, stepActions = nextActions)
+        }
 
         /** Action details organized by step number: listed when a step is clicked. */
         private fun actionsOf(activities: List<RunEvent.Activity>, appLabel: (String) -> String, toolLabel: (String) -> String) =
@@ -1621,7 +1844,7 @@ class ChatViewModel(
                     activeStep = s.step,
                     line = label,
                     liveAction = liveAction,
-                    notes = if (s.step > 0 && said != null) ex.notes + (s.step to said) else ex.notes,
+                    notes = if (s.step > 0 && said != null && ex.notes[s.step] != said) ex.notes + (s.step to said) else ex.notes,
                 )
             }
             // Preconditions for waiting for abilities: Automatically continue when the screen is locked;

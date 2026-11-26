@@ -43,6 +43,7 @@ import com.meenai.mina.task.TaskService
 import com.meenai.mina.task.TaskCenterState
 import com.meenai.mina.ui.ChatViewModel
 import com.meenai.mina.ui.TaskActions
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,6 +54,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
 import com.meenai.mina.cap.web.cdp.WebDevtools
 import com.meenai.mina.cap.web.WebOwner
 import com.meenai.mina.cap.web.SiteRegistry
@@ -135,8 +138,16 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     /** Native token usage ledger: Every call of each model created through model configuration is recorded here. */
     val usage: UsageLedger by lazy { UsageLedger(java.io.File(filesDir, "usage-v1.json")) }
 
+    @Volatile
+    var providersReady: Boolean = false
+        private set
+
     /** Model configuration and Key; the built models are all set with measurement and recorded as [usage]. */
-    override val providers: ProviderStore by lazy { ProviderStore.create(this, usage, "HarnessAgent/${BuildConfig.VERSION_NAME}") }
+    override val providers: ProviderStore by lazy {
+        ProviderStore.create(this, usage, "HarnessAgent/${BuildConfig.VERSION_NAME}").also {
+            providersReady = true
+        }
+    }
 
     /** Speech-to-text selection: There is one copy of the entire process, and the input box can be seen immediately after changing the setting page (the two instances cannot see each other's set). */
     val speech: com.meenai.mina.voice.SpeechSettings by lazy { com.meenai.mina.voice.SpeechSettings.get(this) }
@@ -290,8 +301,38 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         modelPreferences.getThinkingEffort()
             ?: providers.roles.value.reasoningEffort(com.meenai.mina.core.model.ModelRole.Main)
 
+    private val routerStoresLock = Any()
+    @Volatile private var routerStoresReady = false
+    private val firstFrameRendered = CompletableDeferred<Unit>()
+    private val deferredStartupStarted = AtomicBoolean(false)
+
+    val hasFirstFrameRendered: Boolean get() = firstFrameRendered.isCompleted
+
+    /** Ensures rankings, stats, and cooldown stores are initialized once, safely from any thread. */
+    private fun ensureRouterStoresInitialized(): com.meenai.mina.core.router.picker.ModelRankingsRepository =
+        synchronized(routerStoresLock) {
+            if (!routerStoresReady) {
+                com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
+                com.meenai.mina.ui.router.AppFreeKeyRouter.initStatsTracker(filesDir)
+                com.meenai.mina.ui.router.AppFreeKeyRouter.initCooldownStore(this)
+                routerStoresReady = true
+            }
+            com.meenai.mina.ui.router.AppFreeKeyRouter.getRankingsRepository()
+        }
+
+    /** Called once [MainActivity] draws its first frame so deferred IO startup can proceed immediately. */
+    fun onFirstFrameRendered() {
+        firstFrameRendered.complete(Unit)
+        startDeferredStartup()
+    }
+
+    /** Suspends until first frame renders (with a short fallback timeout for service/test starts). */
+    suspend fun awaitFirstFrame() {
+        withTimeoutOrNull(400L) { firstFrameRendered.await() }
+    }
+
     val freeKeyRouter: com.meenai.mina.core.router.FreeKeyRouter by lazy {
-        com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
+        ensureRouterStoresInitialized()
         com.meenai.mina.ui.router.AppFreeKeyRouter.createRouter(
             store = providers,
             preferences = modelPreferences,
@@ -405,15 +446,13 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             },
             thinkingModeFlag = { FeatureFlags.get(app).thinkingEnabled() },
             persistThinkingMode = { FeatureFlags.get(app).setThinkingEnabled(it) },
+            streamThrottleMs = ChatViewModel.DEFAULT_STREAM_THROTTLE_MS,
+            asyncStoreIo = true,
         )
     }
 
     override fun onCreate() {
         super.onCreate()
-        val rankingsRepo = com.meenai.mina.ui.router.AppFreeKeyRouter.initRankingsRepository(filesDir)
-        com.meenai.mina.ui.router.AppFreeKeyRouter.initStatsTracker(filesDir)
-        com.meenai.mina.ui.router.AppFreeKeyRouter.initCooldownStore(this)
-        scope.launch(Dispatchers.IO) { runCatching { rankingsRepo.getRankings() } }
         // Text outside the interface (notifications, services, floating capsules) is taken according to
         // the App language.
         AppLanguage.applyDefaultLocale(this)
@@ -421,14 +460,6 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         // Chat/model diagnostics → Download/harness-chat.log (readable as text).
         com.meenai.mina.diag.ChatLog.install(this)
         registerActivityLifecycleCallbacks(foreground)
-        // Settings › Network proxy: Mina's own connection is processed from the first request; the
-        // account password of the SOCKS proxy is given by the authenticator of the whole process.
-        com.meenai.mina.settings.NetProxyStore.get(this)
-        com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
-        // Built-in browser: Set up WebView only after setting up a proxy (read settings need to be
-        // decrypted and put in the background; if no proxy is set up, WebView will not be loaded for
-        // this)
-        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@HarnessApp) } }
         tasks.modelFactory = { c, s ->
             if (freeKeyRouter.candidates.isNotEmpty()) {
                 freeKeyRouter
@@ -448,84 +479,114 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         com.meenai.mina.cap.phone.setup.RestoreWishSync(
             phone.hub, FeatureFlags.get(this).capsuleModeChanges(), taskState.busy, phone.recoverySettings.consent, phone.recovery.accessibility,
         ).start()
-        // Changes left after the last abnormal exit (the App was muted) are restored here.
-        scope.launch { taskRecovery.recover() }
-        scope.launch {
-            providers.repairGeminiWebBindings()
-            var appliedMainModel: String? = null
-            kotlinx.coroutines.flow.combine(
-                providers.providers,
-                providers.roles,
-                providers.keysRevision,
-                modelPreferences.thinkingEffort,
-            ) { list, _, _, _ -> list }.collect {
+        // Defer non-critical disk, preference, proxy, recovery, and service initialization onto
+        // Dispatchers.IO after the first frame renders (falling back quickly for headless starts).
+        scope.launch(Dispatchers.IO) {
+            awaitFirstFrame()
+            startDeferredStartup()
+        }
+    }
+
+    private fun startDeferredStartup() {
+        if (!deferredStartupStarted.compareAndSet(false, true)) return
+        scope.launch(Dispatchers.IO) {
+            val rankingsRepo = ensureRouterStoresInitialized()
+            launch(Dispatchers.IO) { runCatching { rankingsRepo.getRankings() } }
+            // Warm conversation list and active thread records into RAM off main thread.
+            launch(Dispatchers.IO) {
+                runCatching {
+                    conversations.list()
+                    val current = conversations.currentChat() as? com.meenai.mina.chat.CurrentChat.Open
+                    current?.id?.let { conversations.records(it) }
+                }
+            }
+            // Settings › Network proxy: Mina's own connection is processed from the first request; the
+            // account password of the SOCKS proxy is given by the authenticator of the whole process.
+            com.meenai.mina.settings.NetProxyStore.get(this@HarnessApp)
+            com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
+            // Built-in browser: Set up WebView only after setting up a proxy (read settings need to be
+            // decrypted and put in the background; if no proxy is set up, WebView will not be loaded for
+            // this)
+            launch(Dispatchers.IO) { runCatching { com.meenai.mina.cap.web.WebProxy.apply(this@HarnessApp) } }
+            // Changes left after the last abnormal exit (the App was muted) are restored here.
+            launch(Dispatchers.IO) { taskRecovery.recover() }
+            launch(Dispatchers.IO) {
                 providers.repairGeminiWebBindings()
-                val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(
-                    store = providers,
-                    reasoningEffortProvider = ::currentReasoningEffort,
-                )
-                freeKeyRouter.updateCandidates(candidates)
-                val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
-                if (mainModel != null) {
-                    modelPreferences.setManualRole("main", mainModel)
-                    // Only when the configured main model actually changes: this
-                    // collector also fires after every saved session (cookie
-                    // rotation), and clearing a cooldown there would keep retrying
-                    // a model that is genuinely rate limited.
-                    if (mainModel != appliedMainModel) {
-                        appliedMainModel = mainModel
-                        val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
-                        if (matching != null) {
-                            freeKeyRouter.cooldownStore.clearCooldown(matching.id)
-                            if (freeKeyRouter.pinnedModelId == null && freeKeyRouter.activeCandidate?.id != matching.id) {
-                                freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                var appliedMainModel: String? = null
+                kotlinx.coroutines.flow.combine(
+                    providers.providers,
+                    providers.roles,
+                    providers.keysRevision,
+                    modelPreferences.thinkingEffort,
+                ) { list, _, _, _ -> list }.collect {
+                    providers.repairGeminiWebBindings()
+                    val candidates = com.meenai.mina.ui.router.AppFreeKeyRouter.createCandidates(
+                        store = providers,
+                        reasoningEffortProvider = ::currentReasoningEffort,
+                    )
+                    freeKeyRouter.updateCandidates(candidates)
+                    val mainModel = providers.configFor(com.meenai.mina.core.model.ModelRole.Main)?.model
+                    if (mainModel != null) {
+                        modelPreferences.setManualRole("main", mainModel)
+                        // Only when the configured main model actually changes: this
+                        // collector also fires after every saved session (cookie
+                        // rotation), and clearing a cooldown there would keep retrying
+                        // a model that is genuinely rate limited.
+                        if (mainModel != appliedMainModel) {
+                            appliedMainModel = mainModel
+                            val matching = candidates.firstOrNull { it.id.equals(mainModel, ignoreCase = true) }
+                            if (matching != null) {
+                                freeKeyRouter.cooldownStore.clearCooldown(matching.id)
+                                if (freeKeyRouter.pinnedModelId == null && freeKeyRouter.activeCandidate?.id != matching.id) {
+                                    freeKeyRouter.switchCandidate(matching.id, "Configured main model")
+                                }
                             }
                         }
                     }
+                    providers.configFor(com.meenai.mina.core.model.ModelRole.Vision)?.model?.let {
+                        modelPreferences.setManualRole("vision", it)
+                    }
+                    providers.configFor(com.meenai.mina.core.model.ModelRole.Light)?.model?.let {
+                        modelPreferences.setManualRole("light", it)
+                    }
+                    com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
                 }
-                providers.configFor(com.meenai.mina.core.model.ModelRole.Vision)?.model?.let {
-                    modelPreferences.setManualRole("vision", it)
-                }
-                providers.configFor(com.meenai.mina.core.model.ModelRole.Light)?.model?.let {
-                    modelPreferences.setManualRole("light", it)
-                }
-                com.meenai.mina.ui.router.AppFreeKeyRouter.autoPopulateSettingsRoles(providers, freeKeyRouter.difficultyRouter.picker)
+            }
+            // The operation that was not completed when the last process was killed: mark it as interrupted
+            // now and notify it, and wait until the task is served.
+            runCatching {
+                runRecovery.recover().let { if (it.isNotEmpty()) Log.w("MinaTask", "${it.size} runs interrupted by process restart") }
+            }
+            com.meenai.mina.core.router.MagicubeLedger.attachStorage(com.meenai.mina.ui.router.PrefsMagicubeStorage(this@HarnessApp))
+            com.meenai.mina.ui.router.MagicubeReminder.scheduleDailyAlarm(this@HarnessApp)
+            launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@HarnessApp) } }
+            // A "Connect via USB" script that runs on the computer; by the way, it clears the USB connection
+            // information left behind by the last boot.
+            launch(Dispatchers.IO) { runCatching { mcp.writeUsbScript() }.onFailure { Log.w("MinaMcp", "cannot write USB script", it) } }
+            // Empty shell entries left behind by being killed halfway through the last export.
+            launch(Dispatchers.IO) { runCatching { ShareExporter(this@HarnessApp).cleanPending() } }
+            // Upload a copy of the web page left by the last process
+            launch(Dispatchers.IO) { runCatching { WebFiles.clearStale(this@HarnessApp, SandboxDirs(this@HarnessApp).gate) } }
+            // After the update has been installed, click the installation package under the About page.
+            launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@HarnessApp).dropInstalled() } }
+            // 7 din purani generated images saaf karo
+            launch(Dispatchers.IO) { runCatching { com.meenai.mina.image.ImageStorageManager.cleanOldCache(this@HarnessApp) } }
+            // If the operating environment is not ready (first startup, after Mina upgrade), it will be
+            // prepared in the background, not connected to the Internet, and invisible to users.
+            RuntimePreparer.ensure(this@HarnessApp)
+            // When the sandbox is ready (ready at startup, or just installed), check the skill directory:
+            // the scripts brought by the App update will be available immediately.
+            launch(Dispatchers.IO) {
+                SandboxState.get(this@HarnessApp).status.first { it is SandboxStatus.Ready }
+                val state = SandboxState.get(this@HarnessApp)
+                runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
+            }
+            // FCM push updates: pehli run par topic subscribe karo; Google Play Services na ho to silently
+            // skip
+            launch(Dispatchers.IO) {
+                runCatching { com.meenai.mina.about.PushUpdateSubscriber.ensureSubscribed(this@HarnessApp) }
             }
         }
-        // The operation that was not completed when the last process was killed: mark it as interrupted
-        // now and notify it, and wait until the task is served.
-        runRecovery.recover().let { if (it.isNotEmpty()) Log.w("MinaTask", "${it.size} runs interrupted by process restart") }
-        com.meenai.mina.core.router.MagicubeLedger.attachStorage(com.meenai.mina.ui.router.PrefsMagicubeStorage(this))
-        com.meenai.mina.ui.router.MagicubeReminder.scheduleDailyAlarm(this)
-        scope.launch(Dispatchers.IO) { runCatching { TriggerRuntime.rearm(this@HarnessApp) } }
-        // A "Connect via USB" script that runs on the computer; by the way, it clears the USB connection
-        // information left behind by the last boot.
-        scope.launch(Dispatchers.IO) { runCatching { mcp.writeUsbScript() }.onFailure { Log.w("MinaMcp", "cannot write USB script", it) } }
-        // Empty shell entries left behind by being killed halfway through the last export.
-        scope.launch { runCatching { ShareExporter(this@HarnessApp).cleanPending() } }
-        // Upload a copy of the web page left by the last process
-        scope.launch { runCatching { WebFiles.clearStale(this@HarnessApp, SandboxDirs(this@HarnessApp).gate) } }
-        // After the update has been installed, click the installation package under the About page.
-        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.about.ApkUpdater(this@HarnessApp).dropInstalled() } }
-        // 7 din purani generated images saaf karo
-        scope.launch(Dispatchers.IO) { runCatching { com.meenai.mina.image.ImageStorageManager.cleanOldCache(this@HarnessApp) } }
-        // If the operating environment is not ready (first startup, after Mina upgrade), it will be
-        // prepared in the background, not connected to the Internet, and invisible to users.
-        RuntimePreparer.ensure(this)
-        // When the sandbox is ready (ready at startup, or just installed), check the skill directory:
-        // the scripts brought by the App update will be available immediately.
-        scope.launch {
-            SandboxState.get(this@HarnessApp).status.first { it is SandboxStatus.Ready }
-            val state = SandboxState.get(this@HarnessApp)
-            runCatching { SkillsSync.sync(SandboxDirs(this@HarnessApp)) { state.status.value is SandboxStatus.Ready } }
-        }
-        // FCM push updates: pehli run par topic subscribe karo; Google Play Services na ho to silently
-        // skip
-        scope.launch(Dispatchers.IO) {
-            runCatching { com.meenai.mina.about.PushUpdateSubscriber.ensureSubscribed(this@HarnessApp) }
-        }
-        // Background download of fresh model rankings (once per day)
-        // (init + warm-up already done at the top of onCreate)
     }
 }
 

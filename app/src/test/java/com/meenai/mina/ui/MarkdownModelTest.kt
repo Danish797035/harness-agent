@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -143,5 +144,20 @@ class MarkdownModelTest {
         assertEquals("/cache/photo.jpg", img.destination)
         assertEquals("", img.alt)
         assertEquals("/cache/photo.jpg", MarkdownModel.toPlainText("![](/cache/photo.jpg)"))
+    }
+
+    @Test
+    fun markdownParseAndStreamingPreviewCachesReuseParsedResults() {
+        val sample = "## Summary\n\n- **Fast** scrolling\n- [Docs](https://example.com)"
+        val first = MarkdownModel.parse(sample)
+        val second = MarkdownModel.parse(sample)
+        assertSame(first, second)
+
+        val streamSample = "Working on [report](https://ex"
+        assertEquals("Working on report", StreamingMarkdown.preview(streamSample))
+        val s1 = MarkdownModel.parseStreaming(streamSample)
+        val s2 = MarkdownModel.cachedStreaming(streamSample)
+        assertSame(s1, s2)
+        assertEquals("Summary\n\n• Fast scrolling\n• Docs", MarkdownModel.toPlainText(sample))
     }
 }

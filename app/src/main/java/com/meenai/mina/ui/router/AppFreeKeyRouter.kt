@@ -417,22 +417,31 @@ object AppFreeKeyRouter {
         }
     }
 
-    private var sharedRankingsRepo: ModelRankingsRepository? = null
-    private var sharedProbeService: ModelProbeService? = null
-    private var sharedStatsTracker: ModelStatsTracker? = null
-    private var sharedCooldownStore: ModelCooldownStore? = null
+    private val storeLock = Any()
+    @Volatile private var sharedRankingsRepo: ModelRankingsRepository? = null
+    @Volatile private var sharedProbeService: ModelProbeService? = null
+    @Volatile private var sharedStatsTracker: ModelStatsTracker? = null
+    @Volatile private var sharedCooldownStore: ModelCooldownStore? = null
 
     fun getRankingsRepository(): ModelRankingsRepository =
-        sharedRankingsRepo ?: ModelRankingsRepository().also { sharedRankingsRepo = it }
+        sharedRankingsRepo ?: synchronized(storeLock) {
+            sharedRankingsRepo ?: ModelRankingsRepository().also { sharedRankingsRepo = it }
+        }
 
     fun getProbeService(): ModelProbeService =
-        sharedProbeService ?: ModelProbeService().also { sharedProbeService = it }
+        sharedProbeService ?: synchronized(storeLock) {
+            sharedProbeService ?: ModelProbeService().also { sharedProbeService = it }
+        }
 
     fun getStatsTracker(): ModelStatsTracker =
-        sharedStatsTracker ?: ModelStatsTracker().also { sharedStatsTracker = it }
+        sharedStatsTracker ?: synchronized(storeLock) {
+            sharedStatsTracker ?: ModelStatsTracker().also { sharedStatsTracker = it }
+        }
 
     fun getCooldownStore(): ModelCooldownStore =
-        sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
+        sharedCooldownStore ?: synchronized(storeLock) {
+            sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
+        }
 
     private val _geminiAuthRestored = MutableSharedFlow<Long>(
         extraBufferCapacity = 8,
@@ -458,21 +467,21 @@ object AppFreeKeyRouter {
         }
     }
 
-    fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
+    fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository = synchronized(storeLock) {
         val cacheFile = File(filesDir, "model-rankings.json")
         val repo = ModelRankingsRepository(cacheStore = FileModelRankingsCacheStore(cacheFile), httpClient = http)
         sharedRankingsRepo = repo
-        return repo
+        repo
     }
 
-    fun initStatsTracker(filesDir: File): ModelStatsTracker {
+    fun initStatsTracker(filesDir: File): ModelStatsTracker = synchronized(storeLock) {
         val statsFile = File(filesDir, "model-stats.json")
         val tracker = ModelStatsTracker(store = FileModelStatsStore(statsFile))
         sharedStatsTracker = tracker
-        return tracker
+        tracker
     }
 
-    fun initCooldownStore(context: Context): ModelCooldownStore {
+    fun initCooldownStore(context: Context): ModelCooldownStore = synchronized(storeLock) {
         val prefs = context.getSharedPreferences("model_cooldown_store", Context.MODE_PRIVATE)
         val store = ModelCooldownStore(
             persistCallback = { json ->
@@ -484,7 +493,7 @@ object AppFreeKeyRouter {
             store.loadFromJson(saved)
         }
         sharedCooldownStore = store
-        return store
+        store
     }
 
     /**

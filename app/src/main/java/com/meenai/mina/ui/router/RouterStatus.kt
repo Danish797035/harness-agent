@@ -1,5 +1,6 @@
 package com.meenai.mina.ui.router
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.meenai.mina.core.gemini.GeminiUsage
 import com.meenai.mina.core.gemini.GeminiUsageFetch
@@ -68,6 +69,7 @@ data class ConnectionWarmupResult(
 )
 
 /** Real-time remaining quota snapshot for the active model (0.0%–100.0%). */
+@Immutable
 data class QuotaSnapshot(
     val remainingPercent: Double = 100.0,
     val isExactServerQuota: Boolean = false,
@@ -222,6 +224,7 @@ object QuotaCalculator {
 /**
  * Currently active model metadata for Router UI.
  */
+@Immutable
 data class ActiveModel(
     val id: String = "gemini-flash",
     val name: String = "Gemini Flash",
@@ -270,6 +273,7 @@ enum class QuotaState {
 /**
  * Per-model quota, usage line and status.
  */
+@Immutable
 data class ModelQuotaLine(
     val modelId: String,
     val modelName: String,
@@ -294,6 +298,7 @@ data class ModelQuotaLine(
 /**
  * Per-provider usage statistics, models list and cooldown state.
  */
+@Immutable
 data class ProviderUsage(
     val provider: String,
     val providerId: String = "",
@@ -367,6 +372,7 @@ fun modelScopeMagicubeCost(modelId: String): Double = MagicubeLedger.costForMode
 /**
  * Model switch event emitted when switching to another provider/model.
  */
+@Immutable
 data class SwitchEvent(
     val fromModel: String,
     val toModel: String,

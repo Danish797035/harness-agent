@@ -18,6 +18,7 @@ commonmark = "0.30.1"
 mlkitTextRecognition = "16.0.1"
 googleServices = "4.4.2"
 firebaseBom = "33.9.0"
+profileinstaller = "1.4.1"
 
 [libraries]
 protobuf-lite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
@@ -49,6 +50,7 @@ mlkit-text-recognition-chinese = { module = "com.google.mlkit:text-recognition-c
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 
 [plugins]
 protobuf = { id = "com.google.protobuf", version = "0.9.5" }

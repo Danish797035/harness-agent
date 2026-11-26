@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import com.meenai.mina.ui.theme.MinaType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,11 +54,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -146,28 +150,45 @@ fun AgentPip(
  * click and scroll to the card you want to deal with (the small screen is closed and the things you are
  * asked to do are not missed).
  */
+private val ClosedPipShape = RoundedCornerShape(50)
+
 @Composable
 private fun ClosedPip(needsYou: Boolean, reduceMotion: Boolean, modifier: Modifier, onReopen: () -> Unit, onAttention: () -> Unit) {
     val c = MinaTheme.colors
-    val shape = RoundedCornerShape(50)
-    val breath = if (needsYou && !reduceMotion) {
+    val breathState = if (needsYou && !reduceMotion) {
         rememberInfiniteTransition(label = "closedBreathe").animateFloat(
             1f, 0.45f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "closedBreathe",
-        ).value
-    } else 1f
+        )
+    } else null
     val label = stringResource(if (needsYou) R.string.pip_closed_needs_you else R.string.pip_reopen)
     Row(
-        modifier.floatShadow(c, shape).background(c.glass, shape)
-            .border(if (needsYou) 2.dp else 0.5.dp, if (needsYou) c.warnSolid.copy(alpha = breath) else c.glassEdge, shape)
-            .clip(shape)
+        modifier.floatShadow(c, ClosedPipShape).background(c.glass, ClosedPipShape)
+            .drawWithContent {
+                drawContent()
+                val stroke = (if (needsYou) 2.dp else 0.5.dp).toPx()
+                val half = stroke / 2f
+                val corner = (size.height / 2f - half).coerceAtLeast(0f)
+                val color = if (needsYou) c.warnSolid.copy(alpha = breathState?.value ?: 1f) else c.glassEdge
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(half, half),
+                    size = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
+                    cornerRadius = CornerRadius(corner, corner),
+                    style = Stroke(stroke),
+                )
+            }
+            .clip(ClosedPipShape)
             .clickable(onClickLabel = label, role = Role.Button) { if (needsYou) onAttention() else onReopen() }
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .testTag("pip-closed"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (needsYou) Box(Modifier.size(7.dp).alpha(breath).background(c.warnSolid, CircleShape))
-        else Icon(MinaIcons.Screens, null, Modifier.size(14.dp), tint = c.ink2)
+        if (needsYou) {
+            Box(Modifier.size(7.dp).graphicsLayer { alpha = breathState?.value ?: 1f }.background(c.warnSolid, CircleShape))
+        } else {
+            Icon(MinaIcons.Screens, null, Modifier.size(14.dp), tint = c.ink2)
+        }
         Text(label, style = MinaType.Hint, color = if (needsYou) c.warn else c.ink2)
     }
 }
@@ -274,24 +295,26 @@ private fun PipWindow(
     val pos = free ?: bounds.position(corner).let { (x, y) -> Offset(x, y) }
     val outer = RoundedCornerShape(if (pip.expanded) 26.dp else 16.dp)
     val inner = RoundedCornerShape(if (pip.expanded) 22.dp else 13.dp)
-    val breath = if (pip.mode == PipMode.NeedsYou && !reduceMotion) {
+    val breathState = if (pip.mode == PipMode.NeedsYou && !reduceMotion) {
         rememberInfiniteTransition(label = "breathe").animateFloat(
             1f, 0.55f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "breathe",
-        ).value
-    } else 1f
+        )
+    } else null
 
     Box(Modifier.offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }) {
         if (pip.mode == PipMode.NeedsYou) {
-            // Orange halo: a circle larger than the window, blurred and revealing the edge (no blur for
-            // Android 12 and below, just a circle of light orange)
+            // Lightweight translucent glow ring instead of expensive real-time Modifier.blur(10.dp).
+            val c = MinaTheme.colors
             Box(
-                Modifier.offset((-5).dp, (-5).dp).size(w + 10.dp, h + 10.dp).alpha(breath)
-                    .blur(10.dp).background(MinaTheme.colors.warnSolid.copy(alpha = 0.55f), outer),
+                Modifier.offset((-5).dp, (-5).dp).size(w + 10.dp, h + 10.dp)
+                    .graphicsLayer { alpha = breathState?.value ?: 1f }
+                    .background(c.warnSolid.copy(alpha = 0.22f), outer)
+                    .border(1.5.dp, c.warnSolid.copy(alpha = 0.55f), outer),
             )
         }
         Box(
             Modifier.size(w, h)
-                .alpha(if (pip.mode == PipMode.Done) 0.85f else 1f)
+                .graphicsLayer { alpha = if (pip.mode == PipMode.Done) 0.85f else 1f }
                 .floatShadow(MinaTheme.colors, outer)
                 .background(MinaTheme.colors.glass, outer)
                 .border(0.5.dp, MinaTheme.colors.glassEdge, outer)
@@ -353,11 +376,29 @@ private fun PipWindow(
             }
         }
         // The border light is painted on the outer edge of the glass frame
-        val glow = when (pip.mode) {
-            PipMode.Running -> MinaTheme.colors.ok to 2.dp
-            PipMode.NeedsYou -> MinaTheme.colors.warnSolid.copy(alpha = breath) to 2.dp
-            PipMode.Done -> null
+        val okColor = MinaTheme.colors.ok
+        val warnColor = MinaTheme.colors.warnSolid
+        when (pip.mode) {
+            PipMode.Running -> Box(Modifier.size(w, h).border(2.dp, okColor, outer))
+            PipMode.NeedsYou -> {
+                val cornerDp = if (pip.expanded) 26.dp else 16.dp
+                Box(
+                    Modifier.size(w, h).drawWithContent {
+                        drawContent()
+                        val stroke = 2.dp.toPx()
+                        val half = stroke / 2f
+                        val corner = (cornerDp.toPx() - half).coerceAtLeast(0f)
+                        drawRoundRect(
+                            color = warnColor.copy(alpha = breathState?.value ?: 1f),
+                            topLeft = Offset(half, half),
+                            size = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
+                            cornerRadius = CornerRadius(corner, corner),
+                            style = Stroke(stroke),
+                        )
+                    },
+                )
+            }
+            PipMode.Done -> Unit
         }
-        if (glow != null) Box(Modifier.size(w, h).border(glow.second, glow.first, outer))
     }
 }

@@ -36,7 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.LifecycleStartEffect
+import com.meenai.mina.ui.components.PageBackground
 import androidx.compose.ui.platform.LocalContext
 import com.meenai.mina.cap.web.WebHandover
 import com.meenai.mina.cap.web.WebSites
@@ -73,6 +75,7 @@ import com.meenai.mina.ui.theme.systemBarsFor
 class MainActivity : ComponentActivity() {
     private lateinit var monitor: SystemStatusMonitor
     private var requestedConversation by mutableStateOf<String?>(null)
+    private var skipNextResumeRefresh = false
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // When the user selects "Don't ask again", the system will no longer pop up the window and can
@@ -92,16 +95,38 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
         monitor = SystemStatusMonitor(this, PhoneServices.of(this).shellControl)
-        val store = ProviderStore.get(this)
+        val app = applicationContext as HarnessApp
         setContent {
             // The appearance is set according to the settings. If you change it, change it on the spot;
             // the depth of the system bar icon will follow the interface.
             val dark = appearanceDark()
             LaunchedEffect(dark) { systemBarsFor(dark) }
+            var store by remember {
+                mutableStateOf(if (app.providersReady) ProviderStore.get(this@MainActivity) else null)
+            }
+            LaunchedEffect(Unit) {
+                // Allow the first themed frame to render before loading disk/keystore-backed stores on IO.
+                withFrameNanos { }
+                app.onFirstFrameRendered()
+                if (store == null) {
+                    store = withContext(Dispatchers.IO) {
+                        val loaded = ProviderStore.get(this@MainActivity)
+                        app.conversations
+                        app.chat
+                        app.routerStatus
+                        loaded
+                    }
+                }
+            }
             HarnessTheme(dark = dark, reduceMotion = animationsOff(this)) {
                 // Click or drag outside the input box to hide the keyboard, unified across the app
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
-                    HarnessRoot(store, monitor, ::perform, requestedConversation) { requestedConversation = null }
+                    val readyStore = store
+                    if (readyStore != null) {
+                        HarnessRoot(readyStore, monitor, ::perform, requestedConversation) { requestedConversation = null }
+                    } else {
+                        PageBackground {}
+                    }
                 }
             }
         }
@@ -116,20 +141,37 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         monitor.start()
-        // Every time it is opened, it will quietly check for new versions (only once if it is opened
-        // within two minutes), and no sound will be made if it fails.
-        com.meenai.mina.about.UpdateAutomation.onAppOpened(this, (application as HarnessApp).updates)
-        // The computer connection is open but the service is not there (it was stopped by the system and
-        // failed to get up from the background): the interface is restored when it is in the foreground.
+        skipNextResumeRefresh = true
         val app = application as HarnessApp
-        app.mcp.ensureRunning()
-        // Auto-connect / warm up active model session & quota on foreground return/startup.
-        app.chat.warmUpIfNeeded()
+        val appContext = applicationContext
+        if (app.hasFirstFrameRendered) {
+            // Every time it is opened, quietly check for new versions and ensure MCP on IO off Main.
+            app.appScope.launch(Dispatchers.IO) {
+                com.meenai.mina.about.UpdateAutomation.onAppOpened(appContext, app.updates)
+                app.mcp.ensureRunning()
+            }
+            // Auto-connect / warm up active model session & quota on foreground return/startup.
+            app.chat.warmUpIfNeeded()
+        } else {
+            app.appScope.launch(Dispatchers.IO) {
+                app.awaitFirstFrame()
+                com.meenai.mina.about.UpdateAutomation.onAppOpened(appContext, app.updates)
+                app.mcp.ensureRunning()
+                app.chat
+                withContext(Dispatchers.Main) {
+                    app.chat.warmUpIfNeeded()
+                }
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        monitor.refresh()
+        if (skipNextResumeRefresh) {
+            skipNextResumeRefresh = false
+        } else {
+            monitor.refresh()
+        }
     }
 
     override fun onStop() {
@@ -363,13 +405,14 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 app.chat.warmUpIfNeeded()
                 onStopOrDispose {}
             }
+            val convStore = remember(context) { ConversationStore.shared(context) }
             ChatWithDrawer(
                 vm = app.chat,
                 check = check,
                 reduceMotion = HarnessTheme.reduceMotion,
-                conversations = { ConversationStore.shared(context).list() },
-                conversationChanges = ConversationStore.shared(context).changes,
-                conversationTitle = { ConversationStore.shared(context).title(it) },
+                conversations = { convStore.list() },
+                conversationChanges = convStore.changes,
+                conversationTitle = { convStore.title(it) },
                 onPlans = { nav.pushFromDrawer(Route.Plans) },
                 onMemory = { nav.pushFromDrawer(Route.Memory) },
                 onSettings = { nav.pushFromDrawer(Route.Settings) },
@@ -379,6 +422,8 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 updateAvailable = AboutCopy.drawerDot(updateState),
                 reopen = nav.reopenDrawer,
                 onReopened = nav::drawerReopened,
+                cachedConversations = { convStore.cachedList() },
+                asyncLoad = true,
             ) { openDrawer ->
                 ChatScreen(
                     vm = app.chat,

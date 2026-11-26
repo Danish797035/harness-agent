@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,12 +17,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -34,11 +36,12 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
@@ -61,14 +64,66 @@ import com.meenai.mina.core.router.MagicubeLedger
 import com.meenai.mina.ui.components.AiLogo
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
-import com.meenai.mina.ui.components.GroupCard
 import com.meenai.mina.ui.components.GroupLabel
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.components.MinaSwitch
 import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.ui.theme.MinaRadius
 import com.meenai.mina.ui.theme.MinaShapes
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.MinaType
+
+private val SheetModalShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+private val HeroCardShape = RoundedCornerShape(18.dp)
+private val SearchBarShape = RoundedCornerShape(14.dp)
+private val ModelRowShape = RoundedCornerShape(10.dp)
+private val RankBadgeShape = RoundedCornerShape(6.dp)
+private val SheetSingleCardShape = RoundedCornerShape(MinaRadius.Card)
+private val SheetTopCardShape = RoundedCornerShape(topStart = MinaRadius.Card, topEnd = MinaRadius.Card)
+private val SheetMiddleCardShape = RoundedCornerShape(0.dp)
+private val SheetBottomCardShape = RoundedCornerShape(bottomStart = MinaRadius.Card, bottomEnd = MinaRadius.Card)
+
+private fun sheetCardShape(index: Int, count: Int): RoundedCornerShape = when {
+    count <= 1 -> SheetSingleCardShape
+    index == 0 -> SheetTopCardShape
+    index == count - 1 -> SheetBottomCardShape
+    else -> SheetMiddleCardShape
+}
+
+private data class IndexedFilteredModel(
+    val key: String,
+    val model: ModelQuotaLine,
+)
+
+private sealed interface SheetProviderRow {
+    val key: String
+    val contentType: String
+
+    data class Header(
+        override val key: String,
+        val usage: ProviderUsage,
+        val showTopDivider: Boolean,
+    ) : SheetProviderRow {
+        override val contentType: String get() = "provider_header"
+    }
+
+    data class Model(
+        override val key: String,
+        val usage: ProviderUsage,
+        val model: ModelQuotaLine,
+        val showDivider: Boolean,
+        val isLastInProvider: Boolean,
+    ) : SheetProviderRow {
+        override val contentType: String get() = "provider_model"
+    }
+
+    data class Legacy(
+        override val key: String,
+        val usage: ProviderUsage,
+    ) : SheetProviderRow {
+        override val contentType: String get() = "provider_legacy"
+    }
+}
 
 /**
  * Bottom sheet opened from the bottom chat composer model pill:
@@ -135,6 +190,10 @@ fun RouterBottomSheet(
     var favorites by remember { mutableStateOf(prefStore.getFavorites()) }
     var recents by remember { mutableStateOf(prefStore.getRecentModels()) }
     var unavailableDialogModel by remember { mutableStateOf<ModelQuotaLine?>(null) }
+    var syncDialogUsage by remember { mutableStateOf<ProviderUsage?>(null) }
+    var syncInputText by remember { mutableStateOf("") }
+    var isLoginMarked by remember { mutableStateOf(MagicubeLedger.isLoginMarkedToday()) }
+    var isAlibabaLinked by remember { mutableStateOf(MagicubeLedger.isAlibabaLinked) }
 
     val effectiveQuota = remember(quotaSnapshot, activeModel) {
         quotaSnapshot ?: QuotaCalculator.compute(activeModel)
@@ -173,9 +232,118 @@ fun RouterBottomSheet(
         )
     }
 
+    syncDialogUsage?.let {
+        AlertDialog(
+            onDismissRequest = { syncDialogUsage = null },
+            title = { Text(stringResource(R.string.router_sync_balance_title)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.router_sync_balance_hint),
+                        style = MinaType.Caption,
+                        color = colors.ink3,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = syncInputText,
+                        onValueChange = { syncInputText = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("sync-balance-input"),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        syncInputText.toDoubleOrNull()?.let { MagicubeLedger.syncBalance(it) }
+                        syncDialogUsage = null
+                    },
+                    modifier = Modifier.testTag("sync-balance-save"),
+                ) {
+                    Text(stringResource(R.string.router_sync_balance_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { syncDialogUsage = null }) {
+                    Text(stringResource(R.string.router_sync_balance_cancel))
+                }
+            },
+        )
+    }
+
     val allModels = remember(connectedUsages) { connectedUsages.flatMap { it.models } }
     val filteredModels = remember(allModels, searchQuery, selectedFilter) {
         ModelPickerLogic.filterModels(allModels, searchQuery, selectedFilter)
+    }
+    val filteredEntries = remember(filteredModels) {
+        val seen = HashMap<String, Int>(filteredModels.size)
+        filteredModels.map { model ->
+            val base = "filtered:${model.provider}:${model.modelId}"
+            val count = (seen[base] ?: 0) + 1
+            seen[base] = count
+            IndexedFilteredModel(if (count == 1) base else "$base#$count", model)
+        }
+    }
+    val usageModelById = remember(usages) {
+        buildMap<String, ModelQuotaLine> {
+            usages.forEach { u ->
+                u.models.forEach { m -> putIfAbsent(m.modelId.lowercase(), m) }
+            }
+        }
+    }
+    val providerIdByModelId = remember(connectedUsages) {
+        buildMap<String, String> {
+            connectedUsages.forEach { u ->
+                u.models.forEach { m -> putIfAbsent(m.modelId.lowercase(), u.providerId) }
+            }
+        }
+    }
+    val roleItems = remember(savedConfigs, savedRoles) {
+        val mainCfg = savedConfigs.firstOrNull { it.id == savedRoles.main }
+        val visionCfg = (savedRoles.vision as? RoleChoice.Model)?.let { role ->
+            savedConfigs.firstOrNull { it.id == role.configId }
+        }
+        val lightCfg = (savedRoles.light as? RoleChoice.Model)?.let { role ->
+            savedConfigs.firstOrNull { it.id == role.configId }
+        }
+        listOfNotNull(
+            mainCfg?.let { Triple(ModelRole.Main, it, MinaIcons.Spark) },
+            visionCfg?.let { Triple(ModelRole.Vision, it, MinaIcons.Eye) },
+            lightCfg?.let { Triple(ModelRole.Light, it, MinaIcons.Leaf) },
+        )
+    }
+    val providerRows = remember(connectedUsages) {
+        buildList {
+            val seenProviders = HashMap<String, Int>()
+            connectedUsages.forEachIndexed { uIdx, usage ->
+                val pBase = "${usage.providerId}:${usage.provider}"
+                val pCount = (seenProviders[pBase] ?: 0) + 1
+                seenProviders[pBase] = pCount
+                val pKey = if (pCount == 1) pBase else "$pBase#$pCount"
+                add(SheetProviderRow.Header("ph:$pKey", usage, showTopDivider = uIdx > 0))
+                if (usage.models.isNotEmpty()) {
+                    val seenModels = HashMap<String, Int>(usage.models.size)
+                    usage.models.forEachIndexed { mIdx, model ->
+                        val mBase = model.modelId
+                        val mCount = (seenModels[mBase] ?: 0) + 1
+                        seenModels[mBase] = mCount
+                        val mKey = if (mCount == 1) mBase else "$mBase#$mCount"
+                        add(
+                            SheetProviderRow.Model(
+                                key = "pm:$pKey:$mKey",
+                                usage = usage,
+                                model = model,
+                                showDivider = mIdx > 0,
+                                isLastInProvider = mIdx == usage.models.lastIndex,
+                            ),
+                        )
+                    }
+                } else {
+                    add(SheetProviderRow.Legacy("pl:$pKey", usage))
+                }
+            }
+        }
     }
 
     fun selectAndClose(modelId: String, providerId: String = "") {
@@ -206,107 +374,133 @@ fun RouterBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = colors.surface,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = SheetModalShape,
         modifier = modifier.testTag("router-bottom-sheet"),
     ) {
-        Column(
-            Modifier
+        val pinText = if (activeModel.isPinned) {
+            stringResource(R.string.router_model_pinned)
+        } else {
+            stringResource(R.string.router_pin_model)
+        }
+        val showSearch = allModels.size > 4 || searchQuery.isNotBlank()
+        val isSearchingOrFiltered = searchQuery.isNotBlank() || selectedFilter != ModelPickerFilter.All
+
+        LazyColumn(
+            modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             // Sheet Header: Title + Live Connection Pill
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.router_sheet_title),
-                    style = MinaType.Title,
-                    color = colors.ink,
-                )
-                ConnectionStatusPill(
-                    status = connectionStatus,
-                    onClick = {
-                        when (connectionStatus) {
-                            ConnectionStatus.SignInRequired -> onReconnectSignIn?.invoke()
-                            ConnectionStatus.Error -> (onRetryConnect ?: onRefresh)?.invoke()
-                            else -> onRefresh?.invoke()
-                        }
-                    },
-                )
+            item(key = "header", contentType = "header") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.router_sheet_title),
+                        style = MinaType.Title,
+                        color = colors.ink,
+                    )
+                    ConnectionStatusPill(
+                        status = connectionStatus,
+                        onClick = {
+                            when (connectionStatus) {
+                                ConnectionStatus.SignInRequired -> onReconnectSignIn?.invoke()
+                                ConnectionStatus.Error -> (onRetryConnect ?: onRefresh)?.invoke()
+                                else -> onRefresh?.invoke()
+                            }
+                        },
+                    )
+                }
             }
 
             // Re-sign-in / Retry banner when session expired or network failed
             if (connectionStatus == ConnectionStatus.SignInRequired || connectionStatus == ConnectionStatus.Error) {
-                ConnectionAlertBanner(
-                    status = connectionStatus,
-                    detail = connectionDetail,
-                    onAction = {
-                        if (connectionStatus == ConnectionStatus.SignInRequired) {
-                            onReconnectSignIn?.invoke()
-                        } else {
-                            (onRetryConnect ?: onRefresh)?.invoke()
-                        }
-                    },
-                )
-                Spacer(Modifier.height(10.dp))
+                item(key = "alert_banner", contentType = "alert_banner") {
+                    Column {
+                        ConnectionAlertBanner(
+                            status = connectionStatus,
+                            detail = connectionDetail,
+                            onAction = {
+                                if (connectionStatus == ConnectionStatus.SignInRequired) {
+                                    onReconnectSignIn?.invoke()
+                                } else {
+                                    (onRetryConnect ?: onRefresh)?.invoke()
+                                }
+                            },
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
             }
 
             // Live Quota & Active Model Hero Card
-            SheetQuotaHeroCard(
-                active = activeModel,
-                quota = effectiveQuota,
-                onPinClick = onPinClick,
-            )
-
-            Spacer(Modifier.height(12.dp))
+            item(key = "hero_card", contentType = "hero_card") {
+                Column {
+                    SheetQuotaHeroCard(
+                        active = activeModel,
+                        quota = effectiveQuota,
+                        onPinClick = onPinClick,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
 
             // Compact Thinking / Effort Selector
-            ThinkingEffortBar(
-                selectedEffort = currentEffort,
-                onSelect = { effort ->
-                    if (onSelectThinkingEffort != null) {
-                        onSelectThinkingEffort(effort)
-                    } else {
-                        prefStore.setThinkingEffort(effort)
-                    }
-                },
-            )
-
-            Spacer(Modifier.height(14.dp))
+            item(key = "thinking_bar", contentType = "thinking_bar") {
+                Column {
+                    ThinkingEffortBar(
+                        selectedEffort = currentEffort,
+                        onSelect = { effort ->
+                            if (onSelectThinkingEffort != null) {
+                                onSelectThinkingEffort(effort)
+                            } else {
+                                prefStore.setThinkingEffort(effort)
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
 
             // Configured Roles Section (Settings › Models)
-            val mainCfg = savedConfigs.firstOrNull { it.id == savedRoles.main }
-            val visionCfg = if (savedRoles.vision is RoleChoice.Model) savedConfigs.firstOrNull { it.id == (savedRoles.vision as RoleChoice.Model).configId } else null
-            val lightCfg = if (savedRoles.light is RoleChoice.Model) savedConfigs.firstOrNull { it.id == (savedRoles.light as RoleChoice.Model).configId } else null
-
-            val roleItems = listOfNotNull(
-                mainCfg?.let { Triple(ModelRole.Main, it, MinaIcons.Spark) },
-                visionCfg?.let { Triple(ModelRole.Vision, it, MinaIcons.Eye) },
-                lightCfg?.let { Triple(ModelRole.Light, it, MinaIcons.Leaf) },
-            )
-
             if (roleItems.isNotEmpty()) {
-                GroupLabel(stringResource(R.string.router_configured_roles))
-                GroupCard {
-                    roleItems.forEachIndexed { idx, (role, cfg, icon) ->
+                item(key = "roles_label", contentType = "group_label") {
+                    GroupLabel(stringResource(R.string.router_configured_roles))
+                }
+                itemsIndexed(
+                    items = roleItems,
+                    key = { _, (role, _, _) -> "role:${role.name}" },
+                    contentType = { _, _ -> "role_row" },
+                ) { idx, (role, cfg, icon) ->
+                    val shape = sheetCardShape(idx, roleItems.size)
+                    val isCurrent = activeModel.id.equals(cfg.model, ignoreCase = true)
+                    val isGemini = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.name.contains("Gemini", ignoreCase = true)
+                    val matchingLine = usageModelById[cfg.model.lowercase()]
+                    val quotaBadge = when {
+                        matchingLine?.remainingPercent != null -> QuotaSnapshot.formatPercent(matchingLine.remainingPercent)
+                        isGemini -> stringResource(R.string.router_pro_plan)
+                        matchingLine?.todayRequests != null && matchingLine.todayRequests > 0 ->
+                            "${matchingLine.todayRequests} ${stringResource(R.string.router_today)}"
+                        else -> stringResource(R.string.router_status_ready)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = if (idx == roleItems.lastIndex) 12.dp else 0.dp)
+                            .clip(shape)
+                            .background(colors.surface, shape),
+                    ) {
                         if (idx > 0) {
-                            HorizontalDivider(color = colors.hair, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 14.dp))
-                        }
-                        val isCurrent = activeModel.id.equals(cfg.model, ignoreCase = true)
-                        val isGemini = cfg.kind == ProviderConfig.Kind.GeminiWeb || cfg.name.contains("Gemini", ignoreCase = true)
-                        val matchingLine = usages.flatMap { it.models }.firstOrNull { it.modelId.equals(cfg.model, ignoreCase = true) }
-                        val quotaBadge = when {
-                            matchingLine?.remainingPercent != null -> QuotaSnapshot.formatPercent(matchingLine.remainingPercent)
-                            isGemini -> stringResource(R.string.router_pro_plan)
-                            matchingLine?.todayRequests != null && matchingLine.todayRequests > 0 ->
-                                "${matchingLine.todayRequests} ${stringResource(R.string.router_today)}"
-                            else -> stringResource(R.string.router_status_ready)
+                            HorizontalDivider(
+                                color = colors.hair,
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                            )
                         }
                         ConfiguredRoleRow(
                             role = role,
@@ -318,28 +512,38 @@ fun RouterBottomSheet(
                         )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                item(key = "roles_spacer", contentType = "spacer") {
+                    Spacer(Modifier.height(14.dp))
+                }
             }
 
-            if (allModels.size > 4 || searchQuery.isNotBlank()) {
-                SheetSearchAndFilterBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    selectedFilter = selectedFilter,
-                    onFilterChange = { selectedFilter = it },
-                )
-                Spacer(Modifier.height(10.dp))
+            if (showSearch) {
+                item(key = "search_bar", contentType = "search_bar") {
+                    Column {
+                        SheetSearchAndFilterBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            selectedFilter = selectedFilter,
+                            onFilterChange = { selectedFilter = it },
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
             }
-
-            val isSearchingOrFiltered = searchQuery.isNotBlank() || selectedFilter != ModelPickerFilter.All
 
             if (isSearchingOrFiltered) {
-                GroupLabel("${stringResource(R.string.router_section_all)} (${filteredModels.size})")
-                GroupCard {
-                    if (filteredModels.isEmpty()) {
+                item(key = "filtered_label", contentType = "group_label") {
+                    GroupLabel("${stringResource(R.string.router_section_all)} (${filteredEntries.size})")
+                }
+                if (filteredEntries.isEmpty()) {
+                    item(key = "empty_search", contentType = "empty_search") {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                                .clip(SheetSingleCardShape)
+                                .background(colors.surface, SheetSingleCardShape)
+                                .border(0.5.dp, colors.edge, SheetSingleCardShape)
                                 .padding(24.dp),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -349,8 +553,23 @@ fun RouterBottomSheet(
                                 color = colors.ink3,
                             )
                         }
-                    } else {
-                        filteredModels.forEachIndexed { index, model ->
+                    }
+                } else {
+                    itemsIndexed(
+                        items = filteredEntries,
+                        key = { _, entry -> entry.key },
+                        contentType = { _, _ -> "filtered_model" },
+                    ) { index, entry ->
+                        val model = entry.model
+                        val shape = sheetCardShape(index, filteredEntries.size)
+                        val matchedProviderId = providerIdByModelId[model.modelId.lowercase()].orEmpty()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = if (index == filteredEntries.lastIndex) 12.dp else 0.dp)
+                                .clip(shape)
+                                .background(colors.surface, shape),
+                        ) {
                             if (index > 0) {
                                 HorizontalDivider(
                                     color = colors.hair,
@@ -358,84 +577,138 @@ fun RouterBottomSheet(
                                     modifier = Modifier.padding(horizontal = 14.dp),
                                 )
                             }
-                            val matchedUsage = connectedUsages.firstOrNull { u ->
-                                u.models.any { it.modelId.equals(model.modelId, ignoreCase = true) }
-                            }
                             ModelQuotaRow(
                                 model = model,
                                 isFavorite = favorites.contains(model.modelId),
                                 isPinned = activeModel.isPinned && activeModel.id.equals(model.modelId, ignoreCase = true),
                                 isSelected = activeModel.id.equals(model.modelId, ignoreCase = true),
                                 onToggleFavorite = { handleToggleFavorite(model.modelId) },
-                                onClick = { handleModelClick(model, matchedUsage?.providerId.orEmpty()) },
+                                onClick = { handleModelClick(model, matchedProviderId) },
                             )
                         }
                     }
                 }
-            } else {
-                // Connected Providers Quota & Models (all configured models grouped by provider)
-                if (connectedUsages.isNotEmpty()) {
+            } else if (providerRows.isNotEmpty()) {
+                item(key = "providers_label", contentType = "group_label") {
                     GroupLabel(stringResource(R.string.router_connected_providers))
-                    GroupCard {
-                        connectedUsages.forEachIndexed { index, usage ->
-                            if (index > 0) {
-                                HorizontalDivider(
-                                    color = colors.hair,
-                                    thickness = 1.dp,
-                                    modifier = Modifier.padding(horizontal = 14.dp),
+                }
+                itemsIndexed(
+                    items = providerRows,
+                    key = { _, row -> row.key },
+                    contentType = { _, row -> row.contentType },
+                ) { index, row ->
+                    val shape = sheetCardShape(index, providerRows.size)
+                    val bottomPad = if (index == providerRows.lastIndex) 12.dp else 0.dp
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = bottomPad)
+                            .clip(shape)
+                            .background(colors.surface, shape),
+                    ) {
+                        when (row) {
+                            is SheetProviderRow.Header -> {
+                                if (row.showTopDivider) {
+                                    HorizontalDivider(
+                                        color = colors.hair,
+                                        thickness = 1.dp,
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                    )
+                                }
+                                ProviderUsageHeader(
+                                    usage = row.usage,
+                                    isAlibabaLinked = isAlibabaLinked,
+                                    isLoginMarked = isLoginMarked,
+                                    onToggleAlibaba = { checked ->
+                                        isAlibabaLinked = checked
+                                        MagicubeLedger.setAlibabaLinked(checked)
+                                    },
+                                    onDailyLogin = {
+                                        MagicubeLedger.recordDailyLogin(isAlibabaLinked = isAlibabaLinked)
+                                        isLoginMarked = true
+                                    },
+                                    onOpenSync = {
+                                        val currentBal = row.usage.magicubeBalance ?: MagicubeLedger.totalBalance()
+                                        syncInputText = if (currentBal % 1.0 == 0.0) currentBal.toInt().toString() else currentBal.toString()
+                                        syncDialogUsage = row.usage
+                                    },
                                 )
                             }
-                            ProviderUsageBlock(
-                                usage = usage,
-                                isFirst = index == 0,
-                                favorites = favorites,
-                                pinnedModelId = if (activeModel.isPinned) activeModel.id else null,
-                                activeModelId = activeModel.id,
-                                onToggleFavorite = { handleToggleFavorite(it) },
-                                onModelClick = { handleModelClick(it, usage.providerId) },
-                            )
+                            is SheetProviderRow.Model -> {
+                                Column(
+                                    Modifier.padding(
+                                        start = 14.dp,
+                                        end = 14.dp,
+                                        bottom = if (row.isLastInProvider) 10.dp else 0.dp,
+                                    ),
+                                ) {
+                                    if (row.showDivider) {
+                                        HorizontalDivider(
+                                            color = colors.hair,
+                                            thickness = 0.5.dp,
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                        )
+                                    }
+                                    ModelQuotaRow(
+                                        model = row.model,
+                                        isFavorite = favorites.contains(row.model.modelId),
+                                        isPinned = activeModel.isPinned && activeModel.id.equals(row.model.modelId, ignoreCase = true),
+                                        isSelected = activeModel.id.equals(row.model.modelId, ignoreCase = true),
+                                        onToggleFavorite = { handleToggleFavorite(row.model.modelId) },
+                                        onClick = { handleModelClick(row.model, row.usage.providerId) },
+                                    )
+                                }
+                            }
+                            is SheetProviderRow.Legacy -> {
+                                Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
+                                    LegacyProviderUsageRow(usage = row.usage)
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
             // "Pin this model" button
-            val pinText = if (activeModel.isPinned) {
-                stringResource(R.string.router_model_pinned)
-            } else {
-                stringResource(R.string.router_pin_model)
+            item(key = "pin_button", contentType = "action_button") {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    MinaButton(
+                        text = pinText,
+                        onClick = onPinClick,
+                        kind = if (activeModel.isPinned) ButtonKind.Tonal else ButtonKind.Primary,
+                        size = ButtonSize.Large,
+                        enabled = activeModel.canPin,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pin-model-button"),
+                    )
+                }
             }
-
-            MinaButton(
-                text = pinText,
-                onClick = onPinClick,
-                kind = if (activeModel.isPinned) ButtonKind.Tonal else ButtonKind.Primary,
-                size = ButtonSize.Large,
-                enabled = activeModel.canPin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("pin-model-button"),
-            )
 
             if (onOpenSettings != null) {
-                Spacer(Modifier.height(8.dp))
-                MinaButton(
-                    text = stringResource(R.string.router_manage_in_settings),
-                    onClick = {
-                        onDismiss()
-                        onOpenSettings()
-                    },
-                    kind = ButtonKind.Secondary,
-                    size = ButtonSize.Large,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("manage-models-button"),
-                )
+                item(key = "settings_button", contentType = "action_button") {
+                    Column {
+                        Spacer(Modifier.height(8.dp))
+                        MinaButton(
+                            text = stringResource(R.string.router_manage_in_settings),
+                            onClick = {
+                                onDismiss()
+                                onOpenSettings()
+                            },
+                            kind = ButtonKind.Secondary,
+                            size = ButtonSize.Large,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("manage-models-button"),
+                        )
+                    }
+                }
             }
 
-            Spacer(Modifier.height(8.dp))
+            item(key = "bottom_spacer", contentType = "spacer") {
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }
@@ -550,15 +823,13 @@ private fun SheetQuotaHeroCard(
         else -> c.bad
     }
     val pctFraction = (quota.remainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
-    val resetCountdown = remember(quota.resetsAtEpochMs) { formatResetCountdown(quota.resetsAtEpochMs) }
-    val weeklyResetCountdown = remember(quota.weeklyResetsAtEpochMs) { formatResetCountdown(quota.weeklyResetsAtEpochMs) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(HeroCardShape)
             .background(c.surface)
-            .border(1.dp, c.hair, RoundedCornerShape(18.dp))
+            .border(1.dp, c.hair, HeroCardShape)
             .padding(14.dp)
             .testTag("active-model-hero-card"),
     ) {
@@ -667,17 +938,7 @@ private fun SheetQuotaHeroCard(
                     style = MinaType.Caption.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
                     color = c.ink2,
                 )
-                val rightSummary = when {
-                    resetCountdown != null -> stringResource(R.string.router_quota_resets_in, resetCountdown)
-                    quota.limitCount != null && quota.limitCount > 0 ->
-                        stringResource(R.string.router_quota_requests_ratio, quota.usedCount, quota.limitCount)
-                    else -> stringResource(R.string.router_quota_requests_used, quota.usedCount)
-                }
-                Text(
-                    text = rightSummary,
-                    style = MinaType.Caption.copy(fontSize = 12.sp),
-                    color = c.ink3,
-                )
+                PrimaryQuotaRightSummary(quota = quota)
             }
 
             if (quota.weeklyRemainingPercent != null) {
@@ -701,13 +962,7 @@ private fun SheetQuotaHeroCard(
                         style = MinaType.Caption.copy(fontSize = 11.5.sp),
                         color = c.ink3,
                     )
-                    if (weeklyResetCountdown != null) {
-                        Text(
-                            text = stringResource(R.string.router_quota_resets_in, weeklyResetCountdown),
-                            style = MinaType.Caption.copy(fontSize = 11.5.sp),
-                            color = c.ink3,
-                        )
-                    }
+                    WeeklyResetCountdownText(resetsAtEpochMs = quota.weeklyResetsAtEpochMs)
                 }
                 Spacer(Modifier.height(4.dp))
                 Box(
@@ -728,6 +983,54 @@ private fun SheetQuotaHeroCard(
             }
         }
     }
+}
+
+@Composable
+private fun PrimaryQuotaRightSummary(quota: QuotaSnapshot) {
+    val c = MinaTheme.colors
+    var nowMs by remember(quota.resetsAtEpochMs) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(quota.resetsAtEpochMs) {
+        val target = quota.resetsAtEpochMs ?: return@LaunchedEffect
+        while (true) {
+            val current = System.currentTimeMillis()
+            nowMs = current
+            if (target <= current) break
+            delay(1_000L - current % 1_000L)
+        }
+    }
+    val resetCountdown = formatResetCountdown(quota.resetsAtEpochMs, nowMs)
+    val rightSummary = when {
+        resetCountdown != null -> stringResource(R.string.router_quota_resets_in, resetCountdown)
+        quota.limitCount != null && quota.limitCount > 0 ->
+            stringResource(R.string.router_quota_requests_ratio, quota.usedCount, quota.limitCount)
+        else -> stringResource(R.string.router_quota_requests_used, quota.usedCount)
+    }
+    Text(
+        text = rightSummary,
+        style = MinaType.Caption.copy(fontSize = 12.sp),
+        color = c.ink3,
+    )
+}
+
+@Composable
+private fun WeeklyResetCountdownText(resetsAtEpochMs: Long?) {
+    val target = resetsAtEpochMs ?: return
+    val c = MinaTheme.colors
+    var nowMs by remember(target) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(target) {
+        while (true) {
+            val current = System.currentTimeMillis()
+            nowMs = current
+            if (target <= current) break
+            delay(1_000L - current % 1_000L)
+        }
+    }
+    val weeklyResetCountdown = formatResetCountdown(target, nowMs) ?: return
+    Text(
+        text = stringResource(R.string.router_quota_resets_in, weeklyResetCountdown),
+        style = MinaType.Caption.copy(fontSize = 11.5.sp),
+        color = c.ink3,
+    )
 }
 
 @Composable
@@ -812,9 +1115,9 @@ private fun SheetSearchAndFilterBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(SearchBarShape)
                 .background(c.fill)
-                .border(0.5.dp, c.hair, RoundedCornerShape(14.dp))
+                .border(0.5.dp, c.hair, SearchBarShape)
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -894,9 +1197,9 @@ private fun SheetSearchAndFilterBar(
     }
 }
 
-private fun formatResetCountdown(resetsAtEpochMs: Long?): String? {
+private fun formatResetCountdown(resetsAtEpochMs: Long?, nowMs: Long = System.currentTimeMillis()): String? {
     val target = resetsAtEpochMs ?: return null
-    val diffMs = target - System.currentTimeMillis()
+    val diffMs = target - nowMs
     if (diffMs <= 0L) return null
     val totalMinutes = (diffMs / 60_000L).toInt()
     val hours = totalMinutes / 60
@@ -999,6 +1302,118 @@ fun ConfiguredRoleRow(
                     .size(8.dp)
                     .background(colors.accent, CircleShape)
             )
+        }
+    }
+}
+
+@Composable
+private fun ProviderUsageHeader(
+    usage: ProviderUsage,
+    isAlibabaLinked: Boolean,
+    isLoginMarked: Boolean,
+    onToggleAlibaba: (Boolean) -> Unit,
+    onDailyLogin: () -> Unit,
+    onOpenSync: () -> Unit,
+) {
+    val colors = MinaTheme.colors
+    val isModelScope = usage.provider.equals("ModelScope", ignoreCase = true)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = usage.provider,
+                        style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.ink,
+                    )
+                    if (usage.isBadKey) {
+                        Text(
+                            text = " · ${stringResource(R.string.router_status_bad_key)}",
+                            style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                            color = colors.bad,
+                        )
+                    }
+                }
+
+                val formattedMeta = buildList {
+                    if (usage.concurrency != null) {
+                        add(stringResource(R.string.router_concurrency, usage.concurrency))
+                    }
+                    if (usage.magicubeBalance != null) {
+                        val formattedBal = if (usage.magicubeBalance % 1.0 == 0.0) {
+                            usage.magicubeBalance.toInt().toString()
+                        } else {
+                            String.format(java.util.Locale.US, "%.1f", usage.magicubeBalance)
+                        }
+                        add(stringResource(R.string.router_magicube_balance, formattedBal))
+                    }
+                    if (usage.totalCostToday != null) {
+                        val formattedCost = if (usage.totalCostToday % 1.0 == 0.0) {
+                            usage.totalCostToday.toInt().toString()
+                        } else {
+                            String.format(java.util.Locale.US, "%.1f", usage.totalCostToday)
+                        }
+                        add(stringResource(R.string.router_magicube_total, formattedCost))
+                    }
+                }
+                if (formattedMeta.isNotEmpty()) {
+                    Text(
+                        text = formattedMeta.joinToString(" · "),
+                        style = MinaType.Hint,
+                        color = colors.ink3,
+                    )
+                }
+            }
+        }
+
+        if (isModelScope) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.router_magicube_alibaba_linked),
+                    style = MinaType.Body.copy(fontSize = 13.5.sp),
+                    color = colors.ink,
+                )
+                MinaSwitch(
+                    checked = isAlibabaLinked,
+                    onCheckedChange = onToggleAlibaba,
+                    modifier = Modifier.testTag("magicube-alibaba-toggle"),
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MinaButton(
+                    text = if (isLoginMarked) stringResource(R.string.router_magicube_login_done) else stringResource(R.string.router_magicube_login_btn),
+                    onClick = onDailyLogin,
+                    kind = if (isLoginMarked) ButtonKind.Tonal else ButtonKind.Secondary,
+                    size = ButtonSize.Small,
+                    modifier = Modifier.weight(1f).testTag("magicube-login-btn"),
+                )
+                MinaButton(
+                    text = stringResource(R.string.router_sync_balance),
+                    onClick = onOpenSync,
+                    kind = ButtonKind.Tonal,
+                    size = ButtonSize.Small,
+                    modifier = Modifier.weight(1f).testTag("sync-balance-btn"),
+                )
+            }
         }
     }
 }
@@ -1262,7 +1677,7 @@ fun ModelQuotaRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(ModelRowShape)
             .background(if (isSelected) colors.accentSoft.copy(alpha = 0.55f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 7.dp, horizontal = 6.dp),
@@ -1273,7 +1688,7 @@ fun ModelQuotaRow(
         model.rank?.let { rankNum ->
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RankBadgeShape)
                     .background(if (rankNum <= 3) colors.accent else colors.hair.copy(alpha = 0.8f))
                     .padding(horizontal = 5.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center,
@@ -1442,13 +1857,6 @@ private fun LegacyProviderUsageRow(
     usage: ProviderUsage,
 ) {
     val colors = MinaTheme.colors
-    val now = remember { System.currentTimeMillis() }
-    val isCooldown = usage.cooldownUntilMs > now
-    val cooldownSeconds by remember(usage.cooldownUntilMs, now) {
-        derivedStateOf {
-            if (isCooldown) ((usage.cooldownUntilMs - now) / 1000L).coerceAtLeast(1L) else 0L
-        }
-    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1466,17 +1874,34 @@ private fun LegacyProviderUsageRow(
             color = colors.ink3,
         )
 
-        val cooldownText = if (isCooldown) {
-            stringResource(R.string.router_cooldown_active, "${cooldownSeconds}s")
-        } else {
-            stringResource(R.string.router_no_cooldown)
-        }
-        val cooldownColor = if (isCooldown) colors.warn else colors.ok
-
-        Text(
-            text = cooldownText,
-            style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
-            color = cooldownColor,
-        )
+        CooldownCountdownText(cooldownUntilMs = usage.cooldownUntilMs)
     }
+}
+
+@Composable
+private fun CooldownCountdownText(cooldownUntilMs: Long) {
+    val colors = MinaTheme.colors
+    var nowMs by remember(cooldownUntilMs) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(cooldownUntilMs) {
+        while (cooldownUntilMs > nowMs) {
+            val current = System.currentTimeMillis()
+            nowMs = current
+            if (cooldownUntilMs <= current) break
+            delay(1_000L)
+        }
+    }
+    val isCooldown = cooldownUntilMs > nowMs
+    val cooldownSeconds = if (isCooldown) ((cooldownUntilMs - nowMs) / 1000L).coerceAtLeast(1L) else 0L
+    val cooldownText = if (isCooldown) {
+        stringResource(R.string.router_cooldown_active, "${cooldownSeconds}s")
+    } else {
+        stringResource(R.string.router_no_cooldown)
+    }
+    val cooldownColor = if (isCooldown) colors.warn else colors.ok
+
+    Text(
+        text = cooldownText,
+        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+        color = cooldownColor,
+    )
 }

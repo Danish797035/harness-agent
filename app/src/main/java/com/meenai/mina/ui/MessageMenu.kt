@@ -47,11 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import com.meenai.mina.R
 import com.meenai.mina.core.agent.QuoteMessage
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import com.meenai.mina.ui.components.GlassBlurSupported
 import com.meenai.mina.ui.components.cardSurface
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
@@ -156,15 +153,10 @@ internal fun MessageMenu(
     )
 }
 
-/** When the menu is open, the back layer: starting from Android 12, the progress that appears is blurred ([MenuBlur]), and the menu is accessible and can only be read. Nothing is added when the menu is not open. */
+/** When the menu is open, gently dim the underlying layer without full-screen per-frame BlurEffect churn. */
 internal fun Modifier.behindMenu(open: Boolean, progress: () -> Float): Modifier =
     if (!open) this else this
-        .then(
-            if (GlassBlurSupported) Modifier.graphicsLayer {
-                val r = MenuBlur.toPx() * progress()
-                renderEffect = if (r >= 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
-            } else Modifier,
-        )
+        .graphicsLayer { alpha = 1f - 0.14f * progress() }
         .clearAndSetSemantics {}
 
 /** Put the plain text of the message into the clipboard and a "Copied" message will appear. */

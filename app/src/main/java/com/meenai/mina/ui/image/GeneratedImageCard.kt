@@ -1,15 +1,16 @@
 package com.meenai.mina.ui.image
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.meenai.mina.HarnessApp
 import com.meenai.mina.core.image.ImageRole
 import androidx.compose.foundation.layout.Column
@@ -31,11 +32,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -43,9 +43,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontWeight
 import com.meenai.mina.ui.components.AiLogo
 import com.meenai.mina.ui.theme.MinaTheme
@@ -57,6 +54,9 @@ import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.viewer.FileViewer
 import java.io.File
 
+private val GeneratedImageShape = RoundedCornerShape(12.dp)
+
+@Immutable
 data class GeneratedImageUi(
     val filePath: String? = null,
     val isGenerating: Boolean = false,
@@ -187,35 +187,25 @@ fun GeneratedImageCard(
                     }
                 }
             }
-            val file = remember(imageUi.filePath) { imageUi.filePath?.takeIf { it.isNotBlank() }?.let { File(it) } }
-            var bitmap by remember(imageUi.filePath) { mutableStateOf<Bitmap?>(null) }
-            LaunchedEffect(imageUi.filePath) {
-                val currentFile = file
-                if (currentFile != null && currentFile.exists()) {
-                    val decoded = withContext(Dispatchers.IO) {
-                        try {
-                            BitmapFactory.decodeFile(currentFile.absolutePath)
-                        } catch (_: Throwable) {
-                            null
-                        }
-                    }
-                    bitmap = decoded
-                } else {
-                    bitmap = null
-                }
+            val rawPath = imageUi.filePath?.takeIf { it.isNotBlank() }
+            val file = remember(rawPath) { rawPath?.let(::File) }
+            val cachedBitmap = remember(rawPath) { rawPath?.let { ImageBitmapCache.peekByPath(it) } }
+            val bitmap by produceState<ImageBitmap?>(cachedBitmap, rawPath) {
+                if (cachedBitmap != null) value = cachedBitmap
+                value = if (rawPath != null) ImageBitmapCache.loadFromFile(rawPath) else null
             }
 
             val currentBitmap = bitmap
             if (file != null && currentBitmap != null) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Image(
-                        bitmap = currentBitmap.asImageBitmap(),
+                        bitmap = currentBitmap,
                         contentDescription = imageUi.prompt,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 360.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(GeneratedImageShape)
                             .clickable {
                                 val uri = try {
                                     FileProvider.getUriForFile(context, "${context.packageName}.attachfiles", file)

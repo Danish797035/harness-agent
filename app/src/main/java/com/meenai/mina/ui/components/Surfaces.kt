@@ -133,10 +133,13 @@ class GlassBackdrop internal constructor(internal val layer: GraphicsLayer) {
     internal var origin by mutableStateOf(Offset.Zero)
 }
 
-/** It is null when blur is not supported, and [GlassBar] uses opaque background. */
+/**
+ * Returns an optional blur backdrop when [enableBlur] is explicitly true and RenderEffect blur is supported.
+ * Defaults to false so scrolling LazyColumns avoid full-surface GraphicsLayer recording and 30px real-time blur.
+ */
 @Composable
-fun rememberGlassBackdrop(): GlassBackdrop? {
-    if (!GlassBlurSupported) return null
+fun rememberGlassBackdrop(enableBlur: Boolean = false): GlassBackdrop? {
+    if (!enableBlur || !GlassBlurSupported) return null
     val layer = rememberGraphicsLayer()
     return remember(layer) { GlassBackdrop(layer) }
 }
@@ -165,24 +168,29 @@ fun GlassBar(
     content: @Composable RowScope.() -> Unit,
 ) {
     val c = MinaTheme.colors
-    var origin by remember { mutableStateOf(Offset.Zero) }
+    var origin = if (backdrop != null) remember { mutableStateOf(Offset.Zero) } else null
     Box(
         modifier.floatShadow(c, shape).clip(shape)
-            .then(if (backdrop != null) Modifier.onGloballyPositioned { origin = it.positionInRoot() } else Modifier),
+            .then(
+                if (backdrop != null && origin != null) Modifier.onGloballyPositioned { origin.value = it.positionInRoot() }
+                else Modifier,
+            ),
     ) {
-        if (backdrop != null) {
+        if (backdrop != null && origin != null) {
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayer { renderEffect = GlassBlur; clip = true }
                     .drawBehind {
-                        val d = backdrop.origin - origin
+                        val d = backdrop.origin - origin.value
                         translate(d.x, d.y) { drawLayer(backdrop.layer) }
                     },
             )
         }
+        val fill = if (backdrop != null) c.glass else c.surface.copy(alpha = if (c.isDark) 0.92f else 0.94f)
+        val borderWidth = if (backdrop != null) 0.5.dp else 1.dp
         Row(
-            Modifier.fillMaxWidth().background(if (backdrop != null) c.glass else c.surface)
-                .border(0.5.dp, c.glassEdge, shape)
+            Modifier.fillMaxWidth().background(fill)
+                .border(borderWidth, c.glassEdge, shape)
                 .heightIn(min = MinaSize.Composer).padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),

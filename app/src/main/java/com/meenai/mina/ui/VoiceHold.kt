@@ -59,10 +59,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -90,7 +88,6 @@ import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.GlassBackdrop
 import com.meenai.mina.ui.components.GlassBar
-import com.meenai.mina.ui.components.GlassBlurSupported
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.components.floatShadow
 import com.meenai.mina.ui.theme.MinaIcons
@@ -556,13 +553,14 @@ private fun ListenCard(s: HoldToTalk.State.Listening, title: String, engine: Str
 private fun RecDot(armed: Boolean) {
     val c = MinaTheme.colors
     val reduce = MinaTheme.reduceMotion
-    val halo = if (armed || reduce) 0f else rememberInfiniteTransition(label = "rec").animateFloat(
+    val haloState = if (armed || reduce) null else rememberInfiniteTransition(label = "rec").animateFloat(
         0f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "rec-halo",
-    ).value
+    )
     val dot = if (armed) c.bad else c.accent
     val soft = c.accentSoft
     Box(
         Modifier.size(8.dp).drawBehind {
+            val halo = haloState?.value ?: 0f
             if (halo > 0f) drawCircle(soft, radius = size.minDimension / 2 + 5.dp.toPx() * halo)
             drawCircle(dot)
         },
@@ -600,17 +598,12 @@ internal fun VoicePlaceholder(mode: ComposerMode) {
     }
 }
 
-/** When you press to speak, the dialogue content becomes blurred and faded, and the focus is on the card; Android 12 and below only fades. */
+/** When you press to speak, gently fade the dialogue content without per-frame BlurEffect churn. */
 @Composable
 internal fun Modifier.voiceDim(on: Boolean, reduceMotion: Boolean): Modifier {
-    val p by animateFloatAsState(if (on) 1f else 0f, if (reduceMotion) snap() else tween(250), label = "voice-dim")
-    if (p == 0f) return this
+    val pState = animateFloatAsState(if (on) 1f else 0f, if (reduceMotion) snap() else tween(250), label = "voice-dim")
     return graphicsLayer {
-        alpha = 1f - 0.55f * p
-        if (GlassBlurSupported) {
-            val r = 1.5.dp.toPx() * p
-            renderEffect = if (r >= 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
-        }
+        alpha = 1f - 0.55f * pState.value
     }
 }
 
