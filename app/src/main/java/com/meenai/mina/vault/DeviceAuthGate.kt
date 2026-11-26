@@ -87,7 +87,7 @@ object DeviceAuthGate {
                         }
 
                         override fun onAuthenticationFailed() {
-                            onFailed("Authentication failed")
+                            // Retryable biometric mismatch (finger/face); BiometricPrompt stays open for another try.
                         }
                     },
                 )

@@ -7,12 +7,14 @@ import com.meenai.mina.core.memory.MemoryNote
 import com.meenai.mina.core.memory.MemoryStore
 import com.meenai.mina.core.memory.ProfileStore
 import com.meenai.mina.core.skills.SkillNote
+import com.meenai.mina.settings.KeyCipher
 import com.meenai.mina.settings.KeystoreKeyCipher
 import com.meenai.mina.settings.MemorySettings
 import com.meenai.mina.skills.PersonalSkillFiles
 import com.meenai.mina.knowledge.AppKnowledgeFiles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,8 +43,37 @@ data class MemoryOpen(val draftId: String? = null)
  * first time it is accessed, the disk will be read and decrypted, so do not adjust it on the main
  * thread.
  */
-class MemoryRuntime(context: Context) {
-    private val app = context.applicationContext
+class MemoryRuntime internal constructor(
+    private val app: Context,
+    private val baseDir: File,
+    private val cipherFactory: (() -> KeyCipher)? = null,
+    private val deleteKeyAlias: (() -> Unit)? = null,
+    private val stripStoredConversations: (() -> Unit)? = null,
+) {
+    constructor(context: Context) : this(
+        app = context.applicationContext,
+        baseDir = context.applicationContext.filesDir,
+    )
+
+    private fun createCipher(): KeyCipher = cipherFactory?.invoke() ?: KeystoreKeyCipher(KEY_ALIAS)
+
+    private fun wipeKeyAlias() {
+        val override = deleteKeyAlias
+        if (override != null) {
+            override()
+        } else {
+            runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
+        }
+    }
+
+    private fun clearConversations() {
+        val override = stripStoredConversations
+        if (override != null) {
+            override()
+        } else {
+            runCatching { ConversationStore.shared(app).stripMemory(null) }
+        }
+    }
 
     private var file: EncryptedMemoryFile? = null
     private var store: MemoryStore? = null
@@ -61,6 +92,10 @@ class MemoryRuntime(context: Context) {
     private val _open = MutableStateFlow<MemoryOpen?>(null)
     val openRequest: StateFlow<MemoryOpen?> = _open.asStateFlow()
 
+    private val _items = MutableStateFlow<List<MemoryItem>>(emptyList())
+    private val sharedItems: StateFlow<List<MemoryItem>> = _items.asStateFlow()
+    private var itemsJob: Job? = null
+
     fun requestOpen(o: MemoryOpen?) { _open.value = o }
 
     fun publish(n: RunNotes) = _notes.update { it + (n.runId to n) }
@@ -68,48 +103,80 @@ class MemoryRuntime(context: Context) {
     /**
      * Memorize the items and give the prompt text to the result card. When accessing for the first time,
      * the disk is read and decrypted in the background. It is empty before reading; after that, the
-     * storage changes.
+     * storage changes. Returns a single shared [StateFlow] without leaking per-call coroutines.
      */
+    @Synchronized
     fun items(): StateFlow<List<MemoryItem>> {
-        val out = MutableStateFlow<List<MemoryItem>>(emptyList())
-        scope.launch(Dispatchers.IO) { runCatching { store() }.getOrNull()?.items?.collect { out.value = it } }
-        return out.asStateFlow()
+        if (itemsJob == null) {
+            itemsJob = startItemsCollector()
+        }
+        return sharedItems
+    }
+
+    private fun startItemsCollector(): Job = scope.launch(Dispatchers.IO) {
+        val memoryStore = runCatching { store() }.getOrNull() ?: return@launch
+        memoryStore.items.collect { _items.value = it }
     }
 
     @Synchronized fun file(): EncryptedMemoryFile =
-        file ?: EncryptedMemoryFile(app.filesDir, KeystoreKeyCipher(KEY_ALIAS), System::currentTimeMillis).also { file = it }
+        file ?: EncryptedMemoryFile(baseDir, createCipher(), System::currentTimeMillis).also { file = it }
 
     @Synchronized fun store(): MemoryStore =
         store ?: MemoryStore(file(), System::currentTimeMillis, { UUID.randomUUID().toString() }).also { store = it }
 
     @Synchronized fun skills(): PersonalSkillFiles =
-        skills ?: PersonalSkillFiles(app.filesDir).also { skills = it }
+        skills ?: PersonalSkillFiles(baseDir).also { skills = it }
 
     @Synchronized fun profile(): ProfileStore =
-        profile ?: ProfileStore(FileProfileBackend(File(app.filesDir, "memory/profile.bin"), KeystoreKeyCipher(KEY_ALIAS)), ids = { UUID.randomUUID().toString() }).also { profile = it }
+        profile ?: ProfileStore(
+            FileProfileBackend(File(baseDir, "memory/profile.bin"), createCipher()),
+            ids = { UUID.randomUUID().toString() },
+        ).also { profile = it }
 
     @Synchronized fun appKnowledge(): AppKnowledgeFiles =
-        appKnowledge ?: AppKnowledgeFiles(app.filesDir).also { appKnowledge = it }
+        appKnowledge ?: AppKnowledgeFiles(baseDir).also { appKnowledge = it }
 
     @Synchronized fun settings(): MemorySettings =
-        settings ?: MemorySettings(File(app.filesDir, "memory_settings.json")).also { settings = it }
+        settings ?: MemorySettings(File(baseDir, "memory_settings.json")).also { settings = it }
 
     /** "Clear All": Memories, bad saved files, personal skills and drafts are all deleted, and the memory key is rebuilt; memory prompts in conversations are also removed. */
     @Synchronized fun wipeAll() {
-        store().clearAll()
-        file().wipe()
-        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
-        File(app.filesDir, "skills").deleteRecursively()
-        File(app.filesDir, "knowledge/app-drafts").deleteRecursively()
-        stripMemory(null)
-        _notes.update { m -> m.mapValues { (_, n) -> n.copy(skillNotes = emptyList()) } }
+        val wasObserving = itemsJob != null
+        itemsJob?.cancel()
+        itemsJob = null
+        _items.value = emptyList()
+
+        runCatching { store?.clearAll() }
+        runCatching { file?.wipe() }
+        val memDir = File(baseDir, "memory")
+        File(memDir, "profile.bin").delete()
+        File(memDir, "profile.bin.tmp").delete()
+        memDir.listFiles()?.forEach { it.delete() }
+        wipeKeyAlias()
+        File(baseDir, "skills").deleteRecursively()
+        File(baseDir, "knowledge/app-drafts").deleteRecursively()
+
+        // Reset cached backend/store references so subsequent reads use freshly created backends and key alias.
+        profile = null
+        skills = null
+        appKnowledge = null
+        file = null
+        store = null
+
+        if (wasObserving) {
+            itemsJob = startItemsCollector()
+        }
+
+        _notes.update { m -> m.mapValues { (_, n) -> n.copy(memoryNotes = emptyList(), usedMemory = emptyList(), skillNotes = emptyList()) } }
+        clearConversations()
     }
 
     /** These memories are deleted (null = all for [ids]): they are no longer mentioned in the result cards and conversation files. */
     fun stripMemory(ids: Set<String>?) {
         fun keep(id: String) = ids != null && id !in ids
         _notes.update { m -> m.mapValues { (_, n) -> n.copy(memoryNotes = n.memoryNotes.filter { keep(it.memoryId) }, usedMemory = n.usedMemory.filter(::keep)) } }
-        runCatching { ConversationStore.shared(app).stripMemory(ids) }
+        if (ids == null) clearConversations()
+        else runCatching { ConversationStore.shared(app).stripMemory(ids) }
     }
 
     /** Give the application in the process. */

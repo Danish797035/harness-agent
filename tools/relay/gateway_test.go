@@ -526,3 +526,56 @@ func TestRateLimitExistingKeyAndExpiredSweep(t *testing.T) {
 		t.Fatalf("expected expired entries purged, got %d", len(f.g.limits))
 	}
 }
+
+func TestHealthzBypassesHostCheckAndClientCancelPreservesDeviceLink(t *testing.T) {
+	f := newFixture(t)
+
+	// /healthz must return 200 OK even when Host does not match g.base (e.g., localhost probe).
+	req, err := http.NewRequest("GET", f.server.URL+"/healthz", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "127.0.0.1:9999"
+	resp, err := f.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected /healthz to bypass Host check, got %d", resp.StatusCode)
+	}
+
+	// Paired device stays connected even if a caller cancels its request mid-flight.
+	f.pair(t)
+	c := f.connect(t)
+	reqCtx, cancel := context.WithCancel(context.Background())
+	proxyReq, err := http.NewRequestWithContext(reqCtx, "POST", f.server.URL+"/mcp", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyReq.Header.Set("Authorization", "Bearer "+f.token)
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r, err := f.client.Do(proxyReq)
+		if err == nil {
+			_ = r.Body.Close()
+		}
+	}()
+	// Wait until device receives request frame, then cancel caller context.
+	got := readFrame(t, c)
+	cancel()
+	<-done
+	cancelFrame := readFrame(t, c)
+	if cancelFrame.Type != "cancel" || cancelFrame.ID != got.ID {
+		t.Fatalf("expected cancel frame for %s, got %+v", got.ID, cancelFrame)
+	}
+	f.g.mu.Lock()
+	stillConnected := f.g.device != nil
+	f.g.mu.Unlock()
+	if !stillConnected {
+		t.Fatal("device WebSocket was closed by caller cancellation")
+	}
+}

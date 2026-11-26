@@ -492,6 +492,7 @@ class TaskService : Service() {
                 return
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
+            foreground = null
             // Get the number first and then release it: the new task that arrives after you release it
             // will bring an updated number, and the stopSelf here will not stop it.
             val id = lastStartId
@@ -631,7 +632,7 @@ class TaskService : Service() {
     private fun progressNotification(run: TaskRun, state: TaskState): Notification {
         val (_, text) = describe(state) { ConfirmationNotifier.appLabel(this, it) }
         val warning = run.muteFailedFor?.let { "\n" + tr(R.string.task_may_make_sound) }.orEmpty() +
-            (if (state is TaskState.WaitingTakeover && !takeoverFirst(run)) "\n$TAKEOVER_QUEUED" else "")
+            (if (state is TaskState.WaitingTakeover && !takeoverFirst(run)) "\n" + tr(R.string.task_takeover_queued) else "")
         val content = com.meenai.mina.core.general.MarkdownSanitizer.strip(text + warning)
         val b = Notification.Builder(this, CHANNEL_PROGRESS)
             .setSmallIcon(R.drawable.ic_notification)
@@ -810,7 +811,21 @@ class TaskService : Service() {
         // If the service is gone, the process cannot be sustained: close the remaining page and note it
         // down in the conversation.
         keeper.close(KeptPageClose.AppExit)
-        getSystemService(NotificationManager::class.java).cancel(ID_KEPT)
+        val nm = getSystemService(NotificationManager::class.java)
+        synchronized(notifyLock) {
+            nm.cancel(ID_KEPT)
+            nm.cancel(ID_PROGRESS)
+            nm.cancel(ID_ATTENTION)
+            foreground?.let { r ->
+                nm.cancel(id(ID_PROGRESS, r))
+                nm.cancel(id(ID_ATTENTION, r))
+            }
+            foreground = null
+            center.runs().forEach { r ->
+                nm.cancel(id(ID_PROGRESS, r))
+                nm.cancel(id(ID_ATTENTION, r))
+            }
+        }
         if (center.runs().isNotEmpty()) {
             // Take care of the aftermath on the spot after the standard interruption (timing window,
             // supplementary delivery, notification, writing into the dialog): the process is still there
@@ -941,7 +956,6 @@ class TaskService : Service() {
         private const val ID_RESULT_FIRST = 10_000
         private const val RESULT_IDS = 1_000
         private val resultCount = AtomicInteger()
-        private val TAKEOVER_QUEUED: String get() = tr(R.string.task_takeover_queued)
         private const val TAG = "MinaTask"
         val TOO_OLD: String get() = tr(R.string.task_too_old)
         internal val PREPARING: String get() = tr(R.string.runtime_preparing)

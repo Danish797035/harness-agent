@@ -67,6 +67,11 @@ class ChatKeysTest {
         assertNotNull("Draft item must be present with key draft:\${ex.id}", draftItem)
         assertEquals("draft", draftItem?.second)
 
+        // While answering with non-blank thinking, "s:${ex.id}" remains mounted above draft
+        val exStreamingWithThinking = exStreaming.copy(thinking = "Step-by-step reasoning")
+        val thinkingKeys = exchangeItemKeys(exStreamingWithThinking).map { it.first }
+        assertEquals(listOf("u:${exStreaming.id}", "s:${exStreaming.id}", "draft:${exStreaming.id}"), thinkingKeys)
+
         // Final answer key: "r:${ex.id}", contentType "assistant"
         val exDone = exStreaming.copy(
             status = ExchangeStatus.Done("To get to the other side!", null),

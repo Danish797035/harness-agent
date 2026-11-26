@@ -85,8 +85,9 @@ class UserBrowser private constructor(private val app: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val wrapper = MutableContextWrapper(app)
     private var tab: WebTab? = null
-    /** When the pop-up window on the page is open ([tab] is a pop-up window), the page that opens it; if there is no pop-up window, it is null. */
-    private var opener: WebTab? = null
+    /** Stack of parent tabs when nested popup windows are opened (last = immediate opener). */
+    private val openers = ArrayDeque<WebTab>()
+    private val opener: WebTab? get() = openers.lastOrNull()
     private val hosts = PageHosts<ViewGroup, Context>()
     private var probe: Runnable? = null
     /** "Login for Mina" The website to log in to; for normal browsing, it is null. Tag version rules are also read in the background thread. */
@@ -170,6 +171,7 @@ class UserBrowser private constructor(private val app: Context) {
 
     private fun load(url: String, login: String?): String? {
         refusal(url)?.let { return it }
+        drainOpeners()
         loginHost = login
         val t = tab ?: newTab().also {
             tab = it
@@ -212,17 +214,21 @@ class UserBrowser private constructor(private val app: Context) {
         probe?.let(main::removeCallbacks)
         probe = null
         loginHost = null
-        opener?.let { o ->
-            opener = null
-            if (!loans.closing(o)) o.destroy() else handedOff(o)
-        }
         tab?.let { t ->
             tab = null
             if (!loans.closing(t)) t.destroy() else handedOff(t)
         }
+        drainOpeners()
         loans.withdraw()
         _page.value = null
         _dialog.value = null
+    }
+
+    private fun drainOpeners() {
+        while (openers.isNotEmpty()) {
+            val prevOpener = openers.removeLast()
+            if (!loans.closing(prevOpener)) prevOpener.destroy() else handedOff(prevOpener)
+        }
     }
 
     // The label assigned to the task is no longer here (the view has been hung from the task to its web
@@ -425,13 +431,17 @@ class UserBrowser private constructor(private val app: Context) {
          * window, return to the page on which it was opened.
          */
         override fun onCreateWindow(tab: WebTab, isUserGesture: Boolean, resultMsg: Message): Boolean {
-            if (!isUserGesture || tab !== this@UserBrowser.tab || opener != null) return false
+            if (!isUserGesture || tab !== this@UserBrowser.tab) return false
             val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
             val popup = newTab()
             transport.webView = popup.view
             resultMsg.sendToTarget()
             (tab.view.parent as? ViewGroup)?.removeView(tab.view)
-            opener = tab
+            if (openers.size >= MAX_OPENERS) {
+                val oldest = openers.removeFirst()
+                if (!loans.closing(oldest)) oldest.destroy() else handedOff(oldest)
+            }
+            openers.addLast(tab)
             this@UserBrowser.tab = popup
             place()
             // The one lent to the task is the visible one: then replace it with the pop-up window
@@ -446,8 +456,7 @@ class UserBrowser private constructor(private val app: Context) {
 
     /** Close the pop-up window and return to the page where it was opened; return false if there is no pop-up window. */
     private fun closePopup(): Boolean {
-        val o = opener ?: return false
-        opener = null
+        val o = openers.removeLastOrNull() ?: return false
         tab?.let { popup ->
             loans.swapped(popup, o)
             popup.destroy()
@@ -514,6 +523,7 @@ class UserBrowser private constructor(private val app: Context) {
         private const val PROBE_DELAY_MS = 1_500L
         private const val PROBE_RETRIES = 3
         private const val CONFIRM_WAIT_MS = 2_500L
+        private const val MAX_OPENERS = 5
         /** The accepted website icon must be at least this big, and the saved website icon must be at most this big (in pixels). */
         private const val MIN_ICON_PX = 16
         private const val MAX_ICON_PX = 128

@@ -152,6 +152,14 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 	}
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	if r.URL.Path == "/healthz" {
+		if r.Method != "GET" {
+			failure(w, 405, "method_not_allowed")
+			return
+		}
+		writeJSON(w, 200, map[string]string{"status": "ok"})
+		return
+	}
 	if !strings.EqualFold(r.Host, strings.TrimPrefix(strings.TrimPrefix(g.base, "https://"), "http://")) {
 		failure(w, 400, "invalid_host")
 		return
@@ -161,12 +169,6 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.asset(w, r)
 	case "/language":
 		g.language(w, r)
-	case "/healthz":
-		if r.Method != "GET" {
-			failure(w, 405, "method_not_allowed")
-			return
-		}
-		writeJSON(w, 200, map[string]string{"status": "ok"})
 	case "/", "/admin":
 		g.admin(w, r)
 	case "/pair":
@@ -414,7 +416,10 @@ func (g *gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	defer func() { l.mu.Lock(); delete(l.pending, id); l.mu.Unlock() }()
 	ctx, cancel := context.WithTimeout(r.Context(), g.requestTimeout)
 	defer cancel()
-	if err = l.send(ctx, frame{Type: "request", ID: id, Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Headers: headers, Body: body, Client: g.client(r)}); err != nil {
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = l.send(sendCtx, frame{Type: "request", ID: id, Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Headers: headers, Body: body, Client: g.client(r)})
+	sendCancel()
+	if err != nil {
 		l.close()
 		reject(502, "delivery_unknown")
 		return

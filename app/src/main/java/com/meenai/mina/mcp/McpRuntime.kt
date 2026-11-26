@@ -51,15 +51,16 @@ class McpRuntime(
     val state: StateFlow<McpServerState> = _state.asStateFlow()
     @Volatile private var host: RemoteHost? = null
     private var hostListen = McpModes.Listen.Off
+    private var hostPort = -1
     private val endpoints = RemoteEndpoints(tasks, BuildConfig.VERSION_NAME, device = device.access)
     private val relayAccess = RemoteAccess(token = { if (relaySettings.config.value.enabled) settings.token() else null })
     // For requests coming through the gateway, you need to turn on "Allow wake-up and unlocking through
     // the gateway" to see the screen capabilities; the remote screen brightening and unlocking
     // permissions on the phone still need to be turned on.
-    private val relay = RelayClient(CoroutineScope(SupervisorJob() + Dispatchers.IO), { req ->
+    internal val relay = RelayClient(CoroutineScope(SupervisorJob() + Dispatchers.IO), { req ->
         relayAccess.handle(req) { endpoints.handle(it, deviceAccess = relaySettings.config.value.deviceAccess) }
     })
-    private val relayNetwork = RelayNetwork(context, relay::networkChanged)
+    internal val relayNetwork = RelayNetwork(context, relay::networkChanged)
     val relayState get() = relay.state
     private val active get() = listen() != McpModes.Listen.Off || relaySettings.config.value.enabled
 
@@ -88,8 +89,13 @@ class McpRuntime(
 
     suspend fun unpairRelay() {
         setRelayEnabled(false)
-        relaySettings.pairing()?.let { RelayGateway(RelayGateway.parse(it.gateway), RelayGateway.http()).unpair(it.deviceToken) }
-        relaySettings.clear()
+        try {
+            relaySettings.pairing()?.let {
+                RelayGateway(RelayGateway.parse(it.gateway), RelayGateway.http()).unpair(it.deviceToken)
+            }
+        } finally {
+            relaySettings.clear()
+        }
     }
 
     fun listen(): McpModes.Listen = McpModes.listen(settings.enabled.value, usb.enabled.value)
@@ -137,7 +143,7 @@ class McpRuntime(
      */
     @Synchronized internal fun sync(): Boolean {
         val want = listen()
-        if (host != null && hostListen != want) stopListener()
+        if (host != null && (hostListen != want || hostPort != settings.port)) stopListener()
         if (want == McpModes.Listen.Off) _state.value = McpServerState.Off
         val ok = want != McpModes.Listen.Off && (host != null || startServer(want))
         if (ok && usb.enabled.value) runCatching { usb.publish(host!!.boundPort) }.onFailure { Log.w(TAG, "cannot write USB connection info", it) }
@@ -153,17 +159,19 @@ class McpRuntime(
 
     private fun startServer(want: McpModes.Listen): Boolean {
         val network = want == McpModes.Listen.PrivateNetworks
-        val h = RemoteHost(tasks, { if (settings.enabled.value) settings.token() else null }, settings.port, allowAllInterfaces = network,
+        val requestedPort = settings.port
+        val h = RemoteHost(tasks, { if (settings.enabled.value) settings.token() else null }, requestedPort, allowAllInterfaces = network,
             serverVersion = BuildConfig.VERSION_NAME, onError = { Log.w(TAG, "computer access server error", it) },
             loopbackToken = usb::token, device = device.access, endpoints = endpoints)
         return try {
             h.start()
             host = h
             hostListen = want
+            hostPort = requestedPort
             _state.value = McpServerState.Listening(h.boundPort)
             true
         } catch (e: Exception) {
-            Log.w(TAG, "could not listen on port ${settings.port}", e)
+            Log.w(TAG, "could not listen on port $requestedPort", e)
             _state.value = McpServerState.Failed(e.message ?: e::class.simpleName.orEmpty())
             false
         }
@@ -179,6 +187,7 @@ class McpRuntime(
         host?.stop()
         host = null
         hostListen = McpModes.Listen.Off
+        hostPort = -1
         if (_state.value is McpServerState.Listening) _state.value = McpServerState.Off
     }
 

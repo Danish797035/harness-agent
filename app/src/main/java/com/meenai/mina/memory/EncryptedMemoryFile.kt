@@ -11,6 +11,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.KeyStoreException
@@ -64,7 +65,12 @@ class EncryptedMemoryFile(
         // First drop it to the disk and then rename it: no empty files with changed names will be left
         // when the power is turned off.
         FileOutputStream(tmp).use { it.write(bytes); it.fd.sync() }
-        Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        try {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        _brokenNotice.value = null
     }
 
     /** "Clear All": Delete memory files (including saved bad files). Key reconstruction is done by the caller after deleting the alias. */
@@ -79,7 +85,11 @@ class EncryptedMemoryFile(
         var target = File(memDir, "$FILE.broken-$stamp")
         var n = 1
         while (target.exists()) target = File(memDir, "$FILE.broken-$stamp-${n++}")
-        Files.move(file.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        try {
+            Files.move(file.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(file.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
         _brokenNotice.value = target.name
     }
 

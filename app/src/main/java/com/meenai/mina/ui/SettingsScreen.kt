@@ -182,7 +182,7 @@ fun SettingsScreen(
     val parallel = if (!speed.parallelTasks) null else ParallelSetting(
         parallelMax,
         ParallelCapability.detect(
-            status.sdkInt, context.getSystemService(ActivityManager::class.java).isLowRamDevice, parallelMax,
+            status.sdkInt, context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true, parallelMax,
             secondDisplayFailed = runtimeLimit.reason == ParallelCapability.SECOND_DISPLAY_FAILED,
         ),
     )

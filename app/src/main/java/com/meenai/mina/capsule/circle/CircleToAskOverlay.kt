@@ -2,6 +2,7 @@ package com.meenai.mina.capsule.circle
 
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -30,7 +31,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -45,6 +48,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -57,7 +61,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -79,9 +85,13 @@ fun CircleToAskOverlay(
     modifier: Modifier = Modifier,
     imeTopPx: Int? = null,
     onRequestKeyboard: () -> Unit = {},
+    onReleaseKeyboard: () -> Unit = {},
+    onInputFocusChanged: (Boolean) -> Unit = {},
+    clearInputSignal: Int = 0,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
+    val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val colors = MinaTheme.colors
 
@@ -93,12 +103,28 @@ fun CircleToAskOverlay(
     var strokePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var activeHandle by remember { mutableStateOf<ResizeHandle?>(null) }
     var userQuestion by remember { mutableStateOf("") }
+    var inputFocused by remember { mutableStateOf(false) }
+    var cardHeightPx by remember { mutableIntStateOf((132f * density).roundToInt()) }
 
     val currentConfirmed by rememberUpdatedState(confirmedRect)
     val currentWidth by rememberUpdatedState(screenWidthPx)
     val currentHeight by rememberUpdatedState(screenHeightPx)
 
     val activeRect = draggingRect ?: confirmedRect
+
+    LaunchedEffect(clearInputSignal) {
+        if (clearInputSignal > 0) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            onReleaseKeyboard()
+        }
+    }
+
+    BackHandler(enabled = inputFocused) {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onReleaseKeyboard()
+    }
 
     fun submitSelection(rect: CropRect) {
         val mapped = CircleCropGeometry.mapRectToBitmap(
@@ -109,6 +135,16 @@ fun CircleToAskOverlay(
             bitmapHeight = screenshot.height,
         )
         onAsk(mapped, userQuestion.trim())
+    }
+
+    fun resetSelection() {
+        confirmedRect = null
+        draggingRect = null
+        strokePoints = emptyList()
+        activeHandle = null
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onReleaseKeyboard()
     }
 
     Box(
@@ -134,10 +170,15 @@ fun CircleToAskOverlay(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = 0.99f }
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .pointerInput(density) {
                     detectDragGestures(
                         onDragStart = { offset ->
+                            if (inputFocused) {
+                                focusManager.clearFocus(force = true)
+                                keyboard?.hide()
+                                onReleaseKeyboard()
+                            }
                             val existing = currentConfirmed
                             val hit = existing?.let {
                                 CircleCropGeometry.hitTestHandle(it, offset.x, offset.y, 28f * density)
@@ -280,7 +321,8 @@ fun CircleToAskOverlay(
                     .clip(CircleShape)
                     .background(colors.surface.copy(alpha = 0.92f))
                     .clickable(onClick = onCancel)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .testTag("circle-close"),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -315,14 +357,15 @@ fun CircleToAskOverlay(
                 )
             }
 
-            // 5. Action card (Ask / Cancel + input) positioned below or above rect, kept clear of IME
+            // 5. Action card (Redraw / Cancel / Ask + input) positioned below or above rect, kept clear of IME
             val effectiveBottom = imeTopPx?.toFloat()?.takeIf { it > 160f * density } ?: screenHeightPx
+            val measuredHeight = cardHeightPx.toFloat().coerceAtLeast(96f * density)
             val spaceBelow = effectiveBottom - rect.bottom
-            val showAbove = spaceBelow < 140f * density
+            val showAbove = spaceBelow < (measuredHeight + 16f * density)
             val minCardY = 84f * density
-            val maxCardY = (effectiveBottom - 132f * density).coerceAtLeast(minCardY)
+            val maxCardY = (effectiveBottom - measuredHeight - 8f * density).coerceAtLeast(minCardY)
             val cardY = if (showAbove) {
-                (rect.top - 126f * density).coerceIn(minCardY, maxCardY).roundToInt()
+                (rect.top - measuredHeight - 12f * density).coerceIn(minCardY, maxCardY).roundToInt()
             } else {
                 (rect.bottom + 16f * density).coerceIn(minCardY, maxCardY).roundToInt()
             }
@@ -338,7 +381,11 @@ fun CircleToAskOverlay(
                     shape = RoundedCornerShape(20.dp),
                     color = colors.surface,
                     shadowElevation = 8.dp,
-                    modifier = Modifier.widthIn(max = 380.dp),
+                    modifier = Modifier
+                        .widthIn(max = 380.dp)
+                        .onSizeChanged {
+                            if (it.height > 0) cardHeightPx = it.height
+                        },
                 ) {
                     Column(
                         modifier = Modifier
@@ -361,6 +408,8 @@ fun CircleToAskOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onFocusChanged {
+                                    inputFocused = it.isFocused
+                                    onInputFocusChanged(it.isFocused)
                                     if (it.isFocused) {
                                         onRequestKeyboard()
                                         keyboard?.show()
@@ -388,46 +437,71 @@ fun CircleToAskOverlay(
 
                         Spacer(Modifier.height(10.dp))
 
-                        // Action Buttons: Ask & Cancel
+                        // Action Buttons: Redraw, Cancel & Ask
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = stringResource(R.string.circle_to_ask_cancel),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.ink3,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable(onClick = onCancel)
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                            )
-
-                            Spacer(Modifier.width(8.dp))
-
                             Row(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(colors.accent)
-                                    .clickable { submitSelection(rect) }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { resetSelection() }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .testTag("circle-redraw"),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    imageVector = MinaIcons.Spark,
+                                    imageVector = MinaIcons.Refresh,
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp),
+                                    tint = colors.ink2,
+                                    modifier = Modifier.size(15.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(5.dp))
                                 Text(
-                                    text = stringResource(R.string.circle_to_ask_ask),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
+                                    text = stringResource(R.string.circle_to_ask_redraw),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.ink2,
                                 )
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = stringResource(R.string.circle_to_ask_cancel),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.ink3,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable(onClick = onCancel)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                )
+
+                                Spacer(Modifier.width(6.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(colors.accent)
+                                        .clickable { submitSelection(rect) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = MinaIcons.Spark,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.circle_to_ask_ask),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White,
+                                    )
+                                }
                             }
                         }
                     }

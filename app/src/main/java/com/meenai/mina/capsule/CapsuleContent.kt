@@ -213,7 +213,14 @@ private fun Capsule(view: CapsuleView.Shown, end: Boolean, onTap: () -> Unit, ta
         ) {
             if (view.pill) PillRow(view, end, need)
             else Box(Modifier.size(CapsuleHeight), contentAlignment = Alignment.Center) { CapsuleLogo() }
-            if (glow.value > 0f) Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.White.copy(alpha = glow.value)))
+            if (glow.value > 0f) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(EdgePill(morph.width.value, end))
+                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = glow.value)),
+                )
+            }
         }
         // The outer ring and corner mark do not fade with the bottom; when retracted, they stick to the
         // side of the icon and do not follow the unfinished width.
@@ -307,6 +314,7 @@ private fun Ring(kind: CapsuleKind, need: Boolean, modifier: Modifier) {
     val strength = if (need) 0.45f + 0.55f * breathe(still = 1f) else 1f
     Canvas(modifier.testTag("capsule-ring")) {
         val stroke = 2.dp.toPx()
+        if (size.width <= stroke || size.height <= stroke) return@Canvas
         val topLeft = Offset(stroke / 2, stroke / 2)
         val box = Size(size.width - stroke, size.height - stroke)
         if (spin) {

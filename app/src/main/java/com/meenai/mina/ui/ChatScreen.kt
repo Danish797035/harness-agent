@@ -369,7 +369,7 @@ fun ChatScreen(
                 val activeModelName = waitModelName(activeModel)
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, ui.thinkingEnabled)
+                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, ui.thinkingEnabled, check)
                 }
                 if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
@@ -482,7 +482,9 @@ fun ChatScreen(
             onAttention = {
                 vm.attendPip()
                 val count = listState.layoutInfo.totalItemsCount
-                val after = (if (last?.files?.isNotEmpty() == true) 1 else 0) + (if (phoneSetupNeeded) 1 else 0)
+                val after = (if (last?.files?.isNotEmpty() == true) 1 else 0) +
+                    (if (phoneSetupNeeded) 1 else 0) +
+                    (if (ui.blocked != null) 1 else 0)
                 val card = count - 1 - after
                 if (card >= 0) scope.launch { if (reduceMotion) listState.scrollToItem(card) else listState.animateScrollToItem(card) }
             },
@@ -654,12 +656,18 @@ private fun LazyListScope.exchange(
     ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     kept: KeptPage? = null, activeModelName: String = "", thinkingEnabled: Boolean = true,
+    check: Prerequisites.Check = Prerequisites.Check(emptyList()),
 ) {
     if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
+    val hasThinking = !ex.thinking.isNullOrBlank()
     if (active) {
-        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName, thinkingEnabled) }
+        if (!answering) {
+            item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName, thinkingEnabled) }
+        } else if (thinkingEnabled && hasThinking) {
+            item(key = "s:${ex.id}", contentType = "step") { CompactThinkingHeader(ex) }
+        }
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
     }
@@ -687,7 +695,18 @@ private fun LazyListScope.exchange(
     if (ex.status != ExchangeStatus.Working) {
         val suppressErrorCard = ex.status is ExchangeStatus.Failed && ex.generatedImages.any { !it.filePath.isNullOrBlank() }
         if (!suppressErrorCard) {
-            item(key = "r:${ex.id}", contentType = "assistant") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r:${ex.id}") }
+            item(key = "r:${ex.id}", contentType = "assistant") {
+                StatusCard(
+                    status = ex.status,
+                    stage = stage,
+                    vm = vm,
+                    runId = ex.runId,
+                    loadSource = loadSource,
+                    openSource = openSource,
+                    key = "r:${ex.id}",
+                    onRetry = { vm.retryExchange(ex.id, check) },
+                )
+            }
         }
     }
     // The page left running in the background after this round: If it is still open, there is a green
@@ -742,7 +761,8 @@ private fun LazyListScope.exchange(
     index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     kept: KeptPage? = null, activeModelName: String = "", thinkingEnabled: Boolean = true,
-) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, thinkingEnabled)
+    check: Prerequisites.Check = Prerequisites.Check(emptyList()),
+) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, thinkingEnabled, check)
 
 /**
  * The interjection is divided into two paragraphs: the one before the first sentence
@@ -776,8 +796,9 @@ internal fun exchangeItemKeys(ex: Exchange, kept: KeptPage? = null, hasMultipleD
     if (ex.goal.isNotEmpty()) items.add("u:${ex.id}" to "user")
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
+    val hasThinking = !ex.thinking.isNullOrBlank()
     if (active) {
-        if (!answering) items.add("s:${ex.id}" to "step")
+        if (!answering || hasThinking) items.add("s:${ex.id}" to "step")
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         items.add("s:${ex.id}" to "step")
     }
@@ -992,47 +1013,15 @@ private fun WorkBlock(
             if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
         }
         if (thinkingEnabled && liveThinking != null) {
-            val thinkingShape = RoundedCornerShape(10.dp)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, start = 26.dp)
-                    .clip(thinkingShape)
-                    .background(c.fill.copy(alpha = 0.65f))
-                    .border(0.5.dp, c.hair, thinkingShape)
-                    .clickable(role = Role.Button) { thinkingExpanded = !thinkingExpanded }
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
-                    .testTag("work-thinking-card"),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(MinaIcons.Spark, null, Modifier.size(12.dp), tint = c.accent)
-                    Text(
-                        ChatCopy.thinkingCardLabel(modelWaitSeconds, isHindi = isHindi),
-                        style = NoteText.copy(fontWeight = FontWeight.Medium),
-                        color = c.ink2,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        if (thinkingExpanded) "▴" else "▾",
-                        style = NoteText,
-                        color = c.ink3,
-                    )
-                }
-                val snippet = if (thinkingExpanded) liveThinking
-                else liveThinking.lines().takeLast(4).joinToString("\n").takeLast(220)
-                Text(
-                    snippet,
-                    Modifier.padding(top = 3.dp),
-                    style = NoteText,
-                    color = c.ink3,
-                    maxLines = if (thinkingExpanded) Int.MAX_VALUE else 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            ThinkingProcessBox(
+                thinking = liveThinking,
+                isHindi = isHindi,
+                expanded = thinkingExpanded,
+                onToggle = { thinkingExpanded = !thinkingExpanded },
+                modifier = Modifier.padding(top = 6.dp, start = 26.dp),
+                label = ChatCopy.thinkingCardLabel(modelWaitSeconds, isHindi = isHindi),
+                cardTestTag = "work-thinking-card",
+            )
         }
         ex.usage?.takeIf { it.calls > 0 }?.let { UsageLine(it) }
         if (ex.steps.isNotEmpty()) StepLine(ex.steps, ex.stepActions, live = true, paused = paused)
@@ -1289,6 +1278,79 @@ fun takeoverReasonLabel(reason: String): Int? = when (reason) {
     else -> null
 }
 
+@Composable
+private fun CompactThinkingHeader(ex: Exchange) {
+    val liveThinking = ex.thinking?.trim()?.takeIf { it.isNotEmpty() } ?: return
+    val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
+    var expanded by remember(ex.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        ThinkingProcessBox(
+            thinking = liveThinking,
+            isHindi = isHindi,
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+            previewLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun ThinkingProcessBox(
+    thinking: String,
+    isHindi: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    previewLines: Int = 4,
+    label: String? = null,
+    cardTestTag: String = "thinking-process-card",
+) {
+    val c = MinaTheme.colors
+    val thinkingShape = RoundedCornerShape(10.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(thinkingShape)
+            .background(c.fill.copy(alpha = 0.65f))
+            .border(0.5.dp, c.hair, thinkingShape)
+            .clickable(role = Role.Button, onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .testTag(cardTestTag),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(MinaIcons.Spark, null, Modifier.size(12.dp), tint = c.accent)
+            Text(
+                label ?: if (isHindi) "Soch raha hai" else "Thinking process",
+                style = NoteText.copy(fontWeight = FontWeight.Medium),
+                color = c.ink2,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (expanded) "▴" else "▾",
+                style = NoteText,
+                color = c.ink3,
+            )
+        }
+        val snippet = if (expanded) {
+            thinking
+        } else {
+            thinking.lines().takeLast(previewLines).joinToString("\n").takeLast(220)
+        }
+        Text(
+            snippet,
+            Modifier.padding(top = 3.dp),
+            style = NoteText,
+            color = c.ink3,
+            maxLines = if (expanded) Int.MAX_VALUE else previewLines,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** Question and answer: The current situation: What you are asked to do is a white card ([NeedCard]), and the result is directly arranged on the background. */
 @Composable
 private fun StatusCard(
@@ -1296,6 +1358,7 @@ private fun StatusCard(
     loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     /** Long press the answer menu to identify this item (see [MessageArea]). */
     key: String,
+    onRetry: () -> Unit = {},
 ) {
     when (status) {
         ExchangeStatus.Working -> Unit
@@ -1371,21 +1434,14 @@ private fun StatusCard(
                 Text(stringResource(R.string.chat_not_done), style = MinaType.BodyStrong, color = MinaTheme.colors.ink)
             }
             Text(status.reason, Modifier.padding(top = 4.dp), style = CardBody, color = MinaTheme.colors.ink2)
-            val showRetry = status.reason.contains("Model slow tha", ignoreCase = true) ||
-                status.reason.contains("dobara try", ignoreCase = true) ||
-                status.reason.contains("retry", ignoreCase = true)
-            if (showRetry) {
+            if (status.retryable) {
                 Box(Modifier.padding(top = 8.dp)) {
                     MinaButton(
                         text = stringResource(R.string.retry),
-                        onClick = {
-                            val lastGoal = vm.ui.value.exchanges.lastOrNull()?.goal
-                            if (!lastGoal.isNullOrBlank()) {
-                                vm.send(lastGoal, Prerequisites.Check(emptyList()))
-                            }
-                        },
+                        onClick = onRetry,
                         kind = ButtonKind.Tonal,
                         size = ButtonSize.Medium,
+                        modifier = Modifier.testTag("retry-failed-button"),
                     )
                 }
             }

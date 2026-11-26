@@ -99,6 +99,9 @@ class EncryptedMemoryFileTest {
         assertEquals(emptyList<MemoryItem>(), f.load())
         assertNotNull(f.brokenNotice.value)
         assertArrayEquals(garbage, brokenFiles().single().readBytes())
+        // Clean save clears brokenNotice immediately.
+        f.save(items.take(1))
+        assertNull(f.brokenNotice.value)
     }
 
     @Test fun atomicWriteLeavesNoTmp() {

@@ -51,6 +51,8 @@ class McpService : Service() {
         val ready = foreground && applied && runCatching { runtime.sync() }
             .onFailure { Log.w("MinaMcp", "could not start computer access", it) }.getOrDefault(false)
         if (!ready) {
+            runtime.relay.stop()
+            runtime.relayNetwork.stop()
             runtime.stopServer()
             runtime.usb.unpublish()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -61,6 +63,8 @@ class McpService : Service() {
     }
 
     override fun onDestroy() {
+        runtime.relay.stop()
+        runtime.relayNetwork.stop()
         runtime.stopServer()
         super.onDestroy()
     }

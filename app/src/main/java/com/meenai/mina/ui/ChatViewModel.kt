@@ -17,6 +17,7 @@ import com.meenai.mina.confirm.ConfirmationCopy
 import com.meenai.mina.confirm.ConfirmationNotifier
 import com.meenai.mina.core.agent.AttachmentLines
 import com.meenai.mina.core.agent.Conversation
+import com.meenai.mina.core.agent.FailKind
 import com.meenai.mina.core.agent.QuoteMessage
 import com.meenai.mina.core.agent.TaskState
 import com.meenai.mina.task.TaskGate
@@ -159,7 +160,7 @@ sealed interface ExchangeStatus {
             else -> note?.let { tr(R.string.chat_unverified_because, it) } ?: tr(R.string.chat_unverified)
         }
     }
-    data class Failed(val reason: String) : ExchangeStatus
+    data class Failed(val reason: String, val retryable: Boolean = false) : ExchangeStatus
     /**
      * The user stopped. [summary] is the explanation added after stopping (what has been done and what
      * has not been done), which is regarded as the answer for this round; it is null when it has not
@@ -936,6 +937,13 @@ class ChatViewModel(
 
     fun clearQuote() = _ui.update { it.copy(quote = null) }
 
+    /** Retries the specific failed exchange identified by [exchangeId]. */
+    fun retryExchange(exchangeId: String, check: Prerequisites.Check = Prerequisites.Check(emptyList())): Boolean {
+        val target = _ui.value.exchanges.firstOrNull { it.id == exchangeId } ?: return false
+        val goal = target.goal.trim().takeIf { it.isNotEmpty() } ?: return false
+        return send(goal, check)
+    }
+
     /** Send the words in the input box; if there are quotes, the quotes are written in front of the words (see [QuoteMessage]), and they are cleared after sending. Returning false means it has not been sent (the conditions are not met, or the task is running). */
     fun send(text: String, check: Prerequisites.Check): Boolean {
         refreshParallel()
@@ -1589,11 +1597,11 @@ class ChatViewModel(
                     s.reason.queued -> ExchangeStatus.Queued(s.reason.why)
                     else -> ExchangeStatus.Paused(s.reason.why, s.reason.resumable)
                 },
-                waitingForModel = false, draft = null, thinking = null, liveAction = null,
+                waitingForModel = false, draft = null, thinking = ex.thinking, liveAction = null,
             )
             is TaskState.WaitingTakeover ->
-                ex.copy(status = ExchangeStatus.NeedsTakeover(s.reason, s.message, s.item, s.amount, s.address), waitingForModel = false, draft = null, thinking = null, liveAction = null)
-            is TaskState.WaitingInput -> ex.copy(status = ExchangeStatus.NeedsInput(s.prompt, s.options), waitingForModel = false, draft = null, thinking = null, liveAction = null)
+                ex.copy(status = ExchangeStatus.NeedsTakeover(s.reason, s.message, s.item, s.amount, s.address), waitingForModel = false, draft = null, thinking = ex.thinking, liveAction = null)
+            is TaskState.WaitingInput -> ex.copy(status = ExchangeStatus.NeedsInput(s.prompt, s.options), waitingForModel = false, draft = null, thinking = ex.thinking, liveAction = null)
             is TaskState.WaitingConfirmation -> ex.copy(
                 waitingForModel = false,
                 draft = null,
@@ -1608,7 +1616,13 @@ class ChatViewModel(
             // model); the source is given by the code written down in the running record.
             is TaskState.Succeeded -> ex.copy(status = ExchangeStatus.Done(s.answer.trim(), null, s.verified, s.note, s.unconfirmed, s.reviewed),
                 waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
-            is TaskState.Failed -> ex.copy(status = ExchangeStatus.Failed(s.reason), waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
+            is TaskState.Failed -> ex.copy(
+                status = ExchangeStatus.Failed(
+                    reason = s.reason,
+                    retryable = s.kind == FailKind.Model || s.kind == FailKind.Environment,
+                ),
+                waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null,
+            )
             TaskState.Cancelled -> ex.copy(status = ExchangeStatus.Cancelled(), waitingForModel = false, draft = null, thinking = null, line = "", liveAction = null)
         }
 

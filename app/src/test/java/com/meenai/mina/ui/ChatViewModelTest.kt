@@ -2276,4 +2276,45 @@ class ChatViewModelTest {
         assertFalse(persisted)
         assertEquals("low", routerStatus.thinkingEffort.value)
     }
+
+    @Test fun thinkingSnapshotPreservedDuringHeldTakeoverAndWaitingInput() = runTest {
+        val vm = vm()
+        assertTrue(vm.send("book flight", ok))
+        emit(TaskState.Running(1, "Checking airlines", thinking = "Comparing direct flights for tomorrow morning."))
+        assertEquals("Comparing direct flights for tomorrow morning.", vm.ui.value.exchanges.single().thinking)
+
+        // Streaming a preview draft keeps thinking alive in state
+        emit(TaskState.Running(1, "", preview = "Here are the top flights:", thinking = "Comparing direct flights for tomorrow morning."))
+        val streaming = vm.ui.value.exchanges.single()
+        assertEquals("Comparing direct flights for tomorrow morning.", streaming.thinking)
+        assertEquals("Here are the top flights:", streaming.draft)
+
+        emit(TaskState.Held(TaskGate.LOCKED))
+        assertEquals("Comparing direct flights for tomorrow morning.", vm.ui.value.exchanges.single().thinking)
+
+        emit(TaskState.WaitingTakeover("captcha", "Solve captcha"))
+        assertEquals("Comparing direct flights for tomorrow morning.", vm.ui.value.exchanges.single().thinking)
+
+        emit(TaskState.WaitingInput("Pick class", listOf("Economy", "Business")))
+        assertEquals("Comparing direct flights for tomorrow morning.", vm.ui.value.exchanges.single().thinking)
+    }
+
+    @Test fun retryableFailureFlagBoundToSpecificExchangeId() = runTest {
+        val vm = vm()
+        assertTrue(vm.send("first failed goal", ok))
+        emit(TaskState.Failed("Model timed out", FailKind.Model))
+        val firstEx = vm.ui.value.exchanges.first()
+        val firstStatus = firstEx.status as ExchangeStatus.Failed
+        assertTrue(firstStatus.retryable)
+
+        assertTrue(vm.send("second gave up goal", ok))
+        emit(TaskState.Failed("Not available", FailKind.GaveUp))
+        val secondEx = vm.ui.value.exchanges.last()
+        val secondStatus = secondEx.status as ExchangeStatus.Failed
+        assertFalse(secondStatus.retryable)
+
+        // Retrying the first failed exchange uses its specific goal (not secondEx's goal)
+        assertTrue(vm.retryExchange(firstEx.id, ok))
+        assertEquals("start:first failed goal", calls.last())
+    }
 }

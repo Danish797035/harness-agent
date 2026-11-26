@@ -447,6 +447,7 @@ class CapsuleController(
             it.onTouch(::wake)
         }
         cardW.onBack(::back)
+        if (expanded && !closing) cardW.setFocusable(true, showIme = false)
         panel?.onBack { if (talk.active) talk.abort() }
         watchIme(service)
         return ball
@@ -514,6 +515,7 @@ class CapsuleController(
         zoomed = false
         cardHandle = null
         closeInput()
+        cardWindow?.setFocusable(false)
         inputUi = CardInputUi()
         watchPreview(null)
         updateThread(null, emptyList())
@@ -528,11 +530,11 @@ class CapsuleController(
         inputUi = inputUi.copy(open = true)
     }
 
-    /** Close the input box and immediately return the focus to the app below. */
+    /** Close the input box and keep focusable (without IME) while expanded so Back collapses the card cleanly. */
     private fun closeInput() {
         if (!inputUi.open) return
         inputUi = inputUi.copy(open = false)
-        cardWindow?.setFocusable(false)
+        cardWindow?.setFocusable(expanded && !closing, showIme = false)
     }
 
     /** Return key: first close the input box, then close the enlarged screen, and finally close the card. */
@@ -564,7 +566,7 @@ class CapsuleController(
         val kind = CapsuleCards.input(c)?.kind ?: return
         if (text.isEmpty() && shot == null) return
         inputUi = CardInputUi()
-        cardWindow?.setFocusable(false)
+        cardWindow?.setFocusable(expanded && !closing, showIme = false)
         if (shot != null) deliver(c, kind, shot, text) else submit(c, kind, text, CapsuleCards.conversationOf(c))
         refresh()
     }
@@ -1275,10 +1277,12 @@ class CapsuleController(
                 )
             }
         }
+        menuWindow?.setFocusable(true, showIme = false)
         menuWindow?.onBack(::closeShortcutMenu)
     }
 
     private fun closeShortcutMenu() {
+        menuWindow?.setFocusable(false)
         menuWindow?.close()
         menuWindow = null
     }
@@ -1331,14 +1335,20 @@ class CapsuleController(
                     it.roles.contains(com.meenai.mina.core.router.picker.ModelRole.Vision)
             }
 
+    private fun hasCircleAnyModel(app: HarnessApp): Boolean =
+        hasCircleVisionModel(app) ||
+            app.providers.configFor(ModelRole.Main) != null ||
+            app.providers.configFor(ModelRole.Light) != null ||
+            app.freeKeyRouter.candidates.isNotEmpty()
+
     private fun requestCircleToAsk() {
         val service = windowOn ?: return
         val w = window ?: return
         val app = context.applicationContext as HarnessApp
         val store = app.appAccess
 
-        // 1. Model availability check
-        if (!hasCircleVisionModel(app)) {
+        // 1. Model availability check (allows OCR + text model fallback when only non-vision models are set)
+        if (!hasCircleAnyModel(app)) {
             showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
             return
         }
@@ -1397,6 +1407,8 @@ class CapsuleController(
         sources: Set<String>,
     ) {
         circleOverlayWindow?.close()
+        var circleInputFocused = false
+        var clearInputSignal by mutableIntStateOf(0)
         circleOverlayWindow = service.overlays().open(
             OverlayPlacement(Gravity.FILL),
             touchable = true
@@ -1406,6 +1418,9 @@ class CapsuleController(
                     screenshot = screenshot,
                     imeTopPx = imeTop,
                     onRequestKeyboard = { circleOverlayWindow?.setFocusable(true, showIme = true) },
+                    onReleaseKeyboard = { circleOverlayWindow?.setFocusable(true, showIme = false) },
+                    onInputFocusChanged = { circleInputFocused = it },
+                    clearInputSignal = clearInputSignal,
                     onCancel = {
                         closeCircleOverlay(screenshot)
                     },
@@ -1418,10 +1433,19 @@ class CapsuleController(
         }
         circleOverlayWindow?.setFullScreen(true)
         circleOverlayWindow?.setFocusable(true, showIme = false)
-        circleOverlayWindow?.onBack { closeCircleOverlay(screenshot) }
+        circleOverlayWindow?.onBack {
+            if (circleInputFocused) {
+                clearInputSignal++
+                circleOverlayWindow?.setFocusable(true, showIme = false)
+                circleInputFocused = false
+            } else {
+                closeCircleOverlay(screenshot)
+            }
+        }
     }
 
     private fun closeCircleOverlay(bitmapToRecycle: android.graphics.Bitmap? = null) {
+        circleOverlayWindow?.setFocusable(false)
         circleOverlayWindow?.close()
         circleOverlayWindow = null
         bitmapToRecycle?.recycle()
@@ -1435,7 +1459,9 @@ class CapsuleController(
     ) {
         scope.launch(Dispatchers.Default) {
             val app = context.applicationContext as HarnessApp
-            if (!hasCircleVisionModel(app)) {
+            val hasVision = hasCircleVisionModel(app)
+            val hasAnyModel = hasVision || hasCircleAnyModel(app)
+            if (!hasAnyModel) {
                 fullBitmap.recycle()
                 withContext(Dispatchers.Main) {
                     showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
@@ -1443,10 +1469,10 @@ class CapsuleController(
                 return@launch
             }
 
-            val cropX = cropRect.left.toInt().coerceIn(0, fullBitmap.width - 1)
-            val cropY = cropRect.top.toInt().coerceIn(0, fullBitmap.height - 1)
-            val cropW = minOf(cropRect.width.toInt().coerceAtLeast(1), fullBitmap.width - cropX)
-            val cropH = minOf(cropRect.height.toInt().coerceAtLeast(1), fullBitmap.height - cropY)
+            val cropX = cropRect.left.toInt().coerceIn(0, (fullBitmap.width - 1).coerceAtLeast(0))
+            val cropY = cropRect.top.toInt().coerceIn(0, (fullBitmap.height - 1).coerceAtLeast(0))
+            val cropW = minOf(cropRect.width.toInt().coerceAtLeast(1), (fullBitmap.width - cropX).coerceAtLeast(1))
+            val cropH = minOf(cropRect.height.toInt().coerceAtLeast(1), (fullBitmap.height - cropY).coerceAtLeast(1))
 
             val cropped = android.graphics.Bitmap.createBitmap(fullBitmap, cropX, cropY, cropW, cropH)
             fullBitmap.recycle()
@@ -1458,11 +1484,15 @@ class CapsuleController(
                 s
             } else cropped
 
-            // Extract text inside the circled crop so both multimodal and fallback models see crisp OCR text.
+            // Extract text inside the circled crop so both multimodal and OCR-text fallback models see crisp text.
             val ocrRaw = withTimeoutOrNull(2_500L) {
                 runCatching {
-                    val copyForOcr = scaled.copy(Bitmap.Config.ARGB_8888, false)
-                    com.meenai.mina.cap.phone.a11y.PhoneOcr.read(copyForOcr)
+                    val copyForOcr = scaled.copy(Bitmap.Config.ARGB_8888, false) ?: return@runCatching emptyList()
+                    try {
+                        com.meenai.mina.cap.phone.a11y.PhoneOcr.read(copyForOcr)
+                    } finally {
+                        if (!copyForOcr.isRecycled) copyForOcr.recycle()
+                    }
                 }.getOrNull()
             }.orEmpty()
             val ocrLines = ocrRaw.map { line ->
@@ -1477,6 +1507,43 @@ class CapsuleController(
 
             val jpegBytes = stream.toByteArray()
             val promptText = if (question.isNotBlank()) question else tr(R.string.circle_to_ask_prompt_default)
+            val ocrNote = ocrLines.joinToString("\n") { it.text }.trim().takeIf { it.isNotEmpty() }
+
+            val convId = withContext(Dispatchers.Main) {
+                if (view?.kind == CapsuleKind.Idle && idle == null) idle = loadIdle()
+                val target = CapsuleCards.of(model.cardRuns(), follow, idle)
+                target?.let(CapsuleCards::conversationOf) ?: ConversationStore.shared(context).newConversation()
+            }
+
+            if (!hasVision) {
+                val textFallbackPrompt = when {
+                    ocrNote != null -> "$promptText\n\n[Extracted text from selected region]:\n$ocrNote"
+                    question.isNotBlank() -> question
+                    else -> null
+                }
+                if (textFallbackPrompt == null) {
+                    withContext(Dispatchers.Main) {
+                        showNote(tr(R.string.live_share_no_vision_model), CapsuleKind.Failed, opensMina = false, NOTE_LONG_MS)
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    val target = CapsuleCards.of(model.cardRuns(), follow, idle)
+                    val kind = target?.let(CapsuleCards::input)?.kind
+                    if (target != null && CapsuleCards.conversationOf(target) == convId &&
+                        kind != null && (kind == CardInputKind.Steer || kind == CardInputKind.Answer)
+                    ) {
+                        submit(target, kind, textFallbackPrompt, convId)
+                    } else {
+                        startIn(convId, textFallbackPrompt)
+                    }
+                    clearNote()
+                    open()
+                    refresh()
+                }
+                return@launch
+            }
+
             val topPkg = sources.firstOrNull { it != context.packageName } ?: sources.firstOrNull()
             val topLabel = topPkg?.let { ConfirmationNotifier.appLabel(context, it) }
             val userScreen = com.meenai.mina.core.userscreen.UserScreen(
@@ -1488,12 +1555,6 @@ class CapsuleController(
                 fromOcr = ocrLines.isNotEmpty(),
             )
             val cropShot = CapturedScreen(jpegBytes, userScreen, sources)
-
-            val convId = withContext(Dispatchers.Main) {
-                if (view?.kind == CapsuleKind.Idle && idle == null) idle = loadIdle()
-                val target = CapsuleCards.of(model.cardRuns(), follow, idle)
-                target?.let(CapsuleCards::conversationOf) ?: ConversationStore.shared(context).newConversation()
-            }
 
             val saved = runCatching { app.userScreens.save(convId, cropShot) }
                 .onFailure { Log.w(TAG, "could not save circle crop", it) }
@@ -1524,7 +1585,6 @@ class CapsuleController(
                         app.providers.modelFor(ModelRole.Vision)
                             ?: app.providers.modelFor(ModelRole.Main)?.takeIf { it.capabilities.vision }
                     }
-                    val ocrNote = ocrLines.joinToString("\n") { it.text }.takeIf { it.isNotBlank() }
                     val enrichedPrompt = if (ocrNote != null) "$promptText\n\n[Text in selected region]:\n$ocrNote" else promptText
                     val reply = visionModel?.let { vm ->
                         withContext(Dispatchers.Default) {
@@ -1590,18 +1650,22 @@ class CapsuleController(
             MinaTheme(reduceMotion = animationsOff(context)) {
                 com.meenai.mina.capsule.acthere.ActHerePromptOverlay(
                     onStart = { goal ->
+                        actHerePromptWindow?.setFocusable(false)
                         actHerePromptWindow?.close()
                         actHerePromptWindow = null
                         startActHere(service, goal)
                     },
                     onCancel = {
+                        actHerePromptWindow?.setFocusable(false)
                         actHerePromptWindow?.close()
                         actHerePromptWindow = null
                     }
                 )
             }
         }
+        actHerePromptWindow?.setFocusable(true, showIme = false)
         actHerePromptWindow?.onBack {
+            actHerePromptWindow?.setFocusable(false)
             actHerePromptWindow?.close()
             actHerePromptWindow = null
         }
@@ -1611,6 +1675,7 @@ class CapsuleController(
         actHereCoordinator.stop()
         actHereJob?.cancel()
         actHereJob = null
+        actHerePromptWindow?.setFocusable(false)
         actHerePromptWindow?.close()
         actHerePromptWindow = null
         actHereConfirmWindow?.close()
@@ -1986,6 +2051,7 @@ class CapsuleController(
         if (!expanded) anchorY = placedY + (window?.height ?: 0) / 2
         expanded = true
         closing = false
+        cardWindow?.setFocusable(true, showIme = false)
     }
 
     /** Click outside the window: first close the enlarged screen, then close the card. */
@@ -2005,6 +2071,7 @@ class CapsuleController(
     private fun collapse() {
         if (!expanded) return
         closeInput()
+        cardWindow?.setFocusable(false)
         if (closing) return
         if (animationsOff(context) || card == null) {
             resetCard()

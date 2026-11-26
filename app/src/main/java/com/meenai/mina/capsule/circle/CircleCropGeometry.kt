@@ -74,6 +74,8 @@ object CircleCropGeometry {
         density: Float,
         minDp: Float = MIN_SIZE_DP,
     ): CropRect {
+        val safeW = maxOf(0f, screenWidth)
+        val safeH = maxOf(0f, screenHeight)
         val minPx = minDp * density
         var l = current.left
         var t = current.top
@@ -82,23 +84,31 @@ object CircleCropGeometry {
 
         when (handle) {
             ResizeHandle.TopLeft -> {
-                l = (l + dx).coerceIn(0f, r - minPx)
-                t = (t + dy).coerceIn(0f, b - minPx)
+                val maxL = maxOf(0f, r - minPx)
+                val maxT = maxOf(0f, b - minPx)
+                l = (l + dx).coerceIn(0f, maxL)
+                t = (t + dy).coerceIn(0f, maxT)
             }
             ResizeHandle.TopRight -> {
-                r = (r + dx).coerceIn(l + minPx, screenWidth)
-                t = (t + dy).coerceIn(0f, b - minPx)
+                val minR = minOf(safeW, l + minPx)
+                val maxT = maxOf(0f, b - minPx)
+                r = (r + dx).coerceIn(minR, safeW)
+                t = (t + dy).coerceIn(0f, maxT)
             }
             ResizeHandle.BottomLeft -> {
-                l = (l + dx).coerceIn(0f, r - minPx)
-                b = (b + dy).coerceIn(t + minPx, screenHeight)
+                val maxL = maxOf(0f, r - minPx)
+                val minB = minOf(safeH, t + minPx)
+                l = (l + dx).coerceIn(0f, maxL)
+                b = (b + dy).coerceIn(minB, safeH)
             }
             ResizeHandle.BottomRight -> {
-                r = (r + dx).coerceIn(l + minPx, screenWidth)
-                b = (b + dy).coerceIn(t + minPx, screenHeight)
+                val minR = minOf(safeW, l + minPx)
+                val minB = minOf(safeH, t + minPx)
+                r = (r + dx).coerceIn(minR, safeW)
+                b = (b + dy).coerceIn(minB, safeH)
             }
         }
-        return clamp(CropRect(l, t, r, b), screenWidth, screenHeight)
+        return clamp(CropRect(l, t, r, b), safeW, safeH)
     }
 
     /**
