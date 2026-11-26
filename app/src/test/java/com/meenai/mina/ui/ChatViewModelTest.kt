@@ -35,8 +35,11 @@ import com.meenai.mina.ui.router.AppFreeKeyRouter
 import com.meenai.mina.ui.router.ConnectionStatus
 import com.meenai.mina.ui.router.ConnectionWarmupResult
 import com.meenai.mina.ui.router.FakeRouterStatus
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -318,6 +321,8 @@ class ChatViewModelTest {
         assertEquals("Working", liveLine(ex))
 
         emit(TaskState.Running(1, "", preview = "第一段和第二段"))
+        advanceTimeBy(ChatViewModel.DEFAULT_STREAM_THROTTLE_MS)
+        runCurrent()
         assertEquals("第一段和第二段", vm.ui.value.exchanges.single().draft)
 
         emit(TaskState.Succeeded("完整答复"))
@@ -2390,5 +2395,75 @@ class ChatViewModelTest {
         } finally {
             RouterUsageTracker.clear()
         }
+    }
+
+    @Test fun streamingTokenBurstsCoalesceWithinThrottleWindowAndFlushImmediatelyOnCompletion() = runTest {
+        val vm = vm()
+        vm.send("Stream", ok)
+
+        // Leading chunk flushes immediately and starts the coalesce window.
+        emit(TaskState.Running(1, "", preview = "A", thinking = "t1"))
+        assertEquals("A", vm.ui.value.exchanges.single().draft)
+        assertEquals("t1", vm.ui.value.exchanges.single().thinking)
+
+        // Rapid bursts inside the 45ms window coalesce into the latest state without updating UI per token.
+        emit(TaskState.Running(1, "", preview = "AB", thinking = "t1 t2"))
+        emit(TaskState.Running(1, "", preview = "ABC", thinking = "t1 t2 t3"))
+        emit(TaskState.Running(1, "", preview = "ABCD", thinking = "t1 t2 t3 t4"))
+        assertEquals("A", vm.ui.value.exchanges.single().draft)
+
+        // Trailing chunk flushes once the throttle window expires.
+        advanceTimeBy(ChatViewModel.DEFAULT_STREAM_THROTTLE_MS)
+        runCurrent()
+        assertEquals("ABCD", vm.ui.value.exchanges.single().draft)
+        assertEquals("t1 t2 t3 t4", vm.ui.value.exchanges.single().thinking)
+
+        // Terminal completion flushes immediately even while inside a streaming window.
+        emit(TaskState.Running(1, "", preview = "ABCDE"))
+        assertEquals("ABCDE", vm.ui.value.exchanges.single().draft)
+        emit(TaskState.Running(1, "", preview = "ABCDEF"))
+        assertEquals("ABCDE", vm.ui.value.exchanges.single().draft)
+        emit(TaskState.Succeeded("Final answer"))
+        val done = vm.ui.value.exchanges.single()
+        assertNull(done.draft)
+        assertEquals(ExchangeStatus.Done("Final answer", null), done.status)
+    }
+
+    @Test fun asyncStoreIoOffloadsDiskReadsAndWritesToIoDispatcher() = runTest {
+        val dir = tmp.newFolder()
+        ConversationStore(dir).append("conv1", Turn("Hello", "World", "succeeded"))
+        val coldStore = ConversationStore(dir)
+        val delegate = StandardTestDispatcher(testScheduler)
+        var ioDispatches = 0
+        val countingIo = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                ioDispatches++
+                delegate.dispatch(context, block)
+            }
+        }
+        val vm = ChatViewModel(
+            backgroundScope,
+            state,
+            stage,
+            actions,
+            coldStore,
+            ioDispatcher = countingIo,
+            asyncStoreIo = true,
+        ).also { runCurrent() }
+
+        vm.openConversation("conv1")
+        assertEquals("conv1", vm.ui.value.conversationId)
+        assertTrue(vm.ui.value.exchanges.isEmpty())
+        runCurrent()
+        assertTrue(ioDispatches >= 2)
+        assertEquals("Hello", vm.ui.value.exchanges.single().goal)
+
+        val beforeWrites = ioDispatches
+        vm.renameConversation("conv1", "Renamed Thread")
+        vm.setPinned("conv1", true)
+        runCurrent()
+        assertTrue(ioDispatches >= beforeWrites + 2)
+        assertEquals("Renamed Thread", coldStore.title("conv1"))
+        assertTrue(coldStore.pinnedAt("conv1") != null)
     }
 }
