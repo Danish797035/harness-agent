@@ -73,9 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.chat.ConversationSummary
-import com.meenai.mina.about.AboutCopy
 import com.meenai.mina.about.UpdateState
-import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.settings.Prerequisites
 import com.meenai.mina.settings.RoleChoices
 import com.meenai.mina.settings.SystemStatus

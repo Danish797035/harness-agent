@@ -583,7 +583,7 @@ private fun ChatTopBarHost(
 private fun ChatPipHost(
     frames: StateFlow<Bitmap?>,
     webOpen: StateFlow<Boolean>,
-    pip: PipState,
+    pip: PipUi,
     reduceMotion: Boolean,
     topInset: Float,
     bottomInset: Float,

@@ -27,6 +27,7 @@ import com.meenai.mina.BuildConfig
 import com.meenai.mina.cap.sandbox.SandboxState
 import com.meenai.mina.capsule.CapsuleMode
 import com.meenai.mina.core.agent.SpeedFlags
+import com.meenai.mina.core.cap.phone.OperatingPace
 import com.meenai.mina.core.cap.sandbox.SandboxStatus
 import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.shell.BuiltinShellStatus
