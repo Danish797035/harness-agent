@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -57,6 +58,7 @@ import com.meenai.mina.core.assembly.knownTools
 import com.meenai.mina.core.cap.web.AttachedPage
 import com.meenai.mina.core.userscreen.UserScreenMessage
 import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.AppFreeKeyRouter
 import com.meenai.mina.ui.router.ConnectionStatus
 import com.meenai.mina.ui.router.ConnectionWarmupResult
 import com.meenai.mina.ui.router.QuotaCalculator
@@ -607,6 +609,19 @@ class ChatViewModel(
             }
         }
 
+        scope.launch {
+            AppFreeKeyRouter.geminiAuthRestored.collect {
+                markConnected()
+            }
+        }
+        scope.launch {
+            RouterUsageTracker.updates.drop(1).collect {
+                if (_connectionStatus.value != ConnectionStatus.Idle && computeQuotaSnapshot().usedCount > 0) {
+                    markConnected()
+                }
+            }
+        }
+
         if (warmUpConnection != null) {
             warmUpActiveConnection()
         }
@@ -671,14 +686,26 @@ class ChatViewModel(
         routerStatus?.refresh()
     }
 
+    /** Marks the active session as connected and clears any stale SignInRequired/error state. */
+    fun markConnected() {
+        warmUpJob?.cancel()
+        lastWarmUpAtMs = clock()
+        _connectionStatus.value = ConnectionStatus.Connected
+        _connectionDetail.value = null
+        routerStatus?.setConnectionStatus(ConnectionStatus.Connected, null)
+        refreshQuota()
+    }
+
     /** Non-blocking background warm-up on [ioDispatcher] to pre-validate session and warm HTTP/TLS. */
-    fun warmUpActiveConnection() {
+    fun warmUpActiveConnection(preserveConnected: Boolean = false) {
         val runner = warmUpConnection ?: return
         warmUpJob?.cancel()
         lastWarmUpAtMs = clock()
-        _connectionStatus.value = ConnectionStatus.Connecting
-        _connectionDetail.value = null
-        routerStatus?.setConnectionStatus(ConnectionStatus.Connecting, null)
+        if (!preserveConnected || _connectionStatus.value != ConnectionStatus.Connected) {
+            _connectionStatus.value = ConnectionStatus.Connecting
+            _connectionDetail.value = null
+            routerStatus?.setConnectionStatus(ConnectionStatus.Connecting, null)
+        }
         warmUpJob = scope.launch {
             val result = withContext(ioDispatcher) {
                 runCatching { runner() }.getOrElse { e ->
@@ -686,9 +713,15 @@ class ChatViewModel(
                     ConnectionWarmupResult(ConnectionStatus.Error, e.message)
                 }
             }
-            _connectionStatus.value = result.status
-            _connectionDetail.value = result.detail
-            routerStatus?.setConnectionStatus(result.status, result.detail)
+            if (preserveConnected && result.status != ConnectionStatus.Connected) {
+                _connectionStatus.value = ConnectionStatus.Connected
+                _connectionDetail.value = null
+                routerStatus?.setConnectionStatus(ConnectionStatus.Connected, null)
+            } else {
+                _connectionStatus.value = result.status
+                _connectionDetail.value = result.detail
+                routerStatus?.setConnectionStatus(result.status, result.detail)
+            }
             result.geminiUsage?.let { usage ->
                 routerStatus?.setGeminiUsage(
                     usage = usage,
@@ -1473,12 +1506,14 @@ class ChatViewModel(
             // This round may have been saved in the conversation and added to the screen: press the run
             // number and merge it into one
             _ui.value.conversationId?.let(::syncSaved)
-            refreshQuota()
             if (s is TaskState.Succeeded) {
+                markConnected()
                 lingerJob = scope.launch {
                     delay(DONE_LINGER_MS)
                     _ui.update { it.copy(pip = it.pip.copy(visible = false, expanded = false)) }
                 }
+            } else {
+                refreshQuota()
             }
         }
     }
