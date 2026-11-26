@@ -31,6 +31,7 @@ import com.meenai.mina.core.gemini.GeminiUsageWindow
 import com.meenai.mina.core.router.RouterUsageTracker
 import com.meenai.mina.core.userscreen.UserScreenMessage
 import com.meenai.mina.ui.router.ActiveModel
+import com.meenai.mina.ui.router.AppFreeKeyRouter
 import com.meenai.mina.ui.router.ConnectionStatus
 import com.meenai.mina.ui.router.ConnectionWarmupResult
 import com.meenai.mina.ui.router.FakeRouterStatus
@@ -2275,5 +2276,78 @@ class ChatViewModelTest {
         assertFalse(restoredVm.ui.value.thinkingEnabled)
         assertFalse(persisted)
         assertEquals("low", routerStatus.thinkingEffort.value)
+    }
+
+    @Test fun signInRequiredClearsOnSuccessfulTurnAndOnGeminiAuthRestored() = runTest {
+        RouterUsageTracker.clear()
+        try {
+            val io = StandardTestDispatcher(testScheduler)
+            val routerStatus = FakeRouterStatus(
+                initialModel = ActiveModel(
+                    id = "gemini-4-hydrogen",
+                    name = "Gemini 4 Hydrogen",
+                    provider = "Google Gemini",
+                    tierLabel = "Pro Plan",
+                )
+            )
+            var warmUpOutcome = ConnectionWarmupResult(
+                status = ConnectionStatus.SignInRequired,
+                detail = "Google says this session is not signed in",
+            )
+            val vm = ChatViewModel(
+                backgroundScope,
+                state,
+                stage,
+                actions,
+                ConversationStore(tmp.newFolder()),
+                routerStatus = routerStatus,
+                warmUpConnection = { warmUpOutcome },
+                ioDispatcher = io,
+            )
+            runCurrent()
+            assertEquals(ConnectionStatus.SignInRequired, vm.connectionStatus.value)
+            assertEquals(ConnectionStatus.SignInRequired, routerStatus.connectionStatus.value)
+
+            // Completing any model turn clears false SignInRequired and restores green Connected state
+            assertTrue(vm.send("Hello Gemini", ok))
+            emit(TaskState.Succeeded("Hi there!"))
+            runCurrent()
+            assertEquals(ConnectionStatus.Connected, vm.connectionStatus.value)
+            assertNull(vm.connectionDetail.value)
+            assertEquals(ConnectionStatus.Connected, routerStatus.connectionStatus.value)
+
+            // Re-introducing SignInRequired clears immediately when Gemini Web login completes
+            vm.warmUpActiveConnection()
+            runCurrent()
+            assertEquals(ConnectionStatus.SignInRequired, vm.connectionStatus.value)
+
+            AppFreeKeyRouter.clearGeminiWebAuthFailure()
+            runCurrent()
+            assertEquals(ConnectionStatus.Connected, vm.connectionStatus.value)
+            assertNull(vm.connectionDetail.value)
+            assertEquals(ConnectionStatus.Connected, routerStatus.connectionStatus.value)
+
+            // Preserved post-login usage warm-up stays Connected and applies live %
+            warmUpOutcome = ConnectionWarmupResult(
+                status = ConnectionStatus.SignInRequired,
+                detail = "probe lag",
+                geminiUsage = GeminiUsage(
+                    daily = GeminiUsageWindow(
+                        percentUsed = 12,
+                        resetsAtEpochMs = 1_800_000_000_000L,
+                        fractionUsed = 0.12,
+                    )
+                ),
+            )
+            vm.markConnected()
+            vm.warmUpActiveConnection(preserveConnected = true)
+            assertEquals(ConnectionStatus.Connected, vm.connectionStatus.value)
+            runCurrent()
+            assertEquals(ConnectionStatus.Connected, vm.connectionStatus.value)
+            assertNull(vm.connectionDetail.value)
+            assertEquals(88.0, vm.remainingQuotaPercent.value, 0.01)
+        } finally {
+            RouterUsageTracker.clear()
+        }
     }
 }

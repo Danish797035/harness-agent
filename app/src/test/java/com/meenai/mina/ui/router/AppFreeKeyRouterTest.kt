@@ -30,6 +30,8 @@ import com.meenai.mina.settings.ProviderConfig
 import com.meenai.mina.settings.ProviderStore
 import com.meenai.mina.settings.RoleChoice
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -747,5 +749,28 @@ class AppFreeKeyRouterTest {
         assertFalse(ModelRole.Vision in unlisted.roles)
         assertTrue("Explicitly vision=true model should keep vision enabled", verified.model.capabilities.vision)
         assertTrue(ModelRole.Vision in verified.roles)
+    }
+
+    @Test
+    fun clearGeminiWebAuthFailureEmitsAuthRestoredOnlyWhenRequested() = runTest {
+        val emitted = mutableListOf<Long>()
+        val job = backgroundScope.launch {
+            AppFreeKeyRouter.geminiAuthRestored.collect { emitted += it }
+        }
+        runCurrent()
+
+        val cooldown = ModelCooldownStore()
+        cooldown.markBadKey("gemini_web")
+        AppFreeKeyRouter.clearGeminiWebAuthFailure(cooldown, emitSignal = false)
+        runCurrent()
+        assertFalse(cooldown.isKeyBad("gemini_web"))
+        assertEquals(0, emitted.size)
+
+        cooldown.markBadKey("gemini_web")
+        AppFreeKeyRouter.clearGeminiWebAuthFailure(cooldown, emitSignal = true)
+        runCurrent()
+        assertFalse(cooldown.isKeyBad("gemini_web"))
+        assertEquals(1, emitted.size)
+        job.cancel()
     }
 }

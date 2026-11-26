@@ -146,4 +146,80 @@ class GeminiWebClientCookieTest {
         val outcome = GeminiWebClient.warmUpSession(client, initial)
         assertTrue("Expected SignInExpired outcome, got $outcome", outcome is GeminiWarmupOutcome.SignInExpired)
     }
+
+    @Test
+    fun warmUpSessionUsesLiveCookieSnapshotInsteadOfStaleSessionCookies() = runTest {
+        GeminiWebClient.clearCookies()
+        GeminiWebClient.seedCookies("__Secure-1PSID=live-sid; __Secure-1PSIDTS=rotated-live-ts")
+
+        val innerProbe = """[null,null,null,null,null,null,null,null,null,null,null,null,null,null,1000,[["56fdd199312815e2","Hydrogen","Gemini 4 Hydrogen","Everyday",null,null,null,null,null,1,null,"Gemini 4 Hydrogen","Everyday",null,null,null,null,1]],[16],[]]"""
+        val escapedInner = innerProbe.replace("\"", "\\\"")
+        server.enqueue(MockResponse().setResponseCode(200).setBody(")]}'\n[[\"wrb.fr\",\"otAQ7b\",\"$escapedInner\"]]\n"))
+
+        val client = OkHttpClient.Builder()
+            .cookieJar(GeminiWebClient.cookieJar)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val staleSession = GeminiWebSession(
+            cookies = "__Secure-1PSID=stale-sid; __Secure-1PSIDTS=stale-ts",
+            snlm0e = "live-at",
+            cfb2h = "boq_gemini-web-uiserver_20991125.01_p0",
+            signedIn = true,
+        )
+        val outcome = GeminiWebClient.warmUpSession(client, staleSession)
+        assertTrue("Expected Ready outcome, got $outcome", outcome is GeminiWarmupOutcome.Ready)
+        val ready = outcome as GeminiWarmupOutcome.Ready
+        assertTrue(ready.session.cookies.contains("__Secure-1PSIDTS=rotated-live-ts"))
+        assertFalse(ready.session.cookies.contains("stale-ts"))
+
+        val recorded = server.takeRequest()
+        val cookieHeader = recorded.getHeader("Cookie").orEmpty()
+        assertTrue("Probe request should send live cookieSnapshot, got: $cookieHeader", cookieHeader.contains("__Secure-1PSIDTS=rotated-live-ts"))
+        assertFalse("Probe request must not send stale cookie, got: $cookieHeader", cookieHeader.contains("stale-ts"))
+    }
+
+    @Test
+    fun warmUpSessionDoesNotEmitSignInExpiredWhenSignedInPageHasSnlm0eDespiteProbe1016() = runTest {
+        GeminiWebClient.clearCookies()
+        val html = """<script>window.WIZ_global_data = {"SNlM0e":"fresh-at","cfb2h":"boq_gemini-web-uiserver_20991125.01_p0","FdrFJe":"sid"};</script>"""
+        val inner1016 = """[null,null,null,null,null,null,null,null,null,null,null,null,null,null,1016,[]]"""
+        val escaped1016 = inner1016.replace("\"", "\\\"")
+        val probe1016Body = ")]}'\n[[\"wrb.fr\",\"otAQ7b\",\"$escaped1016\"]]\n"
+        // First probe returns 1016, refresh fetches signed-in /app HTML with fresh SNlM0e, second probe still lags with 1016
+        server.enqueue(MockResponse().setResponseCode(200).setBody(probe1016Body))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(html))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(probe1016Body))
+
+        val client = OkHttpClient.Builder()
+            .cookieJar(GeminiWebClient.cookieJar)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newUrl = original.url.newBuilder()
+                    .scheme(server.url("/").scheme)
+                    .host(server.url("/").host)
+                    .port(server.url("/").port)
+                    .build()
+                chain.proceed(original.newBuilder().url(newUrl).build())
+            }
+            .build()
+
+        val initial = GeminiWebSession(
+            cookies = "__Secure-1PSID=active-sid; __Secure-1PSIDTS=active-ts",
+            snlm0e = "old-at",
+            cfb2h = "boq_gemini-web-uiserver_20991125.01_p0",
+            signedIn = true,
+        )
+        val outcome = GeminiWebClient.warmUpSession(client, initial)
+        assertTrue("Active signed-in session with SNlM0e must stay Ready instead of SignInExpired, got $outcome", outcome is GeminiWarmupOutcome.Ready)
+        assertEquals("fresh-at", (outcome as GeminiWarmupOutcome.Ready).session.snlm0e)
+    }
 }

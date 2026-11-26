@@ -79,6 +79,7 @@ import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -573,7 +574,8 @@ fun ChatScreen(
                         val targetModel = activeModel.id.takeIf { it.startsWith("gemini-", ignoreCase = true) }
                             ?: "gemini-4-argon"
                         routerStatus.selectModel(targetModel, connectedProvider.id)
-                        vm.warmUpActiveConnection()
+                        vm.markConnected()
+                        vm.warmUpActiveConnection(preserveConnected = true)
                     }
                 },
                 onError = { msg ->
@@ -1819,10 +1821,10 @@ private fun ThinkingModePill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val c = MinaTheme.colors
-    val bg = if (thinkingEnabled) c.accentSoft else c.fill.copy(alpha = 0.85f)
-    val borderColor = if (thinkingEnabled) c.accent.copy(alpha = 0.45f) else c.hair.copy(alpha = 0.8f)
-    val textColor = if (thinkingEnabled) c.accent else c.ink2
+    val scheme = MaterialTheme.colorScheme
+    val bg = if (thinkingEnabled) scheme.primaryContainer else scheme.surfaceContainerHigh
+    val borderColor = if (thinkingEnabled) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
+    val textColor = if (thinkingEnabled) scheme.primary else scheme.onSurface
     val label = stringResource(if (thinkingEnabled) R.string.chat_mode_thinking else R.string.chat_mode_fast)
     Row(
         modifier = modifier
@@ -1855,6 +1857,7 @@ private fun ComposerModelPill(
     modifier: Modifier = Modifier,
 ) {
     val c = MinaTheme.colors
+    val scheme = MaterialTheme.colorScheme
     val hasModel = activeModel.id.isNotBlank() && activeModel.name != "No model"
     val dotColor = when (connectionStatus) {
         ConnectionStatus.Connected -> c.ok
@@ -1880,8 +1883,8 @@ private fun ComposerModelPill(
     Row(
         modifier = modifier
             .clip(MinaShapes.Pill)
-            .background(c.fill.copy(alpha = 0.85f))
-            .border(0.5.dp, c.hair.copy(alpha = 0.8f), MinaShapes.Pill)
+            .background(scheme.surfaceContainerHigh)
+            .border(0.5.dp, scheme.outlineVariant, MinaShapes.Pill)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag("composer-model-pill"),
@@ -1898,7 +1901,7 @@ private fun ComposerModelPill(
         Text(
             text = modelLabel,
             style = MinaType.Caption.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
-            color = c.ink,
+            color = scheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),

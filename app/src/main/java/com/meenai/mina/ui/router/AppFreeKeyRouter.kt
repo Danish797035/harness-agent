@@ -37,6 +37,10 @@ import java.util.concurrent.TimeUnit
 import com.meenai.mina.core.router.ModelCooldownStore
 import com.meenai.mina.core.router.picker.FileModelStatsStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -210,12 +214,18 @@ object AppFreeKeyRouter {
                 ?: return ConnectionWarmupResult(ConnectionStatus.SignInRequired, "Google Gemini not connected")
             val session = store.geminiWebSession(webProvider.id)
                 ?: return ConnectionWarmupResult(ConnectionStatus.SignInRequired, "Sign in to Google Gemini")
-            return when (val outcome = GeminiWebClient.warmUpSession(GeminiWebClient.geminiWebHttp, session)) {
+            val liveCookies = GeminiWebClient.cookieSnapshot()
+            val liveSession = if (liveCookies.isNotBlank() && liveCookies != session.cookies) {
+                session.copy(cookies = liveCookies, savedAtMs = System.currentTimeMillis())
+            } else {
+                session
+            }
+            return when (val outcome = GeminiWebClient.warmUpSession(GeminiWebClient.geminiWebHttp, liveSession)) {
                 is GeminiWarmupOutcome.Ready -> {
                     if (outcome.session != session) {
                         store.updateGeminiWebSession(webProvider.id, outcome.session)
                     }
-                    clearGeminiWebAuthFailure(router.cooldownStore)
+                    clearGeminiWebAuthFailure(router.cooldownStore, emitSignal = false)
                     val usageFetch = runCatching {
                         GeminiWebClient.fetchUsage(GeminiWebClient.geminiWebHttp, outcome.session)
                     }.getOrNull()
@@ -424,6 +434,13 @@ object AppFreeKeyRouter {
     fun getCooldownStore(): ModelCooldownStore =
         sharedCooldownStore ?: ModelCooldownStore().also { sharedCooldownStore = it }
 
+    private val _geminiAuthRestored = MutableSharedFlow<Long>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    /** Emits whenever Gemini Web login completes or auth failure is cleared. */
+    val geminiAuthRestored: SharedFlow<Long> = _geminiAuthRestored.asSharedFlow()
+
     /**
      * A successful Gemini Web sign-in proves the session again. The router marks
      * `gemini_web` as a bad key on [com.meenai.mina.core.model.ModelError.SignInExpired],
@@ -431,8 +448,14 @@ object AppFreeKeyRouter {
      * Gemini Web model filtered out and the router quietly answers with another
      * provider (usually flash-lite).
      */
-    fun clearGeminiWebAuthFailure(store: ModelCooldownStore = getCooldownStore()) {
+    fun clearGeminiWebAuthFailure(
+        store: ModelCooldownStore = getCooldownStore(),
+        emitSignal: Boolean = true,
+    ) {
         store.clearBadKey("gemini_web")
+        if (emitSignal) {
+            _geminiAuthRestored.tryEmit(System.currentTimeMillis())
+        }
     }
 
     fun initRankingsRepository(filesDir: File, http: OkHttpClient = OkHttpClient()): ModelRankingsRepository {
