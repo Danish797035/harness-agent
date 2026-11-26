@@ -3,9 +3,13 @@ package com.meenai.mina.core.model
 import com.meenai.mina.core.gemini.GeminiWebClient
 import com.meenai.mina.core.gemini.GeminiWebSession
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -1377,6 +1381,67 @@ class GeminiWebModelTest {
 
         val uploadReq = server.takeRequest()
         assertTrue(uploadReq.getHeader("Cookie").orEmpty().contains("rotated_ts"))
+    }
+
+    @Test
+    fun thinkingPreferenceDynamicallySetsThinkingFlagInHeaderAndPayload() = runTest {
+        GeminiWebClient.clearCookies()
+        val replyPayload = buildJsonArray {
+            repeat(4) { add(JsonPrimitive(null as String?)) }
+            add(buildJsonArray {
+                add(buildJsonArray {
+                    add(JsonPrimitive("rc_1"))
+                    add(buildJsonArray { add(JsonPrimitive("Fast or Thinking answer")) })
+                    for (i in 2..36) add(JsonPrimitive(null as String?))
+                    add(buildJsonArray {
+                        add(buildJsonArray { add(JsonPrimitive("Hidden reasoning step")) })
+                    })
+                })
+            })
+        }.toString()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(replyPayload)))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(makeStreamData(replyPayload)))
+
+        val model = GeminiWebModel(
+            session = session,
+            model = "gemini-4-argon",
+            capabilities = Capabilities(toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true),
+            http = redirectingClient(),
+        )
+        val chatMessages = listOf(Message(Role.User, listOf(Part.Text("hi there")), Author.User))
+
+        fun parseFlags(req: okhttp3.mockwebserver.RecordedRequest): Pair<String, String> {
+            val header = Json.parseToJsonElement(req.getHeader("X-Goog-Ext-525001261-Jspb")!!).jsonArray
+            val headerFlag = header[header.size - 2].jsonPrimitive.content
+            val bodyStr = req.body.readUtf8()
+            val fReqEncoded = bodyStr.split("&").first { it.startsWith("f.req=") }.removePrefix("f.req=")
+            val fReq = java.net.URLDecoder.decode(fReqEncoded, "UTF-8")
+            val outer = Json.parseToJsonElement(fReq).jsonArray
+            val inner = Json.parseToJsonElement(outer[1].jsonPrimitive.content).jsonArray
+            val bodyFlag = inner[80].jsonPrimitive.content
+            return headerFlag to bodyFlag
+        }
+
+        // Fast mode: thinkingFlag = 0 even on conversational prompts, live thinking skipped
+        val fastThoughts = mutableListOf<String>()
+        withContext(ThinkingPreference(false)) {
+            model.completeStreamingWithThinking("sys", chatMessages, emptyList(), {}, { if (it.isNotEmpty()) fastThoughts += it })
+        }
+        val (fastHeaderFlag, fastBodyFlag) = parseFlags(server.takeRequest())
+        assertEquals("0", fastHeaderFlag)
+        assertEquals("0", fastBodyFlag)
+        assertTrue(fastThoughts.isEmpty())
+
+        // Thinking mode: thinkingFlag = 1 in header and elements[80], live thinking streamed
+        val deepThoughts = mutableListOf<String>()
+        withContext(ThinkingPreference(true)) {
+            model.completeStreamingWithThinking("sys", chatMessages, emptyList(), {}, { if (it.isNotEmpty()) deepThoughts += it })
+        }
+        val (thinkHeaderFlag, thinkBodyFlag) = parseFlags(server.takeRequest())
+        assertEquals("1", thinkHeaderFlag)
+        assertEquals("1", thinkBodyFlag)
+        assertTrue(deepThoughts.any { it.contains("Hidden reasoning step") })
     }
 
     /** A response body that sends [prefix] and then holds the connection open. */

@@ -63,6 +63,8 @@ class GeminiWebModel(
     private val idleTimeoutMs: Long = IDLE_AFTER_TOKENS_MS,
     /** Optional dynamic lookup for live thinking/effort selection from the bottom sheet. */
     private val reasoningEffortProvider: (() -> String?)? = null,
+    /** Optional explicit Fast (`false`) vs Thinking (`true`) toggle; null preserves [reasoningEffort]. */
+    private val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
 
     private val baseCapabilities: Capabilities = capabilities
@@ -108,8 +110,16 @@ class GeminiWebModel(
         val isChat = isConversational(messages)
         val effectiveTools = if (isChat) emptyList() else tools
         val prompt = formatPrompt(system, messages, effectiveTools)
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
         val effectiveEffort = reasoningEffortProvider?.invoke() ?: reasoningEffort
-        val thinkingFlag = if (isChat) 1 else GeminiWebClient.thinkingFlagFor(effectiveEffort)
+        val thinkingFlag = when (requestedThinking) {
+            true -> 1
+            false -> 0
+            null -> when (effectiveEffort?.lowercase()) {
+                "none", "off", "disabled" -> 0
+                else -> if (effectiveEffort == null && isChat) 1 else GeminiWebClient.thinkingFlagFor(effectiveEffort)
+            }
+        }
         val (modelHexId, modelNumber) = GeminiWebClient.resolveModel(model, session)
         val uuid = UUID.randomUUID().toString().uppercase()
 
@@ -157,8 +167,10 @@ class GeminiWebModel(
             onText(text)
         }
         val emitThinking: (String) -> Unit = { thoughts ->
-            if (thoughts.isNotEmpty()) emittedAny = true
-            onThinking(thoughts)
+            if (requestedThinking != false) {
+                if (thoughts.isNotEmpty()) emittedAny = true
+                onThinking(thoughts)
+            }
         }
         fun startGuestAttempt(reason: String, allowThoughtsOnly: Boolean = false): Boolean {
             val alreadyEmitted = if (allowThoughtsOnly) emittedText else emittedAny
@@ -295,7 +307,8 @@ class GeminiWebModel(
                 }
 
                 val body = response.body ?: throw ModelError.BadResponse("Gemini Web returned empty body")
-                val streamTimeoutMs = if (guestAttempt) firstTokenTimeoutMs else minOf(firstTokenTimeoutMs, ACCOUNT_FIRST_TOKEN_MS)
+                val accountLimitMs = if (requestedThinking == true) maxOf(ACCOUNT_FIRST_TOKEN_MS, 60_000L) else ACCOUNT_FIRST_TOKEN_MS
+                val streamTimeoutMs = if (guestAttempt) firstTokenTimeoutMs else minOf(firstTokenTimeoutMs, accountLimitMs)
                 val (fullText, fullThoughts) = try {
                     readStream(response, body.byteStream(), emit, emitThinking, streamTimeoutMs, idleTimeoutMs)
                 } catch (e: ModelError.BadResponse) {

@@ -1,5 +1,6 @@
 package com.meenai.mina.core.model
 
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -71,10 +72,21 @@ class ResponsesModel(
     /** null Use the server default; when the server rejects the selected gear, it will report an error as usual and will not quietly change gears and try again. */
     private val reasoningEffort: String? = null,
     private val accountLogin: String? = null,
+    /** Optional explicit Fast (`false`) vs Thinking (`true`) toggle; overrides [reasoningEffort] when reasoning is supported. */
+    private val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
     override val name: String get() = model
     private val endpoint = baseUrl.trim().trimEnd('/') + "/responses"
     private val json = Json { ignoreUnknownKeys = true }
+
+    private fun effectiveReasoningEffort(requestedThinking: Boolean?): String? {
+        if (!capabilities.reasoning) return reasoningEffort
+        return when (requestedThinking) {
+            false -> if (reasoningEffort == "none") "none" else "low"
+            true -> reasoningEffort?.takeUnless { it == "none" || it == "low" } ?: "high"
+            null -> reasoningEffort
+        }
+    }
 
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
         completeStreaming(system, messages, tools) {}
@@ -82,12 +94,15 @@ class ResponsesModel(
     override suspend fun completeStreaming(
         system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
     ): ModelReply {
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
         var includeReasoning = true
         var fresh = false
         while (true) {
             val stream = ResponsesStream(onText, ::errorOf)
             val bearer = token.get(fresh)
-            val (status, retryAfter, text) = HttpSupport.stream(http, request(bearer, system, messages, tools, includeReasoning), stream::accept)
+            val (status, retryAfter, text) = HttpSupport.stream(
+                http, request(bearer, system, messages, tools, includeReasoning, requestedThinking), stream::accept,
+            )
             if (status in 200..299) {
                 if (text.isNotEmpty()) return stream.fromBody(text).also { reply ->
                     reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
@@ -104,7 +119,13 @@ class ResponsesModel(
         }
     }
 
-    internal fun body(system: String, messages: List<Message>, tools: List<ToolSpec>, includeReasoning: Boolean = true): JsonObject =
+    internal fun body(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        includeReasoning: Boolean = true,
+        requestedThinking: Boolean? = thinkingEnabled,
+    ): JsonObject =
         buildJsonObject {
             put("model", model)
             if (system.isNotEmpty()) put("instructions", system)
@@ -112,16 +133,23 @@ class ResponsesModel(
             if (tools.isNotEmpty()) putJsonArray("tools") { tools.forEach { add(toolJson(it)) } }
             put("store", false)
             put("stream", true)
-            reasoningEffort?.let { effort -> putJsonObject("reasoning") { put("effort", effort) } }
+            effectiveReasoningEffort(requestedThinking)?.let { effort -> putJsonObject("reasoning") { put("effort", effort) } }
             if (includeReasoning) putJsonArray("include") { add(ENCRYPTED_REASONING) }
         }
 
-    private suspend fun request(bearer: String?, system: String, messages: List<Message>, tools: List<ToolSpec>, includeReasoning: Boolean): Request =
+    private suspend fun request(
+        bearer: String?,
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        includeReasoning: Boolean,
+        requestedThinking: Boolean?,
+    ): Request =
         Request.Builder().url(endpoint)
             .withHeaders(headers)
             .apply { if (!bearer.isNullOrEmpty()) header("Authorization", "Bearer $bearer") }
             .header("Accept", "text/event-stream")
-            .postInference(InferenceProtocol.Responses, body(system, messages, tools, includeReasoning)) {
+            .postInference(InferenceProtocol.Responses, body(system, messages, tools, includeReasoning, requestedThinking)) {
                 if (chatGptPlan || endpoint.toHttpUrlOrNull()?.host == "api.openai.com") "openai" else "openai_compatible"
             }
             .build()

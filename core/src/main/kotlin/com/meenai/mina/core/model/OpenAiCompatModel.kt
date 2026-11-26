@@ -1,5 +1,6 @@
 package com.meenai.mina.core.model
 
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -47,11 +48,34 @@ class OpenAiCompatModel(
     private val headers: Map<String, String> = emptyMap(),
     /** The thinking intensity selected by the user (`reasoning_effort`); null is not sent. */
     private val reasoningEffort: String? = null,
+    /** Optional explicit Fast (`false`) vs Thinking (`true`) toggle; overrides [reasoningEffort] on reasoning models. */
+    private val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
     override val name: String get() = model
     private val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
     private val declaredVia = ReasoningVia.ofField(reasoningField)
     private val json = Json { ignoreUnknownKeys = true }
+
+    private fun supportsReasoningEffort(): Boolean = capabilities.reasoning ||
+        model.contains("reason", ignoreCase = true) ||
+        model.contains("think", ignoreCase = true) ||
+        model.contains("r1", ignoreCase = true) ||
+        model.contains("o1", ignoreCase = true) ||
+        model.contains("o3", ignoreCase = true) ||
+        model.contains("o4", ignoreCase = true) ||
+        model.contains("gpt-5", ignoreCase = true) ||
+        model.contains("qwen3", ignoreCase = true) ||
+        model.contains("gemini-2.5", ignoreCase = true) ||
+        model.contains("gemini-3", ignoreCase = true)
+
+    private fun effectiveReasoningEffort(requestedThinking: Boolean?): String? {
+        if (!supportsReasoningEffort()) return reasoningEffort
+        return when (requestedThinking) {
+            false -> if (reasoningEffort == "none") "none" else "low"
+            true -> reasoningEffort?.takeUnless { it == "none" || it == "low" } ?: "high"
+            null -> reasoningEffort
+        }
+    }
 
     private companion object {
         val MARKABLE_ROLES = setOf("system", "user", "tool")
@@ -61,7 +85,11 @@ class OpenAiCompatModel(
     }
 
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-        val response = HttpSupport.execute(http, request(system, messages, tools, stream = false))
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        var response = HttpSupport.execute(http, request(system, messages, tools, stream = false, requestedThinking = requestedThinking))
+        if (response.status == 400 && requestedThinking != null && reasoningEffort == null && isReasoningEffortError(response.body)) {
+            response = HttpSupport.execute(http, request(system, messages, tools, stream = false, requestedThinking = null))
+        }
         val (status, retryAfter, text) = response
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         // Some compatible endpoints do not adhere to OpenAI's default values: they still return to SSE
@@ -82,12 +110,27 @@ class OpenAiCompatModel(
         system: String, messages: List<Message>, tools: List<ToolSpec>,
         onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        var effectiveThinkingPref = requestedThinking
         var stream = OpenAiStream(onText, onThinking, ::parseUsage, ::thinking)
-        var response = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
+        var response = HttpSupport.stream(
+            http, request(system, messages, tools, stream = true, requestedThinking = effectiveThinkingPref), stream::accept,
+        )
+        if (response.status == 400 && effectiveThinkingPref != null && reasoningEffort == null && isReasoningEffortError(response.body)) {
+            effectiveThinkingPref = null
+            stream = OpenAiStream(onText, onThinking, ::parseUsage, ::thinking)
+            response = HttpSupport.stream(
+                http, request(system, messages, tools, stream = true, requestedThinking = null), stream::accept,
+            )
+        }
         if (response.status == 400 && response.body.contains("stream_options")) {
             // Some compatible endpoints can be streamed but have no usage options.
             stream = OpenAiStream(onText, onThinking, ::parseUsage, ::thinking)
-            response = HttpSupport.stream(http, request(system, messages, tools, stream = true, includeUsage = false), stream::accept)
+            response = HttpSupport.stream(
+                http,
+                request(system, messages, tools, stream = true, includeUsage = false, requestedThinking = effectiveThinkingPref),
+                stream::accept,
+            )
         }
         val (status, retryAfter, text) = response
         if (status !in 200..299) {
@@ -106,10 +149,22 @@ class OpenAiCompatModel(
         return stream.finish()
     }
 
-    private suspend fun request(system: String, messages: List<Message>, tools: List<ToolSpec>, stream: Boolean, includeUsage: Boolean = true): Request {
+    private fun isReasoningEffortError(body: String): Boolean =
+        body.contains("reasoning_effort", ignoreCase = true) ||
+            (body.contains("effort", ignoreCase = true) && body.contains("unsupported", ignoreCase = true))
+
+    private suspend fun request(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        stream: Boolean,
+        includeUsage: Boolean = true,
+        requestedThinking: Boolean? = null,
+    ): Request {
+        val effectiveEffort = effectiveReasoningEffort(requestedThinking)
         val payload = buildJsonObject {
             put("model", model)
-            reasoningEffort?.let { put("reasoning_effort", it) }
+            effectiveEffort?.let { put("reasoning_effort", it) }
             // Thinking is only returned in requests with tools (you need to continue thinking when tool
             // calls are made step by step); bypass calls without tools are not required
             val replayReasoning = tools.isNotEmpty()

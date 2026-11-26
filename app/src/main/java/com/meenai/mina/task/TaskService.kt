@@ -200,7 +200,8 @@ class TaskService : Service() {
         val run = if (intent?.hasExtra(EXTRA_RUN) == true) intent.getStringExtra(EXTRA_RUN)?.let(center::byKey) else taskState.shownRun
         when (intent?.action) {
             ACTION_START -> begin(intent.getStringExtra(EXTRA_GOAL).orEmpty(), intent.getStringExtra(EXTRA_CONVERSATION),
-                messageId = intent.getStringExtra(EXTRA_MESSAGE_ID))
+                messageId = intent.getStringExtra(EXTRA_MESSAGE_ID),
+                thinkingEnabled = if (intent.hasExtra(EXTRA_THINKING_ENABLED)) intent.getBooleanExtra(EXTRA_THINKING_ENABLED, false) else null)
             ACTION_START_TRIGGER -> begin(intent.getStringExtra(EXTRA_GOAL).orEmpty(), intent.getStringExtra(EXTRA_CONVERSATION),
                 provenance = RunProvenance(RunOrigin.Trigger, Attendance.Unattended),
                 triggerKey = intent.getStringExtra(EXTRA_TRIGGER_KEY),
@@ -237,8 +238,11 @@ class TaskService : Service() {
 
     private fun begin(newGoal: String, requestedConversation: String?,
         provenance: RunProvenance = RunProvenance(), triggerKey: String? = null,
-        triggerActionGoal: String? = null, triggerThreadId: String? = null, mcpExternalId: String? = null, messageId: String? = null) {
-        parallel = FeatureFlags.get(this).speedFlags().parallelTasks
+        triggerActionGoal: String? = null, triggerThreadId: String? = null, mcpExternalId: String? = null,
+        messageId: String? = null, thinkingEnabled: Boolean? = null) {
+        val flags = FeatureFlags.get(this)
+        val effectiveThinking = thinkingEnabled ?: flags.thinkingEnabled()
+        parallel = flags.speedFlags().parallelTasks
         // When a task that is being executed or queued in the same conversation receives a new message,
         // it is handed to its Inbox.
         requestedConversation?.let(center::byConversation)?.let { existing ->
@@ -275,6 +279,7 @@ class TaskService : Service() {
             is StartResult.Queued -> {
                 nameConversation(store, conversationId, newGoal, provenance)
                 r.run.provenance = provenance
+                r.run.thinkingEnabled = effectiveThinking
                 r.run.triggerWindowKey = triggerKey
                 r.run.triggerActionGoal = triggerActionGoal
                 r.run.triggerThreadId = triggerThreadId
@@ -299,6 +304,7 @@ class TaskService : Service() {
                 // Clear the success criteria and run number, and set the status to "Preparing"
                 val run = r.run
                 run.provenance = provenance
+                run.thinkingEnabled = effectiveThinking
                 run.triggerWindowKey = triggerKey
                 run.triggerActionGoal = triggerActionGoal
                 run.triggerThreadId = triggerThreadId
@@ -901,6 +907,7 @@ class TaskService : Service() {
         private const val EXTRA_GOAL = "goal"
         private const val EXTRA_MESSAGE_ID = "message_id"
         private const val EXTRA_CONVERSATION = "conversation"
+        private const val EXTRA_THINKING_ENABLED = "thinking_enabled"
         private const val EXTRA_TRIGGER_KEY = "trigger_key"
         private const val EXTRA_TRIGGER_ACTION = "trigger_action"
         private const val EXTRA_TRIGGER_THREAD = "trigger_thread"
@@ -945,11 +952,18 @@ class TaskService : Service() {
 
         /** Starts a quest; other dialogue quests are queued behind it when running but cannot be run at the same time. [conversationId] is empty to open a new conversation (see [conversationId] for number). */
         /** [messageId] If this is the case when the task is in progress, the interface will follow the direction it goes with this sentence. */
-        fun start(context: Context, goal: String, conversationId: String? = null, messageId: String? = null) {
+        fun start(
+            context: Context,
+            goal: String,
+            conversationId: String? = null,
+            messageId: String? = null,
+            thinkingEnabled: Boolean? = null,
+        ) {
             context.startForegroundService(
                 Intent(context, TaskService::class.java).setAction(ACTION_START).putExtra(EXTRA_GOAL, goal)
                     .apply { if (conversationId != null) putExtra(EXTRA_CONVERSATION, conversationId) }
-                    .apply { if (messageId != null) putExtra(EXTRA_MESSAGE_ID, messageId) },
+                    .apply { if (messageId != null) putExtra(EXTRA_MESSAGE_ID, messageId) }
+                    .apply { if (thinkingEnabled != null) putExtra(EXTRA_THINKING_ENABLED, thinkingEnabled) },
             )
         }
 

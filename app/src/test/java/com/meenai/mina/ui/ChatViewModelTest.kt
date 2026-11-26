@@ -2216,4 +2216,64 @@ class ChatViewModelTest {
             RouterUsageTracker.clear()
         }
     }
+
+    @Test fun thinkingModeTogglePersistsAndPropagatesToTaskStart() = runTest {
+        var persisted = false
+        val startedWithThinking = mutableListOf<Boolean>()
+        val routerStatus = FakeRouterStatus(
+            initialModel = ActiveModel(id = "gemini-4-argon", name = "Gemini 4 Argon", provider = "Google Gemini")
+        )
+        val trackedActions = object : TaskActions by actions {
+            override fun start(goal: String, conversationId: String, thinkingEnabled: Boolean) {
+                startedWithThinking += thinkingEnabled
+                actions.start(goal, conversationId)
+            }
+        }
+        val vm = ChatViewModel(
+            backgroundScope,
+            state,
+            stage,
+            trackedActions,
+            ConversationStore(tmp.newFolder()),
+            routerStatus = routerStatus,
+            thinkingModeFlag = { persisted },
+            persistThinkingMode = { persisted = it },
+        )
+        runCurrent()
+
+        assertFalse(vm.ui.value.thinkingEnabled)
+        vm.send("Quick greeting", ok)
+        assertEquals(listOf(false), startedWithThinking)
+        emit(TaskState.Succeeded("Hi!"))
+
+        // Toggle to Thinking mode and verify persistence + router effort sync + task propagation
+        vm.toggleThinkingMode()
+        assertTrue(vm.ui.value.thinkingEnabled)
+        assertTrue(persisted)
+        assertEquals("high", routerStatus.thinkingEffort.value)
+
+        vm.send("Explain quantum tunneling", ok)
+        assertEquals(listOf(false, true), startedWithThinking)
+        emit(TaskState.Succeeded("Done"))
+
+        // Recreated ViewModel restores user's persisted Thinking choice
+        val restoredVm = ChatViewModel(
+            backgroundScope,
+            state,
+            stage,
+            trackedActions,
+            ConversationStore(tmp.newFolder()),
+            routerStatus = routerStatus,
+            thinkingModeFlag = { persisted },
+            persistThinkingMode = { persisted = it },
+        )
+        runCurrent()
+        assertTrue(restoredVm.ui.value.thinkingEnabled)
+
+        // Switching back to Fast updates persisted setting and router effort
+        restoredVm.setThinkingEnabled(false)
+        assertFalse(restoredVm.ui.value.thinkingEnabled)
+        assertFalse(persisted)
+        assertEquals("low", routerStatus.thinkingEffort.value)
+    }
 }

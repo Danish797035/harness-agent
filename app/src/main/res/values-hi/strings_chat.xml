@@ -180,4 +180,7 @@
     <string name="image_generation_failed">इमेज नहीं बन पाई</string>
     <string name="image_generated_by">%1$s द्वारा जनरेटेड</string>
     <string name="image_switch_model">मॉडल बदलें</string>
+    <string name="chat_mode_fast">⚡ Fast</string>
+    <string name="chat_mode_thinking">🧠 Thinking</string>
+    <string name="chat_mode_toggle_desc">Fast और Thinking मोड के बीच स्विच करें</string>
 </resources>

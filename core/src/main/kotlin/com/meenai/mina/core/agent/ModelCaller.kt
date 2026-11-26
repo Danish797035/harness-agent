@@ -9,6 +9,7 @@ import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StreamingChatModel
+import com.meenai.mina.core.model.ThinkingPreference
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.record.Redactor
@@ -19,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -44,6 +47,7 @@ internal class ModelCaller(
     private val now: () -> Long,
     private val autonomous: Boolean = false,
     private val trace: RunTrace? = null,
+    private val thinkingEnabled: Boolean? = null,
     private val onActiveModel: (String) -> Unit = {},
 ) {
     /** Each model has a copy of the compression state: its own context, its own history, and the compression of the lightweight model does not involve the request prefix of the main model. */
@@ -225,18 +229,23 @@ internal class ModelCaller(
                 // waiting.
                 lastRetryWaitMs = now() - began
                 onActiveModel(using.name)
-                suspend fun send(): ModelReply = if (onText == null && onThinking == null) using.complete(systemPrompt, sent.messages, specs)
-                    else if (using is StreamingChatModel) using.completeStreamingWithThinking(
-                        systemPrompt, sent.messages, specs, onText ?: {}, onThinking ?: {},
-                    )
-                    else using.complete(systemPrompt, sent.messages, specs).also { result ->
-                        onThinking?.let { cb ->
-                            result.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
-                        }
-                        onText?.let { cb ->
-                            result.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
+                suspend fun send(): ModelReply {
+                    val thinkingCtx = thinkingEnabled?.let(::ThinkingPreference) ?: EmptyCoroutineContext
+                    return withContext(thinkingCtx) {
+                        if (onText == null && onThinking == null) using.complete(systemPrompt, sent.messages, specs)
+                        else if (using is StreamingChatModel) using.completeStreamingWithThinking(
+                            systemPrompt, sent.messages, specs, onText ?: {}, onThinking ?: {},
+                        )
+                        else using.complete(systemPrompt, sent.messages, specs).also { result ->
+                            onThinking?.let { cb ->
+                                result.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
+                            }
+                            onText?.let { cb ->
+                                result.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(cb)
+                            }
                         }
                     }
+                }
                 val reply = if (trace == null) send() else {
                     val change = when {
                         overflowRewrote -> "overflow_compaction folded=" + raw.foldedSteps

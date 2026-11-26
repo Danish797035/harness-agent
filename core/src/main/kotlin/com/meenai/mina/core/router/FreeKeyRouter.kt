@@ -9,6 +9,7 @@ import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.PromptCaching
 import com.meenai.mina.core.model.StreamingChatModel
+import com.meenai.mina.core.model.ThinkingPreference
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.model.Usage
 import com.meenai.mina.core.router.picker.AutoModelPicker
@@ -26,6 +27,7 @@ import com.meenai.mina.core.router.picker.OpenRouterApiClient
 import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,6 +99,7 @@ class FreeKeyRouter(
     val probeService: ModelProbeService? = null,
     val statsTracker: ModelStatsTracker? = null,
     val preferences: RouterPreferences = DefaultRouterPreferences,
+    val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
 
     val effectiveMaxSwitches: Int
@@ -666,12 +669,19 @@ class FreeKeyRouter(
         onThinking: (String) -> Unit = {},
         onFirstToken: ((Long) -> Unit)? = null,
     ): ModelReply {
-        val effectiveTimeout = if (model.capabilities.reasoning ||
-            model.name.contains("argon", ignoreCase = true) || model.name.contains("pro", ignoreCase = true) ||
-            model.name.contains("hydrogen", ignoreCase = true)) {
-            maxOf(firstTokenTimeoutMs, 60_000L)
-        } else {
-            firstTokenTimeoutMs
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        val effectiveTimeout = when (requestedThinking) {
+            true -> if (firstTokenTimeoutMs <= 0L) 0L else maxOf(firstTokenTimeoutMs, 60_000L)
+            false -> if (firstTokenTimeoutMs <= 0L) 0L else if (firstTokenTimeoutMs < 15_000L) firstTokenTimeoutMs else 20_000L
+            null -> if (model.capabilities.reasoning ||
+                model.name.contains("argon", ignoreCase = true) ||
+                model.name.contains("pro", ignoreCase = true) ||
+                model.name.contains("hydrogen", ignoreCase = true)
+            ) {
+                maxOf(firstTokenTimeoutMs, 60_000L)
+            } else {
+                firstTokenTimeoutMs
+            }
         }
 
         if (effectiveTimeout <= 0L) {

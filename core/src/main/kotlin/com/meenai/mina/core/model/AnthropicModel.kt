@@ -1,5 +1,6 @@
 package com.meenai.mina.core.model
 
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -58,16 +59,12 @@ class AnthropicModel(
      * it’s sent according to the gears.
      */
     private val thinkingTypes: List<String>? = null,
+    /** Optional explicit Fast (`false`) vs Thinking (`true`) toggle; overrides [reasoningEffort]. */
+    private val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
+    private val configuredMaxTokens: Int? = maxTokens
     override val name: String get() = model
     private val endpoint = baseUrl.trimEnd('/') + "/v1/messages"
-    /** The actual sent `thinking.type`:`adaptive`, `disabled`, or null (not sent). */
-    private val thinkingType: String? = when (reasoningEffort) {
-        null -> null
-        "none" -> "disabled"
-        else -> "adaptive"
-    }?.takeIf { thinkingTypes == null || it in thinkingTypes }
-    private val maxTokens = maxTokens ?: if (thinkingType == "adaptive") THINKING_MAX_TOKENS else DEFAULT_MAX_TOKENS
     private val json = Json { ignoreUnknownKeys = true }
     private val ephemeral = buildJsonObject { put("type", "ephemeral") }
     /**
@@ -77,9 +74,27 @@ class AnthropicModel(
      */
     private val staleThinking: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
+    private fun effectiveThinkingConfig(requestedThinking: Boolean?): Triple<String?, String?, Int> {
+        val effectiveEffort = when (requestedThinking) {
+            false -> "none"
+            true -> reasoningEffort?.takeUnless { it == "none" || it == "low" } ?: "high"
+            null -> reasoningEffort
+        }
+        val effectiveType = when (effectiveEffort) {
+            null -> null
+            "none" -> "disabled"
+            else -> "adaptive"
+        }?.takeIf { thinkingTypes == null || it in thinkingTypes }
+        val effectiveMaxTokens = configuredMaxTokens ?: if (effectiveType == "adaptive") THINKING_MAX_TOKENS else DEFAULT_MAX_TOKENS
+        return Triple(effectiveEffort, effectiveType, effectiveMaxTokens)
+    }
+
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-        val (status, retryAfter, text) = dropStaleThinking(messages) {
-            HttpSupport.execute(http, request(system, messages, tools, stream = false))
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        val (effort, type, tokens) = effectiveThinkingConfig(requestedThinking)
+        val thinkingDisabled = type == "disabled"
+        val (status, retryAfter, text) = dropStaleThinking(messages, thinkingDisabled) {
+            HttpSupport.execute(http, request(system, messages, tools, stream = false, effort, type, tokens))
         }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         return parse(text)
@@ -93,11 +108,14 @@ class AnthropicModel(
         system: String, messages: List<Message>, tools: List<ToolSpec>,
         onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        val (effort, type, tokens) = effectiveThinkingConfig(requestedThinking)
+        val thinkingDisabled = type == "disabled"
         val stream = AnthropicStream(endpoint, onText, onThinking, ::parseUsage)
         // There was no event when it was rejected (HttpSupport.stream does not adjust accept when it is
         // not 2xx), resend and use this stream
-        val (status, retryAfter, text) = dropStaleThinking(messages) {
-            HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
+        val (status, retryAfter, text) = dropStaleThinking(messages, thinkingDisabled) {
+            HttpSupport.stream(http, request(system, messages, tools, stream = true, effort, type, tokens), stream::accept)
         }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
@@ -116,27 +134,40 @@ class AnthropicModel(
      * required. This time, if there is no thinking block, it will not be reissued and an error will be
      * reported as usual.
      */
-    private suspend fun dropStaleThinking(messages: List<Message>, send: suspend () -> RawResponse): RawResponse {
+    private suspend fun dropStaleThinking(
+        messages: List<Message>,
+        thinkingDisabled: Boolean,
+        send: suspend () -> RawResponse,
+    ): RawResponse {
         val sent = messages.filter { it.role == Role.Assistant }.flatMap { it.parts }.filterIsInstance<Part.Thinking>()
-            .filter(::replays).mapNotNull { it.opaque }
+            .filter { replays(it, thinkingDisabled) }.mapNotNull { it.opaque }
         val first = send()
         if (first.status != 400 || STALE_THINKING !in first.body || !staleThinking.addAll(sent)) return first
         return send()
     }
 
     /** This block will not be returned: it will not be sent when thinking is turned off; it will not be sent when it is received from other addresses (the signature can only be recognized by the service that sent it); it will not be sent when the request was rejected ([staleThinking]). */
-    private fun replays(p: Part.Thinking): Boolean {
+    private fun replays(p: Part.Thinking, thinkingDisabled: Boolean): Boolean {
         val opaque = p.opaque ?: return false
-        return thinkingType != "disabled" && opaque !in staleThinking && SignedThinking.block(p, endpoint) != null
+        return !thinkingDisabled && opaque !in staleThinking && SignedThinking.block(p, endpoint) != null
     }
 
-    private suspend fun request(system: String, messages: List<Message>, tools: List<ToolSpec>, stream: Boolean): Request {
+    private suspend fun request(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        stream: Boolean,
+        effectiveEffort: String?,
+        effectiveThinkingType: String?,
+        effectiveMaxTokens: Int,
+    ): Request {
         val systemText = (listOf(system) + messages.filter { it.role == Role.System }
             .map { m -> m.parts.filterIsInstance<Part.Text>().joinToString("\n") { it.text } })
             .filter { it.isNotEmpty() }.joinToString("\n\n")
+        val thinkingDisabled = effectiveThinkingType == "disabled"
         val payload = buildJsonObject {
             put("model", model)
-            put("max_tokens", maxTokens)
+            put("max_tokens", effectiveMaxTokens)
             if (stream) put("stream", true)
             // Anthropic rejects empty text blocks, and the entire field is omitted when system is empty.
             if (systemText.isNotBlank()) put("system", buildJsonArray {
@@ -147,15 +178,15 @@ class AnthropicModel(
             if (tools.isNotEmpty()) put("tools", buildJsonArray {
                 tools.forEachIndexed { i, t -> add(toolJson(t, last = i == tools.lastIndex)) }
             })
-            put("messages", buildMessages(messages))
-            when (thinkingType) {
+            put("messages", buildMessages(messages, thinkingDisabled))
+            when (effectiveThinkingType) {
                 "disabled" -> putJsonObject("thinking") { put("type", "disabled") }
                 "adaptive" -> {
                     putJsonObject("thinking") {
                         put("type", "adaptive")
                         put("display", "summarized")
                     }
-                    putJsonObject("output_config") { put("effort", reasoningEffort) }
+                    putJsonObject("output_config") { put("effort", effectiveEffort) }
                 }
             }
         }
@@ -187,13 +218,13 @@ class AnthropicModel(
         if (last) put("cache_control", ephemeral)
     }
 
-    private fun buildMessages(messages: List<Message>): JsonArray {
+    private fun buildMessages(messages: List<Message>, thinkingDisabled: Boolean = false): JsonArray {
         // (role, blocks) Merge according to adjacent and same roles first, and then output
         val merged = mutableListOf<Pair<String, MutableList<JsonObject>>>()
         for (m in messages) {
             if (m.role == Role.System) continue
             val role = if (m.role == Role.Assistant) "assistant" else "user"
-            val blocks = if (role == "assistant") assistantBlocks(m) else userBlocks(m)
+            val blocks = if (role == "assistant") assistantBlocks(m, thinkingDisabled) else userBlocks(m)
             if (blocks.isEmpty()) continue
             if (merged.lastOrNull()?.first == role) merged.last().second += blocks else merged += role to blocks.toMutableList()
         }
@@ -242,9 +273,9 @@ class AnthropicModel(
     // previous content as changed. It is not included when explicitly turning off thinking, so as not to
     // conflict with the thinking configuration of the current request; it is also not included in
     // requests received and rejected from other addresses ([replays]).
-    private fun assistantBlocks(m: Message): List<JsonObject> = m.parts.mapNotNull { p ->
+    private fun assistantBlocks(m: Message, thinkingDisabled: Boolean = false): List<JsonObject> = m.parts.mapNotNull { p ->
         when (p) {
-            is Part.Thinking -> if (replays(p)) SignedThinking.block(p, endpoint) else null
+            is Part.Thinking -> if (replays(p, thinkingDisabled)) SignedThinking.block(p, endpoint) else null
             is Part.Text -> if (p.text.isEmpty()) null else buildJsonObject { put("type", "text"); put("text", p.text) }
             is Part.ToolCall -> buildJsonObject {
                 put("type", "tool_use"); put("id", p.id); put("name", p.name)

@@ -41,6 +41,7 @@ import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StopReason
+import com.meenai.mina.core.model.ThinkingPreference
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.record.Redactor
 import com.meenai.mina.core.record.RunEvent
@@ -166,6 +167,7 @@ class AgentLoop(
     private val outwardPacing: OutwardPacing = OutwardPacing.Off,
     private val trace: RunTrace? = null,
     val freeKeyRouter: FreeKeyRouter? = null,
+    private val thinkingEnabled: Boolean? = null,
 ) {
     init {
         require(maxSteps > 0) { "maxSteps must be positive" }
@@ -189,7 +191,7 @@ class AgentLoop(
     /** Name/ID of the model currently answering the active request. */
     val activeModelName: StateFlow<String?> = _activeModelName.asStateFlow()
 
-    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous, trace) { usingName ->
+    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous, trace, thinkingEnabled) { usingName ->
         _activeModelName.value = activeRouter?.status?.value?.currentModel ?: activeRouter?.activeCandidate?.id ?: usingName
     }
     private val intentGate = intentJudge?.let { IntentGate(it, model.takeUnless { main -> main === it }) }
@@ -295,7 +297,9 @@ class AgentLoop(
                 }
                 // The intervening signal is installed in the entire running context: the wait will be
                 // terminated early without losing anything if it is removed (see waitOrSteer)
-                val body = async(inbox?.signal ?: EmptyCoroutineContext) { loop(task, priorTurns, inbox) }
+                val bodyCtx = (inbox?.signal ?: EmptyCoroutineContext) +
+                    (thinkingEnabled?.let(::ThinkingPreference) ?: EmptyCoroutineContext)
+                val body = async(bodyCtx) { loop(task, priorTurns, inbox) }
                 job = body
                 if (cancelRequested) body.cancel()
                 try {
@@ -613,7 +617,7 @@ class AgentLoop(
             val firstParsedArgs = calls.firstOrNull()?.let { parseArgs(it.argsJson) }
             val reason = calls.firstOrNull()?.let { firstParsedArgs?.let { parsed -> tools.callReason(it.name, parsed) } }
             val actionTarget = firstParsedArgs?.let(::safeActionTarget)
-            val replyThinking = reply.parts.filterIsInstance<Part.Thinking>().joinToString("\n") { it.text }.trim().takeIf(String::isNotEmpty)
+            val replyThinking = if (thinkingEnabled == false) null else reply.parts.filterIsInstance<Part.Thinking>().joinToString("\n") { it.text }.trim().takeIf(String::isNotEmpty)
             val retryWaitMs = caller.lastRetryWaitMs
             val repliedAtMs = now()
             val latencyMs = repliedAtMs - asked - retryWaitMs
@@ -1042,7 +1046,7 @@ class AgentLoop(
         if (current?.step == step && interruptedStep != step) _state.value = current.copy(preview = preview.takeIf(String::isNotEmpty))
     }
 
-    private fun thinkingFor(step: Int): ((String) -> Unit)? = if (!streamReplies) null else { thought ->
+    private fun thinkingFor(step: Int): ((String) -> Unit)? = if (!streamReplies || thinkingEnabled == false) null else { thought ->
         val current = _state.value as? TaskState.Running
         if (current?.step == step && interruptedStep != step) {
             _state.value = current.copy(thinking = thought.takeIf(String::isNotEmpty))

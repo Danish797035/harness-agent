@@ -6,6 +6,13 @@ import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
+/** Per-request thinking mode override carried in coroutine context to router and all model adapters. */
+data class ThinkingPreference(val enabled: Boolean) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<ThinkingPreference>
+}
 
 internal enum class InferenceProtocol(val provider: String, val instruction: String?, val messages: String) {
     Chat("openai_compatible", null, "messages"),
@@ -50,11 +57,19 @@ internal enum class InferenceProtocol(val provider: String, val instruction: Str
 internal data class ReportedTokens(val input: Int?, val output: Int?, val cached: Int?)
 
 /** Only inference requests carry this tag. Token refresh and catalog HTTP calls can run in the same coroutine. */
-internal data class InferenceRequest(val protocol: InferenceProtocol, val payload: JsonObject, val provider: String)
+internal data class InferenceRequest(
+    val protocol: InferenceProtocol,
+    val payload: JsonObject,
+    val provider: String,
+    val thinkingEnabled: Boolean? = null,
+)
 
 internal suspend inline fun Request.Builder.postInference(
     protocol: InferenceProtocol, payload: JsonObject, provider: () -> String = { protocol.provider },
 ): Request.Builder {
-    if (currentCoroutineContext()[TraceCall] != null) tag(InferenceRequest::class.java, InferenceRequest(protocol, payload, provider()))
+    val thinkingEnabled = currentCoroutineContext()[ThinkingPreference]?.enabled
+    if (currentCoroutineContext()[TraceCall] != null) {
+        tag(InferenceRequest::class.java, InferenceRequest(protocol, payload, provider(), thinkingEnabled))
+    }
     return post(payload.toString().toRequestBody("application/json".toMediaType()))
 }

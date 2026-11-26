@@ -12,10 +12,12 @@ import com.meenai.mina.core.model.ModelRole
 import com.meenai.mina.core.model.Role
 import com.meenai.mina.core.model.StopReason
 import com.meenai.mina.core.model.StreamingChatModel
+import com.meenai.mina.core.model.ThinkingPreference
 import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.router.picker.TaskDifficulty
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -746,6 +748,59 @@ class FreeKeyRouterTest {
         } catch (_: ModelError.FirstTokenTimeout) {
             // Expected
         }
+    }
+
+    @Test
+    fun thinkingPreferenceAdjustsFirstTokenTimeoutBetween20sAnd60s() = runTest {
+        val delayedModel = object : StreamingChatModel {
+            override val name: String = "gemini-4-hydrogen"
+            override val capabilities = Capabilities(
+                toolCalls = true, vision = true, contextTokens = 1_000_000, reasoning = true,
+            )
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                completeStreamingWithThinking(system, messages, tools, {}, {})
+
+            override suspend fun completeStreaming(
+                system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+            ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText, {})
+
+            override suspend fun completeStreamingWithThinking(
+                system: String,
+                messages: List<Message>,
+                tools: List<ToolSpec>,
+                onText: (String) -> Unit,
+                onThinking: (String) -> Unit,
+            ): ModelReply {
+                delay(35_000L)
+                onText("deep answer")
+                return ModelReply(listOf(Part.Text("deep answer")), StopReason.EndTurn, null)
+            }
+        }
+        val router = FreeKeyRouter(
+            candidates = listOf(RouterCandidate("gemini-4-hydrogen", "gemini_web", delayedModel)),
+            firstTokenTimeoutMs = 15_000L,
+            preferences = object : RouterPreferences {
+                override fun isFailoverEnabled(): Boolean = false
+            },
+        )
+
+        // Fast mode: 20_000L first-token timeout cuts off a 35s stall
+        try {
+            withContext(ThinkingPreference(false)) {
+                router.completeStreamingWithThinking("sys", userMsg, emptyList(), {}, {})
+            }
+            fail("Expected FirstTokenTimeout after 20_000ms in Fast mode")
+        } catch (_: ModelError.FirstTokenTimeout) {
+            // Expected
+        }
+        assertEquals(20_000L, testScheduler.currentTime)
+
+        // Thinking mode: 60_000L timeout lets a 35s thinking response succeed
+        router.cooldownStore.clearCooldown("gemini-4-hydrogen")
+        val reply = withContext(ThinkingPreference(true)) {
+            router.completeStreamingWithThinking("sys", userMsg, emptyList(), {}, {})
+        }
+        assertEquals("deep answer", (reply.parts.single() as Part.Text).text)
     }
 }
 

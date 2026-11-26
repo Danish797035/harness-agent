@@ -1,9 +1,14 @@
 package com.meenai.mina.core.agent
 
 import com.meenai.mina.core.assembly.toolDispatcher
+import com.meenai.mina.core.model.Capabilities
+import com.meenai.mina.core.model.Message
 import com.meenai.mina.core.model.ModelReply
 import com.meenai.mina.core.model.Part
 import com.meenai.mina.core.model.StopReason
+import com.meenai.mina.core.model.StreamingChatModel
+import com.meenai.mina.core.model.ThinkingPreference
+import com.meenai.mina.core.model.ToolSpec
 import com.meenai.mina.core.record.RunEvent
 import com.meenai.mina.core.record.RunSink
 import com.meenai.mina.core.run.RunId
@@ -18,6 +23,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -310,5 +316,58 @@ class AgentLoopUserScreenTest {
 
         job.cancelAndJoin()
         assertEquals(TaskState.Cancelled, agent.state.value)
+    }
+
+    @Test fun agentLoopPropagatesThinkingPreferenceAndSuppressesFastThinkingStream() = runBlocking {
+        val observedPrefs = mutableListOf<Boolean?>()
+        val model = object : StreamingChatModel {
+            override val name: String = "gemini-4-hydrogen"
+            override val capabilities = Capabilities(toolCalls = true, vision = false, contextTokens = 128_000, reasoning = true)
+            override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply =
+                completeStreamingWithThinking(system, messages, tools, {}, {})
+
+            override suspend fun completeStreaming(
+                system: String, messages: List<Message>, tools: List<ToolSpec>, onText: (String) -> Unit,
+            ): ModelReply = completeStreamingWithThinking(system, messages, tools, onText, {})
+
+            override suspend fun completeStreamingWithThinking(
+                system: String,
+                messages: List<Message>,
+                tools: List<ToolSpec>,
+                onText: (String) -> Unit,
+                onThinking: (String) -> Unit,
+            ): ModelReply {
+                observedPrefs += kotlin.coroutines.coroutineContext[ThinkingPreference]?.enabled
+                onThinking("internal chain of thought")
+                onText("Answer text")
+                return ModelReply(
+                    listOf(Part.Thinking("internal chain of thought"), Part.Text("Answer text")),
+                    StopReason.EndTurn,
+                    null,
+                )
+            }
+        }
+        val fastEmissions = mutableListOf<TaskState.Running>()
+        val fastLoop = AgentLoop(
+            model, toolDispatcher(FakeScreen()), "B",
+            zone = ZoneOffset.UTC, streamReplies = true, thinkingEnabled = false,
+        )
+        val fastWatch = launch { fastLoop.state.collect { if (it is TaskState.Running) fastEmissions += it } }
+        val fastRes = fastLoop.run("Quick question")
+        fastWatch.cancel()
+        assertTrue(fastRes is TaskState.Succeeded)
+        assertTrue("Fast mode must suppress live streamed thinking on TaskState", fastEmissions.all { it.thinking == null })
+
+        val deepEmissions = mutableListOf<TaskState.Running>()
+        val deepLoop = AgentLoop(
+            model, toolDispatcher(FakeScreen()), "B",
+            zone = ZoneOffset.UTC, streamReplies = true, thinkingEnabled = true,
+        )
+        val deepWatch = launch { deepLoop.state.collect { if (it is TaskState.Running) deepEmissions += it } }
+        val deepRes = deepLoop.run("Deep question")
+        deepWatch.cancel()
+        assertTrue(deepRes is TaskState.Succeeded)
+        assertTrue("Thinking mode must emit live thinking on TaskState", deepEmissions.any { it.thinking == "internal chain of thought" })
+        assertEquals(listOf<Boolean?>(false, true), observedPrefs)
     }
 }

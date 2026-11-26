@@ -190,4 +190,13 @@ class ChatCopyTest {
         assertEquals("Finding \"Search\"…", ChatCopy.liveActionLabel("phone_find", null, isHindi = false, target = "Search"))
         assertEquals("\"Search\" dhoondh raha hai…", ChatCopy.liveActionLabel("phone_find", null, isHindi = true, target = "Search"))
     }
+
+    @Test fun modelWaitLabelReflectsFastVsThinkingMode() {
+        assertEquals("Thinking · 4s · Gemini Flash", ChatCopy.modelWaitLabel(4, "Gemini Flash", isHindi = false, thinkingEnabled = true))
+        assertEquals("Replying · 4s · Gemini Flash", ChatCopy.modelWaitLabel(4, "Gemini Flash", isHindi = false, thinkingEnabled = false))
+        assertEquals("Soch raha hai · 4s", ChatCopy.modelWaitLabel(4, "", isHindi = true, thinkingEnabled = true))
+        assertEquals("Jawab de raha hai · 4s", ChatCopy.modelWaitLabel(4, "", isHindi = true, thinkingEnabled = false))
+        assertEquals("Thinking · 7s", ChatCopy.thinkingCardLabel(7, isHindi = false))
+        assertEquals("Soch raha hai · 7s", ChatCopy.thinkingCardLabel(7, isHindi = true))
+    }
 }

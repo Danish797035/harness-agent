@@ -369,7 +369,7 @@ fun ChatScreen(
                 val activeModelName = waitModelName(activeModel)
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName)
+                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, ui.thinkingEnabled)
                 }
                 if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
@@ -456,6 +456,8 @@ fun ChatScreen(
                     sheetOpen = true
                 }
             },
+            thinkingEnabled = ui.thinkingEnabled,
+            onToggleThinking = vm::toggleThinkingMode,
         )
 
         AgentPip(
@@ -541,6 +543,10 @@ fun ChatScreen(
                 thinkingEffort = thinkingEffort,
                 onSelectThinkingEffort = { effort ->
                     routerStatus.setThinkingEffort(effort)
+                    when (effort?.trim()?.lowercase()) {
+                        "low", "fast", "none", "off", "disabled" -> vm.setThinkingEnabled(false)
+                        "medium", "high", "thinking" -> vm.setThinkingEnabled(true)
+                    }
                 },
                 onReconnectSignIn = {
                     sheetOpen = false
@@ -647,13 +653,13 @@ private fun ExampleRow(icon: ImageVector, text: String, first: Boolean, onClick:
 private fun LazyListScope.exchange(
     ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
-    kept: KeptPage? = null, activeModelName: String = "",
+    kept: KeptPage? = null, activeModelName: String = "", thinkingEnabled: Boolean = true,
 ) {
     if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
     if (active) {
-        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName) }
+        if (!answering) item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName, thinkingEnabled) }
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
     }
@@ -735,8 +741,8 @@ private fun LazyListScope.exchange(
 private fun LazyListScope.exchange(
     index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
-    kept: KeptPage? = null, activeModelName: String = "",
-) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName)
+    kept: KeptPage? = null, activeModelName: String = "", thinkingEnabled: Boolean = true,
+) = exchange(ex, conversationId, stage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, thinkingEnabled)
 
 /**
  * The interjection is divided into two paragraphs: the one before the first sentence
@@ -954,6 +960,7 @@ private fun WorkBlock(
     backgroundNote: Boolean,
     openRun: (String) -> Unit,
     activeModelName: String = "",
+    thinkingEnabled: Boolean = true,
 ) {
     val c = MinaTheme.colors
     val paused = ChatCopy.paused(ex.status)
@@ -962,7 +969,7 @@ private fun WorkBlock(
     val modelWaitSeconds = (elapsed?.div(1000L))?.toInt() ?: 0
     val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
     val progressText = if (isWaitingForModel) {
-        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi)
+        ChatCopy.modelWaitLabel(modelWaitSeconds, activeModelName, isHindi = isHindi, thinkingEnabled = thinkingEnabled)
     } else {
         ex.line.takeIf { it.isNotBlank() } ?: ex.liveAction ?: ChatCopy.progressLine(ex)
     }
@@ -984,7 +991,7 @@ private fun WorkBlock(
             )
             if (elapsed != null) Text(ChatCopy.clock(elapsed), style = ClockText, color = c.ink3)
         }
-        if (liveThinking != null) {
+        if (thinkingEnabled && liveThinking != null) {
             val thinkingShape = RoundedCornerShape(10.dp)
             Column(
                 Modifier
@@ -994,7 +1001,8 @@ private fun WorkBlock(
                     .background(c.fill.copy(alpha = 0.65f))
                     .border(0.5.dp, c.hair, thinkingShape)
                     .clickable(role = Role.Button) { thinkingExpanded = !thinkingExpanded }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .testTag("work-thinking-card"),
             ) {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -1003,7 +1011,7 @@ private fun WorkBlock(
                 ) {
                     Icon(MinaIcons.Spark, null, Modifier.size(12.dp), tint = c.accent)
                     Text(
-                        if (isHindi) "Soch raha hai" else "Thinking process",
+                        ChatCopy.thinkingCardLabel(modelWaitSeconds, isHindi = isHindi),
                         style = NoteText.copy(fontWeight = FontWeight.Medium),
                         color = c.ink2,
                         modifier = Modifier.weight(1f),
@@ -1552,6 +1560,8 @@ internal fun Composer(
     quotaSnapshot: QuotaSnapshot = QuotaSnapshot(),
     connectionStatus: ConnectionStatus = ConnectionStatus.Idle,
     onModelPillClick: (() -> Unit)? = null,
+    thinkingEnabled: Boolean = false,
+    onToggleThinking: (() -> Unit)? = null,
 ) {
     val c = MinaTheme.colors
     val vh = rememberVoiceHold(voice, onVoiceText)
@@ -1723,6 +1733,12 @@ internal fun Composer(
                                     modifier = Modifier.weight(1f, fill = false),
                                 )
                             }
+                            if (onToggleThinking != null) {
+                                ThinkingModePill(
+                                    thinkingEnabled = thinkingEnabled,
+                                    onClick = onToggleThinking,
+                                )
+                            }
                         }
 
                         // After the keyboard comes out, press and hold the input box to allow the system to
@@ -1796,6 +1812,39 @@ internal fun Composer(
 }
 
 private val ComposerShape = RoundedCornerShape(24.dp)
+
+@Composable
+private fun ThinkingModePill(
+    thinkingEnabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = MinaTheme.colors
+    val bg = if (thinkingEnabled) c.accentSoft else c.fill.copy(alpha = 0.85f)
+    val borderColor = if (thinkingEnabled) c.accent.copy(alpha = 0.45f) else c.hair.copy(alpha = 0.8f)
+    val textColor = if (thinkingEnabled) c.accent else c.ink2
+    val label = stringResource(if (thinkingEnabled) R.string.chat_mode_thinking else R.string.chat_mode_fast)
+    Row(
+        modifier = modifier
+            .clip(MinaShapes.Pill)
+            .background(bg)
+            .border(0.5.dp, borderColor, MinaShapes.Pill)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.chat_mode_toggle_desc), onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 6.dp)
+            .testTag("composer-thinking-toggle"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MinaType.Caption.copy(
+                fontSize = 11.5.sp,
+                fontWeight = if (thinkingEnabled) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+            color = textColor,
+            maxLines = 1,
+        )
+    }
+}
 
 @Composable
 private fun ComposerModelPill(

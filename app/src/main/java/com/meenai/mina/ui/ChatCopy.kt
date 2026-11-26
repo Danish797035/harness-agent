@@ -128,10 +128,26 @@ object ChatCopy {
         java.util.Locale.forLanguageTag(uiLocaleTag).language.equals("hi", ignoreCase = true)
 
     /** Model thinking wait label showing elapsed seconds and optional model name (Claude AI style) */
-    fun modelWaitLabel(seconds: Int, modelName: String = "", isHindi: Boolean = true): String {
+    fun modelWaitLabel(
+        seconds: Int,
+        modelName: String = "",
+        isHindi: Boolean = true,
+        thinkingEnabled: Boolean = true,
+    ): String {
         val s = seconds.coerceAtLeast(0)
-        val base = if (isHindi) "Soch raha hai · ${s}s" else "Thinking · ${s}s"
+        val base = when {
+            thinkingEnabled && isHindi -> "Soch raha hai · ${s}s"
+            thinkingEnabled -> "Thinking · ${s}s"
+            isHindi -> "Jawab de raha hai · ${s}s"
+            else -> "Replying · ${s}s"
+        }
         return if (modelName.isNotBlank()) "$base · $modelName" else base
+    }
+
+    /** Header label for the expandable live thinking streaming card. */
+    fun thinkingCardLabel(seconds: Int, isHindi: Boolean = true): String {
+        val s = seconds.coerceAtLeast(0)
+        return if (isHindi) "Soch raha hai · ${s}s" else "Thinking · ${s}s"
     }
 
     /** Real-time live action description (Claude AI style) showing what the agent is actively executing */
@@ -221,5 +237,6 @@ object ChatCopy {
         seconds: Int,
         modelName: String = "",
         uiLocaleTag: String = tr(R.string.ui_locale),
-    ): String = modelWaitLabel(seconds, modelName, isHindi = isHindiLocale(uiLocaleTag))
+        thinkingEnabled: Boolean = true,
+    ): String = modelWaitLabel(seconds, modelName, isHindi = isHindiLocale(uiLocaleTag), thinkingEnabled = thinkingEnabled)
 }

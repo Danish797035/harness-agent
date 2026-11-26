@@ -328,6 +328,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             taskState.takeoverStage,
             object : TaskActions {
                 override fun start(goal: String, conversationId: String) = TaskService.start(app, goal, conversationId)
+                override fun start(goal: String, conversationId: String, thinkingEnabled: Boolean) =
+                    TaskService.start(app, goal, conversationId, thinkingEnabled = thinkingEnabled)
                 override fun steer(conversationId: String, messageId: String, text: String) = TaskService.start(app, text, conversationId, messageId)
                 override fun withdrawSteer(conversationId: String, messageId: String) = taskState.run(conversationId)?.withdrawSteer(messageId) ?: false
                 override fun cancel() = TaskService.cancel(app)
@@ -401,6 +403,8 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             warmUpConnection = {
                 com.meenai.mina.ui.router.AppFreeKeyRouter.warmUpActiveConnection(providers, freeKeyRouter)
             },
+            thinkingModeFlag = { FeatureFlags.get(app).thinkingEnabled() },
+            persistThinkingMode = { FeatureFlags.get(app).setThinkingEnabled(it) },
         )
     }
 

@@ -1,6 +1,7 @@
 package com.meenai.mina.core.model
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -377,5 +378,25 @@ class OpenAiCompatModelTest {
         assertEquals(InterruptedHistory.PARTIAL, msgs[2]["content"]!!.jsonPrimitive.content)
         assertEquals(InterruptedHistory.STEER, msgs[3]["content"]!!.jsonPrimitive.content)
         assertEquals(InterruptedHistory.RUNTIME, msgs[4]["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun thinkingPreferenceTogglesReasoningEffortForReasoningModels() = runTest {
+        val reply = """{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""
+        val reasoningModel = OpenAiCompatModel(
+            server.url("/v1").toString().trimEnd('/'), "sk-x", "deepseek-reasoner",
+            Capabilities(toolCalls = true, vision = false, contextTokens = 64_000, reasoning = true), OkHttpClient(),
+        )
+        server.enqueue(ok(reply))
+        withContext(ThinkingPreference(false)) { reasoningModel.complete("s", user, emptyList()) }
+        assertEquals("low", body()["reasoning_effort"]!!.jsonPrimitive.content)
+
+        server.enqueue(ok(reply))
+        withContext(ThinkingPreference(true)) { reasoningModel.complete("s", user, emptyList()) }
+        assertEquals("high", body()["reasoning_effort"]!!.jsonPrimitive.content)
+
+        // Plain non-reasoning model omits reasoning_effort under ThinkingPreference
+        server.enqueue(ok(reply))
+        withContext(ThinkingPreference(false)) { model().complete("s", user, emptyList()) }
+        assertFalse(body().containsKey("reasoning_effort"))
     }
 }

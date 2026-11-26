@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeatureFlagsCapsuleTest {
@@ -33,6 +35,22 @@ class FeatureFlagsCapsuleTest {
         flags.setCapsuleMode(CapsuleMode.Off)
         job.join()
         assertEquals(listOf(CapsuleMode.Always, CapsuleMode.Off), seen)
+    }
+
+    @Test fun thinkingModeDefaultsFastPersistsAndEmitsChanges() = runTest {
+        val prefs = MemoryPrefs()
+        val flags = FeatureFlags(prefs)
+        assertFalse(flags.thinkingEnabled())
+        assertEquals(false, flags.thinkingEnabledChanges().first())
+
+        val seen = mutableListOf<Boolean>()
+        val job = launch { flags.thinkingEnabledChanges().take(2).toList(seen) }
+        runCurrent()
+        flags.setThinkingEnabled(true)
+        job.join()
+
+        assertEquals(listOf(false, true), seen)
+        assertTrue(FeatureFlags(prefs).thinkingEnabled())
     }
 
     /** The settings in the memory will be notified to the listener synchronously when changed (callback after writing, just like the system implementation). */

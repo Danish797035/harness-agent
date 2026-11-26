@@ -1,6 +1,7 @@
 package com.meenai.mina.core.model
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -418,5 +419,20 @@ class AnthropicModelTest {
         assertEquals(InterruptedHistory.PARTIAL, asst[0].str("text"))
         val texts = msgs[2].arr("content").map { it.jsonObject.str("text") }
         assertEquals(listOf(InterruptedHistory.STEER, InterruptedHistory.RUNTIME), texts)
+    }
+
+    @Test fun thinkingPreferenceTogglesAdaptiveVsDisabled() = runTest {
+        server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
+        withContext(ThinkingPreference(false)) { model().complete("s", user, emptyList()) }
+        val fastBody = sentBody()
+        assertEquals("disabled", fastBody["thinking"]!!.jsonObject.str("type"))
+        assertEquals("4096", fastBody.str("max_tokens"))
+
+        server.enqueue(ok("""{"content":[],"stop_reason":"end_turn"}"""))
+        withContext(ThinkingPreference(true)) { model().complete("s", user, emptyList()) }
+        val thinkBody = sentBody()
+        assertEquals("adaptive", thinkBody["thinking"]!!.jsonObject.str("type"))
+        assertEquals("high", thinkBody["output_config"]!!.jsonObject.str("effort"))
+        assertEquals("16000", thinkBody.str("max_tokens"))
     }
 }

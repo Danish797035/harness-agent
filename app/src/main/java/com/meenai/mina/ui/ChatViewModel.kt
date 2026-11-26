@@ -66,6 +66,7 @@ import com.meenai.mina.ui.router.RouterStatus
 /** What the interface can do for the task service; it is implemented by TaskService on the real machine, and is replaced by recording calls in the test. */
 interface TaskActions {
     fun start(goal: String, conversationId: String)
+    fun start(goal: String, conversationId: String, thinkingEnabled: Boolean) = start(goal, conversationId)
     /** The words inserted into its dialogue while the task is in progress; [messageId] is used to follow the direction of this sentence. */
     fun steer(conversationId: String, messageId: String, text: String) = start(text, conversationId)
     fun withdrawSteer(conversationId: String, messageId: String): Boolean = false
@@ -323,6 +324,8 @@ data class ChatUi(
     val overLimit: Int = 0,
     /** The quote to be sent with the next sentence above the input box (long press the message to select "Quote"); if not, it is null. Cleared when changing conversations. */
     val quote: QuoteMessage.Quote? = null,
+    /** User-controllable Thinking Mode toggle: false = Fast (skip thinking overhead), true = Thinking ON. */
+    val thinkingEnabled: Boolean = false,
 ) {
     /** The task is currently being operated on the virtual screen in the background (the prompt line above the input box): the screen is open, working, not waiting for you or to be unlocked. */
     val operatingPhone: Boolean
@@ -427,12 +430,28 @@ class ChatViewModel(
     private val warmUpConnection: (suspend () -> ConnectionWarmupResult)? = null,
     /** Dispatcher used for startup connection warm-up (injectable for unit tests). */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Reads the persisted user preference for Thinking mode (true = Thinking ON, false = Fast). */
+    private val thinkingModeFlag: () -> Boolean = { false },
+    /** Persists user changes to the Thinking mode toggle. */
+    private val persistThinkingMode: (Boolean) -> Unit = {},
 ) {
     /** The user closes the page left in the background on the conversation page. */
     fun closeKeptPage() = closeKept()
 
-    private val _ui = MutableStateFlow(ChatUi())
+    private val _ui = MutableStateFlow(ChatUi(thinkingEnabled = thinkingModeFlag()))
     val ui: StateFlow<ChatUi> = _ui.asStateFlow()
+
+    fun setThinkingEnabled(enabled: Boolean) {
+        if (_ui.value.thinkingEnabled != enabled) {
+            persistThinkingMode(enabled)
+            _ui.update { it.copy(thinkingEnabled = enabled) }
+        } else {
+            persistThinkingMode(enabled)
+        }
+        routerStatus?.setThinkingEffort(if (enabled) "high" else "low")
+    }
+
+    fun toggleThinkingMode() = setThinkingEnabled(!_ui.value.thinkingEnabled)
 
     /** Conversations that have been deleted (or are being deleted) will no longer be listed in the sidebar on the spot until the deletion is completed. */
     private val _deleted = MutableStateFlow<Set<String>>(emptySet())
@@ -1024,13 +1043,13 @@ class ChatViewModel(
             pendingStart = scope.launch {
                 serviceBusy.first { !it }
                 pendingStart = null
-                actions.start(goal, id)
+                actions.start(goal, id, _ui.value.thinkingEnabled)
                 // If you insert words while waiting: start the task of the original words first and then
                 // hand it over to it
                 held.toList().also { held.clear() }.forEach { n -> actions.steer(id, n.id, n.text) }
             }
         } else {
-            actions.start(goal, id)
+            actions.start(goal, id, _ui.value.thinkingEnabled)
         }
     }
 

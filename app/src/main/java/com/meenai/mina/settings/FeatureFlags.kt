@@ -135,6 +135,22 @@ class FeatureFlags(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(SHOW_SWITCH_NOTICE, on).commit()
     }
 
+    /** Chat Thinking Mode toggle: false = Fast (skip thinking overhead), true = Thinking ON. */
+    fun thinkingEnabled(): Boolean = prefs.getBoolean(THINKING_ENABLED, false)
+
+    fun setThinkingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(THINKING_ENABLED, enabled).commit()
+    }
+
+    fun thinkingEnabledChanges(): Flow<Boolean> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == THINKING_ENABLED) trySend(thinkingEnabled())
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        send(thinkingEnabled())
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
+
     /** The daily budget (number of requests) set by yourself on the usage limit page; the progress bar is calculated according to it, and the default is [DEFAULT_USAGE_BUDGET]. */
     fun usageDailyBudget(): Int =
         prefs.getInt(USAGE_DAILY_BUDGET, DEFAULT_USAGE_BUDGET).coerceIn(MIN_USAGE_BUDGET, MAX_USAGE_BUDGET)
@@ -146,6 +162,7 @@ class FeatureFlags(private val prefs: SharedPreferences) {
     companion object {
         const val PREFS = "feature_flags"
         private const val SHOW_SWITCH_NOTICE = "show_switch_notice"
+        private const val THINKING_ENABLED = "thinking_enabled"
         private const val SPEED_FLAGS = "speed_flags"
         /**
          * To upgrade the default value of the speed-up switch, do it once each in sequence (key to note

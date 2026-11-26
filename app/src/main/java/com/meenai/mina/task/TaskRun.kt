@@ -166,6 +166,7 @@ class TaskRun(
     internal var triggerActionGoal: String? = null
     internal var triggerThreadId: String? = null
     internal var mcpExternalId: String? = null
+    internal var thinkingEnabled: Boolean = FeatureFlags.get(service).thinkingEnabled()
     internal val conditionCheck get() = triggerActionGoal != null
     @Volatile private var children: ChildAgentRunner? = null
     /** Your own copy; when it is displayed, it is written to the service's external copy simultaneously. [show] is copied in full. */
@@ -835,7 +836,8 @@ class TaskRun(
                         // The subtask follows the inquiry/autonomous; it also passes the level when
                         // asked, and the step in the subtask that costs money will not be done.
                         confirmations = runApproval.gate(), approvals = runApproval, autonomous = runApproval.startedAutonomous,
-                        reviewFinalAnswer = false, flags = speed, outwardPacing = OutwardPacing.human())
+                        reviewFinalAnswer = false, flags = speed, outwardPacing = OutwardPacing.human(),
+                        thinkingEnabled = thinkingEnabled)
                 },
                 store = (service.application as HarnessApp).childRuns,
                 ownerAlive = { job?.isActive == true },
@@ -972,6 +974,7 @@ class TaskRun(
                 // random period of time between the two attempts.
                 outwardPacing = OutwardPacing.human(),
                 freeKeyRouter = (service.application as? HarnessApp)?.freeKeyRouter,
+                thinkingEnabled = thinkingEnabled,
             )
             loop = agent
             liveFeed = agent.events.subscribe(liveEvents)

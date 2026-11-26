@@ -1,5 +1,6 @@
 package com.meenai.mina.core.model
 
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -43,14 +44,42 @@ class GeminiModel(
     private val maxOutputTokens: Int? = null,
     /** The thinking gear selected by the user; null is not sent, `none` turns off thinking as much as possible, and the rest is sent as `thinkingConfig.thinkingLevel`. */
     private val reasoningEffort: String? = null,
+    /** Optional explicit Fast (`false`) vs Thinking (`true`) toggle; overrides [reasoningEffort] on supported models. */
+    private val thinkingEnabled: Boolean? = null,
 ) : StreamingChatModel {
     override val name: String get() = model
     private val endpoint = baseUrl.trimEnd('/') + "/v1beta/models/$model:generateContent"
     private val streamEndpoint = baseUrl.trimEnd('/') + "/v1beta/models/$model:streamGenerateContent?alt=sse"
     private val json = Json { ignoreUnknownKeys = true }
 
+    private fun supportsThinkingConfig(): Boolean {
+        if (capabilities.reasoning) return true
+        val id = model.lowercase()
+        return id.contains("2.5") || id.contains("gemini-3") || id.contains("gemini-4") || id.contains("thinking")
+    }
+
+    private fun effectiveReasoningEffort(requestedThinking: Boolean?): String? = when {
+        requestedThinking == false && supportsThinkingConfig() -> "none"
+        requestedThinking == true && supportsThinkingConfig() ->
+            reasoningEffort?.takeUnless { it == "none" } ?: "high"
+        else -> reasoningEffort
+    }
+
     override suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): ModelReply {
-        val (status, retryAfter, text) = HttpSupport.execute(http, request(system, messages, tools, stream = false))
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
+        val first = HttpSupport.execute(http, request(system, messages, tools, stream = false, requestedThinking = requestedThinking))
+        val (status, retryAfter, text) = if (
+            first.status == 400 &&
+            requestedThinking != null &&
+            reasoningEffort == null &&
+            (first.body.contains("thinkingConfig", ignoreCase = true) ||
+                first.body.contains("thinkingLevel", ignoreCase = true) ||
+                first.body.contains("thinkingBudget", ignoreCase = true))
+        ) {
+            HttpSupport.execute(http, request(system, messages, tools, stream = false, requestedThinking = null))
+        } else {
+            first
+        }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         return parse(text)
     }
@@ -63,8 +92,33 @@ class GeminiModel(
         system: String, messages: List<Message>, tools: List<ToolSpec>,
         onText: (String) -> Unit, onThinking: (String) -> Unit,
     ): ModelReply {
+        val requestedThinking = currentCoroutineContext()[ThinkingPreference]?.enabled ?: thinkingEnabled
         val stream = GeminiStream(onText, onThinking, ::parse, ::parseUsage)
-        val (status, retryAfter, text) = HttpSupport.stream(http, request(system, messages, tools, stream = true), stream::accept)
+        var (status, retryAfter, text) = HttpSupport.stream(
+            http, request(system, messages, tools, stream = true, requestedThinking = requestedThinking), stream::accept,
+        )
+        if (
+            status == 400 &&
+            requestedThinking != null &&
+            reasoningEffort == null &&
+            (text.contains("thinkingConfig", ignoreCase = true) ||
+                text.contains("thinkingLevel", ignoreCase = true) ||
+                text.contains("thinkingBudget", ignoreCase = true))
+        ) {
+            val fallbackStream = GeminiStream(onText, onThinking, ::parse, ::parseUsage)
+            val retried = HttpSupport.stream(
+                http, request(system, messages, tools, stream = true, requestedThinking = null), fallbackStream::accept,
+            )
+            status = retried.status
+            retryAfter = retried.retryAfter
+            text = retried.body
+            if (status !in 200..299) throw mapError(status, retryAfter, text)
+            if (text.isNotEmpty()) return parse(text).also { reply ->
+                reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
+                reply.parts.filterIsInstance<Part.Text>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onText)
+            }
+            return fallbackStream.finish()
+        }
         if (status !in 200..299) throw mapError(status, retryAfter, text)
         if (text.isNotEmpty()) return parse(text).also { reply ->
             reply.parts.filterIsInstance<Part.Thinking>().joinToString("") { it.text }.takeIf(String::isNotEmpty)?.let(onThinking)
@@ -73,7 +127,14 @@ class GeminiModel(
         return stream.finish()
     }
 
-    private suspend fun request(system: String, messages: List<Message>, tools: List<ToolSpec>, stream: Boolean): Request {
+    private suspend fun request(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        stream: Boolean,
+        requestedThinking: Boolean? = null,
+    ): Request {
+        val effectiveEffort = effectiveReasoningEffort(requestedThinking)
         val systemText = (listOf(system) + messages.filter { it.role == Role.System }
             .map { m -> m.parts.filterIsInstance<Part.Text>().joinToString("\n") { it.text } })
             .filter { it.isNotBlank() }.joinToString("\n\n")
@@ -87,9 +148,9 @@ class GeminiModel(
                 })
             })
             put("contents", buildContents(messages))
-            if (maxOutputTokens != null || reasoningEffort != null) putJsonObject("generationConfig") {
+            if (maxOutputTokens != null || effectiveEffort != null) putJsonObject("generationConfig") {
                 maxOutputTokens?.let { put("maxOutputTokens", it) }
-                reasoningEffort?.let { effort ->
+                effectiveEffort?.let { effort ->
                     putJsonObject("thinkingConfig") {
                         if (effort == "none") {
                             put("thinkingBudget", 0)

@@ -1,6 +1,7 @@
 package com.meenai.mina.core.model
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -252,5 +253,32 @@ class GeminiModelTest {
         assertEquals(InterruptedHistory.PARTIAL, modelParts[0].str("text"))
         val texts = contents[2].arr("parts").map { it.jsonObject.str("text") }
         assertEquals(listOf(InterruptedHistory.STEER, InterruptedHistory.RUNTIME), texts)
+    }
+
+    @Test fun thinkingPreferenceControlsThinkingConfigOnSupportedModels() = runTest {
+        val supported = GeminiModel(
+            server.url("/").toString().trimEnd('/'), "gk", "gemini-2.5-flash",
+            Capabilities(true, false, 1_000_000, false), OkHttpClient(),
+        )
+        server.enqueue(ok(cand("""[{"text":"fast"}]""")))
+        withContext(ThinkingPreference(false)) { supported.complete("s", user, emptyList()) }
+        val fastCfg = sentBody().obj("generationConfig").obj("thinkingConfig")
+        assertEquals("0", fastCfg["thinkingBudget"]!!.jsonPrimitive.content)
+        assertFalse(fastCfg.containsKey("thinkingLevel"))
+
+        server.enqueue(ok(cand("""[{"text":"thought"}]""")))
+        withContext(ThinkingPreference(true)) { supported.complete("s", user, emptyList()) }
+        val thinkCfg = sentBody().obj("generationConfig").obj("thinkingConfig")
+        assertEquals("true", thinkCfg["includeThoughts"]!!.jsonPrimitive.content)
+        assertEquals("HIGH", thinkCfg.str("thinkingLevel"))
+
+        // Legacy 1.5 models do not receive thinkingConfig
+        val legacy = GeminiModel(
+            server.url("/").toString().trimEnd('/'), "gk", "gemini-1.5-flash",
+            Capabilities(true, false, 128_000, false), OkHttpClient(),
+        )
+        server.enqueue(ok(cand("""[{"text":"legacy"}]""")))
+        withContext(ThinkingPreference(false)) { legacy.complete("s", user, emptyList()) }
+        assertFalse(sentBody().containsKey("generationConfig"))
     }
 }
