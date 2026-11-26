@@ -209,9 +209,9 @@ private fun PlainTextView(l: Loaded.Text) {
             Modifier.fillMaxSize().testTag("viewer.text"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
         ) {
-            if (l.truncated) item { TruncatedNote(Modifier.padding(bottom = 12.dp)) }
-            itemsIndexed(chunks) { _, chunk -> Text(chunk, style = MonoText, color = c.ink) }
-            item { Box(Modifier.windowInsetsPadding(WindowInsets.navigationBars)) }
+            if (l.truncated) item(key = "truncated", contentType = "truncated") { TruncatedNote(Modifier.padding(bottom = 12.dp)) }
+            itemsIndexed(chunks, key = { i, _ -> "chunk-$i" }, contentType = { _, _ -> "text_chunk" }) { _, chunk -> Text(chunk, style = MonoText, color = c.ink) }
+            item(key = "nav_spacer", contentType = "spacer") { Box(Modifier.windowInsetsPadding(WindowInsets.navigationBars)) }
         }
     }
 }
@@ -315,7 +315,7 @@ private fun PdfPages(doc: PdfDoc) {
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 64.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(doc.sizes) { index, size -> PdfPage(doc, index, size) }
+            itemsIndexed(doc.sizes, key = { index, _ -> "pdf-$index" }, contentType = { _, _ -> "pdf_page" }) { index, size -> PdfPage(doc, index, size) }
         }
         if (doc.sizes.isNotEmpty()) {
             Text(

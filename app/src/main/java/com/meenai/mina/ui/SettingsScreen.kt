@@ -129,21 +129,45 @@ fun SettingsScreen(
     // turned on; the device capability is calculated based on this moment, and if the second screen
     // fails to be built, it is calculated as failure.
     val flags = remember { FeatureFlags.get(context) }
-    var parallelMax by remember { mutableIntStateOf(flags.parallelMax()) }
-    var keepScreenOn by remember { mutableStateOf(flags.keepScreenOn()) }
-    var muteTarget by remember { mutableStateOf(flags.muteTarget()) }
-    var operatingPace by remember { mutableStateOf(flags.operatingPace()) }
-    var selfConfig by remember { mutableStateOf(flags.selfConfig()) }
-    var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
-    // The interface will be rebuilt when you change the language. Just read it here every time you come
-    // in.
-    val language = remember { AppLanguage.current(context) }
+    var parallelMax by remember { mutableIntStateOf(1) }
+    var keepScreenOn by remember { mutableStateOf(true) }
+    var muteTarget by remember { mutableStateOf(true) }
+    var operatingPace by remember { mutableStateOf(OperatingPace.DEFAULT) }
+    var selfConfig by remember { mutableStateOf(false) }
+    var capsuleMode by remember { mutableStateOf(CapsuleMode.DEFAULT) }
+    var language by remember { mutableStateOf(AppLanguage.System) }
     val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
     var speed by remember { mutableStateOf(flags.speedFlags()) }
+    var isLowRam by remember { mutableStateOf(false) }
     val routeStore = remember { FileRouteStore.shared(context) }
     var routeCount by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { routeCount = withContext(Dispatchers.IO) { runCatching { routeStore.count() }.getOrNull() } }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val loadedParallelMax = flags.parallelMax()
+            val loadedKeepOn = flags.keepScreenOn()
+            val loadedMute = flags.muteTarget()
+            val loadedPace = flags.operatingPace()
+            val loadedSelfConfig = flags.selfConfig()
+            val loadedCapsule = flags.capsuleMode()
+            val loadedLang = AppLanguage.current(context)
+            val loadedSpeed = flags.speedFlags()
+            val loadedLowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+            val loadedRoutes = runCatching { routeStore.count() }.getOrNull()
+            withContext(Dispatchers.Main) {
+                parallelMax = loadedParallelMax
+                keepScreenOn = loadedKeepOn
+                muteTarget = loadedMute
+                operatingPace = loadedPace
+                selfConfig = loadedSelfConfig
+                capsuleMode = loadedCapsule
+                language = loadedLang
+                speed = loadedSpeed
+                isLowRam = loadedLowRam
+                routeCount = loadedRoutes
+            }
+        }
+    }
     val sandboxStatus by remember { SandboxState.get(context) }.status.collectAsState()
     // Network proxy: only change it here; read settings to decrypt, see if the browser supports it and
     // load WebView, all in the background
@@ -182,7 +206,7 @@ fun SettingsScreen(
     val parallel = if (!speed.parallelTasks) null else ParallelSetting(
         parallelMax,
         ParallelCapability.detect(
-            status.sdkInt, context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true, parallelMax,
+            status.sdkInt, isLowRam, parallelMax,
             secondDisplayFailed = runtimeLimit.reason == ParallelCapability.SECOND_DISPLAY_FAILED,
         ),
     )
@@ -361,7 +385,8 @@ fun SettingsContent(
     updateState: UpdateState? = null,
     onOpenSpecialist: () -> Unit = {},
 ) {
-    val check = Prerequisites.check(status, hasMainModel = mainModel != null)
+    val check = remember(status, mainModel) { Prerequisites.check(status, hasMainModel = mainModel != null) }
+    val notifSummary = remember(status) { StatusCopy.notificationSummary(status.notificationOverview().summary) }
     PageScaffold(stringResource(R.string.settings_title), onBack) {
         StatusSummary(check, onProblem)
 
@@ -414,7 +439,7 @@ fun SettingsContent(
                 RowValue(languageLabel(language))
                 RowChevron()
             }
-            val (notifText, notifTone) = StatusCopy.notificationSummary(status.notificationOverview().summary)
+            val (notifText, notifTone) = notifSummary
             ListRow(MinaIcons.Bell, StatusCopy.NOTIFICATIONS, stringResource(R.string.settings_notif_sub), onClick = onOpenNotifications) {
                 RowValue(notifText, notifTone)
                 RowChevron()

@@ -34,6 +34,8 @@ import com.meenai.mina.ui.theme.MinaType
 import kotlinx.coroutines.delay
 
 private val RowShape = RoundedCornerShape(14.dp)
+private val CloseShape = RoundedCornerShape(8.dp)
+private val KeptSemiBoldStyle = MinaType.Label.copy(fontWeight = FontWeight.SemiBold)
 
 /** How to display the line with pages left under a round: still open (green line, can be turned off), turned off (gray text), or no pages left in this round. */
 sealed interface KeptRow {
@@ -90,17 +92,17 @@ fun KeptLine(page: KeptPage, onClose: () -> Unit) {
     ) {
         Icon(MinaIcons.Globe, null, Modifier.size(18.dp), tint = c.ok)
         Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.kept_row_title), style = MinaType.Label.copy(fontWeight = FontWeight.SemiBold), color = c.ok)
+            Text(stringResource(R.string.kept_row_title), style = KeptSemiBoldStyle, color = c.ok)
             Text(
                 stringResource(R.string.kept_row_detail, page.host, KeptPageCopy.closesIn(page.closesAt - now)),
                 style = MinaType.Hint, color = c.ok, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         Box(
-            Modifier.testTag("kept-close").clip(RoundedCornerShape(8.dp)).background(c.surface)
+            Modifier.testTag("kept-close").clip(CloseShape).background(c.surface)
                 .clickable(role = Role.Button, onClick = onClose).padding(horizontal = 10.dp, vertical = 5.dp),
         ) {
-            Text(stringResource(R.string.kept_row_close), style = MinaType.Label.copy(fontWeight = FontWeight.SemiBold), color = c.bad)
+            Text(stringResource(R.string.kept_row_close), style = KeptSemiBoldStyle, color = c.bad)
         }
     }
 }

@@ -15,6 +15,7 @@ import com.meenai.mina.ui.router.RouterBottomSheet
 import com.meenai.mina.ui.router.RouterStatus
 import com.meenai.mina.ui.router.SwitchEvent
 import com.meenai.mina.ui.router.SwitchNoticeToast
+import com.meenai.mina.ui.router.formatRouterModelName
 import com.meenai.mina.ui.router.resolveDisplayModel
 import com.meenai.mina.ui.router.waitModelName
 import com.meenai.mina.core.gemini.GeminiWebClient
@@ -136,7 +137,9 @@ import com.meenai.mina.R
 import com.meenai.mina.cap.web.KeptPage
 import com.meenai.mina.chat.SharedFile
 import com.meenai.mina.confirm.ConfirmationCopy
+import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.settings.Prerequisites
+import com.meenai.mina.settings.SystemStatus
 import com.meenai.mina.takeover.Takeover
 import com.meenai.mina.task.SteerNote
 import com.meenai.mina.task.SteerState
@@ -204,6 +207,9 @@ fun ChatScreen(
     /** "Go to select" in "Voice input is not yet available". */
     openSpeechModel: () -> Unit = {},
     routerStatus: RouterStatus = LocalRouterStatus.current,
+    checkProvider: (() -> Prerequisites.Check)? = null,
+    phoneSetupNeededFlow: StateFlow<Boolean>? = null,
+    statusFlow: StateFlow<SystemStatus>? = null,
 ) {
     val routerActiveModel by routerStatus.current.collectAsState()
     val routerUsages by routerStatus.usage.collectAsState()
@@ -211,13 +217,8 @@ fun ChatScreen(
     val vmConnStatus by vm.connectionStatus.collectAsState()
     val routerConnStatus by routerStatus.connectionStatus.collectAsState()
     val connectionStatus = if (vmConnStatus != ConnectionStatus.Idle) vmConnStatus else routerConnStatus
-    val vmConnDetail by vm.connectionDetail.collectAsState()
-    val routerConnDetail by routerStatus.connectionDetail.collectAsState()
-    val connectionDetail = vmConnDetail ?: routerConnDetail
-    val thinkingEffort by routerStatus.thinkingEffort.collectAsState()
     var sheetOpen by remember { mutableStateOf(false) }
     var geminiSignInOpen by remember { mutableStateOf(false) }
-    var latestSwitchEvent by remember { mutableStateOf<SwitchEvent?>(null) }
     val ui by vm.ui.collectAsState()
     val last = ui.exchanges.lastOrNull()
     val isTaskRunning = last?.status?.isActive() == true
@@ -237,26 +238,7 @@ fun ChatScreen(
             usages = routerUsages,
         )
     }
-    val others by vm.otherRunning.collectAsState()
-    val keptAny by vm.keptPage.collectAsState()
-    // Just leave the page left behind by this conversation
-    val kept = keptAny?.takeIf { it.conversationId == ui.conversationId }
-    val live by frames.collectAsState()
-    val webLive by webOpen.collectAsState()
-    // The virtual screen is released as soon as the task is completed; when the task is completed, the
-    // small window will stay for a few seconds and the check box will continue to display the last
-    // frame.
-    var lastFrame by remember { mutableStateOf<Bitmap?>(null) }
-    var lastFrameWasWeb by remember { mutableStateOf(false) }
-    LaunchedEffect(live, webLive, ui.pip.mode) {
-        live?.let {
-            lastFrame = it
-            if (webLive) lastFrameWasWeb = true
-            else if (ui.pip.mode != PipMode.Done) lastFrameWasWeb = false
-        }
-    }
-    val frame = live ?: lastFrame.takeIf { ui.pip.visible && ui.pip.mode == PipMode.Done }
-    val webContent = if (ui.pip.mode == PipMode.Done) lastFrameWasWeb else webLive
+    val currentCheck = remember(checkProvider, check) { checkProvider ?: { check } }
     var input by rememberSaveable { mutableStateOf("") }
     var voiceHolding by remember { mutableStateOf(false) }
     var editRequest by remember { mutableIntStateOf(0) }
@@ -340,15 +322,7 @@ fun ChatScreen(
         if (grown > 0 && followingTail && !listState.isScrollInProgress) listState.scrollBy(grown.toFloat())
     }
 
-    val c = MinaTheme.colors
     val context = LocalContext.current
-    val flags = remember { FeatureFlags.get(context) }
-    val showNotice = flags.showSwitchNotice()
-    LaunchedEffect(routerStatus) {
-        routerStatus.events.collect { event ->
-            latestSwitchEvent = event
-        }
-    }
     /** The message that was long pressed; the menu is open (the folding animation is cleared only after playing). */
     var menu by remember { mutableStateOf<MessageTarget?>(null) }
     /** The one with "Select text" selected: it switches back to the system's long-press selection; it is cleared when changing conversations. */
@@ -390,9 +364,17 @@ fun ChatScreen(
                 val activeModelName = waitModelName(activeModel)
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept, activeModelName, ui.thinkingEnabled, check)
+                    exchange(
+                        ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote,
+                        openRun, loadSource, openSource, kept = null, activeModelName, ui.thinkingEnabled,
+                        check = currentCheck(), checkProvider = currentCheck, useLiveKeptRow = true,
+                    )
                 }
-                if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item(key = "phone-setup", contentType = "setup") { PhoneSetupLine(openPhoneSetup) }
+                if (ui.exchanges.isNotEmpty() && (phoneSetupNeededFlow != null || phoneSetupNeeded)) {
+                    item(key = "phone-setup", contentType = "setup") {
+                        PhoneSetupBannerLeaf(phoneSetupNeeded, phoneSetupNeededFlow, statusFlow, openPhoneSetup)
+                    }
+                }
                 ui.blocked?.let { problems ->
                     item(key = "blocked", contentType = "blocked") {
                         NeedCard(
@@ -407,29 +389,13 @@ fun ChatScreen(
             }
         }
 
-        // When there is no task running and a page of this conversation is left running in the
-        // background: the top column says "One web page is maintained in the background"
-        val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace)) ?: kept?.let { ChatCopy.KEPT_PAGE to ChatCopy.Tone.Ok }
-        Column(
-            Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height },
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            TopBar(
-                ChatCopy.APP_TITLE,
-                left = MinaIcons.Menu, leftLabel = stringResource(R.string.chat_menu), onLeft = onOpenDrawer,
-                // There are tasks running in other conversations (in parallel): a small dot on the menu,
-                // you can switch to it in the "In Progress" sidebar
-                leftBadge = others.isNotEmpty(),
-                right = { BarIconButton(MinaIcons.New, stringResource(R.string.chat_new), { vm.newConversation() }, enabled = vm.canSwitch()) },
-                subtitle = sub?.first,
-                subtitleColor = when (sub?.second) {
-                    ChatCopy.Tone.Accent -> c.accent
-                    ChatCopy.Tone.Warn -> c.warn
-                    ChatCopy.Tone.Ok -> c.ok
-                    null -> Color.Unspecified
-                },
-            )
-        }
+        ChatTopBarHost(
+            vm = vm,
+            conversationId = ui.conversationId,
+            last = last,
+            onOpenDrawer = onOpenDrawer,
+            modifier = Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height },
+        )
 
         val activeIsGeminiWeb = activeModel.provider.contains("Gemini", ignoreCase = true) ||
             activeModel.id.startsWith("gemini-", ignoreCase = true)
@@ -441,7 +407,7 @@ fun ChatScreen(
             onText = { input = it },
             mode = ui.composer,
             hasHistory = ui.exchanges.isNotEmpty(),
-            onSend = { if (vm.send(input, check)) input = "" },
+            onSend = { if (vm.send(input, currentCheck())) input = "" },
             onStop = vm::cancel,
             paused = (last?.status as? ExchangeStatus.Paused)?.resumable == true,
             onPause = { if ((last?.status as? ExchangeStatus.Paused)?.resumable == true) vm.resume() else vm.pause() },
@@ -480,30 +446,22 @@ fun ChatScreen(
             onToggleThinking = vm::toggleThinkingMode,
         )
 
-        AgentPip(
+        ChatPipHost(
+            frames = frames,
+            webOpen = webOpen,
             pip = ui.pip,
-            frame = frame,
-            webContent = webContent,
             reduceMotion = reduceMotion,
             topInset = topHeight.toFloat(),
             bottomInset = composerHeight.toFloat(),
-            onExpand = vm::expandPip,
-            onCollapse = vm::collapsePip,
-            // Turn off the small screen: before the end of this task, only the small button in the lower
-            // right corner is left; a reminder of where else to look
-            onClose = {
-                vm.closePip()
-                Toast.makeText(context, context.getString(R.string.pip_closed_hint), Toast.LENGTH_SHORT).show()
-            },
-            onReopen = vm::reopenPip,
-            // When you are asked to process, click on the small window: fold it, and scroll to the card
-            // you want to process (in the last question and answer, there may only be a file card and
-            // the line to set up after it)
+            vm = vm,
+            context = context,
             onAttention = {
                 vm.attendPip()
                 val count = listState.layoutInfo.totalItemsCount
+                val phoneVisible = phoneSetupNeededFlow != null || phoneSetupNeeded
                 val after = (if (last?.files?.isNotEmpty() == true) 1 else 0) +
-                    (if (phoneSetupNeeded) 1 else 0) +
+                    (if (last?.runId != null || last?.keptPage != null) 1 else 0) +
+                    (if (phoneVisible && ui.exchanges.isNotEmpty()) 1 else 0) +
                     (if (ui.blocked != null) 1 else 0)
                 val card = count - 1 - after
                 if (card >= 0) scope.launch { if (reduceMotion) listState.scrollToItem(card) else listState.animateScrollToItem(card) }
@@ -535,47 +493,21 @@ fun ChatScreen(
         }
 
         if (sheetOpen) {
-            RouterBottomSheet(
+            ChatRouterSheetHost(
+                vm = vm,
+                routerStatus = routerStatus,
                 activeModel = activeModel,
-                usages = routerUsages,
-                onPinClick = {
-                    if (activeModel.isPinned) {
-                        routerStatus.pinModel(null)
-                    } else {
-                        routerStatus.pinModel(activeModel.id)
-                    }
-                },
-                onSelectModel = { modelId ->
-                    routerStatus.selectModel(modelId)
-                    vm.refreshQuota()
-                },
-                onSelectModelWithProvider = { modelId, providerId ->
-                    routerStatus.selectModel(modelId, providerId.takeIf { it.isNotBlank() })
-                    vm.refreshQuota()
-                },
+                routerUsages = routerUsages,
+                quotaSnapshot = quotaSnapshot,
+                connectionStatus = connectionStatus,
                 onDismiss = { sheetOpen = false },
-                onRefresh = { routerStatus.refresh() },
                 onOpenSettings = {
                     sheetOpen = false
                     openSettings()
                 },
-                quotaSnapshot = quotaSnapshot,
-                connectionStatus = connectionStatus,
-                connectionDetail = connectionDetail,
-                thinkingEffort = thinkingEffort,
-                onSelectThinkingEffort = { effort ->
-                    routerStatus.setThinkingEffort(effort)
-                    when (effort?.trim()?.lowercase()) {
-                        "low", "fast", "none", "off", "disabled" -> vm.setThinkingEnabled(false)
-                        "medium", "high", "thinking" -> vm.setThinkingEnabled(true)
-                    }
-                },
                 onReconnectSignIn = {
                     sheetOpen = false
                     geminiSignInOpen = true
-                },
-                onRetryConnect = {
-                    vm.warmUpActiveConnection()
                 },
             )
         }
@@ -606,11 +538,196 @@ fun ChatScreen(
             )
         }
 
-        SwitchNoticeToast(
-            event = latestSwitchEvent,
-            showNotice = showNotice,
-            onDismiss = { latestSwitchEvent = null },
+        ChatSwitchNoticeHost(
+            routerStatus = routerStatus,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = with(density) { topHeight.toDp() } + 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun ChatTopBarHost(
+    vm: ChatViewModel,
+    conversationId: String?,
+    last: Exchange?,
+    onOpenDrawer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = MinaTheme.colors
+    val others by vm.otherRunning.collectAsState()
+    val keptAny by vm.keptPage.collectAsState()
+    val kept = keptAny?.takeIf { it.conversationId == conversationId }
+    // When there is no task running and a page of this conversation is left running in the
+    // background: the top column says "One web page is maintained in the background"
+    val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace)) ?: kept?.let { ChatCopy.KEPT_PAGE to ChatCopy.Tone.Ok }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        TopBar(
+            ChatCopy.APP_TITLE,
+            left = MinaIcons.Menu, leftLabel = stringResource(R.string.chat_menu), onLeft = onOpenDrawer,
+            // There are tasks running in other conversations (in parallel): a small dot on the menu,
+            // you can switch to it in the "In Progress" sidebar
+            leftBadge = others.isNotEmpty(),
+            right = { BarIconButton(MinaIcons.New, stringResource(R.string.chat_new), { vm.newConversation() }, enabled = vm.canSwitch()) },
+            subtitle = sub?.first,
+            subtitleColor = when (sub?.second) {
+                ChatCopy.Tone.Accent -> c.accent
+                ChatCopy.Tone.Warn -> c.warn
+                ChatCopy.Tone.Ok -> c.ok
+                null -> Color.Unspecified
+            },
+        )
+    }
+}
+
+@Composable
+private fun ChatPipHost(
+    frames: StateFlow<Bitmap?>,
+    webOpen: StateFlow<Boolean>,
+    pip: PipState,
+    reduceMotion: Boolean,
+    topInset: Float,
+    bottomInset: Float,
+    vm: ChatViewModel,
+    context: Context,
+    onAttention: () -> Unit,
+) {
+    val live by frames.collectAsState()
+    val webLive by webOpen.collectAsState()
+    var lastFrame by remember { mutableStateOf<Bitmap?>(null) }
+    var lastFrameWasWeb by remember { mutableStateOf(false) }
+    LaunchedEffect(live, webLive, pip.mode) {
+        live?.let {
+            lastFrame = it
+            if (webLive) lastFrameWasWeb = true
+            else if (pip.mode != PipMode.Done) lastFrameWasWeb = false
+        }
+    }
+    val frame = live ?: lastFrame.takeIf { pip.visible && pip.mode == PipMode.Done }
+    val webContent = if (pip.mode == PipMode.Done) lastFrameWasWeb else webLive
+    AgentPip(
+        pip = pip,
+        frame = frame,
+        webContent = webContent,
+        reduceMotion = reduceMotion,
+        topInset = topInset,
+        bottomInset = bottomInset,
+        onExpand = vm::expandPip,
+        onCollapse = vm::collapsePip,
+        onClose = {
+            vm.closePip()
+            Toast.makeText(context, context.getString(R.string.pip_closed_hint), Toast.LENGTH_SHORT).show()
+        },
+        onReopen = vm::reopenPip,
+        onAttention = onAttention,
+    )
+}
+
+@Composable
+private fun ChatRouterSheetHost(
+    vm: ChatViewModel,
+    routerStatus: RouterStatus,
+    activeModel: ActiveModel,
+    routerUsages: List<com.meenai.mina.ui.router.ProviderUsage>,
+    quotaSnapshot: QuotaSnapshot,
+    connectionStatus: ConnectionStatus,
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onReconnectSignIn: () -> Unit,
+) {
+    val vmConnDetail by vm.connectionDetail.collectAsState()
+    val routerConnDetail by routerStatus.connectionDetail.collectAsState()
+    val connectionDetail = vmConnDetail ?: routerConnDetail
+    val thinkingEffort by routerStatus.thinkingEffort.collectAsState()
+    RouterBottomSheet(
+        activeModel = activeModel,
+        usages = routerUsages,
+        onPinClick = {
+            if (activeModel.isPinned) {
+                routerStatus.pinModel(null)
+            } else {
+                routerStatus.pinModel(activeModel.id)
+            }
+        },
+        onSelectModel = { modelId ->
+            routerStatus.selectModel(modelId)
+            vm.refreshQuota()
+        },
+        onSelectModelWithProvider = { modelId, providerId ->
+            routerStatus.selectModel(modelId, providerId.takeIf { it.isNotBlank() })
+            vm.refreshQuota()
+        },
+        onDismiss = onDismiss,
+        onRefresh = { routerStatus.refresh() },
+        onOpenSettings = onOpenSettings,
+        quotaSnapshot = quotaSnapshot,
+        connectionStatus = connectionStatus,
+        connectionDetail = connectionDetail,
+        thinkingEffort = thinkingEffort,
+        onSelectThinkingEffort = { effort ->
+            routerStatus.setThinkingEffort(effort)
+            when (effort?.trim()?.lowercase()) {
+                "low", "fast", "none", "off", "disabled" -> vm.setThinkingEnabled(false)
+                "medium", "high", "thinking" -> vm.setThinkingEnabled(true)
+            }
+        },
+        onReconnectSignIn = onReconnectSignIn,
+        onRetryConnect = { vm.warmUpActiveConnection() },
+    )
+}
+
+@Composable
+private fun ChatSwitchNoticeHost(
+    routerStatus: RouterStatus,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val flags = remember(context) { FeatureFlags.get(context) }
+    val showNotice = remember(flags) { flags.showSwitchNotice() }
+    var latestSwitchEvent by remember { mutableStateOf<SwitchEvent?>(null) }
+    LaunchedEffect(routerStatus) {
+        routerStatus.events.collect { event ->
+            latestSwitchEvent = event
+        }
+    }
+    SwitchNoticeToast(
+        event = latestSwitchEvent,
+        showNotice = showNotice,
+        onDismiss = { latestSwitchEvent = null },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun PhoneSetupBannerLeaf(
+    fallbackNeeded: Boolean,
+    phoneSetupNeededFlow: StateFlow<Boolean>?,
+    statusFlow: StateFlow<SystemStatus>?,
+    openPhoneSetup: () -> Unit,
+) {
+    val needed = if (phoneSetupNeededFlow != null) phoneSetupNeededFlow.collectAsState().value else fallbackNeeded
+    val status = if (statusFlow != null) statusFlow.collectAsState().value else null
+    val visible = needed && (status == null || status.builtinShell != BuiltinShellStatus.Running)
+    if (visible) {
+        PhoneSetupLine(openPhoneSetup)
+    }
+}
+
+@Composable
+private fun LiveExchangeKeptRow(
+    ex: Exchange,
+    conversationId: String?,
+    vm: ChatViewModel,
+) {
+    val keptAny by vm.keptPage.collectAsState()
+    val live = keptAny?.takeIf { it.conversationId == conversationId }
+    when (val row = KeptRow.of(ex, live)) {
+        null -> Unit
+        is KeptRow.Live -> KeptLine(row.page, vm::closeKeptPage)
+        is KeptRow.Closed -> Text(
+            KeptPageCopy.closedNote(row.reason),
+            Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 10.dp).testTag("kept-closed"),
+            style = MinaType.Hint,
+            color = MinaTheme.colors.ink3,
         )
     }
 }
@@ -678,16 +795,19 @@ private fun LazyListScope.exchange(
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
     kept: KeptPage? = null, activeModelName: String = "", thinkingEnabled: Boolean = true,
     check: Prerequisites.Check = Prerequisites.Check(emptyList()),
+    checkProvider: (() -> Prerequisites.Check)? = null,
+    useLiveKeptRow: Boolean = false,
 ) {
     if (ex.goal.isNotEmpty()) item(key = "u:${ex.id}", contentType = "user") { UserBubble(ex.goal, conversationId, key = "u:${ex.id}") }
     val active = ex.status.isActive()
     val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
-    val hasThinking = !ex.thinking.isNullOrBlank()
     if (active) {
         if (!answering) {
             item(key = "s:${ex.id}", contentType = "step") { WorkBlock(ex, reduceMotion, backgroundNote, openRun, activeModelName, thinkingEnabled) }
-        } else if (thinkingEnabled && hasThinking) {
-            item(key = "s:${ex.id}", contentType = "step") { CompactThinkingHeader(ex) }
+        } else {
+            item(key = "s:${ex.id}", contentType = "step") {
+                CompactThinkingHeader(ex, reduceMotion, activeModelName, thinkingEnabled)
+            }
         }
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         item(key = "s:${ex.id}", contentType = "step") { DoneLine(ex, reduceMotion, openRun) }
@@ -725,14 +845,22 @@ private fun LazyListScope.exchange(
                     loadSource = loadSource,
                     openSource = openSource,
                     key = "r:${ex.id}",
-                    onRetry = { vm.retryExchange(ex.id, check) },
+                    onRetry = { vm.retryExchange(ex.id, checkProvider?.invoke() ?: check) },
                 )
             }
         }
     }
     // The page left running in the background after this round: If it is still open, there is a green
     // line (it can be turned off), and if it is turned off, there is a reason.
-    keptPageRow(ex, kept, vm::closeKeptPage)
+    if (useLiveKeptRow) {
+        if (ex.runId != null || ex.keptPage != null) {
+            item(key = "k:${ex.id}", contentType = "kept") {
+                LiveExchangeKeptRow(ex, conversationId, vm)
+            }
+        }
+    } else {
+        keptPageRow(ex, kept, vm::closeKeptPage)
+    }
     if (ex.files.isNotEmpty()) item(key = "f:${ex.id}", contentType = "files") { FileCards(ex.files) }
     if (ex.generatedImages.isNotEmpty()) {
         ex.generatedImages.forEachIndexed { imgIdx, img ->
@@ -816,10 +944,8 @@ internal fun exchangeItemKeys(ex: Exchange, kept: KeptPage? = null, hasMultipleD
     val items = mutableListOf<Pair<String, String>>()
     if (ex.goal.isNotEmpty()) items.add("u:${ex.id}" to "user")
     val active = ex.status.isActive()
-    val answering = ex.status == ExchangeStatus.Working && !ex.draft.isNullOrBlank()
-    val hasThinking = !ex.thinking.isNullOrBlank()
     if (active) {
-        if (!answering || hasThinking) items.add("s:${ex.id}" to "step")
+        items.add("s:${ex.id}" to "step")
     } else if (ex.steps.isNotEmpty() || ex.runId != null) {
         items.add("s:${ex.id}" to "step")
     }
@@ -1350,18 +1476,47 @@ fun takeoverReasonLabel(reason: String): Int? = when (reason) {
 }
 
 @Composable
-private fun CompactThinkingHeader(ex: Exchange) {
-    val liveThinking = ex.thinking?.trim()?.takeIf { it.isNotEmpty() } ?: return
+private fun CompactThinkingHeader(
+    ex: Exchange,
+    reduceMotion: Boolean,
+    activeModelName: String,
+    thinkingEnabled: Boolean,
+) {
+    val c = MinaTheme.colors
     val isHindi = ChatCopy.isHindiLocale(stringResource(R.string.ui_locale))
+    val liveThinking = if (thinkingEnabled) ex.thinking?.trim()?.takeIf { it.isNotEmpty() } else null
     var expanded by remember(ex.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-        ThinkingProcessBox(
-            thinking = liveThinking,
-            isHindi = isHindi,
-            expanded = expanded,
-            onToggle = { expanded = !expanded },
-            previewLines = 2,
-        )
+    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp).testTag("streaming-status-header")) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Spinner(
+                Modifier.size(14.dp),
+                spinning = !reduceMotion,
+                track = c.accentSoft,
+                head = c.accent,
+            )
+            ModelWaitProgressText(
+                startedAt = ex.startedAt,
+                activeModelName = activeModelName,
+                isHindi = isHindi,
+                thinkingEnabled = thinkingEnabled,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (liveThinking != null) {
+            ThinkingProcessBox(
+                thinking = liveThinking,
+                isHindi = isHindi,
+                expanded = expanded,
+                onToggle = { expanded = !expanded },
+                modifier = Modifier.padding(top = 6.dp, start = 22.dp),
+                previewLines = 2,
+                startedAt = ex.startedAt,
+            )
+        }
     }
 }
 
@@ -1772,10 +1927,7 @@ internal fun Composer(
     LaunchedEffect(ime, nav, density) {
         snapshotFlow { ime.getBottom(density) - nav.getBottom(density) }.collect { if (it > keyboardPx) keyboardPx = it }
     }
-    // When the input box is focused, press and hold to leave the system to select words and paste (the
-    // same is true for floating, split, and physical keyboards); when the input box is not focused, a
-    // layer of press-and-hold gestures is used to cover the input box.
-    val voiceGesture = vh != null && (!fieldFocused || voiceHolding)
+    // Drop focus when the keyboard closes so back/tap focus state stays accurate.
     // From playing to retracting the keyboard (return key, the keyboard's own retract key): the input
     // box then loses focus, and you can press and hold to speak. Only see changes in the keyboard, the
     // physical keyboard (which never pops up) is not affected
@@ -1849,36 +2001,48 @@ internal fun Composer(
             Box(Modifier.fillMaxWidth()) {
             GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop, shape = ComposerShape) {
                 Column(Modifier.fillMaxWidth()) {
-                    Box(
+                    val inputStyle = remember(c) { MinaType.Body.copy(color = c.ink) }
+                    val cursorAccent = remember(c) { SolidColor(c.accent) }
+                    Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 4.dp),
+                            .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        val converting = vState is HoldToTalk.State.Converting
-                        if (text.isEmpty() && !converting) {
-                            if (vh != null) VoicePlaceholder(mode)
-                            else Text(ChatCopy.placeholder(mode, hasHistory), style = MinaType.Body, color = c.ink3, maxLines = 1)
+                        Box(Modifier.weight(1f)) {
+                            val converting = vState is HoldToTalk.State.Converting
+                            if (text.isEmpty() && !converting) {
+                                if (vh != null) VoicePlaceholder(mode, showMic = false)
+                                else Text(ChatCopy.placeholder(mode, hasHistory), style = MinaType.Body, color = c.ink3, maxLines = 1)
+                            }
+                            BasicTextField(
+                                shownValue,
+                                { v -> fieldValue = v; if (v.text != text) onText(v.text) },
+                                Modifier.fillMaxWidth().testTag("composer-field").focusRequester(field)
+                                    .alpha(if (converting) 0f else 1f)
+                                    // Click on the input box when the panel is open: the panel gives way to the
+                                    // keyboard
+                                    .onFocusChanged {
+                                        fieldFocused = it.isFocused
+                                        if (it.isFocused && panel == Panel.Open) panel = Panel.Yielding
+                                    },
+                                textStyle = inputStyle,
+                                cursorBrush = cursorAccent,
+                                maxLines = 5,
+                            )
+                            // After the service provider releases the button, rotate: circle in the input box
+                            // and fill in the transferred words.
+                            if (converting) VoiceConverting(Modifier.align(Alignment.CenterStart))
                         }
-                        BasicTextField(
-                            shownValue,
-                            { v -> fieldValue = v; if (v.text != text) onText(v.text) },
-                            Modifier.fillMaxWidth().testTag("composer-field").focusRequester(field)
-                                .alpha(if (converting) 0f else 1f)
-                                // Click on the input box when the panel is open: the panel gives way to the
-                                // keyboard
-                                .onFocusChanged {
-                                    fieldFocused = it.isFocused
-                                    if (it.isFocused && panel == Panel.Open) panel = Panel.Yielding
-                                },
-                            textStyle = MinaType.Body.copy(color = c.ink),
-                            cursorBrush = SolidColor(c.accent),
-                            maxLines = 5,
-                        )
-                        // After the service provider releases the button, rotate: circle in the input box
-                        // and fill in the transferred words.
-                        if (converting) VoiceConverting(Modifier.align(Alignment.CenterStart))
-                        if (voiceGesture && vh != null) {
-                            Box(Modifier.matchParentSize().holdToTalk(vh) { field.requestFocus(); keyboard?.show() })
+                        if (vh != null) {
+                            val hint = stringResource(R.string.voice_hold_to_talk)
+                            Box(
+                                Modifier.size(34.dp).clip(CircleShape).testTag("composer-mic").holdToTalk(vh) { vh.toast = hint },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(MinaIcons.Mic, hint, Modifier.size(18.dp), tint = c.ink2)
+                            }
                         }
                     }
 
@@ -1886,7 +2050,7 @@ internal fun Composer(
                     Row(
                         Modifier.fillMaxWidth().padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         Row(
                             Modifier.weight(1f),
@@ -1896,7 +2060,7 @@ internal fun Composer(
                             if (attachPanel != null) {
                                 val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
                                 Box(
-                                    Modifier.size(MinaSize.IconButton).clip(CircleShape)
+                                    Modifier.size(36.dp).clip(CircleShape)
                                         .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -1909,7 +2073,7 @@ internal fun Composer(
                                     quotaSnapshot = quotaSnapshot,
                                     connectionStatus = connectionStatus,
                                     onClick = onModelPillClick,
-                                    modifier = Modifier.weight(1f, fill = false),
+                                    modifier = Modifier.weight(1f, fill = false).widthIn(min = 128.dp),
                                 )
                             }
                             if (onToggleThinking != null) {
@@ -1920,49 +2084,37 @@ internal fun Composer(
                             }
                         }
 
-                        // After the keyboard comes out, press and hold the input box to allow the system to
-                        // select words; press and hold the microphone to listen, and click and hold only to
-                        // prompt
-                        if (fieldFocused && vh != null) {
-                            val hint = stringResource(R.string.voice_hold_to_talk)
-                            Box(
-                                Modifier.size(MinaSize.IconButton).testTag("composer-mic").holdToTalk(vh) { vh.toast = hint },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(MinaIcons.Mic, hint, Modifier.size(MinaSize.Icon), tint = c.ink)
-                            }
-                        }
                         // The task stops while it is running; after writing a word, send another one. If it is
                         // sent, it will be handed over to the current task.
                         if (busy) {
                             val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
                             Box(
-                                Modifier.size(MinaSize.IconButton).clip(CircleShape)
+                                Modifier.size(36.dp).clip(CircleShape)
                                     .clickable(onClickLabel = pauseLabel, onClick = onPause),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     if (paused) MinaIcons.Play else MinaIcons.Pause, pauseLabel,
-                                    Modifier.size(20.dp), tint = c.ink,
+                                    Modifier.size(18.dp), tint = c.ink,
                                 )
                             }
                             Box(
-                                Modifier.size(MinaSize.IconButton).background(c.ink, CircleShape).clip(CircleShape)
+                                Modifier.size(36.dp).background(c.ink, CircleShape).clip(CircleShape)
                                     .clickable(onClickLabel = stringResource(R.string.chat_stop), onClick = onStop),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(26.dp), tint = c.bg)
+                                Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(22.dp), tint = c.bg)
                             }
                         }
                         if (!busy || canSend) {
                             Box(
-                                Modifier.size(MinaSize.IconButton)
+                                Modifier.size(36.dp)
                                     .background(if (canSend) c.accent else c.greySoft, CircleShape)
                                     .clip(CircleShape)
                                     .clickable(enabled = canSend, onClickLabel = stringResource(R.string.chat_send)) { panel = Panel.Closed; onSend() },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(20.dp), tint = if (canSend) c.onAccent else c.ink3)
+                                Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(19.dp), tint = if (canSend) c.onAccent else c.ink3)
                             }
                         }
                     }
@@ -2009,7 +2161,7 @@ private fun ThinkingModePill(
             .background(bg)
             .border(0.5.dp, borderColor, MinaShapes.Pill)
             .clickable(role = Role.Button, onClickLabel = stringResource(R.string.chat_mode_toggle_desc), onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 5.dp)
             .testTag("composer-thinking-toggle"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2018,8 +2170,23 @@ private fun ThinkingModePill(
             style = if (thinkingEnabled) ThinkingPillSelectedText else ThinkingPillText,
             color = textColor,
             maxLines = 1,
+            softWrap = false,
         )
     }
+}
+
+private val MODEL_VENDOR_PREFIXES = listOf("Gemini ", "Google ", "OpenAI ", "Anthropic ")
+
+internal fun shortModelName(raw: String): String {
+    val cleaned = raw.trim().substringAfterLast('/').removeSuffix(":free").trim()
+    if (cleaned.isEmpty()) return ""
+    for (prefix in MODEL_VENDOR_PREFIXES) {
+        if (cleaned.startsWith(prefix, ignoreCase = true)) {
+            val rest = cleaned.substring(prefix.length).trim()
+            if (rest.isNotEmpty()) return rest
+        }
+    }
+    return cleaned
 }
 
 @Composable
@@ -2049,7 +2216,7 @@ private fun ComposerModelPill(
         else -> c.bad
     }
     val modelLabel = if (hasModel) {
-        activeModel.name.ifBlank { activeModel.id }
+        shortModelName(activeModel.name.ifBlank { formatRouterModelName(activeModel.id) })
     } else {
         stringResource(R.string.router_select_model)
     }
@@ -2060,10 +2227,10 @@ private fun ComposerModelPill(
             .background(scheme.surfaceContainerHigh)
             .border(0.5.dp, scheme.outlineVariant, MinaShapes.Pill)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 5.dp)
             .testTag("composer-model-pill"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             Modifier
@@ -2091,7 +2258,7 @@ private fun ComposerModelPill(
                 modifier = Modifier
                     .clip(MinaShapes.Pill)
                     .background(badgeColor.copy(alpha = 0.14f))
-                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
                     .testTag("composer-quota-percent"),
             ) {
                 Text(
@@ -2099,6 +2266,7 @@ private fun ComposerModelPill(
                     style = QuotaBadgeText,
                     color = badgeColor,
                     maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
@@ -2106,7 +2274,7 @@ private fun ComposerModelPill(
             imageVector = MinaIcons.ChevronDown,
             contentDescription = stringResource(R.string.router_chip_desc),
             tint = c.ink3,
-            modifier = Modifier.size(13.dp),
+            modifier = Modifier.size(12.dp),
         )
     }
 }

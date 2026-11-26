@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalNavigationDrawer
@@ -48,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
@@ -71,7 +73,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meenai.mina.chat.ConversationSummary
+import com.meenai.mina.about.AboutCopy
+import com.meenai.mina.about.UpdateState
+import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.settings.Prerequisites
+import com.meenai.mina.settings.RoleChoices
+import com.meenai.mina.settings.SystemStatus
+import kotlinx.coroutines.flow.StateFlow
 import com.meenai.mina.ui.components.KeyboardDismissArea
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -375,19 +383,31 @@ private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversat
     // the list), the menu will be placed as the raised line; it is only read in the callback, and does
     // not cause reorganization.
     val bounds = remember { mutableStateOf(Rect.Zero) }
+    val canLongClick = deletable
+    val handleLongClick = remember(item, haptic, onActions) {
+        {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onActions(item, bounds.value)
+        }
+    }
+    val handleClick = remember(item, onOpen) {
+        { if (item.enabled) onOpen(item) }
+    }
+    val cardModifier = if (item.current) Modifier.cardSurface(c, NavShape) else Modifier
+    val longClickDesc = if (canLongClick) stringResource(R.string.drawer_actions) else null
     Column(
         Modifier.padding(horizontal = 12.dp).fillMaxWidth()
             .onGloballyPositioned { bounds.value = Rect(it.positionInWindow(), it.size.toSize()) }
-            .then(if (item.current) Modifier.cardSurface(c, NavShape) else Modifier)
+            .then(cardModifier)
             .clip(NavShape)
             .then(
-                if (deletable) Modifier.combinedClickable(
+                if (canLongClick) Modifier.combinedClickable(
                     onClickLabel = null,
-                    onLongClickLabel = stringResource(R.string.drawer_actions),
+                    onLongClickLabel = longClickDesc,
                     // It vibrates like a long press in the system.
-                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onActions(item, bounds.value) },
-                    onClick = { if (item.enabled) onOpen(item) },
-                ) else Modifier.clickable(enabled = item.enabled, onClick = { onOpen(item) }),
+                    onLongClick = handleLongClick,
+                    onClick = handleClick,
+                ) else Modifier.clickable(enabled = item.enabled, onClick = handleClick),
             )
             .testTag("conversation-row")
             .alpha(if (item.enabled) 1f else 0.45f)
@@ -408,7 +428,7 @@ internal fun ConversationRowContent(item: DrawerConversation) {
             Text(item.title, Modifier.weight(1f, fill = item.site == null), style = ConversationTitle, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (item.site != null) {
                 Text(
-                    PageAskCopy.WEB, Modifier.background(c.accentSoft, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp).testTag("conversation-web"),
+                    PageAskCopy.WEB, Modifier.background(c.accentSoft, WebTagShape).padding(horizontal = 6.dp).testTag("conversation-web"),
                     style = ConversationTag, color = c.accent, maxLines = 1,
                 )
                 Box(Modifier.weight(1f))
@@ -484,6 +504,7 @@ internal const val MENU_OUT_MS = 140
 private val DrawerWidth = 304.dp
 private val DrawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
 internal val NavShape = RoundedCornerShape(12.dp)
+private val WebTagShape = RoundedCornerShape(6.dp)
 private val SectionText = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium)
 private val ConversationTitle = TextStyle(fontSize = 14.5.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
 private val ConversationTime = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp)
@@ -518,6 +539,9 @@ fun ChatWithDrawer(
     onReopened: () -> Unit = {},
     cachedConversations: () -> List<ConversationSummary>? = { null },
     asyncLoad: Boolean = false,
+    statusFlow: StateFlow<SystemStatus>? = null,
+    rolesFlow: StateFlow<RoleChoices>? = null,
+    updatesFlow: StateFlow<UpdateState>? = null,
     content: @Composable (openDrawer: () -> Unit) -> Unit,
 ) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -528,32 +552,31 @@ fun ChatWithDrawer(
             onReopened()
         }
     }
-    val ui by vm.ui.collectAsState()
-    val others by vm.otherRunning.collectAsState()
-    fun close(then: () -> Unit = {}) {
-        scope.launch {
-            if (reduceMotion) drawer.snapTo(DrawerValue.Closed) else drawer.close()
+    val close: (() -> Unit) -> Unit = remember(drawer, scope, reduceMotion) {
+        { then ->
+            scope.launch {
+                if (reduceMotion) drawer.snapTo(DrawerValue.Closed) else drawer.close()
+            }
+            then()
         }
-        then()
     }
     /** Go to another page: close the sidebar on the spot first, and it will be closed when you come back. */
-    fun leave(go: () -> Unit) {
-        scope.launch { drawer.snapTo(DrawerValue.Closed) }
-        go()
+    val leave: (() -> Unit) -> Unit = remember(drawer, scope) {
+        { go ->
+            scope.launch { drawer.snapTo(DrawerValue.Closed) }
+            go()
+        }
     }
-    val open = drawer.targetValue == DrawerValue.Open || drawer.isOpen
+    val openDrawer = remember(drawer, scope, reduceMotion) {
+        { scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() }; Unit }
+    }
     // To return (swipe) on the conversation page, open the sidebar first; when the sidebar is open,
-    // return and then leave the app (retreat to the background, the same as returning to the desktop).
-    // The dialogue page panel, picture-in-picture and other own returns are in the inner layer and are
-    // processed here first.
+    // return and then leave the app (retreat to the desktop).
     val activity = LocalContext.current.findActivity()
     BackHandler {
-        if (open) activity?.moveTaskToBack(true)
-        else scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() }
+        if (drawer.targetValue == DrawerValue.Open || drawer.isOpen) activity?.moveTaskToBack(true)
+        else openDrawer()
     }
-    var revision by remember { mutableIntStateOf(0) }
-    LaunchedEffect(conversationChanges) { conversationChanges.collect { revision++ } }
-    val deleted by vm.deleted.collectAsState()
     /** The long-pressed item and its position in the window; the menu is open (the folding animation will not be cleared until it is played). */
     var acting by remember { mutableStateOf<Pair<DrawerConversation, Rect>?>(null) }
     /** The progress of the menu appearing: 0 means no, 1 means it is completely out; when the animation is turned off, it is directly in place. */
@@ -584,61 +607,28 @@ fun ChatWithDrawer(
                 .graphicsLayer { alpha = 1f - 0.14f * lift.value }
                 .clearAndSetSemantics {},
             drawerContent = {
-                // The disk is only read when opened (offloaded to Dispatchers.IO in app runtime) and
-                // re-read if conversations change in storage while open.
-                val initialAll = remember(open) { if (open && asyncLoad) cachedConversations().orEmpty() else emptyList() }
-                val all by produceState(initialAll, open, revision, asyncLoad) {
-                    if (!open) {
-                        value = emptyList()
-                    } else if (!asyncLoad) {
-                        value = conversations()
-                    } else {
-                        if (value.isEmpty()) cachedConversations()?.let { value = it }
-                        value = withContext(Dispatchers.IO) { conversations() }
-                    }
-                }
-                val stored by produceState<String?>(null, open, revision, ui.conversationId, asyncLoad) {
-                    val id = ui.conversationId
-                    value = when {
-                        !open || id == null -> null
-                        !asyncLoad -> conversationTitle(id)
-                        else -> withContext(Dispatchers.IO) { conversationTitle(id) }
-                    }
-                }
-                val last = ui.exchanges.lastOrNull()
-                val running = vm.busy()
-                val current = CurrentConversation(
-                    ui.conversationId, running,
-                    stored ?: ChatCopy.title(ui.exchanges),
-                    if (running) ChatCopy.subtitle(last, last?.let(vm::livePlace))?.first.orEmpty() else "",
-                )
-                val canSwitch = vm.canSwitch()
-                // Deleted conversations will not be listed on the spot until they are deleted in the
-                // background.
-                val sections = remember(all, current, others, canSwitch, deleted) {
-                    drawerSections(all.filter { it.id !in deleted }, current, others.filter { it !in deleted }, vm::runningGoal, canSwitch, System.currentTimeMillis())
-                }
-                ChatDrawer(
-                    check, sections, canSwitch,
-                    onNew = { close { vm.newConversation() } },
-                    onPlans = { leave(onPlans) },
-                    onMemory = { leave(onMemory) },
-                    onSettings = { leave(onSettings) },
-                    onBrowser = { leave(onBrowser) },
-                    onScreens = { leave(onScreens) },
-                    onAbout = { leave(onAbout) },
-                    aboutDot = updateAvailable,
+                ChatDrawerPanel(
+                    drawer = drawer,
+                    vm = vm,
+                    fallbackCheck = check,
+                    statusFlow = statusFlow,
+                    rolesFlow = rolesFlow,
+                    updatesFlow = updatesFlow,
+                    fallbackUpdateAvailable = updateAvailable,
+                    conversations = conversations,
+                    conversationChanges = conversationChanges,
+                    conversationTitle = conversationTitle,
+                    cachedConversations = cachedConversations,
+                    asyncLoad = asyncLoad,
+                    onClose = close,
+                    onLeave = leave,
+                    onPlans = onPlans,
+                    onMemory = onMemory,
+                    onBrowser = onBrowser,
+                    onScreens = onScreens,
+                    onSettings = onSettings,
+                    onAbout = onAbout,
                     onActions = { item, bounds -> if (item.id != null) acting = item to bounds },
-                    onOpen = { item ->
-                        close {
-                            val id = item.id
-                            when {
-                                id == null || id == ui.conversationId -> Unit
-                                item.running -> vm.switchTo(id)
-                                else -> vm.openConversation(id)
-                            }
-                        }
-                    },
                 )
             },
             drawerState = drawer,
@@ -649,7 +639,7 @@ fun ChatWithDrawer(
             gesturesEnabled = true,
             scrimColor = MinaTheme.colors.floatShadow.copy(alpha = 0.28f),
         ) {
-            content { scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() } }
+            content(openDrawer)
         }
         acting?.let { (item, bounds) ->
             val id = item.id ?: return@let
@@ -682,4 +672,109 @@ fun ChatWithDrawer(
             onDismiss = { confirming = null },
         )
     }
+}
+
+/**
+ * Isolated drawer panel collecting [vm.ui], [vm.otherRunning], [vm.deleted], and optional status/update
+ * flows only when visible so chat streaming never recomposes [ChatWithDrawer] or the closed drawer.
+ */
+@Composable
+private fun ChatDrawerPanel(
+    drawer: DrawerState,
+    vm: ChatViewModel,
+    fallbackCheck: Prerequisites.Check,
+    statusFlow: StateFlow<SystemStatus>?,
+    rolesFlow: StateFlow<RoleChoices>?,
+    updatesFlow: StateFlow<UpdateState>?,
+    fallbackUpdateAvailable: Boolean,
+    conversations: () -> List<ConversationSummary>,
+    conversationChanges: Flow<String>,
+    conversationTitle: (String) -> String?,
+    cachedConversations: () -> List<ConversationSummary>?,
+    asyncLoad: Boolean,
+    onClose: (() -> Unit) -> Unit,
+    onLeave: (() -> Unit) -> Unit,
+    onPlans: () -> Unit,
+    onMemory: () -> Unit,
+    onBrowser: () -> Unit,
+    onScreens: () -> Unit,
+    onSettings: () -> Unit,
+    onAbout: () -> Unit,
+    onActions: (DrawerConversation, Rect) -> Unit,
+) {
+    val open by remember(drawer) {
+        derivedStateOf { drawer.targetValue == DrawerValue.Open || drawer.isOpen }
+    }
+    var revision by remember { mutableIntStateOf(0) }
+    LaunchedEffect(conversationChanges) { conversationChanges.collect { revision++ } }
+
+    val ui = if (open) vm.ui.collectAsState().value else vm.ui.value
+    val others = if (open) vm.otherRunning.collectAsState().value else vm.otherRunning.value
+    val deleted = if (open) vm.deleted.collectAsState().value else vm.deleted.value
+
+    val status = if (open && statusFlow != null) statusFlow.collectAsState().value else statusFlow?.value
+    val roles = if (open && rolesFlow != null) rolesFlow.collectAsState().value else rolesFlow?.value
+    val check = remember(status, roles, fallbackCheck) {
+        if (status != null) Prerequisites.check(status, hasMainModel = roles?.main != null) else fallbackCheck
+    }
+    val updateState = if (open && updatesFlow != null) updatesFlow.collectAsState().value else updatesFlow?.value
+    val aboutDot = updateState?.let { AboutCopy.drawerDot(it) } ?: fallbackUpdateAvailable
+
+    val initialAll = remember(open) { if (open && asyncLoad) cachedConversations().orEmpty() else emptyList() }
+    val all by produceState(initialAll, open, revision, asyncLoad) {
+        if (!open) {
+            value = emptyList()
+        } else if (!asyncLoad) {
+            value = conversations()
+        } else {
+            if (value.isEmpty()) cachedConversations()?.let { value = it }
+            value = withContext(Dispatchers.IO) { conversations() }
+        }
+    }
+    val stored by produceState<String?>(null, open, revision, ui.conversationId, asyncLoad) {
+        val id = ui.conversationId
+        value = when {
+            !open || id == null -> null
+            !asyncLoad -> conversationTitle(id)
+            else -> withContext(Dispatchers.IO) { conversationTitle(id) }
+        }
+    }
+    val last = ui.exchanges.lastOrNull()
+    val running = vm.busy()
+    val current = remember(ui.conversationId, running, stored, ui.exchanges, last) {
+        CurrentConversation(
+            ui.conversationId, running,
+            stored ?: ChatCopy.title(ui.exchanges),
+            if (running) ChatCopy.subtitle(last, last?.let(vm::livePlace))?.first.orEmpty() else "",
+        )
+    }
+    val canSwitch = vm.canSwitch()
+    val sections = remember(all, current, others, canSwitch, deleted) {
+        drawerSections(all.filter { it.id !in deleted }, current, others.filter { it !in deleted }, vm::runningGoal, canSwitch, System.currentTimeMillis())
+    }
+    val convId = ui.conversationId
+    ChatDrawer(
+        check, sections, canSwitch,
+        onNew = remember(onClose, vm) { { onClose { vm.newConversation() } } },
+        onPlans = remember(onLeave, onPlans) { { onLeave(onPlans) } },
+        onMemory = remember(onLeave, onMemory) { { onLeave(onMemory) } },
+        onSettings = remember(onLeave, onSettings) { { onLeave(onSettings) } },
+        onBrowser = remember(onLeave, onBrowser) { { onLeave(onBrowser) } },
+        onScreens = remember(onLeave, onScreens) { { onLeave(onScreens) } },
+        onAbout = remember(onLeave, onAbout) { { onLeave(onAbout) } },
+        aboutDot = aboutDot,
+        onActions = onActions,
+        onOpen = remember(onClose, convId, vm) {
+            { item ->
+                onClose {
+                    val id = item.id
+                    when {
+                        id == null || id == convId -> Unit
+                        item.running -> vm.switchTo(id)
+                        else -> vm.openConversation(id)
+                    }
+                }
+            }
+        },
+    )
 }

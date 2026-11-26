@@ -1,7 +1,11 @@
 package com.meenai.mina.ui.theme
 
+import android.app.Activity
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.os.Build
 import android.provider.Settings
+import android.view.Display
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
@@ -66,11 +70,42 @@ typealias MinaTheme = HarnessTheme
 fun appearanceDark(): Boolean {
     val context = LocalContext.current
     val flags = remember(context) { FeatureFlags.get(context) }
-    val mode by remember(flags) { flags.themeModeChanges() }.collectAsState(flags.themeMode())
+    val initialMode = remember(flags) { flags.themeMode() }
+    val mode by remember(flags) { flags.themeModeChanges() }.collectAsState(initialMode)
     return when (mode) {
         ThemeMode.System -> isSystemInDarkTheme()
         ThemeMode.Light -> false
         ThemeMode.Dark -> true
+    }
+}
+
+/** Request the highest refresh rate at the current display resolution (e.g., 120Hz/144Hz). */
+fun Activity.requestMaxRefreshRate() {
+    runCatching {
+        val currentDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display ?: getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager?.defaultDisplay
+        } ?: return
+        val currentMode = currentDisplay.mode
+        val supported = currentDisplay.supportedModes ?: return
+        val sameResModes = supported.filter {
+            it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight
+        }
+        val bestMode = (if (sameResModes.isNotEmpty()) sameResModes else supported.toList())
+            .maxByOrNull { it.refreshRate } ?: return
+        val attrs = window.attributes
+        var updated = false
+        if (attrs.preferredDisplayModeId != bestMode.modeId) {
+            attrs.preferredDisplayModeId = bestMode.modeId
+            updated = true
+        }
+        if (attrs.preferredRefreshRate != bestMode.refreshRate) {
+            attrs.preferredRefreshRate = bestMode.refreshRate
+            updated = true
+        }
+        if (updated) window.attributes = attrs
     }
 }
 

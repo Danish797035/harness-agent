@@ -80,7 +80,7 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     val face = remember(looks) { { host: String -> SiteLooks.faceOf(host, looks, browser.looks::iconFile) } }
     val favorites = remember(edits, registry) { BrowserFavorites.combine(edits, registry) }
     val recent = remember(recentPages, looks) { StartPageModel.recentRows(recentPages) { face(it).name } }
-    val toast: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    val toast: (String) -> Unit = remember(context) { { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() } }
     val scope = rememberCoroutineScope()
     val chat = remember(browser) { PageChat(context.applicationContext, browser, scope) }
     // Changed the page (I haven’t asked on this page yet) and found the next conversation again; closed
@@ -129,10 +129,11 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
             )
         } else {
             val host = WebUrlPolicy.host(p.url)
+            val siteFace = remember(host, face) { host?.let(face) }
             val loginBanner = p.loginFor != null && !BrowserFavorites.loggedIn(registry, p.loginFor)
             Column(Modifier.fillMaxSize()) {
                 BrowserPageBar(
-                    p, host?.let(face),
+                    p, siteFace,
                     onClose = browser::closePage,
                     onSubmit = { input -> browser.submit(input)?.let(toast) },
                     onReload = browser::reload, onStop = browser::stop,
@@ -155,7 +156,7 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxSize().testTag("browser-page"),
                         onRelease = { browser.setContainer(place, null) },
                     )
-                    PageAskOverlay(chat, site = host?.let { face(it).name } ?: p.url, pageTitle = p.title)
+                    PageAskOverlay(chat, site = siteFace?.name ?: p.url, pageTitle = p.title)
                 }
                 if (mode == PageAskMode.Bar && p.loginFor == null) PageAskBar(chat, Modifier.imePadding())
                 BrowserToolbar(
@@ -167,7 +168,7 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
             if (moreOpen) {
                 val favorite = host != null && BrowserFavorites.contains(favorites, host)
                 BrowserMoreSheet(
-                    face = host?.let(face), host = host, favorite = favorite, desktop = p.desktop,
+                    face = siteFace, host = host, favorite = favorite, desktop = p.desktop,
                     onDismiss = { moreOpen = false },
                     onReload = browser::reload,
                     onCopy = {

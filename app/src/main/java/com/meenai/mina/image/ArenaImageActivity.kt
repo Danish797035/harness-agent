@@ -56,6 +56,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.meenai.mina.core.image.ImageClientException
 import com.meenai.mina.ui.theme.HarnessTheme
 import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.ui.theme.requestMaxRefreshRate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonPrimitive
@@ -82,6 +83,8 @@ class ArenaImageActivity : ComponentActivity() {
         var activeSession: Session? = null
         private var instance: ArenaImageActivity? = null
 
+        private val ARENA_SHEET_SHAPE = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        private val ARENA_HANDLE_SHAPE = RoundedCornerShape(2.dp)
         private val EXACT_ALLOWED_HOSTS = setOf(
             "arena.ai",
             "lmarena.ai",
@@ -521,6 +524,7 @@ class ArenaImageActivity : ComponentActivity() {
         currentSession = session
         currentAutomationJs = buildAutomationJs(targetModel, session.prompt)
         val targetUrl = buildTargetUrl(targetModel)
+        requestMaxRefreshRate()
 
         class ArenaBridge {
             @JavascriptInterface
@@ -714,7 +718,7 @@ class ArenaImageActivity : ComponentActivity() {
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {},
-                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        shape = ARENA_SHEET_SHAPE,
                         color = MaterialTheme.colorScheme.surface,
                         shadowElevation = 8.dp
                     ) {
@@ -731,7 +735,7 @@ class ArenaImageActivity : ComponentActivity() {
                                         .size(width = 36.dp, height = 4.dp)
                                         .background(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                            shape = RoundedCornerShape(2.dp)
+                                            shape = ARENA_HANDLE_SHAPE
                                         )
                                 )
                             }

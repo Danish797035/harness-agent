@@ -588,12 +588,14 @@ internal fun VoiceConverting(modifier: Modifier = Modifier) {
     }
 }
 
-/** Able to press and hold the gray words when speaking: a small microphone in front. */
+/** Able to press and hold the gray words when speaking: a small microphone in front when unfocused. */
 @Composable
-internal fun VoicePlaceholder(mode: ComposerMode) {
+internal fun VoicePlaceholder(mode: ComposerMode, showMic: Boolean = true) {
     val c = MinaTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(MinaIcons.Mic, null, Modifier.size(16.dp), tint = c.ink3)
+        if (showMic) {
+            Icon(MinaIcons.Mic, null, Modifier.size(16.dp), tint = c.ink3)
+        }
         Text(ChatCopy.voicePlaceholder(mode), style = MinaType.Body, color = c.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

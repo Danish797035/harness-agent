@@ -118,7 +118,7 @@ fun RunTimelineScreen(vm: RunTimelineViewModel, onBack: () -> Unit) {
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottom + 16.dp),
                 ) {
-                    item("header") {
+                    item(key = "header", contentType = "header") {
                         HeaderGroup(u.header) {
                             try {
                                 saveLog.launch("mina-usage-${vm.runId}.jsonl")
@@ -127,10 +127,10 @@ fun RunTimelineScreen(vm: RunTimelineViewModel, onBack: () -> Unit) {
                             }
                         }
                     }
-                    item("trace") { RunTraceSection(vm.runId) }
+                    item(key = "trace", contentType = "trace") { RunTraceSection(vm.runId) }
                     if (u.steps.isNotEmpty()) {
-                        item("label") { GroupLabel(trPlural(R.plurals.timeline_total_steps, u.steps.size)) }
-                        item("steps") {
+                        item(key = "label", contentType = "group_label") { GroupLabel(trPlural(R.plurals.timeline_total_steps, u.steps.size)) }
+                        item(key = "steps", contentType = "steps") {
                             GroupCard {
                                 Column(Modifier.padding(start = 16.dp)) {
                                     u.steps.forEachIndexed { i, s ->
@@ -247,13 +247,13 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
                 ) {
                     Text(
                         text = "#${s.step}",
-                        style = MinaType.Label.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                        style = StepNumStyle,
                         color = c.ink3,
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = actionText.ifBlank { s.tool ?: stringResource(R.string.step_number, s.step) },
-                        style = MinaType.Body.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp),
+                        style = ActionTitleStyle,
                         color = c.ink,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -274,7 +274,7 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
                     ) {
                         Text(
                             text = res,
-                            style = MinaType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                            style = OutcomeBadgeStyle,
                             color = resFg,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -291,14 +291,15 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
             ) {
                 Text(
                     text = RunTimelineViewModel.timingLabel(s.timing),
-                    style = MinaType.Hint.copy(fontSize = 11.5.sp),
+                    style = StepTimingStyle,
                     color = c.ink3,
                 )
 
                 if (shot != null || s.said.isNotEmpty() || s.activities.size > 1 || s.tags.isNotEmpty()) {
                     Text(
                         text = if (open) stringResource(R.string.collapse) else stringResource(R.string.expand),
-                        style = MinaType.Hint.copy(fontSize = 11.sp, color = c.accent),
+                        style = OutcomeBadgeStyle,
+                        color = c.accent,
                     )
                 }
             }
@@ -309,7 +310,7 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
                     Text(
                         text = s.said,
                         modifier = Modifier.padding(top = 4.dp),
-                        style = MinaType.Caption.copy(fontSize = 12.sp),
+                        style = StepSaidStyle,
                         color = c.ink2,
                     )
                 }
@@ -321,7 +322,7 @@ private fun TimelineRow(s: TimelineStep, first: Boolean, last: Boolean, vm: RunT
                             val effect = ChatCopy.effectLabel(a.effect)
                             Text(
                                 text = listOfNotNull(action, a.target?.takeIf(String::isNotBlank), effect.takeIf(String::isNotBlank)).joinToString(" · "),
-                                style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                                style = ActivitySubStyle,
                                 color = c.ink3,
                                 modifier = Modifier.padding(top = 1.dp),
                             )
@@ -362,12 +363,19 @@ private fun TagChip(t: Tag) {
         TagTone.Bad -> c.badSoft to c.bad
     }
     Text(
-        t.text, Modifier.background(bg, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp),
+        t.text, Modifier.background(bg, TagChipShape).padding(horizontal = 8.dp, vertical = 2.dp),
         style = MinaType.Hint, fontWeight = FontWeight.SemiBold, color = fg,
     )
 }
 
 private val TimelineShotShape = RoundedCornerShape(12.dp)
+private val TagChipShape = RoundedCornerShape(50)
+private val StepNumStyle = MinaType.Label.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp)
+private val ActionTitleStyle = MinaType.Body.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+private val OutcomeBadgeStyle = MinaType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium)
+private val StepTimingStyle = MinaType.Hint.copy(fontSize = 11.5.sp)
+private val StepSaidStyle = MinaType.Caption.copy(fontSize = 12.sp)
+private val ActivitySubStyle = MinaType.Caption.copy(fontSize = 11.5.sp)
 
 /** Picture then: decoding in background thread; just saying when file has been cleaned. */
 @Composable

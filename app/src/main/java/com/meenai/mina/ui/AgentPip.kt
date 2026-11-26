@@ -151,6 +151,10 @@ fun AgentPip(
  * asked to do are not missed).
  */
 private val ClosedPipShape = RoundedCornerShape(50)
+private val ExpandedOuterShape = RoundedCornerShape(26.dp)
+private val CollapsedOuterShape = RoundedCornerShape(16.dp)
+private val ExpandedInnerShape = RoundedCornerShape(22.dp)
+private val CollapsedInnerShape = RoundedCornerShape(13.dp)
 
 @Composable
 private fun ClosedPip(needsYou: Boolean, reduceMotion: Boolean, modifier: Modifier, onReopen: () -> Unit, onAttention: () -> Unit) {
@@ -293,8 +297,8 @@ private fun PipWindow(
     }
 
     val pos = free ?: bounds.position(corner).let { (x, y) -> Offset(x, y) }
-    val outer = RoundedCornerShape(if (pip.expanded) 26.dp else 16.dp)
-    val inner = RoundedCornerShape(if (pip.expanded) 22.dp else 13.dp)
+    val outer = if (pip.expanded) ExpandedOuterShape else CollapsedOuterShape
+    val inner = if (pip.expanded) ExpandedInnerShape else CollapsedInnerShape
     val breathState = if (pip.mode == PipMode.NeedsYou && !reduceMotion) {
         rememberInfiniteTransition(label = "breathe").animateFloat(
             1f, 0.55f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "breathe",

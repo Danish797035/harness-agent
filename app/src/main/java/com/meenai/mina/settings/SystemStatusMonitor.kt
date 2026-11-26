@@ -20,11 +20,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import com.meenai.mina.a11y.HarnessAccessibilityService
 
 /**
@@ -37,28 +40,44 @@ private const val OP_RESTRICTED_SETTINGS = "android:access_restricted_settings"
 class SystemStatusMonitor(context: Context, private val shell: BuiltinShellControl) {
     private val app = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
-    private val _status = MutableStateFlow(read())
+    private val _status = MutableStateFlow(
+        SystemStatus(
+            sdkInt = Build.VERSION.SDK_INT,
+            builtinShell = shell.status.value,
+            accessibility = if (ScreenAccessibility.instance.value != null) AccessibilityState.On else AccessibilityState.Off,
+            notificationsAllowed = true,
+        ),
+    )
     val status: StateFlow<SystemStatus> = _status.asStateFlow()
 
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val refreshRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var scope: CoroutineScope? = null
     private val a11ySetting = object : ContentObserver(main) {
-        override fun onChange(selfChange: Boolean) = refresh()
+        override fun onChange(selfChange: Boolean) = refreshAsync()
+    }
+
+    init {
+        refreshRequests
+            .onEach { _status.value = read() }
+            .launchIn(ioScope)
+        refreshAsync()
     }
 
     fun start() {
         if (scope != null) return
-        val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
+        val s = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { scope = it }
         app.contentResolver.registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, a11ySetting,
         )
-        ScreenAccessibility.instance.onEach { refresh() }.launchIn(s)
+        ScreenAccessibility.instance.onEach { refreshAsync() }.launchIn(s)
         // The boot page should follow the system switch in real time: after the user opens it in the
         // system settings, he will see the next step when he comes back.
         app.contentResolver.registerContentObserver(DeveloperSettings.developerOptionsUri, false, a11ySetting)
         app.contentResolver.registerContentObserver(DeveloperSettings.wirelessDebuggingUri, false, a11ySetting)
         app.contentResolver.registerContentObserver(DeveloperSettings.usbDebuggingUri, false, a11ySetting)
-        shell.status.onEach { refresh() }.launchIn(s)
-        refresh()
+        shell.status.onEach { refreshAsync() }.launchIn(s)
+        refreshAsync()
     }
 
     fun stop() {
@@ -68,7 +87,15 @@ class SystemStatusMonitor(context: Context, private val shell: BuiltinShellContr
     }
 
     fun refresh() {
-        _status.value = read()
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            refreshAsync()
+        } else {
+            _status.value = read()
+        }
+    }
+
+    private fun refreshAsync() {
+        refreshRequests.tryEmit(Unit)
     }
 
     private fun read() = SystemStatus(

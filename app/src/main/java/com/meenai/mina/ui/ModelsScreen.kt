@@ -214,12 +214,12 @@ internal fun fixedChoices(role: ModelRole): List<RoleChoice> = when (role) {
 fun RolePickerContent(ui: ModelSetupUi, role: ModelRole, actions: RolePickerActions, onBack: () -> Unit) {
     val c = MinaTheme.colors
     var filter by rememberSaveable { mutableStateOf("") }
-    val groups = ui.providers.map { it to ui.options(it) }
-    val total = groups.sumOf { it.second.size }
+    val groups = remember(ui.providers, ui.configs, ui.roles) { ui.providers.map { it to ui.options(it) } }
+    val total = remember(groups) { groups.sumOf { it.second.size } }
     val q = filter.trim()
     Page(ModelsCopy.roleName(role), onBack) {
         Text(ModelsCopy.roleHint(role), Modifier.padding(top = 4.dp, bottom = 12.dp), fontSize = 14.5.sp, lineHeight = 22.sp, color = c.ink2)
-        val fixed = fixedChoices(role)
+        val fixed = remember(role) { fixedChoices(role) }
         if (fixed.isNotEmpty()) {
             GroupCard {
                 fixed.forEachIndexed { i, choice ->
@@ -238,7 +238,9 @@ fun RolePickerContent(ui: ModelSetupUi, role: ModelRole, actions: RolePickerActi
         }
         var anyShown = false
         groups.forEach { (p, options) ->
-            val shown = options.filter { q.isEmpty() || it.id.contains(q, ignoreCase = true) }
+            val shown = remember(options, q) {
+                if (q.isEmpty()) options else options.filter { it.id.contains(q, ignoreCase = true) }
+            }
             // This company cannot list models: filling in by hand is the only option
             val noList = p.models?.isEmpty() == true
             if (q.isNotEmpty() && shown.isEmpty()) return@forEach
@@ -562,6 +564,9 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
     var using by remember { mutableStateOf<ModelOption?>(null) }
     val state = ui.listing[p.id]
     val all = remember(p, ui.providers, ui.configs, ui.roles) { ui.sortedOptions(p) }
+    val rolesByModel = remember(p.id, all, ui.roles, ui.configs) {
+        all.associate { o -> o.id to ui.rolesOf(p.id, o.id) }
+    }
     val q = filter.trim()
     val shown = remember(all, q) {
         if (q.isEmpty()) all else all.filter { it.id.contains(q, ignoreCase = true) }
@@ -582,7 +587,7 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
                 itemsIndexed(shown, key = { _, o -> o.id }, contentType = { _, _ -> "model_row" }) { i, o ->
                     Box(Modifier.fillMaxWidth().clip(rowShape(i, shown.size)).background(c.surface)) {
-                        ModelRow(o, ui.rolesOf(p.id, o.id), first = i == 0) { using = o }
+                        ModelRow(o, rolesByModel[o.id].orEmpty(), first = i == 0) { using = o }
                     }
                 }
                 item(key = "footer", contentType = "footer") {
@@ -597,6 +602,7 @@ fun AllModelsContent(ui: ModelSetupUi, p: Provider, actions: ProviderDetailActio
     using?.let { o -> UseAsSheet(ui, p, o.id, onUse = { role -> actions.use(role, o.id) }, onVision = { actions.setVision(o.id, it) }, onDismiss = { using = null }) }
 }
 
+private val UseAsSheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 private val RowSingleShape = RoundedCornerShape(MinaRadius.Card)
 private val RowTopShape = RoundedCornerShape(topStart = MinaRadius.Card, topEnd = MinaRadius.Card)
 private val RowMiddleShape = RoundedCornerShape(0.dp)
@@ -639,7 +645,7 @@ private fun ModelRow(o: ModelOption, roles: List<ModelRole>, first: Boolean, onC
 @Composable
 private fun UseAsSheet(ui: ModelSetupUi, p: Provider, model: String, onUse: (ModelRole) -> Unit, onVision: (Boolean) -> Unit, onDismiss: () -> Unit) {
     val c = MinaTheme.colors
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = c.surface, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = c.surface, shape = UseAsSheetShape) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp).testTag("use-as")) {
             Text(model, Modifier.padding(horizontal = 16.dp), style = ModelIdStyle, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(ModelsCopy.useAsSubtitle(ModelsCopy.providerName(p)), Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp), style = MinaType.Caption, color = c.ink3)

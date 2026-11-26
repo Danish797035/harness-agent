@@ -48,10 +48,14 @@ internal fun RunTraceSection(runId: String) {
     val loaded by produceState<Pair<TraceArchive, List<TraceRow>>?>(null, runId) {
         var archive: TraceArchive? = null
         while (true) {
-            val live = store.recording(runId)
-            withContext(Dispatchers.IO) {
-                (archive ?: store.archive(runId))?.let { it to try { it.rows() } catch (_: IOException) { emptyList() } }
-            }?.let { archive = it.first; value = it }
+            val (live, loadedArchive) = withContext(Dispatchers.IO) {
+                val recording = store.recording(runId)
+                val entry = (archive ?: store.archive(runId))?.let {
+                    it to try { it.rows() } catch (_: IOException) { emptyList() }
+                }
+                recording to entry
+            }
+            loadedArchive?.let { archive = it.first; value = it }
             if (!live) break
             delay(TRACE_REFRESH_MS)
         }

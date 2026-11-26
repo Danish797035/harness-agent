@@ -50,6 +50,7 @@ import com.meenai.mina.ui.theme.MinaType
 private val SEGMENT_TAGS = Segment.entries.map { "segment-${it.name}" }
 
 /** Memorize the order and subheadings of groupings into categories. */
+private val WHITESPACE_REGEX = Regex("\\s+")
 private val KIND_GROUPS get() = listOf(MemoryKind.fact to tr(R.string.memory_about_you), MemoryKind.preference to tr(R.string.memory_preferences), MemoryKind.procedure to tr(R.string.memory_procedures))
 private val KIND_NAMES get() = listOf(tr(R.string.memory_fact), tr(R.string.memory_preferences), tr(R.string.memory_procedures))
 
@@ -58,6 +59,7 @@ private val KIND_NAMES get() = listOf(tr(R.string.memory_fact), tr(R.string.memo
 fun MemoryScreen(vm: MemoryViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val ui by vm.ui.collectAsState()
+    val groupedRows = remember(ui.rows) { ui.rows.groupBy { it.kind } }
     var editing by remember { mutableStateOf<Row?>(null) }
     var acting by remember { mutableStateOf<Row?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -90,7 +92,7 @@ fun MemoryScreen(vm: MemoryViewModel, onBack: () -> Unit) {
                     EmptyNote(if (ui.query.isBlank()) stringResource(R.string.memory_empty) else stringResource(R.string.not_found))
                 }
                 KIND_GROUPS.forEach { (kind, label) ->
-                    val rows = ui.rows.filter { it.kind == kind }
+                    val rows = groupedRows[kind].orEmpty()
                     if (rows.isNotEmpty()) {
                         GroupLabel(label)
                         GroupCard {
@@ -210,7 +212,7 @@ private fun EditDialog(
                 OutlinedTextField(words, { words = it }, Modifier.fillMaxWidth().padding(top = 8.dp).keepsKeyboard().testTag("memory-keywords"), label = { Text(stringResource(R.string.memory_keywords)) })
             } }
         },
-        confirmButton = { TextButton({ onSave(text, words.split(Regex("\\s+")).filter { it.isNotBlank() }, KIND_GROUPS[kind].first) }, Modifier.testTag("memory-save")) { Text(stringResource(R.string.save)) } },
+        confirmButton = { TextButton({ onSave(text, words.split(WHITESPACE_REGEX).filter { it.isNotBlank() }, KIND_GROUPS[kind].first) }, Modifier.testTag("memory-save")) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

@@ -76,8 +76,22 @@ import com.meenai.mina.ui.theme.MinaType
 private val SheetModalShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 private val HeroCardShape = RoundedCornerShape(18.dp)
 private val SearchBarShape = RoundedCornerShape(14.dp)
+private val AlertBannerShape = RoundedCornerShape(14.dp)
+private val EffortCardShape = RoundedCornerShape(16.dp)
 private val ModelRowShape = RoundedCornerShape(10.dp)
 private val RankBadgeShape = RoundedCornerShape(6.dp)
+private val SheetPillTextStyle = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+private val SheetMicroBadgeStyle = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+private val SheetRankTextStyle = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold)
+private val SheetProviderChipStyle = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium)
+private val SheetModelNameStyle = MinaType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+private val SheetRoleNameStyle = MinaType.Body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+private val SheetSubMetaStyle = MinaType.Hint.copy(fontSize = 12.sp)
+private val SheetStatusBadgeStyle = MinaType.Caption.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp)
+private val SheetCaption12Style = MinaType.Caption.copy(fontSize = 12.sp)
+private val SheetCaption11Style = MinaType.Caption.copy(fontSize = 11.5.sp)
+private val SheetMedium12Style = MinaType.Caption.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium)
+private val SheetProviderHeaderStyle = MinaType.Body.copy(fontWeight = FontWeight.SemiBold)
 private val SheetSingleCardShape = RoundedCornerShape(MinaRadius.Card)
 private val SheetTopCardShape = RoundedCornerShape(topStart = MinaRadius.Card, topEnd = MinaRadius.Card)
 private val SheetMiddleCardShape = RoundedCornerShape(0.dp)
@@ -187,16 +201,28 @@ fun RouterBottomSheet(
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf(ModelPickerFilter.All) }
-    var favorites by remember { mutableStateOf(prefStore.getFavorites()) }
-    var recents by remember { mutableStateOf(prefStore.getRecentModels()) }
+    var favorites by remember { mutableStateOf<Set<String>>(emptySet()) }
     var unavailableDialogModel by remember { mutableStateOf<ModelQuotaLine?>(null) }
     var syncDialogUsage by remember { mutableStateOf<ProviderUsage?>(null) }
     var syncInputText by remember { mutableStateOf("") }
-    var isLoginMarked by remember { mutableStateOf(MagicubeLedger.isLoginMarkedToday()) }
-    var isAlibabaLinked by remember { mutableStateOf(MagicubeLedger.isAlibabaLinked) }
+    var isLoginMarked by remember { mutableStateOf(false) }
+    var isAlibabaLinked by remember { mutableStateOf(false) }
 
     val effectiveQuota = remember(quotaSnapshot, activeModel) {
         quotaSnapshot ?: QuotaCalculator.compute(activeModel)
+    }
+
+    LaunchedEffect(prefStore) {
+        val (loadedFavs, loadedMarked, loadedAlibaba) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            Triple(
+                prefStore.getFavorites(),
+                MagicubeLedger.isLoginMarkedToday(),
+                MagicubeLedger.isAlibabaLinked,
+            )
+        }
+        favorites = loadedFavs
+        isLoginMarked = loadedMarked
+        isAlibabaLinked = loadedAlibaba
     }
 
     LaunchedEffect(Unit) {
@@ -348,7 +374,6 @@ fun RouterBottomSheet(
 
     fun selectAndClose(modelId: String, providerId: String = "") {
         prefStore.recordRecent(modelId)
-        recents = prefStore.getRecentModels()
         when {
             onSelectModelWithProvider != null -> onSelectModelWithProvider(modelId, providerId)
             onSelectModel != null -> onSelectModel(modelId)
@@ -739,7 +764,7 @@ private fun ConnectionStatusPill(
         Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
         Text(
             text = label,
-            style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            style = SheetPillTextStyle,
             color = textColor,
         )
     }
@@ -768,9 +793,9 @@ private fun ConnectionAlertBanner(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(AlertBannerShape)
             .background(if (isSignIn) c.warnSoft else c.badSoft)
-            .border(1.dp, (if (isSignIn) c.warnSolid else c.bad).copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .border(1.dp, (if (isSignIn) c.warnSolid else c.bad).copy(alpha = 0.35f), AlertBannerShape)
             .clickable(onClick = onAction)
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("reconnect-banner"),
@@ -780,13 +805,13 @@ private fun ConnectionAlertBanner(
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
                 text = title,
-                style = MinaType.Body.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                style = BannerTitleStyle,
                 color = if (isSignIn) c.warn else c.bad,
             )
             if (!detail.isNullOrBlank()) {
                 Text(
                     text = detail,
-                    style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                    style = SheetCaption11Style,
                     color = c.ink2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -801,12 +826,16 @@ private fun ConnectionAlertBanner(
         ) {
             Text(
                 text = actionLabel,
-                style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                style = SheetPillTextStyle,
                 color = Color.White,
             )
         }
     }
 }
+
+private val BannerTitleStyle = MinaType.Body.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+private val HeroModelTitleStyle = MinaType.Title.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold)
+private val HeroPctStyle = MinaType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
 @Composable
 private fun SheetQuotaHeroCard(
@@ -846,7 +875,7 @@ private fun SheetQuotaHeroCard(
             Column(Modifier.weight(1f)) {
                 Text(
                     text = if (hasModel) active.name else stringResource(R.string.settings_not_set),
-                    style = MinaType.Title.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                    style = HeroModelTitleStyle,
                     color = c.ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -863,7 +892,7 @@ private fun SheetQuotaHeroCard(
                     if (subLabel.isNotBlank()) {
                         Text(
                             text = subLabel,
-                            style = MinaType.Caption.copy(fontSize = 12.sp),
+                            style = SheetCaption12Style,
                             color = c.ink2,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -878,7 +907,7 @@ private fun SheetQuotaHeroCard(
                         ) {
                             Text(
                                 text = stringResource(R.string.router_model_pinned),
-                                style = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                style = SheetMicroBadgeStyle,
                                 color = c.accent,
                             )
                         }
@@ -896,7 +925,7 @@ private fun SheetQuotaHeroCard(
                 ) {
                     Text(
                         text = quota.formattedPercent,
-                        style = MinaType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                        style = HeroPctStyle,
                         color = barColor,
                     )
                 }
@@ -935,7 +964,7 @@ private fun SheetQuotaHeroCard(
                 }
                 Text(
                     text = leftSummary,
-                    style = MinaType.Caption.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    style = SheetMedium12Style,
                     color = c.ink2,
                 )
                 PrimaryQuotaRightSummary(quota = quota)
@@ -959,7 +988,7 @@ private fun SheetQuotaHeroCard(
                             R.string.router_quota_weekly_left,
                             QuotaSnapshot.formatPercent(quota.weeklyRemainingPercent),
                         ),
-                        style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                        style = SheetCaption11Style,
                         color = c.ink3,
                     )
                     WeeklyResetCountdownText(resetsAtEpochMs = quota.weeklyResetsAtEpochMs)
@@ -1007,7 +1036,7 @@ private fun PrimaryQuotaRightSummary(quota: QuotaSnapshot) {
     }
     Text(
         text = rightSummary,
-        style = MinaType.Caption.copy(fontSize = 12.sp),
+        style = SheetCaption12Style,
         color = c.ink3,
     )
 }
@@ -1028,7 +1057,7 @@ private fun WeeklyResetCountdownText(resetsAtEpochMs: Long?) {
     val weeklyResetCountdown = formatResetCountdown(target, nowMs) ?: return
     Text(
         text = stringResource(R.string.router_quota_resets_in, weeklyResetCountdown),
-        style = MinaType.Caption.copy(fontSize = 11.5.sp),
+        style = SheetCaption11Style,
         color = c.ink3,
     )
 }
@@ -1045,24 +1074,30 @@ private fun ThinkingEffortBar(
         "high", "thinking" -> "high"
         else -> null
     }
-    val options = listOf(
-        null to stringResource(R.string.router_effort_auto),
-        "low" to stringResource(R.string.router_effort_fast),
-        "medium" to stringResource(R.string.router_effort_medium),
-        "high" to stringResource(R.string.router_effort_thinking),
-    )
+    val labelAuto = stringResource(R.string.router_effort_auto)
+    val labelFast = stringResource(R.string.router_effort_fast)
+    val labelMedium = stringResource(R.string.router_effort_medium)
+    val labelThinking = stringResource(R.string.router_effort_thinking)
+    val options = remember(labelAuto, labelFast, labelMedium, labelThinking) {
+        listOf(
+            null to labelAuto,
+            "low" to labelFast,
+            "medium" to labelMedium,
+            "high" to labelThinking,
+        )
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(EffortCardShape)
             .background(c.fill)
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("thinking-effort-row"),
     ) {
         Text(
             text = stringResource(R.string.router_thinking_title),
-            style = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            style = SheetPillTextStyle,
             color = c.ink3,
             modifier = Modifier.padding(bottom = 8.dp),
         )
@@ -1090,10 +1125,7 @@ private fun ThinkingEffortBar(
                 ) {
                     Text(
                         text = label,
-                        style = MinaType.Caption.copy(
-                            fontSize = 12.sp,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                        ),
+                        style = if (active) SheetMedium12Style else SheetCaption12Style,
                         color = if (active) c.accent else c.ink2,
                         maxLines = 1,
                     )
@@ -1103,6 +1135,11 @@ private fun ThinkingEffortBar(
     }
 }
 
+private val SearchHintStyle = MinaType.Caption.copy(fontSize = 13.sp)
+private val SearchInputBaseStyle = MinaType.Body.copy(fontSize = 13.5.sp)
+private val FilterSelectedStyle = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+private val FilterUnselectedStyle = MinaType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Normal)
+
 @Composable
 private fun SheetSearchAndFilterBar(
     query: String,
@@ -1111,6 +1148,22 @@ private fun SheetSearchAndFilterBar(
     onFilterChange: (ModelPickerFilter) -> Unit,
 ) {
     val c = MinaTheme.colors
+    val inputStyle = remember(c) { SearchInputBaseStyle.copy(color = c.ink) }
+    val cursorBrush = remember(c) { SolidColor(c.accent) }
+    val allLabel = stringResource(R.string.router_filter_all)
+    val freeLabel = stringResource(R.string.router_filter_free)
+    val visionLabel = stringResource(R.string.router_filter_vision)
+    val toolsLabel = stringResource(R.string.router_filter_tools)
+    val longLabel = stringResource(R.string.router_filter_long_context)
+    val filters = remember(allLabel, freeLabel, visionLabel, toolsLabel, longLabel) {
+        listOf(
+            ModelPickerFilter.All to allLabel,
+            ModelPickerFilter.Free to freeLabel,
+            ModelPickerFilter.Vision to visionLabel,
+            ModelPickerFilter.Tools to toolsLabel,
+            ModelPickerFilter.LongContext to longLabel,
+        )
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier
@@ -1132,7 +1185,7 @@ private fun SheetSearchAndFilterBar(
                 if (query.isEmpty()) {
                     Text(
                         text = stringResource(R.string.router_search_hint),
-                        style = MinaType.Caption.copy(fontSize = 13.sp),
+                        style = SearchHintStyle,
                         color = c.ink3,
                     )
                 }
@@ -1140,8 +1193,8 @@ private fun SheetSearchAndFilterBar(
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
-                    textStyle = MinaType.Body.copy(fontSize = 13.5.sp, color = c.ink),
-                    cursorBrush = SolidColor(c.accent),
+                    textStyle = inputStyle,
+                    cursorBrush = cursorBrush,
                     modifier = Modifier.fillMaxWidth().testTag("router-search-field"),
                 )
             }
@@ -1162,13 +1215,6 @@ private fun SheetSearchAndFilterBar(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val filters = listOf(
-                ModelPickerFilter.All to stringResource(R.string.router_filter_all),
-                ModelPickerFilter.Free to stringResource(R.string.router_filter_free),
-                ModelPickerFilter.Vision to stringResource(R.string.router_filter_vision),
-                ModelPickerFilter.Tools to stringResource(R.string.router_filter_tools),
-                ModelPickerFilter.LongContext to stringResource(R.string.router_filter_long_context),
-            )
             filters.forEach { (filter, label) ->
                 val selected = selectedFilter == filter
                 Box(
@@ -1185,10 +1231,7 @@ private fun SheetSearchAndFilterBar(
                 ) {
                     Text(
                         text = label,
-                        style = MinaType.Caption.copy(
-                            fontSize = 11.5.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        ),
+                        style = if (selected) FilterSelectedStyle else FilterUnselectedStyle,
                         color = if (selected) c.accent else c.ink2,
                     )
                 }
@@ -1227,10 +1270,7 @@ fun CapabilityBadge(
     ) {
         Text(
             text = text,
-            style = MinaType.Caption.copy(
-                fontWeight = FontWeight.Medium,
-                fontSize = 10.sp,
-            ),
+            style = SheetProviderChipStyle,
             color = color,
         )
     }
@@ -1276,19 +1316,19 @@ fun ConfiguredRoleRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = roleName,
-                style = MinaType.Caption.copy(fontSize = 11.5.sp),
+                style = SheetCaption11Style,
                 color = colors.ink3,
             )
             Text(
                 text = formatRouterModelName(cfg.model),
-                style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp),
+                style = SheetRoleNameStyle,
                 color = colors.ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = cfg.name,
-                style = MinaType.Caption.copy(fontSize = 12.sp),
+                style = SheetCaption12Style,
                 color = colors.ink2,
             )
         }
@@ -1331,13 +1371,13 @@ private fun ProviderUsageHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = usage.provider,
-                        style = MinaType.Body.copy(fontWeight = FontWeight.SemiBold),
+                        style = SheetProviderHeaderStyle,
                         color = colors.ink,
                     )
                     if (usage.isBadKey) {
                         Text(
                             text = " · ${stringResource(R.string.router_status_bad_key)}",
-                            style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+                            style = SheetMedium12Style,
                             color = colors.bad,
                         )
                     }
@@ -1383,7 +1423,7 @@ private fun ProviderUsageHeader(
             ) {
                 Text(
                     text = stringResource(R.string.router_magicube_alibaba_linked),
-                    style = MinaType.Body.copy(fontSize = 13.5.sp),
+                    style = SearchInputBaseStyle,
                     color = colors.ink,
                 )
                 MinaSwitch(
@@ -1695,10 +1735,7 @@ fun ModelQuotaRow(
             ) {
                 Text(
                     text = "#$rankNum",
-                    style = MinaType.Caption.copy(
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
+                    style = SheetRankTextStyle,
                     color = if (rankNum <= 3) Color.White else colors.ink2,
                 )
             }
@@ -1718,7 +1755,7 @@ fun ModelQuotaRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = model.modelName.ifBlank { model.modelId },
-                    style = MinaType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                    style = SheetModelNameStyle,
                     color = colors.ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1733,7 +1770,7 @@ fun ModelQuotaRow(
                     ) {
                         Text(
                             text = stringResource(R.string.router_model_pinned),
-                            style = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            style = SheetMicroBadgeStyle,
                             color = colors.accent,
                         )
                     }
@@ -1755,14 +1792,14 @@ fun ModelQuotaRow(
                     ) {
                         Text(
                             text = model.provider,
-                            style = MinaType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                            style = SheetProviderChipStyle,
                             color = colors.ink2,
                         )
                     }
                 }
                 Text(
                     text = subtitle,
-                    style = MinaType.Hint.copy(fontSize = 12.sp),
+                    style = SheetSubMetaStyle,
                     color = colors.ink3,
                 )
             }
@@ -1816,10 +1853,7 @@ fun ModelQuotaRow(
             ) {
                 Text(
                     text = statusText,
-                    style = MinaType.Caption.copy(
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 11.sp,
-                    ),
+                    style = SheetStatusBadgeStyle,
                     color = statusColor,
                 )
             }
@@ -1901,7 +1935,7 @@ private fun CooldownCountdownText(cooldownUntilMs: Long) {
 
     Text(
         text = cooldownText,
-        style = MinaType.Caption.copy(fontWeight = FontWeight.Medium),
+        style = SheetMedium12Style,
         color = cooldownColor,
     )
 }

@@ -714,8 +714,20 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
         snapshotFlow { state.firstVisibleItemIndex == 0 }.first { it }
         actions.loadEarlier()
     }
+    val bodyInkStyle = remember(c) { Body.copy(color = c.ink) }
+    val bodyInk2Style = remember(c) { Body.copy(color = c.ink2) }
     LazyColumn(Modifier.testTag("capsule-thread").fillMaxWidth().fillMaxHeight(), state = state) {
-        items(thread.items, key = { it.key }) { item ->
+        items(
+            thread.items,
+            key = { it.key },
+            contentType = { item ->
+                when (item) {
+                    is ThreadItem.User -> "user"
+                    is ThreadItem.Note -> "note"
+                    is ThreadItem.Answer -> "answer"
+                }
+            },
+        ) { item ->
             when (item) {
                 // The sentence with the screen: thumbnail and "Your screen at the moment · App ·
                 // Moment", add another bubble with the postscript
@@ -741,18 +753,18 @@ internal fun ThreadList(thread: ChatThread, conversationId: String?, actions: Ca
                 // stretching the card; links can be opened in separate tasks and can also be clicked in
                 // the floating layer.
                 is ThreadItem.Answer -> if (!item.cut) {
-                    MarkdownText(item.text, Body.copy(color = c.ink), Modifier.fillMaxWidth().padding(bottom = 8.dp), streaming = item.streaming)
+                    MarkdownText(item.text, bodyInkStyle, Modifier.fillMaxWidth().padding(bottom = 8.dp), streaming = item.streaming)
                 } else Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     // The paragraph interrupted by the interruption: light color, a line of small words
                     // below (same sentence as the conversation page)
-                    MarkdownText(item.text, Body.copy(color = c.ink2), Modifier.fillMaxWidth(), streaming = false)
+                    MarkdownText(item.text, bodyInk2Style, Modifier.fillMaxWidth(), streaming = false)
                     Text(tr(R.string.steer_interrupted_reply), Modifier.padding(top = 2.dp), style = Sub, color = c.ink3)
                 }
             }
         }
         // The paragraph following the round trip (the current steps in the browser page panel): follow
         // the last one, and go down together when you reach the bottom.
-        footer?.let { f -> item(FOOTER_KEY) { f() } }
+        footer?.let { f -> item(key = FOOTER_KEY, contentType = "footer") { f() } }
     }
 }
 
@@ -789,32 +801,33 @@ internal fun Steps(steps: List<String>, max: Dp, tags: List<String?> = emptyList
         if (following && !state.isScrollInProgress) state.scrollToItem(0)
     }
     val fade = with(LocalDensity.current) { FadeEdge.toPx() }
+    val fadeBrush = remember(fade) { Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, endY = fade) }
     LazyColumn(
         Modifier.testTag("capsule-steps").fillMaxWidth().heightIn(max = max)
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithContent {
                 drawContent()
                 // There is an earlier step above: top fade
-                if (state.canScrollForward) drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, endY = fade), blendMode = BlendMode.DstIn)
+                if (state.canScrollForward) drawRect(fadeBrush, blendMode = BlendMode.DstIn)
             },
         state = state,
         reverseLayout = true,
     ) {
         // Use the serial number from old to new as the key: when you turn up and look up, a new step
         // comes, and the steps you looked at remain where they are.
-        items(steps.size, key = { steps.lastIndex - it }) { j ->
+        items(steps.size, key = { steps.lastIndex - it }, contentType = { "capsule_step" }) { j ->
             val i = steps.lastIndex - j
             val current = j == 0
             StepItem(if (current) StepState.Current else StepState.Done, first = i == 0, last = current, dotY = 11.dp) {
                 Row(verticalAlignment = Alignment.Top) {
                     tags.getOrNull(i)?.let { t ->
                         Text(
-                            t, Modifier.padding(top = 3.dp, end = 5.dp).background(c.accentSoft, RoundedCornerShape(6.dp)).padding(horizontal = 5.dp),
-                            style = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium), color = c.accent, maxLines = 1,
+                            t, Modifier.padding(top = 3.dp, end = 5.dp).background(c.accentSoft, StepTagShape).padding(horizontal = 5.dp),
+                            style = StepTagTextStyle, color = c.accent, maxLines = 1,
                         )
                     }
                     Text(
-                        steps[i], Modifier.padding(vertical = 2.dp), style = if (current) Step.copy(fontWeight = FontWeight.Medium) else Step,
+                        steps[i], Modifier.padding(vertical = 2.dp), style = if (current) StepCurrentTextStyle else Step,
                         color = if (current) c.ink else c.ink2, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -822,6 +835,10 @@ internal fun Steps(steps: List<String>, max: Dp, tags: List<String?> = emptyList
         }
     }
 }
+
+private val StepTagShape = RoundedCornerShape(6.dp)
+private val StepTagTextStyle = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium)
+private val StepCurrentTextStyle = Step.copy(fontWeight = FontWeight.Medium)
 
 private val FadeEdge = 28.dp
 

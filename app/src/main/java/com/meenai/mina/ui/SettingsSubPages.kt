@@ -60,7 +60,8 @@ fun PhoneOpsScreen(
     onUnpair: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val check = Prerequisites.check(status, hasMainModel = true)
+    val check = remember(status) { Prerequisites.check(status, hasMainModel = true) }
+    val overview = remember(status) { status.notificationOverview() }
     var confirmUnpair by remember { mutableStateOf(false) }
     PageScaffold(stringResource(R.string.settings_phone_ops), onBack) {
         GroupLabel(stringResource(R.string.settings_status))
@@ -83,7 +84,7 @@ fun PhoneOpsScreen(
                     onClick = { onProblem(Problem.PhoneHelper(helper)) },
                 ) { if (reconnect) RowValue(PhoneSetupCopy.RECONNECT, ValueTone.Link) else RowValue(hText, hTone) }
             }
-            val (notifText, notifTone) = StatusCopy.notificationSummary(status.notificationOverview().summary)
+            val (notifText, notifTone) = StatusCopy.notificationSummary(overview.summary)
             ListRow(MinaIcons.Bell, StatusCopy.NOTIFICATIONS, stringResource(R.string.settings_notif_progress_sub), onClick = onOpenNotifications) {
                 RowValue(notifText, notifTone)
                 RowChevron()
@@ -147,7 +148,7 @@ fun PhoneOpsScreen(
  */
 @Composable
 fun NotificationsScreen(status: SystemStatus, onFix: (Fix) -> Unit, onBack: () -> Unit) {
-    val o = status.notificationOverview()
+    val o = remember(status) { status.notificationOverview() }
     PageScaffold(StatusCopy.NOTIFICATIONS, onBack) {
         GroupCard {
             ListRow(
@@ -320,9 +321,10 @@ fun CapsuleScreen(mode: CapsuleMode, onMode: (CapsuleMode) -> Unit, onBack: () -
 @Composable
 fun LanguageScreen(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
-    val flags = remember { FeatureFlags.get(context) }
+    val flags = remember(context) { FeatureFlags.get(context) }
     // Follow the settings: the appearance has been changed in the task, and this page also matches
-    val themeMode by remember(flags) { flags.themeModeChanges() }.collectAsState(flags.themeMode())
+    val initialTheme = remember(flags) { flags.themeMode() }
+    val themeMode by remember(flags) { flags.themeModeChanges() }.collectAsState(initialTheme)
     PageScaffold(stringResource(R.string.appearance_title), onBack) {
         // Language and appearance are put on the same page: both are "what does the interface look like"
         GroupLabel(stringResource(R.string.appearance_group))

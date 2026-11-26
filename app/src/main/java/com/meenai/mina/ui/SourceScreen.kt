@@ -65,10 +65,10 @@ fun SourceScreen(vm: SourceViewModel, onBack: () -> Unit) {
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottom + 16.dp),
                 ) {
                     source.legacyText?.takeIf(String::isNotBlank)?.let { legacy ->
-                        item("legacy") { GroupCard { Text(legacy, Modifier.padding(16.dp), style = MinaType.Body, color = c.ink) } }
+                        item(key = "legacy", contentType = "legacy") { GroupCard { Text(legacy, Modifier.padding(16.dp), style = MinaType.Body, color = c.ink) } }
                     }
                     source.entries.forEachIndexed { index, entry ->
-                        item("source-$index") {
+                        item(key = "source-$index", contentType = "source_entry") {
                             GroupCard {
                                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
                                     Text(
@@ -87,7 +87,7 @@ fun SourceScreen(vm: SourceViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (source.legacyText.isNullOrBlank() && source.entries.isEmpty()) {
-                        item("empty") { EmptyNote(stringResource(R.string.source_none)) }
+                        item(key = "empty", contentType = "empty") { EmptyNote(stringResource(R.string.source_none)) }
                     }
                 }
             }

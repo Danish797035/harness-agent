@@ -50,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import com.meenai.mina.R
 import com.meenai.mina.about.ApkUpdater
 import com.meenai.mina.about.DownloadPhase
+import com.meenai.mina.about.UpdateChecker
 import com.meenai.mina.BuildConfig
 import com.meenai.mina.HarnessApp
 import com.meenai.mina.about.Diagnostics
@@ -62,14 +63,17 @@ import com.meenai.mina.task.TaskService
 import com.meenai.mina.core.knowledge.GuideCatalog
 import com.meenai.mina.settings.Prerequisites
 import com.meenai.mina.settings.ProviderStore
+import com.meenai.mina.settings.SystemStatus
 import com.meenai.mina.settings.SystemStatusMonitor
 import com.meenai.mina.cap.phone.PhoneServices
 import com.meenai.mina.cap.phone.setup.DeveloperSettings
 import com.meenai.mina.cap.phone.setup.PairingNotifier
+import com.meenai.mina.cap.phone.setup.PhoneSetupPrompt
 import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.ui.theme.HarnessTheme
 import com.meenai.mina.ui.theme.animationsOff
 import com.meenai.mina.ui.theme.appearanceDark
+import com.meenai.mina.ui.theme.requestMaxRefreshRate
 import com.meenai.mina.ui.theme.systemBarsFor
 
 class MainActivity : ComponentActivity() {
@@ -93,6 +97,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        requestMaxRefreshRate()
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
         monitor = SystemStatusMonitor(this, PhoneServices.of(this).shellControl)
         val app = applicationContext as HarnessApp
@@ -100,6 +105,7 @@ class MainActivity : ComponentActivity() {
             // The appearance is set according to the settings. If you change it, change it on the spot;
             // the depth of the system bar icon will follow the interface.
             val dark = appearanceDark()
+            val reduceMotion = remember { animationsOff(this@MainActivity) }
             LaunchedEffect(dark) { systemBarsFor(dark) }
             var store by remember {
                 mutableStateOf(if (app.providersReady) ProviderStore.get(this@MainActivity) else null)
@@ -118,7 +124,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            HarnessTheme(dark = dark, reduceMotion = animationsOff(this)) {
+            HarnessTheme(dark = dark, reduceMotion = reduceMotion) {
                 // Click or drag outside the input box to hide the keyboard, unified across the app
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
                     val readyStore = store
@@ -284,54 +290,11 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     var runId by rememberSaveable { mutableStateOf<String?>(null) }
     var sourceRunId by rememberSaveable { mutableStateOf<String?>(null) }
     var sourceLegacyText by rememberSaveable { mutableStateOf<String?>(null) }
-    val status by monitor.status.collectAsState()
-    val roles by store.roles.collectAsState()
-    val hasMain = roles.main != null
-    val check = Prerequisites.check(status, hasMain)
     val context = LocalContext.current
     val app = context.applicationContext as HarnessApp
-    val updateState by app.updates.state.collectAsState()
-    var updateDialogDismissedFor by rememberSaveable { mutableStateOf<String?>(null) }
-    val availableUpdate = updateState.update
-    val showUpdateDialog = availableUpdate != null && updateDialogDismissedFor != availableUpdate.version
 
-    if (showUpdateDialog && availableUpdate != null) {
-        val updater = remember { ApkUpdater(context.applicationContext) }
-        val scope = rememberCoroutineScope()
-        AlertDialog(
-            onDismissRequest = { updateDialogDismissedFor = availableUpdate.version },
-            title = { Text(stringResource(R.string.update_dialog_title)) },
-            text = {
-                Text(
-                    if (availableUpdate.notes.isNotBlank()) {
-                        stringResource(R.string.update_dialog_message, availableUpdate.version) + "\n\n" + availableUpdate.notes.take(300)
-                    } else {
-                        stringResource(R.string.update_dialog_message, availableUpdate.version)
-                    }
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    updateDialogDismissedFor = availableUpdate.version
-                    if (updater.state(availableUpdate).phase == DownloadPhase.Ready) {
-                        runCatching { updater.openInstaller(availableUpdate) }
-                    } else {
-                        Toast.makeText(context, context.getString(R.string.about_update_downloading), Toast.LENGTH_SHORT).show()
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { updater.download(availableUpdate) }
-                        }
-                    }
-                }) {
-                    Text(stringResource(R.string.update_dialog_download))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { updateDialogDismissedFor = availableUpdate.version }) {
-                    Text(stringResource(R.string.update_dialog_later))
-                }
-            },
-        )
-    }
+    UpdateAlertDialogHost(app.updates, context)
+
     LaunchedEffect(requestedConversation) {
         if (requestedConversation != null) {
             app.chat.openConversation(requestedConversation)
@@ -343,18 +306,22 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     // Click "Look" on the result card: open skill segmentation
     val memoryRuntime = remember { MemoryRuntime.of(context) }
     val phoneSetup = remember { PhoneServices.of(context).setupPrompt }
-    val openMemory by memoryRuntime.openRequest.collectAsState()
-    LaunchedEffect(openMemory) { if (openMemory != null) nav.push(Route.Memory) }
+    LaunchedEffect(memoryRuntime) {
+        memoryRuntime.openRequest.collect { if (it != null) nav.push(Route.Memory) }
+    }
     // Open for the first time: Welcome → Configure model → Mobile operation; if you have configured the
     // model, skip the first two steps; if the mobile operation is ready or have seen the guide, skip the
     // last step
     val onboardingState = remember { OnboardingState(context) }
-    fun onboardingInputs() = Onboarding.Inputs(
-        hasMainModel = store.roles.value.main != null,
-        modelSetupDone = onboardingState.modelSetupDone(),
-        phoneNeeded = status.builtinShell != BuiltinShellStatus.Running && status.sdkInt >= Prerequisites.MIN_SDK,
-        phoneGuideSeen = phoneSetup.guideSeen(),
-    )
+    fun onboardingInputs(): Onboarding.Inputs {
+        val currentStatus = monitor.status.value
+        return Onboarding.Inputs(
+            hasMainModel = store.roles.value.main != null,
+            modelSetupDone = onboardingState.modelSetupDone(),
+            phoneNeeded = currentStatus.builtinShell != BuiltinShellStatus.Running && currentStatus.sdkInt >= Prerequisites.MIN_SDK,
+            phoneGuideSeen = phoneSetup.guideSeen(),
+        )
+    }
     fun goOnboarding(step: OnboardingStep?) {
         onboarding = step
         when (step) {
@@ -369,7 +336,6 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     LaunchedEffect(Unit) {
         if (onboarding == null) Onboarding.start(onboardingInputs())?.let(::goOnboarding)
     }
-    val phoneSetupNeeded by phoneSetup.needed.collectAsState()
     // When the page has its own return processing (subpages and sidebars in the settings page), they are
     // connected first; here we just return to the previous page.
     BackHandler(enabled = nav.canGoBack) { nav.back() }
@@ -379,10 +345,16 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
     // page.
     val screenStates = rememberSaveableStateHolder()
     when (nav.current) {
-        Route.PhoneSetup -> PhoneSetupScreen(status, setupRepair, onFix, onboarding = onboarding == OnboardingStep.Phone) {
-            phoneSetup.markGuideSeen()
-            if (onboarding == OnboardingStep.Phone) goOnboarding(null) else nav.back()
-        }
+        Route.PhoneSetup -> PhoneSetupRoute(
+            monitor = monitor,
+            setupRepair = setupRepair,
+            onFix = onFix,
+            onboarding = onboarding == OnboardingStep.Phone,
+            onBack = {
+                phoneSetup.markGuideSeen()
+                if (onboarding == OnboardingStep.Phone) goOnboarding(null) else nav.back()
+            },
+        )
         Route.Welcome -> WelcomeScreen { goOnboarding(OnboardingStep.Model) }
         Route.ModelSetup -> {
             val inOnboarding = onboarding == OnboardingStep.Model
@@ -406,9 +378,13 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 onStopOrDispose {}
             }
             val convStore = remember(context) { ConversationStore.shared(context) }
+            val staticCheck = remember { Prerequisites.Check(emptyList()) }
+            val currentCheck = remember(monitor, store) {
+                { Prerequisites.check(monitor.status.value, store.roles.value.main != null) }
+            }
             ChatWithDrawer(
                 vm = app.chat,
-                check = check,
+                check = staticCheck,
                 reduceMotion = HarnessTheme.reduceMotion,
                 conversations = { convStore.list() },
                 conversationChanges = convStore.changes,
@@ -419,22 +395,25 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 onBrowser = { nav.pushFromDrawer(Route.Browser) },
                 onScreens = { nav.pushFromDrawer(Route.Screens) },
                 onAbout = { nav.pushFromDrawer(Route.About) },
-                updateAvailable = AboutCopy.drawerDot(updateState),
+                updateAvailable = false,
                 reopen = nav.reopenDrawer,
                 onReopened = nav::drawerReopened,
                 cachedConversations = { convStore.cachedList() },
                 asyncLoad = true,
+                statusFlow = monitor.status,
+                rolesFlow = store.roles,
+                updatesFlow = app.updates.state,
             ) { openDrawer ->
                 ChatScreen(
                     vm = app.chat,
-                    check = check,
+                    check = staticCheck,
                     frames = app.taskState.frames,
                     webOpen = app.tasks.webScreenOpen,
                     reduceMotion = HarnessTheme.reduceMotion,
                     onOpenDrawer = openDrawer,
                     openSettings = { nav.push(Route.Settings) },
                     openRun = { runId = it; nav.push(Route.Run) },
-                    phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
+                    phoneSetupNeeded = false,
                     openPhoneSetup = { onFix(Fix.OpenPhoneSetup) },
                     loadSource = { id ->
                         withContext(Dispatchers.IO) { evidenceSource(RunStore(context).events(id)) { ConfirmationNotifier.appLabel(context, it) } }
@@ -447,50 +426,34 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                     voice = app.voice,
                     openSpeechModel = { nav.push(Route.SpeechModel) },
                     routerStatus = app.routerStatus,
+                    checkProvider = currentCheck,
+                    phoneSetupNeededFlow = phoneSetup.needed,
+                    statusFlow = monitor.status,
                 )
             }
         }
-        Route.Settings -> {
-            val registry = remember { WebSites.registry(context) }
-            val sites by registry.entries.collectAsState()
-            val webSites = WebSitesState(
-                sites = sites,
-                onOpenLogin = { WebHandover.showLogin(context, it) },
-                onLogout = { WebSites.login(context).logout(it) },
-                onLogoutAll = { WebSites.logoutAll(context) },
-            )
-            val autonomous by app.approvals.autonomous.collectAsState()
-            val vaultEntries by app.vault.entries.collectAsState()
-            SettingsScreen(store, status, release, onFix, onBack = back, onOpenMemory = { nav.push(Route.Memory) },
-                onOpenVault = { nav.push(Route.Vault) }, vaultCount = vaultEntries.size,
-                onOpenModels = { nav.push(Route.Models) }, webSites = webSites,
-                autonomous = autonomous, onAutonomous = app.approvalControl::setAutonomous,
-                updateVersion = updateState.update?.version, onOpenAbout = { nav.push(Route.About) },
-                onCheckUpdates = app.updates::checkInBackground,
-                updateState = updateState)
-        }
+        Route.Settings -> SettingsRoute(
+            store = store,
+            monitor = monitor,
+            app = app,
+            context = context,
+            release = release,
+            onFix = onFix,
+            onBack = back,
+            onOpenMemory = { nav.push(Route.Memory) },
+            onOpenVault = { nav.push(Route.Vault) },
+            onOpenModels = { nav.push(Route.Models) },
+            onOpenAbout = { nav.push(Route.About) },
+        )
         Route.Vault -> VaultScreen(vault = app.vault, onBack = back)
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, routerStatus = app.routerStatus)
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)
-        Route.About -> AboutScreen(
-            versionName = BuildConfig.VERSION_NAME, build = BuildConfig.GIT_HASH, beta = BuildConfig.BETA,
-            update = updateState,
-            issueUrl = remember {
-                HarnessLinks.issueUrl(
-                    HarnessLinks.Device(
-                        Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
-                        BuildConfig.VERSION_NAME, BuildConfig.GIT_HASH,
-                    ),
-                )
-            },
-            onCheck = app.updates::checkInBackground,
-            onOpenUrl = { openInBrowser(context, it) },
-            onSaveQr = { QrImage.saveToPictures(context) },
+        Route.About -> AboutRoute(
+            monitor = monitor,
+            app = app,
+            context = context,
             onOpenLicense = { nav.push(Route.License) },
             onBack = back,
-            diagnostics = {
-                Diagnostics.render(DiagnosticsCollector.collect(context, status))
-            },
         )
         Route.License -> LicensesScreen(onBack = back)
         Route.Browser -> BrowserScreen(remember { UserBrowser.of(context) }, onBack = back)
@@ -539,4 +502,139 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
             nav.reset()
         })
     }
+}
+
+@Composable
+private fun UpdateAlertDialogHost(updates: UpdateChecker, context: Context) {
+    val updateState by updates.state.collectAsState()
+    var updateDialogDismissedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    val availableUpdate = updateState.update
+    val showUpdateDialog = availableUpdate != null && updateDialogDismissedFor != availableUpdate.version
+    if (!showUpdateDialog || availableUpdate == null) return
+    val updater = remember { ApkUpdater(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    AlertDialog(
+        onDismissRequest = { updateDialogDismissedFor = availableUpdate.version },
+        title = { Text(stringResource(R.string.update_dialog_title)) },
+        text = {
+            Text(
+                if (availableUpdate.notes.isNotBlank()) {
+                    stringResource(R.string.update_dialog_message, availableUpdate.version) + "\n\n" + availableUpdate.notes.take(300)
+                } else {
+                    stringResource(R.string.update_dialog_message, availableUpdate.version)
+                }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                updateDialogDismissedFor = availableUpdate.version
+                if (updater.state(availableUpdate).phase == DownloadPhase.Ready) {
+                    runCatching { updater.openInstaller(availableUpdate) }
+                } else {
+                    Toast.makeText(context, context.getString(R.string.about_update_downloading), Toast.LENGTH_SHORT).show()
+                    scope.launch(Dispatchers.IO) {
+                        runCatching { updater.download(availableUpdate) }
+                    }
+                }
+            }) {
+                Text(stringResource(R.string.update_dialog_download))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { updateDialogDismissedFor = availableUpdate.version }) {
+                Text(stringResource(R.string.update_dialog_later))
+            }
+        },
+    )
+}
+
+@Composable
+private fun PhoneSetupRoute(
+    monitor: SystemStatusMonitor,
+    setupRepair: Boolean,
+    onFix: (Fix) -> Unit,
+    onboarding: Boolean,
+    onBack: () -> Unit,
+) {
+    val status by monitor.status.collectAsState()
+    PhoneSetupScreen(status, setupRepair, onFix, onboarding = onboarding, onClose = onBack)
+}
+
+@Composable
+private fun SettingsRoute(
+    store: ProviderStore,
+    monitor: SystemStatusMonitor,
+    app: HarnessApp,
+    context: Context,
+    release: String,
+    onFix: (Fix) -> Unit,
+    onBack: () -> Unit,
+    onOpenMemory: () -> Unit,
+    onOpenVault: () -> Unit,
+    onOpenModels: () -> Unit,
+    onOpenAbout: () -> Unit,
+) {
+    val status by monitor.status.collectAsState()
+    val updateState by app.updates.state.collectAsState()
+    val registry = remember { WebSites.registry(context) }
+    val sites by registry.entries.collectAsState()
+    val webSites = remember(sites, context) {
+        WebSitesState(
+            sites = sites,
+            onOpenLogin = { WebHandover.showLogin(context, it) },
+            onLogout = { WebSites.login(context).logout(it) },
+            onLogoutAll = { WebSites.logoutAll(context) },
+        )
+    }
+    val autonomous by app.approvals.autonomous.collectAsState()
+    val vaultEntries by app.vault.entries.collectAsState()
+    SettingsScreen(
+        store = store,
+        status = status,
+        androidRelease = release,
+        onFix = onFix,
+        onBack = onBack,
+        onOpenMemory = onOpenMemory,
+        onOpenVault = onOpenVault,
+        vaultCount = vaultEntries.size,
+        onOpenModels = onOpenModels,
+        webSites = webSites,
+        autonomous = autonomous,
+        onAutonomous = app.approvalControl::setAutonomous,
+        updateVersion = updateState.update?.version,
+        onOpenAbout = onOpenAbout,
+        onCheckUpdates = app.updates::checkInBackground,
+        updateState = updateState,
+    )
+}
+
+@Composable
+private fun AboutRoute(
+    monitor: SystemStatusMonitor,
+    app: HarnessApp,
+    context: Context,
+    onOpenLicense: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val updateState by app.updates.state.collectAsState()
+    AboutScreen(
+        versionName = BuildConfig.VERSION_NAME, build = BuildConfig.GIT_HASH, beta = BuildConfig.BETA,
+        update = updateState,
+        issueUrl = remember {
+            HarnessLinks.issueUrl(
+                HarnessLinks.Device(
+                    Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
+                    BuildConfig.VERSION_NAME, BuildConfig.GIT_HASH,
+                ),
+            )
+        },
+        onCheck = app.updates::checkInBackground,
+        onOpenUrl = { openInBrowser(context, it) },
+        onSaveQr = { QrImage.saveToPictures(context) },
+        onOpenLicense = onOpenLicense,
+        onBack = onBack,
+        diagnostics = {
+            Diagnostics.render(DiagnosticsCollector.collect(context, monitor.status.value))
+        },
+    )
 }

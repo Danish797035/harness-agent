@@ -32,7 +32,7 @@ class ChatKeysTest {
         // Do exchange ke saath keys nikaalo
         val initialTwoKeys = chatListKeys(listOf(ex1, ex2)).map { it.first }
         assertEquals(
-            listOf("u:${ex1.id}", "s:${ex1.id}", "r:${ex1.id}", "u:${ex2.id}", "draft:${ex2.id}"),
+            listOf("u:${ex1.id}", "s:${ex1.id}", "r:${ex1.id}", "u:${ex2.id}", "s:${ex2.id}", "draft:${ex2.id}"),
             initialTwoKeys,
         )
 
@@ -66,6 +66,8 @@ class ChatKeysTest {
         val draftItem = streamingKeys.firstOrNull { it.first == "draft:${exStreaming.id}" }
         assertNotNull("Draft item must be present with key draft:\${ex.id}", draftItem)
         assertEquals("draft", draftItem?.second)
+        // Streaming status ("Replying · Xs" / "Thinking · Xs") stays mounted above draft even without thinking text
+        assertEquals(listOf("u:${exStreaming.id}", "s:${exStreaming.id}", "draft:${exStreaming.id}"), streamingKeys.map { it.first })
 
         // While answering with non-blank thinking, "s:${ex.id}" remains mounted above draft
         val exStreamingWithThinking = exStreaming.copy(thinking = "Step-by-step reasoning")
@@ -82,6 +84,15 @@ class ChatKeysTest {
         val answerItem = doneKeys.firstOrNull { it.first == "r:${exDone.id}" }
         assertNotNull("Final message must have key r:\${ex.id}", answerItem)
         assertEquals("assistant", answerItem?.second)
+    }
+
+    @Test
+    fun shortModelNameStripsVendorPrefixAndKeepsReadableModelName() {
+        assertEquals("4 Hydrogen", shortModelName("Gemini 4 Hydrogen"))
+        assertEquals("3.1 Pro", shortModelName("Gemini 3.1 Pro"))
+        assertEquals("2.0 Flash", shortModelName("google/gemini-2.0-flash-exp:free".let { com.meenai.mina.ui.router.formatRouterModelName(it) }))
+        assertEquals("DeepSeek-V3", shortModelName("deepseek/DeepSeek-V3:free"))
+        assertEquals("GPT-4o", shortModelName("OpenAI GPT-4o"))
     }
 
     @Test

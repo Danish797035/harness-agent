@@ -15,6 +15,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.meenai.mina.ui.theme.MinaTheme
 import com.meenai.mina.ui.theme.animationsOff
+import com.meenai.mina.ui.theme.requestMaxRefreshRate
 import com.meenai.mina.ui.theme.systemBarsFor
 
 /**
@@ -33,14 +34,16 @@ class FileViewerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        requestMaxRefreshRate()
         val uri = intent.data
         if (uri == null) { finish(); return }
         val name = intent.getStringExtra(EXTRA_NAME) ?: uri.lastPathSegment.orEmpty()
         val kind = FileViewer.kindOf(this, uri, name)
         setContent {
             val dark = com.meenai.mina.ui.theme.appearanceDark()
+            val reduceMotion = androidx.compose.runtime.remember { animationsOff(this@FileViewerActivity) }
             androidx.compose.runtime.LaunchedEffect(dark) { systemBarsFor(dark) }
-            MinaTheme(dark = dark, reduceMotion = animationsOff(this)) {
+            MinaTheme(dark = dark, reduceMotion = reduceMotion) {
                 FileViewerScreen(uri, name, kind, onBack = ::finish)
             }
         }

@@ -44,8 +44,10 @@ import com.meenai.mina.ui.components.SegmentedControl
 import com.meenai.mina.ui.components.TileTone
 import com.meenai.mina.ui.theme.MinaIcons
 import com.meenai.mina.ui.theme.MinaTheme
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -55,6 +57,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun McpScreen(runtime: McpRuntime, onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val enabled by runtime.settings.enabled.collectAsState()
     val usbOn by runtime.usb.enabled.collectAsState()
     val relayConfig by runtime.relaySettings.config.collectAsState()
@@ -87,7 +90,12 @@ fun McpScreen(runtime: McpRuntime, onBack: () -> Unit) {
         onDismissRequest = { confirmRegenerate = false },
         title = { Text(stringResource(R.string.mcp_regenerate_title)) },
         text = { Text(stringResource(R.string.mcp_regenerate_body)) },
-        confirmButton = { TextButton({ confirmRegenerate = false; token = runtime.regenerateToken() }) { Text(stringResource(R.string.mcp_regenerate_confirm)) } },
+        confirmButton = {
+            TextButton({
+                confirmRegenerate = false
+                scope.launch { token = withContext(Dispatchers.IO) { runtime.regenerateToken() } }
+            }) { Text(stringResource(R.string.mcp_regenerate_confirm)) }
+        },
         dismissButton = { TextButton({ confirmRegenerate = false }) { Text(stringResource(R.string.cancel)) } },
     )
 }
@@ -123,14 +131,24 @@ internal fun ComputerAccessPage(
     PageScaffold(stringResource(R.string.mcp_title), onBack) {
         ConnectionStatus(ui)
         GroupLabel(stringResource(R.string.mcp_choose_client))
-        SegmentedControl(listOf("CLI / Skill", "MCP"), client, { client = it },
-            Modifier.padding(bottom = 12.dp), tags = listOf("computer-cli", "computer-mcp"))
+        val clientTabs = remember { listOf("CLI / Skill", "MCP") }
+        val clientTags = remember { listOf("computer-cli", "computer-mcp") }
+        SegmentedControl(clientTabs, client, { client = it },
+            Modifier.padding(bottom = 12.dp), tags = clientTags)
         GroupLabel(stringResource(R.string.mcp_choose_transport))
         val remoteChoice = relayGuide != null
-        SegmentedControl(listOf(stringResource(R.string.mcp_transport_usb), stringResource(R.string.mcp_transport_network)) +
-            if (remoteChoice) listOf(stringResource(R.string.relay_transport)) else emptyList(),
-            transport, { transport = it }, Modifier.padding(bottom = 12.dp),
-            tags = listOf("computer-usb", "computer-network") + if (remoteChoice) listOf("computer-remote") else emptyList())
+        val transportUsb = stringResource(R.string.mcp_transport_usb)
+        val transportNetwork = stringResource(R.string.mcp_transport_network)
+        val transportRemote = if (remoteChoice) stringResource(R.string.relay_transport) else null
+        val transportLabels = remember(transportUsb, transportNetwork, transportRemote) {
+            listOfNotNull(transportUsb, transportNetwork, transportRemote)
+        }
+        val transportTags = remember(remoteChoice) {
+            if (remoteChoice) listOf("computer-usb", "computer-network", "computer-remote")
+            else listOf("computer-usb", "computer-network")
+        }
+        SegmentedControl(transportLabels, transport, { transport = it }, Modifier.padding(bottom = 12.dp),
+            tags = transportTags)
         if (client == 0) CliInstallGuide(onCopy)
         when {
             transport == 2 -> relayGuide?.invoke(client == 1)
@@ -287,8 +305,10 @@ internal fun CommandText(text: String, modifier: Modifier = Modifier) {
         fontFamily = FontFamily.Monospace, fontSize = 14.sp, lineHeight = 20.sp, color = MinaTheme.colors.ink)
 }
 
+private val MCP_TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
 private fun clock(ms: Long): String =
-    DateTimeFormatter.ofPattern("HH:mm:ss").format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+    MCP_TIME_FMT.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
 
 private fun copy(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Harness Agent", text))

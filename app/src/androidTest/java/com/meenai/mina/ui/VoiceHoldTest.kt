@@ -82,13 +82,14 @@ class VoiceHoldTest {
 
     @Test fun holdShowsTheListenCardAndReleaseFillsTheField() {
         composer("帮我")
-        compose.onNodeWithTag("composer-field").performTouchInput { down(center) }
+        waitTag("composer-mic")
+        compose.onNodeWithTag("composer-mic").performTouchInput { down(center) }
         waitTag("voice-listen")
         val session = voice.sessions.single()
         session.out.trySend(SpeechEvent.Partial("订明天", "的票"))
         // Pressing for more than half a second is not considered an accidental touch.
         Thread.sleep(700)
-        compose.onNodeWithTag("composer-field").performTouchInput { up() }
+        compose.onNodeWithTag("composer-mic").performTouchInput { up() }
         compose.waitUntil(5_000) { session.released == 1 }
         session.out.trySend(SpeechEvent.Final("订明天的票"))
         session.out.close()
@@ -134,10 +135,11 @@ class VoiceHoldTest {
     @Test fun audioErrorExplainsWhereToCheckButClientErrorKeepsTheOldHint() {
         composer()
         fun failWith(why: SpeechFailure) {
-            compose.onNodeWithTag("composer-field").performTouchInput { down(center) }
+            waitTag("composer-mic")
+            compose.onNodeWithTag("composer-mic").performTouchInput { down(center) }
             waitTag("voice-listen")
             voice.sessions.last().out.trySend(SpeechEvent.Failed(why))
-            compose.onNodeWithTag("composer-field").performTouchInput { up() }
+            compose.onNodeWithTag("composer-mic").performTouchInput { up() }
         }
         failWith(SpeechFailure.MicUnavailable)
         waitTag("voice-toast")
@@ -150,13 +152,14 @@ class VoiceHoldTest {
 
     @Test fun slidingUpCancels() {
         composer()
-        compose.onNodeWithTag("composer-field").performTouchInput { down(center) }
+        waitTag("composer-mic")
+        compose.onNodeWithTag("composer-mic").performTouchInput { down(center) }
         waitTag("voice-listen")
         val session = voice.sessions.single()
         Thread.sleep(700)
-        compose.onNodeWithTag("composer-field").performTouchInput { moveBy(androidx.compose.ui.geometry.Offset(0f, -400f)) }
+        compose.onNodeWithTag("composer-mic").performTouchInput { moveBy(androidx.compose.ui.geometry.Offset(0f, -400f)) }
         waitTag("voice-cancel-hint")
-        compose.onNodeWithTag("composer-field").performTouchInput { up() }
+        compose.onNodeWithTag("composer-mic").performTouchInput { up() }
         compose.waitUntil(5_000) { session.cancelled == 1 }
         assertEquals(0, session.released)
         waitNoTag("voice-listen")
