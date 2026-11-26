@@ -376,11 +376,29 @@ private fun PipWindow(
             }
         }
         // The border light is painted on the outer edge of the glass frame
-        val glow = when (pip.mode) {
-            PipMode.Running -> MinaTheme.colors.ok to 2.dp
-            PipMode.NeedsYou -> MinaTheme.colors.warnSolid.copy(alpha = breath) to 2.dp
-            PipMode.Done -> null
+        val okColor = MinaTheme.colors.ok
+        val warnColor = MinaTheme.colors.warnSolid
+        when (pip.mode) {
+            PipMode.Running -> Box(Modifier.size(w, h).border(2.dp, okColor, outer))
+            PipMode.NeedsYou -> {
+                val cornerDp = if (pip.expanded) 26.dp else 16.dp
+                Box(
+                    Modifier.size(w, h).drawWithContent {
+                        drawContent()
+                        val stroke = 2.dp.toPx()
+                        val half = stroke / 2f
+                        val corner = (cornerDp.toPx() - half).coerceAtLeast(0f)
+                        drawRoundRect(
+                            color = warnColor.copy(alpha = breathState?.value ?: 1f),
+                            topLeft = Offset(half, half),
+                            size = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
+                            cornerRadius = CornerRadius(corner, corner),
+                            style = Stroke(stroke),
+                        )
+                    },
+                )
+            }
+            PipMode.Done -> Unit
         }
-        if (glow != null) Box(Modifier.size(w, h).border(glow.second, glow.first, outer))
     }
 }

@@ -301,12 +301,12 @@ fun RouterBottomSheet(
     }
     val roleItems = remember(savedConfigs, savedRoles) {
         val mainCfg = savedConfigs.firstOrNull { it.id == savedRoles.main }
-        val visionCfg = if (savedRoles.vision is RoleChoice.Model) {
-            savedConfigs.firstOrNull { it.id == savedRoles.vision.configId }
-        } else null
-        val lightCfg = if (savedRoles.light is RoleChoice.Model) {
-            savedConfigs.firstOrNull { it.id == savedRoles.light.configId }
-        } else null
+        val visionCfg = (savedRoles.vision as? RoleChoice.Model)?.let { role ->
+            savedConfigs.firstOrNull { it.id == role.configId }
+        }
+        val lightCfg = (savedRoles.light as? RoleChoice.Model)?.let { role ->
+            savedConfigs.firstOrNull { it.id == role.configId }
+        }
         listOfNotNull(
             mainCfg?.let { Triple(ModelRole.Main, it, MinaIcons.Spark) },
             visionCfg?.let { Triple(ModelRole.Vision, it, MinaIcons.Eye) },
