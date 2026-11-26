@@ -89,10 +89,30 @@ class ChatKeysTest {
     @Test
     fun shortModelNameStripsVendorPrefixAndKeepsReadableModelName() {
         assertEquals("4 Hydrogen", shortModelName("Gemini 4 Hydrogen"))
+        assertEquals("4 Hydrogen", shortModelName("Google: Gemini 4 Hydrogen"))
         assertEquals("3.1 Pro", shortModelName("Gemini 3.1 Pro"))
         assertEquals("2.0 Flash", shortModelName("google/gemini-2.0-flash-exp:free".let { com.meenai.mina.ui.router.formatRouterModelName(it) }))
         assertEquals("DeepSeek-V3", shortModelName("deepseek/DeepSeek-V3:free"))
         assertEquals("GPT-4o", shortModelName("OpenAI GPT-4o"))
+        assertEquals("GPT-4o", shortModelName("OpenAI: GPT-4o"))
+        assertEquals(
+            "4 Hydrogen",
+            composerModelLabel(
+                com.meenai.mina.ui.router.ActiveModel(
+                    id = "gemini-4-hydrogen",
+                    name = "gemini-4-hydrogen",
+                ),
+            ),
+        )
+        assertEquals(
+            "3.1 Pro",
+            composerModelLabel(
+                com.meenai.mina.ui.router.ActiveModel(
+                    id = "gemini-3.1-pro",
+                    name = "Gemini 3.1 Pro",
+                ),
+            ),
+        )
     }
 
     @Test

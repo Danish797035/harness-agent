@@ -77,6 +77,7 @@ class RunTraceDeviceTest {
                 compose.onNodeWithContentDescription("菜单").performClick()
                 compose.onNodeWithText("设置").performClick()
                 compose.onNodeWithText("记录详细 Trace").assertDoesNotExist()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("开发者选项"))
                 compose.onNodeWithText("开发者选项").performScrollTo().performClick()
                 compose.onNodeWithText("Trace 存储上限").performScrollTo().performClick()
                 compose.onNode(hasSetTextAction()).performTextReplacement("0")

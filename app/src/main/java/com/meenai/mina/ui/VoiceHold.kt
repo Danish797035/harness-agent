@@ -86,7 +86,6 @@ import com.meenai.mina.R
 import com.meenai.mina.i18n.tr
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
-import com.meenai.mina.ui.components.GlassBackdrop
 import com.meenai.mina.ui.components.GlassBar
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.components.floatShadow
@@ -442,7 +441,7 @@ private const val WAVE_BARS = 14
  * (usually "listening", when the task is running, "interjecting to "..."").
  */
 @Composable
-internal fun VoiceFloat(vh: VoiceHold, state: HoldToTalk.State, title: String, backdrop: GlassBackdrop?, reduceMotion: Boolean) {
+internal fun VoiceFloat(vh: VoiceHold, state: HoldToTalk.State, title: String, reduceMotion: Boolean) {
     val gap = with(LocalDensity.current) { 12.dp.roundToPx() }
     val listening = state as? HoldToTalk.State.Listening
     // The animation of the card being folded also needs to draw the content of the last moment.
@@ -465,7 +464,7 @@ internal fun VoiceFloat(vh: VoiceHold, state: HoldToTalk.State, title: String, b
                     fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 12 } + scaleIn(tween(200), initialScale = 0.98f),
                 exit = fadeOut(tween(if (reduceMotion) 0 else 150)),
             ) {
-                last[0]?.let { ListenCard(it, title, vh.engine, backdrop) }
+                last[0]?.let { ListenCard(it, title, vh.engine) }
             }
             val toast = vh.toast
             if (toast != null && listening == null) VoiceToast(toast)
@@ -497,13 +496,13 @@ private fun CancelHint(armed: Boolean, modifier: Modifier = Modifier) {
  * slide up to cancel, the words are crossed out and the border turns red.
  */
 @Composable
-private fun ListenCard(s: HoldToTalk.State.Listening, title: String, engine: String, backdrop: GlassBackdrop?) {
+private fun ListenCard(s: HoldToTalk.State.Listening, title: String, engine: String) {
     val c = MinaTheme.colors
     val shape = RoundedCornerShape(22.dp)
     GlassBar(
         Modifier.fillMaxWidth().testTag("voice-listen")
             .then(if (s.cancelArmed) Modifier.border(1.5.dp, c.bad, shape) else Modifier),
-        backdrop, shape,
+        backdrop = null, shape = shape,
     ) {
         Column(Modifier.weight(1f).padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

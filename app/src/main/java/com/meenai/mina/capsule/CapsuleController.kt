@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
@@ -1266,7 +1267,8 @@ class CapsuleController(
             OverlayPlacement(Gravity.CENTER),
             onOutside = ::closeShortcutMenu,
         ) {
-            MinaTheme(reduceMotion = animationsOff(context)) {
+            val reduceMotion = remember(context) { animationsOff(context) }
+            MinaTheme(reduceMotion = reduceMotion) {
                 CapsuleShortcutMenuOverlay(
                     onSelect = { shortcut ->
                         closeShortcutMenu()
@@ -1413,7 +1415,8 @@ class CapsuleController(
             OverlayPlacement(Gravity.FILL),
             touchable = true
         ) {
-            MinaTheme(reduceMotion = animationsOff(context)) {
+            val reduceMotion = remember(context) { animationsOff(context) }
+            MinaTheme(reduceMotion = reduceMotion) {
                 com.meenai.mina.capsule.circle.CircleToAskOverlay(
                     screenshot = screenshot,
                     imeTopPx = imeTop,
@@ -1647,7 +1650,8 @@ class CapsuleController(
             OverlayPlacement(Gravity.CENTER),
             touchable = true
         ) {
-            MinaTheme(reduceMotion = animationsOff(context)) {
+            val reduceMotion = remember(context) { animationsOff(context) }
+            MinaTheme(reduceMotion = reduceMotion) {
                 com.meenai.mina.capsule.acthere.ActHerePromptOverlay(
                     onStart = { goal ->
                         actHerePromptWindow?.setFocusable(false)
@@ -1869,7 +1873,8 @@ class CapsuleController(
             OverlayPlacement(Gravity.FILL),
             touchable = false
         ) {
-            MinaTheme(reduceMotion = animationsOff(context)) {
+            val reduceMotion = remember(context) { animationsOff(context) }
+            MinaTheme(reduceMotion = reduceMotion) {
                 com.meenai.mina.capsule.acthere.ActHereTapHighlightOverlay(x = x, y = y)
             }
         }
@@ -1886,7 +1891,8 @@ class CapsuleController(
             OverlayPlacement(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, y = 120),
             touchable = true
         ) {
-            MinaTheme(reduceMotion = animationsOff(context)) {
+            val reduceMotion = remember(context) { animationsOff(context) }
+            MinaTheme(reduceMotion = reduceMotion) {
                 com.meenai.mina.capsule.acthere.ActHereControlBar(
                     onStop = {
                         stopActHere()
@@ -1909,7 +1915,8 @@ class CapsuleController(
                     OverlayPlacement(Gravity.CENTER),
                     touchable = true
                 ) {
-                    MinaTheme(reduceMotion = animationsOff(context)) {
+                    val reduceMotion = remember(context) { animationsOff(context) }
+                    MinaTheme(reduceMotion = reduceMotion) {
                         com.meenai.mina.capsule.acthere.ActHereConfirmationOverlay(
                             actionLabel = actionLabel,
                             onConfirm = {
@@ -1941,7 +1948,8 @@ class CapsuleController(
                     OverlayPlacement(Gravity.CENTER),
                     touchable = true
                 ) {
-                    MinaTheme(reduceMotion = animationsOff(context)) {
+                    val reduceMotion = remember(context) { animationsOff(context) }
+                    MinaTheme(reduceMotion = reduceMotion) {
                         com.meenai.mina.capsule.acthere.ActHereMaxStepsOverlay(
                             onContinue = {
                                 actHereMaxStepsWindow?.close()
@@ -2134,7 +2142,8 @@ class CapsuleController(
     @Composable
     private fun CardOverlay() {
         val c = card ?: return
-        MinaTheme(reduceMotion = animationsOff(context)) {
+        val reduceMotion = remember(context) { animationsOff(context) }
+        MinaTheme(reduceMotion = reduceMotion) {
             val height = if (cardHeight > 0) with(LocalDensity.current) { cardHeight.toDp() } else Dp.Unspecified
             OverlayMotion(open = !closing, origin = ::cardOrigin, onClosed = ::closed, onOpened = { cardOut = true }) {
                 CapsuleCard(c, preview, zoomed, actions, { elapsed(it) }, input = inputUi, thread = thread, height = height, onHandle = ::onHandle)
@@ -2149,7 +2158,8 @@ class CapsuleController(
         val a = windowOn?.overlays()?.area()
         val top = placedY + room()
         val bottom = placedY + (window?.height ?: 0) - room()
-        MinaTheme(reduceMotion = animationsOff(context)) {
+        val reduceMotion = remember(context) { animationsOff(context) }
+        MinaTheme(reduceMotion = reduceMotion) {
             CapsuleVoicePanel(talk, top, bottom.coerceAtLeast(top), a?.insetTop ?: 0, a?.insetBottom ?: 0)
         }
     }
@@ -2157,7 +2167,8 @@ class CapsuleController(
     @Composable
     private fun DismissZoneOverlay() {
         if (!dismissShowing) return
-        MinaTheme(reduceMotion = animationsOff(context)) {
+        val reduceMotion = remember(context) { animationsOff(context) }
+        MinaTheme(reduceMotion = reduceMotion) {
             CapsuleDismissZone(hovered = dismissHovered)
         }
     }
@@ -2171,7 +2182,8 @@ class CapsuleController(
         val v = if (n == null || shown.kind == CapsuleKind.HandedOver) shown
             else shown.copy(kind = n.kind, text = n.text, detail = null, count = 0, needCount = 0, pill = true, widthEpoch = -n.id)
         val talking = talk.active && !talk.released
-        MinaTheme(reduceMotion = animationsOff(context)) {
+        val reduceMotion = remember(context) { animationsOff(context) }
+        MinaTheme(reduceMotion = reduceMotion) {
             OverlayMotion(open = true, origin = { TransformOrigin(if (dock.side == DockSide.Right) 1f else 0f, 0.5f) }, onClosed = {}) {
                 CapsuleContent(
                     v,

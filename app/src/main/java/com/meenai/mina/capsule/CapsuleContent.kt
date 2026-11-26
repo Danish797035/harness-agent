@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,16 +41,15 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
@@ -96,6 +96,7 @@ private const val HOLD_MS = 180
 /** The length of time a work circle lasts. */
 private const val SPIN_MS = 1_200
 private val CapsuleText = TextStyle(fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+private val StopBarText = CapsuleText.copy(fontWeight = FontWeight.Normal)
 private val BarDetail = TextStyle(fontSize = 11.5.sp, lineHeight = 15.sp)
 private val CountText = TextStyle(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold)
 
@@ -195,6 +196,7 @@ private fun Capsule(
     val glow = remember { Animatable(0f) }
     val still = MinaTheme.reduceMotion
     val morph = rememberMorph(animate = !still)
+    val clipPath = remember { Path() }
     LaunchedEffect(flash) {
         if (flash == 0 || still) return@LaunchedEffect
         glow.snapTo(FLASH_ALPHA)
@@ -218,7 +220,7 @@ private fun Capsule(
     ) {
         Box(
             Modifier.testTag(if (view.pill) "capsule" else "capsule-ball")
-                .morphGlass(morph, end, c, need, alphaProvider, glow)
+                .morphGlass(morph, end, c, need, alphaProvider, glow, clipPath)
                 .clickable(onClickLabel = tapLabel, role = Role.Button, onClick = onTap)
                 .then(if (view.pill) Modifier else Modifier.semantics { contentDescription = CapsuleCopy.describe(view) })
                 .then(a11y)
@@ -382,6 +384,7 @@ private class Morph {
     val width = Animatable(0f)
     var target by mutableIntStateOf(0)
     var hold by mutableIntStateOf(0)
+    var morphing by mutableStateOf(false)
 }
 
 @Composable
@@ -390,10 +393,17 @@ private fun rememberMorph(animate: Boolean): Morph {
     LaunchedEffect(m.target, animate) {
         val t = m.target
         if (t == 0) return@LaunchedEffect
-        if (!animate || m.width.value == 0f) m.width.snapTo(t.toFloat())
-        else {
+        if (!animate || m.width.value == 0f) {
+            m.morphing = false
+            m.width.snapTo(t.toFloat())
+        } else {
             m.hold = maxOf(ceil(m.width.value).toInt(), t)
-            m.width.animateTo(t.toFloat(), tween(MORPH_MS))
+            m.morphing = true
+            try {
+                m.width.animateTo(t.toFloat(), tween(MORPH_MS))
+            } finally {
+                m.morphing = false
+            }
         }
         m.hold = t
     }
@@ -409,9 +419,9 @@ private fun Modifier.morphLayout(m: Morph, end: Boolean): Modifier = layout { me
 }
 
 /**
- * Glass bottom (same as [glass]), only draw the visible width and the side where it is docked: click it
- * for shadow, crop, background color and stroke, and only redraw the layer when the width changes.
- * [alpha] Light background and icon inside.
+ * Glass bottom (same as [glass]), drawing the morphing pill background, clip, and border directly in
+ * [drawWithContent] using a single [CornerRadius] without allocating per-frame shapes or re-rasterizing
+ * hardware shadows while morphing; cached static shadow is applied only once settled.
  */
 private fun Modifier.morphGlass(
     m: Morph,
@@ -420,46 +430,59 @@ private fun Modifier.morphGlass(
     need: Boolean,
     alphaProvider: () -> Float,
     flashGlow: Animatable<Float, *>,
-): Modifier =
-    graphicsLayer {
+    clipPath: Path,
+): Modifier {
+    val surfaceFill = c.surface.copy(alpha = 0.95f)
+    val ambientShadow = c.floatShadow.copy(alpha = 0.25f)
+    val spotShadow = c.floatShadow.copy(alpha = 0.3f)
+    val borderColor = if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge
+    val warnSoft = c.warnSoft
+    return graphicsLayer {
         this.alpha = alphaProvider()
-        shadowElevation = 8.dp.toPx()
-        ambientShadowColor = c.floatShadow.copy(alpha = 0.25f)
-        spotShadowColor = c.floatShadow.copy(alpha = 0.3f)
-        val mw = m.width.value
-        shape = if (mw > 0f && ceil(mw).toInt() != m.hold) EdgePill(mw, end) else MinaShapes.Pill
-        clip = true
+    }.graphicsLayer {
+        val settled = !m.morphing && m.hold == m.target
+        if (settled) {
+            shadowElevation = 8.dp.toPx()
+            ambientShadowColor = ambientShadow
+            spotShadowColor = spotShadow
+            shape = MinaShapes.Pill
+            clip = true
+        } else {
+            shadowElevation = 0f
+            shape = MinaShapes.Pill
+            clip = false
+        }
     }.drawWithContent {
         val mw = m.width.value
         val w = if (mw > 0f) mw.coerceAtMost(size.width) else size.width
         val left = if (end) size.width - w else 0f
         val topLeft = Offset(left, 0f)
         val rectSize = Size(w, size.height)
-        val radius = CornerRadius(size.height / 2f, size.height / 2f)
-        drawRoundRect(c.surface.copy(alpha = 0.95f), topLeft, rectSize, radius)
-        if (need) drawRoundRect(c.warnSoft, topLeft, rectSize, radius)
-        drawContent()
+        val r = size.height / 2f
+        val radius = CornerRadius(r, r)
+        drawRoundRect(surfaceFill, topLeft, rectSize, radius)
+        if (need) drawRoundRect(warnSoft, topLeft, rectSize, radius)
+        if (w < size.width - 0.5f) {
+            clipPath.rewind()
+            clipPath.addRoundRect(RoundRect(left, 0f, left + w, size.height, radius))
+            clipPath(clipPath) {
+                this@drawWithContent.drawContent()
+            }
+        } else {
+            drawContent()
+        }
         val g = flashGlow.value
         if (g > 0f) drawRoundRect(Color.White.copy(alpha = g), topLeft, rectSize, radius)
         val stroke = (if (need) 1.dp else 0.5.dp).toPx()
         val half = stroke / 2f
-        val br = (size.height / 2f - half).coerceAtLeast(0f)
+        val br = (r - half).coerceAtLeast(0f)
         drawRoundRect(
-            color = if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge,
+            color = borderColor,
             topLeft = Offset(left + half, half),
             size = Size((w - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)),
             cornerRadius = CornerRadius(br, br),
             style = Stroke(stroke),
         )
-    }
-
-/** A capsule shape with a width of [width] (0 or beyond) and close to one side (right side in the case of [end]); [inset] is drawn inwards (for drawing strokes). */
-private class EdgePill(private val width: Float, private val end: Boolean, private val inset: Float = 0f) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val w = if (width > 0f) width.coerceAtMost(size.width) else size.width
-        val left = if (end) size.width - w else 0f
-        val r = size.height / 2 - inset
-        return Outline.Rounded(RoundRect(left + inset, inset, left + w - inset, size.height - inset, CornerRadius(r, r)))
     }
 }
 
@@ -487,7 +510,7 @@ private fun TakeoverBar(view: CapsuleView.Shown, onStop: () -> Unit, onHandBack:
                 .heightIn(min = 36.dp).padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(CapsuleCopy.STOP, style = CapsuleText.copy(fontWeight = FontWeight.Normal), color = c.ink2, maxLines = 1)
+            Text(CapsuleCopy.STOP, style = StopBarText, color = c.ink2, maxLines = 1)
         }
         MinaButton(stringResource(R.string.action_hand_back), onHandBack, size = ButtonSize.Small)
     }
