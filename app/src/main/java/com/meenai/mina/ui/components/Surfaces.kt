@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Shape
@@ -60,17 +59,14 @@ fun PageBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.
     Box(modifier.fillMaxSize().background(MinaTheme.colors.bg), content = content)
 }
 
-/** The base of the card: white + black 5% stroke + very light shadow; dark only stroke. */
+/** The base of the card: flat surface fill with lightweight 1.dp hairline border (avoids hardware shadow rasterization). */
 fun Modifier.cardSurface(colors: MinaColors, shape: Shape = MinaShapes.Card): Modifier =
-    (if (colors.cardShadow.alpha > 0f) {
-        shadow(6.dp, shape, clip = false, ambientColor = colors.cardShadow.copy(alpha = 0.45f), spotColor = colors.cardShadow.copy(alpha = 0.16f))
-    } else this)
-        .background(colors.surface, shape)
-        .border(0.5.dp, colors.edge, shape)
+    background(colors.surface, shape)
+        .border(1.dp, colors.edge, shape)
 
-/** Shadows for suspended elements (input fields, buttons floating on content). */
+/** Lightweight border treatment for suspended elements (avoids expensive 14.dp hardware shadow layer per frame). */
 fun Modifier.floatShadow(colors: MinaColors, shape: Shape): Modifier =
-    shadow(14.dp, shape, clip = false, ambientColor = colors.floatShadow.copy(alpha = 0.3f), spotColor = colors.floatShadow.copy(alpha = 0.35f))
+    border(1.dp, colors.glassEdge, shape)
 
 /** A card with the content cut in the rounded corners (the row press effect does not reveal the corners). */
 @Composable
@@ -170,7 +166,7 @@ fun GlassBar(
     val c = MinaTheme.colors
     var origin = if (backdrop != null) remember { mutableStateOf(Offset.Zero) } else null
     Box(
-        modifier.floatShadow(c, shape).clip(shape)
+        modifier.clip(shape)
             .then(
                 if (backdrop != null && origin != null) Modifier.onGloballyPositioned { origin.value = it.positionInRoot() }
                 else Modifier,

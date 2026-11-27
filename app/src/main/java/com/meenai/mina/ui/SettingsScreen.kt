@@ -16,6 +16,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -167,18 +168,18 @@ fun SettingsScreen(
         }
     }
     val sandboxState = remember { SandboxState.get(context) }
-    // Network proxy: only change it here; read settings to decrypt, see if the browser supports it and
-    // load WebView, all in the background
-    val proxies = remember { NetProxyStore.get(context) }
+    // Network proxy: read settings and WebView proxy mode in the background so Keystore init stays off Main.
     var proxy by remember { mutableStateOf<String?>(null) }
     var browserProxy by remember { mutableStateOf<WebProxy.Mode?>(null) }
     var editingProxy by remember { mutableStateOf(false) }
     LaunchedEffect(proxy) {
-        if (proxy == null) proxy = withContext(Dispatchers.IO) { proxies.get() }
+        if (proxy == null) proxy = withContext(Dispatchers.IO) { NetProxyStore.get(context).get() }
         browserProxy = withContext(Dispatchers.IO) { WebProxy.mode() }
     }
     val app = remember(context) { context.applicationContext as com.meenai.mina.HarnessApp }
-    val mcp = app.mcp
+    val mcp by produceState(if (app.mcpReady) app.mcp else null, app) {
+        if (value == null) value = withContext(Dispatchers.IO) { app.mcp }
+    }
     val usage = app.usage
     // Developer options are only listed in the debug version and performance test version: the default
     // values of each switch in the release version are determined based on the evaluation results.
@@ -228,8 +229,8 @@ fun SettingsScreen(
             store = store,
             usage = usage,
             sandboxFlow = sandboxState.status,
-            mcpNetworkFlow = mcp.settings.enabled,
-            mcpUsbFlow = mcp.usb.enabled,
+            mcpNetworkFlow = mcp?.settings?.enabled,
+            mcpUsbFlow = mcp?.usb?.enabled,
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
@@ -270,7 +271,7 @@ fun SettingsScreen(
         )
         SettingsPage.Recovery -> RecoveryScreen(onBack = toHome, onOpenSelfCheck = { page = SettingsPage.SelfCheck })
         SettingsPage.SelfCheck -> SelfCheckScreen(status, onBack = back)
-        SettingsPage.ComputerAccess -> McpScreen(mcp, onBack = toHome)
+        SettingsPage.ComputerAccess -> mcp?.let { McpScreen(it, onBack = toHome) }
         SettingsPage.Developer -> DeveloperOptionsHost(
             store = store,
             speed = speed,
@@ -289,7 +290,7 @@ fun SettingsScreen(
         onDismiss = { editingProxy = false },
         onSave = { v ->
             scope.launch {
-                withContext(Dispatchers.IO) { proxies.set(v) }
+                withContext(Dispatchers.IO) { NetProxyStore.get(context).set(v) }
                 proxy = v.trim()
                 editingProxy = false
             }

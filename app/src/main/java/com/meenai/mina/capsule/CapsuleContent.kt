@@ -37,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -433,25 +432,10 @@ private fun Modifier.morphGlass(
     clipPath: Path,
 ): Modifier {
     val surfaceFill = c.surface.copy(alpha = 0.95f)
-    val ambientShadow = c.floatShadow.copy(alpha = 0.25f)
-    val spotShadow = c.floatShadow.copy(alpha = 0.3f)
     val borderColor = if (need) c.warnSolid.copy(alpha = 0.5f) else c.glassEdge
     val warnSoft = c.warnSoft
     return graphicsLayer {
         this.alpha = alphaProvider()
-    }.graphicsLayer {
-        val settled = !m.morphing && m.hold == m.target
-        if (settled) {
-            shadowElevation = 8.dp.toPx()
-            ambientShadowColor = ambientShadow
-            spotShadowColor = spotShadow
-            shape = MinaShapes.Pill
-            clip = true
-        } else {
-            shadowElevation = 0f
-            shape = MinaShapes.Pill
-            clip = false
-        }
     }.drawWithContent {
         val mw = m.width.value
         val w = if (mw > 0f) mw.coerceAtMost(size.width) else size.width
@@ -473,7 +457,7 @@ private fun Modifier.morphGlass(
         }
         val g = flashGlow.value
         if (g > 0f) drawRoundRect(Color.White.copy(alpha = g), topLeft, rectSize, radius)
-        val stroke = (if (need) 1.dp else 0.5.dp).toPx()
+        val stroke = 1.dp.toPx()
         val half = stroke / 2f
         val br = (r - half).coerceAtLeast(0f)
         drawRoundRect(
@@ -528,7 +512,6 @@ private fun CapsuleLogo() {
  * when you need it, add a layer of light orange and turn the stroke to orange.
  */
 internal fun Modifier.glass(c: MinaColors, shape: Shape, need: Boolean): Modifier =
-    shadow(8.dp, shape, clip = false, ambientColor = c.floatShadow.copy(alpha = 0.25f), spotColor = c.floatShadow.copy(alpha = 0.3f))
-        .clip(shape)
+    clip(shape)
         .background(c.surface.copy(alpha = 0.95f))
-        .then(if (need) Modifier.background(c.warnSoft).border(1.dp, c.warnSolid.copy(alpha = 0.5f), shape) else Modifier.border(0.5.dp, c.glassEdge, shape))
+        .then(if (need) Modifier.background(c.warnSoft).border(1.dp, c.warnSolid.copy(alpha = 0.5f), shape) else Modifier.border(1.dp, c.glassEdge, shape))

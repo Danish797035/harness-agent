@@ -264,10 +264,6 @@ fun OverlayMotion(
                 shown.snapTo(1f)
                 opened()
             } else {
-                // The frame that just comes out needs to be typed and the window resized. The slowest:
-                // wait for it to finish drawing before starting, so that the first few frames of the
-                // animation are not eaten by it.
-                if (shown.value == 0f) repeat(SETTLE_FRAMES) { withFrameNanos { } }
                 opened()
                 shown.animateTo(1f, tween(CARD_IN_MS, easing = MinaMotion.Decelerate))
             }
@@ -298,7 +294,6 @@ fun OverlayMotion(
 private const val CARD_IN_MS = 240
 private const val CARD_OUT_MS = 180
 private const val CARD_FROM_SCALE = 0.6f
-private const val SETTLE_FRAMES = 2
 
 /**
  * Bottom input box: It is usually a line of prompts (the floating layer does not grab the keyboard).

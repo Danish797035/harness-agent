@@ -851,7 +851,7 @@ private fun SheetQuotaHeroCard(
         quota.remainingPercent > 10.0 -> c.warnSolid
         else -> c.bad
     }
-    val pctFraction = (quota.remainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+    val pctFraction = safePercentFraction(quota.remainingPercent)
 
     Column(
         modifier = Modifier
@@ -972,7 +972,7 @@ private fun SheetQuotaHeroCard(
 
             if (quota.weeklyRemainingPercent != null) {
                 Spacer(Modifier.height(8.dp))
-                val weeklyFrac = (quota.weeklyRemainingPercent / 100.0).toFloat().coerceIn(0f, 1f)
+                val weeklyFrac = safePercentFraction(quota.weeklyRemainingPercent)
                 val weeklyColor = when {
                     quota.weeklyRemainingPercent > 30.0 -> c.ok
                     quota.weeklyRemainingPercent > 10.0 -> c.warnSolid
@@ -1938,4 +1938,9 @@ private fun CooldownCountdownText(cooldownUntilMs: Long) {
         style = SheetMedium12Style,
         color = cooldownColor,
     )
+}
+
+private fun safePercentFraction(percent: Double): Float {
+    val raw = (percent / 100.0).toFloat()
+    return if (raw.isFinite()) raw.coerceIn(0f, 1f) else 0f
 }

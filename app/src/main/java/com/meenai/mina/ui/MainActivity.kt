@@ -432,19 +432,21 @@ private fun HarnessRoot(store: ProviderStore, monitor: SystemStatusMonitor, acti
                 )
             }
         }
-        Route.Settings -> SettingsRoute(
-            store = store,
-            monitor = monitor,
-            app = app,
-            context = context,
-            release = release,
-            onFix = onFix,
-            onBack = back,
-            onOpenMemory = { nav.push(Route.Memory) },
-            onOpenVault = { nav.push(Route.Vault) },
-            onOpenModels = { nav.push(Route.Models) },
-            onOpenAbout = { nav.push(Route.About) },
-        )
+        Route.Settings -> screenStates.SaveableStateProvider(Route.Settings.name) {
+            SettingsRoute(
+                store = store,
+                monitor = monitor,
+                app = app,
+                context = context,
+                release = release,
+                onFix = onFix,
+                onBack = back,
+                onOpenMemory = { nav.push(Route.Memory) },
+                onOpenVault = { nav.push(Route.Vault) },
+                onOpenModels = { nav.push(Route.Models) },
+                onOpenAbout = { nav.push(Route.About) },
+            )
+        }
         Route.Vault -> VaultScreen(vault = app.vault, onBack = back)
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, routerStatus = app.routerStatus)
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)
@@ -576,18 +578,25 @@ private fun SettingsRoute(
 ) {
     val status by monitor.status.collectAsState()
     val updateState by app.updates.state.collectAsState()
-    val registry = remember { WebSites.registry(context) }
-    val sites by registry.entries.collectAsState()
+    val registry by produceState(if (app.webSitesReady) app.webSites else null, app) {
+        if (value == null) value = withContext(Dispatchers.IO) { WebSites.registry(context) }
+    }
+    val sites = registry?.entries?.collectAsState()?.value
     val webSites = remember(sites, context) {
-        WebSitesState(
-            sites = sites,
-            onOpenLogin = { WebHandover.showLogin(context, it) },
-            onLogout = { WebSites.login(context).logout(it) },
-            onLogoutAll = { WebSites.logoutAll(context) },
-        )
+        sites?.let {
+            WebSitesState(
+                sites = it,
+                onOpenLogin = { site -> WebHandover.showLogin(context, site) },
+                onLogout = { site -> WebSites.login(context).logout(site) },
+                onLogoutAll = { WebSites.logoutAll(context) },
+            )
+        }
     }
     val autonomous by app.approvals.autonomous.collectAsState()
-    val vaultEntries by app.vault.entries.collectAsState()
+    val vaultStore by produceState(if (app.vaultReady) app.vault else null, app) {
+        if (value == null) value = withContext(Dispatchers.IO) { app.vault }
+    }
+    val vaultEntries = vaultStore?.entries?.collectAsState()?.value
     SettingsScreen(
         store = store,
         status = status,
@@ -596,7 +605,7 @@ private fun SettingsRoute(
         onBack = onBack,
         onOpenMemory = onOpenMemory,
         onOpenVault = onOpenVault,
-        vaultCount = vaultEntries.size,
+        vaultCount = vaultEntries?.size,
         onOpenModels = onOpenModels,
         webSites = webSites,
         autonomous = autonomous,

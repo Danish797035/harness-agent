@@ -1,6 +1,25 @@
 # Preserve source file & line numbers for diagnostics and ChatLog stack traces
 -keepattributes SourceFile, LineNumberTable
 
+# Preserve enum values/valueOf/entries & Parcelable/Serializable contracts under R8 (rememberSaveable, serialization)
+-keepclassmembers enum com.meenai.mina.** {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+-keepclassmembers class * implements android.os.Parcelable {
+    public static final ** CREATOR;
+}
+-keepnames class * implements android.os.Parcelable
+-keepclassmembers class com.meenai.mina.** implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
+}
+-keepnames class com.meenai.mina.** implements java.io.Serializable
+
 # kotlinx.serialization (app + :core models, sealed polymorphic events, @SerialName)
 -keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
 -dontnote kotlinx.serialization.AnnotationsKt
@@ -20,6 +39,9 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -keep @kotlinx.serialization.Serializable class com.meenai.mina.** {
+    *;
+}
+-keep @kotlinx.serialization.SerialName class com.meenai.mina.** {
     *;
 }
 

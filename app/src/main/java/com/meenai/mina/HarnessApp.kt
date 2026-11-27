@@ -84,8 +84,16 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
      */
     val appScope: CoroutineScope get() = scope
 
+    @Volatile
+    var vaultReady: Boolean = false
+        private set
+
     /** Local password vault: independent of API keys, using harness-password-vault Keystore alias */
-    override val vault: com.meenai.mina.vault.PasswordVaultStore by lazy { com.meenai.mina.vault.PasswordVaultStore.create(this) }
+    override val vault: com.meenai.mina.vault.PasswordVaultStore by lazy {
+        com.meenai.mina.vault.PasswordVaultStore.create(this).also {
+            vaultReady = true
+        }
+    }
 
     /** Phone-capable services: built-in assistant, shared shell connection, pairing, "go to settings" prompt. */
     override val phone: PhoneServices by lazy { PhoneServices(this) }
@@ -98,6 +106,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
     val detailedTraces by lazy { DetailedTraces(this) }
 
     val remoteTasks by lazy { RemoteTaskHub(this) }
+
+    @Volatile
+    var mcpReady: Boolean = false
+        private set
 
     /**
      * Computer connection (MCP): switch, access token (encrypted and stored like the service provider's
@@ -113,7 +125,9 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
                 bootId = { android.provider.Settings.Global.getString(contentResolver, android.provider.Settings.Global.BOOT_COUNT) ?: "null" },
                 infoFile = { getExternalFilesDir(null)?.let { java.io.File(it, com.meenai.mina.core.mcp.McpUsb.INFO_FILE) } }),
             remoteTasks, com.meenai.mina.device.AndroidDeviceAccess(this) { phone.hub.shell.value },
-            com.meenai.mina.settings.RelaySettings(settingsDir, com.meenai.mina.settings.KeystoreKeyCipher("mina-remote-relay")))
+            com.meenai.mina.settings.RelaySettings(settingsDir, com.meenai.mina.settings.KeystoreKeyCipher("mina-remote-relay"))).also {
+            mcpReady = true
+        }
     }
     val childRuns by lazy { FileChildRunStore(java.io.File(filesDir, "children-v3.json")) }
     override val tabBudget get() = resources.tabBudget
@@ -232,8 +246,16 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         }, conversations, scope)
     }
 
+    @Volatile
+    var webSitesReady: Boolean = false
+        private set
+
     /** Site registration form (logged-in websites, etc.): shared by the settings page and tag pool. */
-    override val webSites: SiteRegistry by lazy { SiteRegistry(java.io.File(filesDir, "web")) }
+    override val webSites: SiteRegistry by lazy {
+        SiteRegistry(java.io.File(filesDir, "web")).also {
+            webSitesReady = true
+        }
+    }
 
     /** `files/sandbox/`'s tree lock: installation, reset, commands, downloads, and attachments are all written in its permission. */
     override val sandboxTree = SandboxTree()
@@ -492,6 +514,10 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
         scope.launch(Dispatchers.IO) {
             val rankingsRepo = ensureRouterStoresInitialized()
             launch(Dispatchers.IO) { runCatching { rankingsRepo.getRankings() } }
+            // Pre-warm Keystore/disk-backed Settings stores off main thread so Settings opens instantaneously.
+            launch(Dispatchers.IO) { runCatching { vault.entries } }
+            launch(Dispatchers.IO) { runCatching { mcp.settings.enabled; mcp.usb.enabled } }
+            launch(Dispatchers.IO) { runCatching { webSites.entries } }
             // Warm conversation list and active thread records into RAM off main thread.
             launch(Dispatchers.IO) {
                 runCatching {
@@ -502,7 +528,9 @@ class HarnessApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner,
             }
             // Settings › Network proxy: Mina's own connection is processed from the first request; the
             // account password of the SOCKS proxy is given by the authenticator of the whole process.
-            com.meenai.mina.settings.NetProxyStore.get(this@HarnessApp)
+            com.meenai.mina.settings.NetProxyStore.get(this@HarnessApp).also { proxyStore ->
+                runCatching { proxyStore.get() }
+            }
             com.meenai.mina.core.net.NetProxy.shared.installSocksAuth()
             // Built-in browser: Set up WebView only after setting up a proxy (read settings need to be
             // decrypted and put in the background; if no proxy is set up, WebView will not be loaded for

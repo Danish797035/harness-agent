@@ -6,10 +6,8 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.util.Log
-import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.ViewConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -161,8 +159,6 @@ class CapsuleController(
     private var inputUi by mutableStateOf(CardInputUi())
     /** When a screenshot is taken, add one: one will flash up. */
     private var flash by mutableIntStateOf(0)
-    private val taps = DoubleTap(ViewConfiguration.getDoubleTapTimeout().toLong())
-    private var tapJob: Job? = null
     /** Taking a screenshot (hidden in the floating layer): Clicking and taking screenshots at this time will not count. */
     private var capturing = false
     /** The conversation that was spoken in the card: follow its task when it is expanded so that you can see the answer. */
@@ -477,8 +473,6 @@ class CapsuleController(
     }
 
     private fun hide() {
-        tapJob?.cancel()
-        taps.reset()
         snap?.cancel()
         fadeJob?.cancel()
         look = null
@@ -715,12 +709,17 @@ class CapsuleController(
         idle = idle?.let { CardView.Chat(conversationId, title = if (it.target == conversationId) it.title else ScreenCopy.plain(text)) }
     }
 
-    /** Click on the idle icon: first read which conversation the user is in at the moment ([loadIdle]), and then expand (read back and forth by [updateThread]). */
+    /** Click on the idle icon: open immediately and refresh the current conversation asynchronously on IO. */
     private fun openIdle() {
+        if (idle == null) idle = CardView.Chat(null)
+        open()
+        refresh()
         scope.launch {
-            idle = loadIdle()
-            open()
-            refresh()
+            val fresh = loadIdle()
+            if (fresh != idle) {
+                idle = fresh
+                refresh()
+            }
         }
     }
 
@@ -1158,8 +1157,6 @@ class CapsuleController(
         // You can press it again while it is still spinning after releasing it: the previous segment is
         // lost by talk.begin
         if (capturing || (talk.active && !talk.released) || !canTalk()) return
-        tapJob?.cancel()
-        taps.reset()
         wake()
         clearNote()
         val loading = if (v.kind == CapsuleKind.Idle) scope.async { loadIdle() } else null
@@ -2018,22 +2015,10 @@ class CapsuleController(
 
     // ---------- Tap and Card ----------
 
-    /** Click on a pill or capsule: wait for the first click, and expand the card if there is no second click within the time limit of double-clicking; if there is a double-click, the current screen will appear. */
+    /** Click on a pill or capsule: expand immediately without waiting on a double-tap timeout (send-screen remains on double-tap accessibility action). */
     private fun tap() {
         if (capturing) return
-        when (taps.tap(SystemClock.uptimeMillis())) {
-            DoubleTap.Tap.Double -> {
-                tapJob?.cancel()
-                sendScreen()
-            }
-            DoubleTap.Tap.First -> {
-                tapJob?.cancel()
-                tapJob = scope.launch {
-                    delay(taps.timeoutMs)
-                    if (taps.settle(SystemClock.uptimeMillis())) expand()
-                }
-            }
-        }
+        expand()
     }
 
     /** Expand the card (the idle icon is an idle card). Each time it is expanded, the idle card is reread according to which conversation the user is in at the moment, without taking the last copy. */

@@ -2157,24 +2157,19 @@ private fun ComposerPillRow(
         val gap = 4.dp.roundToPx()
         val bounded = constraints.hasBoundedWidth
         val avail = if (bounded) constraints.maxWidth else Int.MAX_VALUE
-        val intrinsicH = if (constraints.hasBoundedHeight) constraints.maxHeight else Constraints.Infinity
         val modelM = measurables[0]
         val thinkM = measurables[1]
-        val modelIntrinsic = modelM.maxIntrinsicWidth(intrinsicH)
-        val thinkIntrinsic = thinkM.maxIntrinsicWidth(intrinsicH)
-        val (modelMax, thinkMax) = if (!bounded || modelIntrinsic + gap + thinkIntrinsic <= avail) {
-            avail to avail
+        val pThink = if (bounded) {
+            val minThink = 52.dp.roundToPx()
+            val minModel = 148.dp.roundToPx()
+            val modelFloor = minModel.coerceAtMost((avail - minThink - gap).coerceAtLeast(avail / 2))
+            val thinkCap = (avail - modelFloor - gap).coerceAtLeast(0)
+            thinkM.measure(loose.copy(maxWidth = thinkCap))
         } else {
-            val minModel = 148.dp.roundToPx().coerceAtMost(modelIntrinsic)
-            val minThink = 52.dp.roundToPx().coerceAtMost(thinkIntrinsic)
-            val desiredThinkCap = (avail - minModel - gap).coerceAtLeast(minThink.coerceAtMost(avail))
-            val actualThinkCap = thinkIntrinsic.coerceAtMost(desiredThinkCap)
-            val actualModelCap = (avail - actualThinkCap - gap).coerceAtLeast(0)
-            actualModelCap to actualThinkCap
+            thinkM.measure(loose)
         }
-        val pModel = modelM.measure(if (bounded) loose.copy(maxWidth = modelMax) else loose)
-        val remainingAfterModel = (avail - pModel.width - gap).coerceAtLeast(0)
-        val pThink = thinkM.measure(if (bounded) loose.copy(maxWidth = thinkMax.coerceAtMost(remainingAfterModel)) else loose)
+        val modelCap = if (bounded) (avail - pThink.width - gap).coerceAtLeast(0) else Int.MAX_VALUE
+        val pModel = modelM.measure(if (bounded) loose.copy(maxWidth = modelCap) else loose)
         val h = maxOf(pModel.height, pThink.height)
         val totalW = if (bounded) avail else pModel.width + gap + pThink.width
         layout(totalW, h) {
