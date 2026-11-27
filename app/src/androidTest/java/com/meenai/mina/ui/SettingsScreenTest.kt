@@ -9,12 +9,15 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.meenai.mina.capsule.CapsuleMode
 import com.meenai.mina.core.agent.SpeedFlags
@@ -64,9 +67,16 @@ class SettingsScreenTest {
         }
     }
 
-    /** The page is a whole column of scrolling content: first scroll this row into the viewport and then assert or click. */
-    private fun scrollTo(text: String) {
-        compose.awaitOne(text).performScrollTo()
+    /** The page is a scrolling list: bring the target row into the viewport before asserting or clicking. */
+    private fun scrollTo(text: String, substring: Boolean = false) {
+        if (compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text, substring = substring))
+        }
+        if (substring) {
+            compose.onNodeWithText(text, substring = true).performScrollTo()
+        } else {
+            compose.awaitOne(text).performScrollTo()
+        }
         compose.waitForIdle()
     }
 
@@ -305,6 +315,7 @@ class SettingsScreenTest {
         compose.setContent {
             SettingsContent(status = ready, androidRelease = "14", mainModel = "m", onBack = {}, onProblem = {}, onOpenModels = {}, capsuleMode = CapsuleMode.Always)
         }
+        scrollTo("一直显示")
         compose.awaitOne("一直显示").assertIsDisplayed()
     }
 
@@ -315,12 +326,16 @@ class SettingsScreenTest {
         val picked = mutableListOf<CapsuleMode>()
         compose.setContent { CapsuleScreen(mode, onMode = { picked += it; mode = it }, onBack = {}) }
         compose.awaitOne("有任务时显示").assertIsDisplayed()
-        compose.onNodeWithText("关闭").performScrollTo().assertIsDisplayed()
+        scrollTo("关闭")
+        compose.onNodeWithText("关闭").assertIsDisplayed()
         // The footnotes are below the three options. If you have a short screen or a large font size,
         // you have to scroll to see them.
-        compose.onNodeWithText("无障碍服务", substring = true).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("一直显示").performScrollTo().performClick()
-        compose.onNodeWithText("关闭").performScrollTo().performClick()
+        scrollTo("无障碍服务", substring = true)
+        compose.onNodeWithText("无障碍服务", substring = true).assertIsDisplayed()
+        scrollTo("一直显示")
+        compose.onNodeWithText("一直显示").performClick()
+        scrollTo("关闭")
+        compose.onNodeWithText("关闭").performClick()
         assertEquals(listOf(CapsuleMode.Always, CapsuleMode.Off), picked)
     }
 

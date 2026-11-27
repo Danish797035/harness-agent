@@ -113,6 +113,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -148,7 +149,6 @@ import com.meenai.mina.task.unconsumed
 import com.meenai.mina.ui.components.BarIconButton
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
-import com.meenai.mina.ui.components.GlassBackdrop
 import com.meenai.mina.ui.components.GlassBar
 import com.meenai.mina.ui.components.MinaButton
 import com.meenai.mina.ui.components.MinaCard
@@ -1877,8 +1877,6 @@ internal fun Composer(
     quote: QuoteMessage.Quote? = null,
     onRemoveQuote: () -> Unit = {},
     editRequest: Int = 0,
-    /** The screen content of the layer behind the input field; when it is null, the input field will not be blurred and will have an opaque background. */
-    backdrop: GlassBackdrop? = null,
     reduceMotion: Boolean = false,
     /** Press and hold to speak to open a session from here; when null, the input box can only be typed. */
     voice: VoiceSource? = null,
@@ -1996,10 +1994,10 @@ internal fun Composer(
             if (vh != null) {
                 val title = if (busy && !steerTarget.isNullOrBlank()) stringResource(R.string.voice_steer_to, steerTarget)
                 else stringResource(R.string.voice_listening)
-                VoiceFloat(vh, vState, title, backdrop, reduceMotion)
+                VoiceFloat(vh, vState, title, reduceMotion)
             }
             Box(Modifier.fillMaxWidth()) {
-            GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop, shape = ComposerShape) {
+            GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop = null, shape = ComposerShape) {
                 Column(Modifier.fillMaxWidth()) {
                     val inputStyle = remember(c) { MinaType.Body.copy(color = c.ink) }
                     val cursorAccent = remember(c) { SolidColor(c.accent) }
@@ -2052,28 +2050,23 @@ internal fun Composer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        Row(
-                            Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            if (attachPanel != null) {
-                                val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
-                                Box(
-                                    Modifier.size(36.dp).clip(CircleShape)
-                                        .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(MinaIcons.Plus, label, Modifier.size(MinaSize.Icon).graphicsLayer { rotationZ = turnState.value }, tint = c.ink)
-                                }
+                        if (attachPanel != null) {
+                            val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
+                            Box(
+                                Modifier.size(34.dp).clip(CircleShape)
+                                    .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(MinaIcons.Plus, label, Modifier.size(20.dp).graphicsLayer { rotationZ = turnState.value }, tint = c.ink)
                             }
+                        }
+                        ComposerPillRow(Modifier.weight(1f)) {
                             if (onModelPillClick != null) {
                                 ComposerModelPill(
                                     activeModel = activeModel,
                                     quotaSnapshot = quotaSnapshot,
                                     connectionStatus = connectionStatus,
                                     onClick = onModelPillClick,
-                                    modifier = Modifier.weight(1f, fill = false).widthIn(min = 128.dp),
                                 )
                             }
                             if (onToggleThinking != null) {
@@ -2089,7 +2082,7 @@ internal fun Composer(
                         if (busy) {
                             val pauseLabel = stringResource(if (paused) R.string.chat_resume else R.string.chat_pause)
                             Box(
-                                Modifier.size(36.dp).clip(CircleShape)
+                                Modifier.size(34.dp).clip(CircleShape)
                                     .clickable(onClickLabel = pauseLabel, onClick = onPause),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -2099,22 +2092,22 @@ internal fun Composer(
                                 )
                             }
                             Box(
-                                Modifier.size(36.dp).background(c.ink, CircleShape).clip(CircleShape)
+                                Modifier.size(34.dp).background(c.ink, CircleShape).clip(CircleShape)
                                     .clickable(onClickLabel = stringResource(R.string.chat_stop), onClick = onStop),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(22.dp), tint = c.bg)
+                                Icon(MinaIcons.Stop, stringResource(R.string.chat_stop), Modifier.size(20.dp), tint = c.bg)
                             }
                         }
                         if (!busy || canSend) {
                             Box(
-                                Modifier.size(36.dp)
+                                Modifier.size(34.dp)
                                     .background(if (canSend) c.accent else c.greySoft, CircleShape)
                                     .clip(CircleShape)
                                     .clickable(enabled = canSend, onClickLabel = stringResource(R.string.chat_send)) { panel = Panel.Closed; onSend() },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(19.dp), tint = if (canSend) c.onAccent else c.ink3)
+                                Icon(MinaIcons.Up, stringResource(R.string.chat_send), Modifier.size(18.dp), tint = if (canSend) c.onAccent else c.ink3)
                             }
                         }
                     }
@@ -2145,6 +2138,53 @@ internal fun Composer(
 private val ComposerShape = RoundedCornerShape(24.dp)
 
 @Composable
+private fun ComposerPillRow(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        if (measurables.isEmpty()) {
+            return@Layout layout(0, 0) {}
+        }
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        if (measurables.size == 1) {
+            val p = measurables[0].measure(loose)
+            val width = if (constraints.hasBoundedWidth) constraints.maxWidth.coerceAtLeast(p.width) else p.width
+            return@Layout layout(width, p.height) {
+                p.place(0, 0)
+            }
+        }
+        val gap = 4.dp.roundToPx()
+        val bounded = constraints.hasBoundedWidth
+        val avail = if (bounded) constraints.maxWidth else Int.MAX_VALUE
+        val intrinsicH = if (constraints.hasBoundedHeight) constraints.maxHeight else Constraints.Infinity
+        val modelM = measurables[0]
+        val thinkM = measurables[1]
+        val modelIntrinsic = modelM.maxIntrinsicWidth(intrinsicH)
+        val thinkIntrinsic = thinkM.maxIntrinsicWidth(intrinsicH)
+        val (modelMax, thinkMax) = if (!bounded || modelIntrinsic + gap + thinkIntrinsic <= avail) {
+            avail to avail
+        } else {
+            val minModel = 148.dp.roundToPx().coerceAtMost(modelIntrinsic)
+            val minThink = 52.dp.roundToPx().coerceAtMost(thinkIntrinsic)
+            val desiredThinkCap = (avail - minModel - gap).coerceAtLeast(minThink.coerceAtMost(avail))
+            val actualThinkCap = thinkIntrinsic.coerceAtMost(desiredThinkCap)
+            val actualModelCap = (avail - actualThinkCap - gap).coerceAtLeast(0)
+            actualModelCap to actualThinkCap
+        }
+        val pModel = modelM.measure(if (bounded) loose.copy(maxWidth = modelMax) else loose)
+        val remainingAfterModel = (avail - pModel.width - gap).coerceAtLeast(0)
+        val pThink = thinkM.measure(if (bounded) loose.copy(maxWidth = thinkMax.coerceAtMost(remainingAfterModel)) else loose)
+        val h = maxOf(pModel.height, pThink.height)
+        val totalW = if (bounded) avail else pModel.width + gap + pThink.width
+        layout(totalW, h) {
+            pModel.place(0, (h - pModel.height) / 2)
+            pThink.place(pModel.width + gap, (h - pThink.height) / 2)
+        }
+    }
+}
+
+@Composable
 private fun ThinkingModePill(
     thinkingEnabled: Boolean,
     onClick: () -> Unit,
@@ -2161,7 +2201,7 @@ private fun ThinkingModePill(
             .background(bg)
             .border(0.5.dp, borderColor, MinaShapes.Pill)
             .clickable(role = Role.Button, onClickLabel = stringResource(R.string.chat_mode_toggle_desc), onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .padding(horizontal = 7.dp, vertical = 5.dp)
             .testTag("composer-thinking-toggle"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2170,12 +2210,15 @@ private fun ThinkingModePill(
             style = if (thinkingEnabled) ThinkingPillSelectedText else ThinkingPillText,
             color = textColor,
             maxLines = 1,
-            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
-private val MODEL_VENDOR_PREFIXES = listOf("Gemini ", "Google ", "OpenAI ", "Anthropic ")
+private val MODEL_VENDOR_PREFIXES = listOf(
+    "Gemini:", "Google:", "OpenAI:", "Anthropic:",
+    "Gemini ", "Google ", "OpenAI ", "Anthropic ",
+)
 
 internal fun shortModelName(raw: String): String {
     val cleaned = raw.trim().substringAfterLast('/').removeSuffix(":free").trim()
@@ -2183,10 +2226,17 @@ internal fun shortModelName(raw: String): String {
     for (prefix in MODEL_VENDOR_PREFIXES) {
         if (cleaned.startsWith(prefix, ignoreCase = true)) {
             val rest = cleaned.substring(prefix.length).trim()
-            if (rest.isNotEmpty()) return rest
+            if (rest.isNotEmpty()) return shortModelName(rest)
         }
     }
     return cleaned
+}
+
+internal fun composerModelLabel(activeModel: ActiveModel): String {
+    val displaySource = activeModel.name
+        .takeIf { it.isNotBlank() && !it.equals(activeModel.id, ignoreCase = true) }
+        ?: formatRouterModelName(activeModel.id)
+    return shortModelName(displaySource).ifBlank { formatRouterModelName(activeModel.id) }
 }
 
 @Composable
@@ -2216,7 +2266,7 @@ private fun ComposerModelPill(
         else -> c.bad
     }
     val modelLabel = if (hasModel) {
-        shortModelName(activeModel.name.ifBlank { formatRouterModelName(activeModel.id) })
+        composerModelLabel(activeModel)
     } else {
         stringResource(R.string.router_select_model)
     }
@@ -2227,14 +2277,14 @@ private fun ComposerModelPill(
             .background(scheme.surfaceContainerHigh)
             .border(0.5.dp, scheme.outlineVariant, MinaShapes.Pill)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .padding(horizontal = 7.dp, vertical = 5.dp)
             .testTag("composer-model-pill"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             Modifier
-                .size(7.dp)
+                .size(6.dp)
                 .clip(CircleShape)
                 .background(dotColor)
                 .testTag("composer-model-dot"),
@@ -2258,7 +2308,7 @@ private fun ComposerModelPill(
                 modifier = Modifier
                     .clip(MinaShapes.Pill)
                     .background(badgeColor.copy(alpha = 0.14f))
-                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
                     .testTag("composer-quota-percent"),
             ) {
                 Text(
@@ -2274,7 +2324,7 @@ private fun ComposerModelPill(
             imageVector = MinaIcons.ChevronDown,
             contentDescription = stringResource(R.string.router_chip_desc),
             tint = c.ink3,
-            modifier = Modifier.size(12.dp),
+            modifier = Modifier.size(11.dp),
         )
     }
 }
@@ -2309,7 +2359,7 @@ private val ViewProcessText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fo
 private val ThinkingPillText = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
 private val ThinkingPillSelectedText = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
 private val ModelPillLabelText = TextStyle(fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
-private val QuotaBadgeText = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
+private val QuotaBadgeText = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
 private val NeedTitle = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold)
 private val CardBody = TextStyle(fontSize = 14.sp, lineHeight = 21.5.sp)
 private val PillText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)

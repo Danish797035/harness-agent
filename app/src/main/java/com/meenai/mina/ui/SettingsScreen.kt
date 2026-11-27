@@ -30,6 +30,7 @@ import com.meenai.mina.core.agent.SpeedFlags
 import com.meenai.mina.core.cap.phone.OperatingPace
 import com.meenai.mina.core.cap.sandbox.SandboxStatus
 import com.meenai.mina.core.model.ModelRole
+import com.meenai.mina.core.record.RunMetricsStore
 import com.meenai.mina.core.shell.BuiltinShellStatus
 import com.meenai.mina.record.RunStore
 import com.meenai.mina.replay.FileRouteStore
@@ -44,13 +45,14 @@ import com.meenai.mina.cap.web.WebProxy
 import com.meenai.mina.settings.SystemStatus
 import com.meenai.mina.settings.notificationOverview
 import com.meenai.mina.task.ParallelCapability
+import com.meenai.mina.task.ParallelLimit
 import com.meenai.mina.ui.components.ButtonKind
 import com.meenai.mina.ui.components.ButtonSize
 import com.meenai.mina.ui.components.GroupCard
 import com.meenai.mina.ui.components.GroupLabel
+import com.meenai.mina.ui.components.LazyPageScaffold
 import com.meenai.mina.ui.components.ListRow
 import com.meenai.mina.ui.components.MinaButton
-import com.meenai.mina.ui.components.PageScaffold
 import com.meenai.mina.ui.components.PillTone
 import com.meenai.mina.ui.components.RowChevron
 import com.meenai.mina.ui.components.RowValue
@@ -58,11 +60,13 @@ import com.meenai.mina.ui.components.StateCard
 import com.meenai.mina.ui.components.StatusPill
 import com.meenai.mina.ui.components.TileTone
 import com.meenai.mina.ui.theme.MinaIcons
+import com.meenai.mina.core.usage.UsageLedger
 import com.meenai.mina.core.usage.UsageLimitsQuery
 import com.meenai.mina.core.usage.UsageQuery
 import com.meenai.mina.core.usage.UsageRange
 import com.meenai.mina.i18n.AppLanguage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.launch
@@ -102,12 +106,6 @@ fun SettingsScreen(
     onCheckUpdates: (() -> Unit)? = null,
     updateState: UpdateState? = null,
 ) {
-    val configs by store.configs.collectAsState()
-    val providerList by store.providers.collectAsState()
-    val roles by store.roles.collectAsState()
-    // "View image positioning verified" in the developer options follows the image model (when using the
-    // main model to view images, it is the configuration of the main model)
-    val visionConfig = remember(configs, roles) { store.configFor(ModelRole.Vision) }
     var page by rememberSaveable { mutableStateOf(SettingsPage.Home) }
     var explaining by remember { mutableStateOf<Problem?>(null) }
     fun fix(f: Fix) = if (f == Fix.AddModel) onOpenModels() else onFix(f)
@@ -137,8 +135,7 @@ fun SettingsScreen(
     var selfConfig by remember { mutableStateOf(false) }
     var capsuleMode by remember { mutableStateOf(CapsuleMode.DEFAULT) }
     var language by remember { mutableStateOf(AppLanguage.System) }
-    val runtimeLimit by (context.applicationContext as com.meenai.mina.HarnessApp).taskState.parallelLimit.collectAsState()
-    var speed by remember { mutableStateOf(flags.speedFlags()) }
+    var speed by remember { mutableStateOf(SpeedFlags.OFF) }
     var isLowRam by remember { mutableStateOf(false) }
     val routeStore = remember { FileRouteStore.shared(context) }
     var routeCount by remember { mutableStateOf<Int?>(null) }
@@ -169,7 +166,7 @@ fun SettingsScreen(
             }
         }
     }
-    val sandboxStatus by remember { SandboxState.get(context) }.status.collectAsState()
+    val sandboxState = remember { SandboxState.get(context) }
     // Network proxy: only change it here; read settings to decrypt, see if the browser supports it and
     // load WebView, all in the background
     val proxies = remember { NetProxyStore.get(context) }
@@ -180,37 +177,9 @@ fun SettingsScreen(
         if (proxy == null) proxy = withContext(Dispatchers.IO) { proxies.get() }
         browserProxy = withContext(Dispatchers.IO) { WebProxy.mode() }
     }
-    val mcp = remember { (context.applicationContext as com.meenai.mina.HarnessApp).mcp }
-    val mcpNetworkOn by mcp.settings.enabled.collectAsState()
-    val mcpUsbOn by mcp.usb.enabled.collectAsState()
-    val mcpOn = mcpNetworkOn || mcpUsbOn
-    // The value of the "Token Usage" row: the total of the past 7 days, the ledger will be recalculated
-    // every time an entry is made.
-    val usage = remember { (context.applicationContext as com.meenai.mina.HarnessApp).usage }
-    val usageVersion by usage.version.collectAsState()
-    var usageWeek by remember { mutableStateOf<Long?>(null) }
-    var usageToday by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(usageVersion, providerList) {
-        val (week, today) = withContext(Dispatchers.Default) {
-            val now = Instant.now()
-            val snapshot = usage.snapshot()
-            val weekTokens = UsageQuery.report(snapshot, UsageRange.LastDays(7), now, ZoneId.systemDefault(), emptyMap()).totals.tokens
-            val gemini = providerList.firstOrNull {
-                it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == ProviderStore.GEMINI_WEB_SIGN_IN
-            }?.id
-            val dayCalls = UsageLimitsQuery.report(snapshot, gemini, now, ZoneId.of("Asia/Kolkata")).dailyCalls.toInt()
-            weekTokens to dayCalls
-        }
-        usageWeek = week
-        usageToday = today
-    }
-    val parallel = if (!speed.parallelTasks) null else ParallelSetting(
-        parallelMax,
-        ParallelCapability.detect(
-            status.sdkInt, isLowRam, parallelMax,
-            secondDisplayFailed = runtimeLimit.reason == ParallelCapability.SECOND_DISPLAY_FAILED,
-        ),
-    )
+    val app = remember(context) { context.applicationContext as com.meenai.mina.HarnessApp }
+    val mcp = app.mcp
+    val usage = app.usage
     // Developer options are only listed in the debug version and performance test version: the default
     // values of each switch in the release version are determined based on the evaluation results.
     val showDeveloper = com.meenai.mina.record.DetailedTraces.supportedBuild
@@ -233,11 +202,11 @@ fun SettingsScreen(
     when (visiblePage) {
         SettingsPage.Home -> SettingsContent(
             status = status, androidRelease = androidRelease,
-            mainModel = roles.main?.let { id -> configs.firstOrNull { it.id == id } }?.let(ProviderConnection::displayName),
+            mainModel = null,
             onBack = onBack, onProblem = onProblem, onOpenModels = onOpenModels,
             proxy = proxy, proxyNote = proxy?.let { NetProxyCopy.subtitle(it, browserProxy) }, onOpenProxy = { editingProxy = true },
-            usageTokens = usageWeek, onOpenUsage = { page = SettingsPage.Usage },
-            usageToday = usageToday, onOpenUsageLimits = { page = SettingsPage.UsageLimits },
+            usageTokens = null, onOpenUsage = { page = SettingsPage.Usage },
+            usageToday = null, onOpenUsageLimits = { page = SettingsPage.UsageLimits },
             onOpenPhoneOps = { page = SettingsPage.PhoneOps },
             onOpenAppAccess = { page = SettingsPage.AppAccess },
             onOpenDuringWork = { page = SettingsPage.DuringWork },
@@ -247,15 +216,20 @@ fun SettingsScreen(
             onOpenMemory = onOpenMemory,
             onOpenVault = onOpenVault, vaultCount = vaultCount,
             webSitesCount = webSites?.sites?.size, onOpenWebSites = { page = SettingsPage.WebSites },
-            sandbox = sandboxStatus, onOpenSandbox = { page = SettingsPage.Sandbox },
+            sandbox = null, onOpenSandbox = { page = SettingsPage.Sandbox },
             routes = routeCount, onOpenRoutes = { page = SettingsPage.Routes },
             onOpenRecovery = { page = SettingsPage.Recovery },
-            computerAccess = mcpOn, onOpenComputerAccess = { page = SettingsPage.ComputerAccess },
+            computerAccess = null, onOpenComputerAccess = { page = SettingsPage.ComputerAccess },
             showDeveloper = showDeveloper, onOpenDeveloper = { page = SettingsPage.Developer },
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
             onCheckUpdates = onCheckUpdates?.let { fn -> { waitingRound = (updateState?.manualRounds ?: 0) + 1; fn() } },
             updateState = updateState,
             onOpenSpecialist = { page = SettingsPage.ModelSpecialist },
+            store = store,
+            usage = usage,
+            sandboxFlow = sandboxState.status,
+            mcpNetworkFlow = mcp.settings.enabled,
+            mcpUsbFlow = mcp.usb.enabled,
         )
         SettingsPage.AppAccess -> AppAccessScreen(onBack = toHome)
         SettingsPage.Usage -> UsageScreen(usage, store.providers, onBack = toHome)
@@ -266,12 +240,22 @@ fun SettingsScreen(
             onRepair = { onFix(Fix.RepairPhoneHelper) }, onUnpair = { onFix(Fix.UnpairPhoneHelper) }, onBack = toHome,
         )
         SettingsPage.Notifications -> NotificationsScreen(status, onFix = ::fix, onBack = back)
-        SettingsPage.DuringWork -> DuringWorkScreen(
-            keepScreenOn, onKeepScreenOn = { flags.setKeepScreenOn(it); keepScreenOn = it },
-            muteTarget, onMuteTarget = { flags.setMuteTarget(it); muteTarget = it },
-            parallel, onParallelMax = { flags.setParallelMax(it); parallelMax = it }, onBack = toHome,
-            operatingPace = operatingPace, onOperatingPace = { flags.setOperatingPace(it); operatingPace = it },
-            selfConfig = selfConfig, onSelfConfig = { flags.setSelfConfig(it); selfConfig = it },
+        SettingsPage.DuringWork -> DuringWorkHost(
+            parallelLimitFlow = app.taskState.parallelLimit,
+            sdkInt = status.sdkInt,
+            isLowRam = isLowRam,
+            parallelTasksEnabled = speed.parallelTasks,
+            parallelMax = parallelMax,
+            onParallelMax = { flags.setParallelMax(it); parallelMax = it },
+            keepScreenOn = keepScreenOn,
+            onKeepScreenOn = { flags.setKeepScreenOn(it); keepScreenOn = it },
+            muteTarget = muteTarget,
+            onMuteTarget = { flags.setMuteTarget(it); muteTarget = it },
+            operatingPace = operatingPace,
+            onOperatingPace = { flags.setOperatingPace(it); operatingPace = it },
+            selfConfig = selfConfig,
+            onSelfConfig = { flags.setSelfConfig(it); selfConfig = it },
+            onBack = toHome,
         )
         SettingsPage.Language -> LanguageScreen(language, onLanguage = { AppLanguage.set(context, it) }, onBack = toHome)
         SettingsPage.Capsule -> CapsuleScreen(capsuleMode, onMode = { flags.setCapsuleMode(it); capsuleMode = it }, onBack = toHome)
@@ -287,14 +271,16 @@ fun SettingsScreen(
         SettingsPage.Recovery -> RecoveryScreen(onBack = toHome, onOpenSelfCheck = { page = SettingsPage.SelfCheck })
         SettingsPage.SelfCheck -> SelfCheckScreen(status, onBack = back)
         SettingsPage.ComputerAccess -> McpScreen(mcp, onBack = toHome)
-        SettingsPage.Developer -> DeveloperOptionsScreen(
-            speed, onSpeed = { flags.setSpeed(it); speed = it }, onBack = toHome,
-            autonomous = autonomous, onAutonomous = onAutonomous,
-            grounding = visionConfig?.let { GroundingSetting(it.model, it.capabilities.groundingVerified) },
-            onGrounding = { verified -> scope.launch { withContext(Dispatchers.IO) { store.setVisionGroundingVerified(verified) } } },
+        SettingsPage.Developer -> DeveloperOptionsHost(
+            store = store,
+            speed = speed,
+            onSpeed = { flags.setSpeed(it); speed = it },
+            onBack = toHome,
+            autonomous = autonomous,
+            onAutonomous = onAutonomous,
             onOpenRunStats = { page = SettingsPage.RunStats },
         )
-        SettingsPage.RunStats -> RunStatsScreen(remember { RunStore(context).metrics }, onBack = back)
+        SettingsPage.RunStats -> RunStatsHost(onBack = back)
         SettingsPage.ModelSpecialist -> com.meenai.mina.ui.router.ModelSpecialistScreen(store = store, onBack = toHome)
     }
 
@@ -385,140 +371,362 @@ fun SettingsContent(
     onCheckUpdates: (() -> Unit)? = null,
     updateState: UpdateState? = null,
     onOpenSpecialist: () -> Unit = {},
+    store: ProviderStore? = null,
+    usage: UsageLedger? = null,
+    sandboxFlow: StateFlow<SandboxStatus>? = null,
+    mcpNetworkFlow: StateFlow<Boolean>? = null,
+    mcpUsbFlow: StateFlow<Boolean>? = null,
 ) {
-    val check = remember(status, mainModel) { Prerequisites.check(status, hasMainModel = mainModel != null) }
     val notifSummary = remember(status) { StatusCopy.notificationSummary(status.notificationOverview().summary) }
-    PageScaffold(stringResource(R.string.settings_title), onBack) {
-        StatusSummary(check, onProblem)
-
-        GroupLabel(stringResource(R.string.settings_basic))
-        GroupCard {
-            ListRow(MinaIcons.Spark, stringResource(R.string.settings_model), first = true, onClick = onOpenModels) {
-                RowValue(mainModel ?: stringResource(R.string.settings_not_set))
-                RowChevron()
-            }
-            ListRow(
-                MinaIcons.Spark,
-                stringResource(R.string.model_specialist_title),
-                stringResource(R.string.model_specialist_sub),
-                onClick = onOpenSpecialist,
-            ) {
-                RowValue(stringResource(R.string.router_mode_auto))
-                RowChevron()
-            }
-            // Adjust whether the connection of the model should use a proxy. You can find it together
-            // with the model; containers, updates, and built-in browsers can also be found here.
-            proxy?.let {
-                ListRow(MinaIcons.Link, NetProxyCopy.TITLE, proxyNote, onClick = onOpenProxy) {
-                    RowValue(NetProxyCopy.value(it))
-                    RowChevron()
-                }
-            }
-            usageTokens?.let {
-                ListRow(MinaIcons.Chart, UsageCopy.TITLE, onClick = onOpenUsage) {
-                    RowValue(UsageCopy.settingsValue(it))
-                    RowChevron()
-                }
-            }
-            usageToday?.let {
-                ListRow(MinaIcons.Gauge, stringResource(R.string.usage_limits_title), onClick = onOpenUsageLimits) {
-                    RowValue(stringResource(R.string.usage_limits_today_value, it))
-                    RowChevron()
-                }
-            }
-            ListRow(MinaIcons.Phone, stringResource(R.string.settings_phone_ops), onClick = onOpenPhoneOps) {
-                PhoneOpsPill(status)
-                RowChevron()
-            }
-            ListRow(MinaIcons.Phone, stringResource(R.string.appaccess_title), stringResource(R.string.appaccess_row_sub), onClick = onOpenAppAccess) { RowChevron() }
-            ListRow(MinaIcons.Moon, stringResource(R.string.settings_during_work), stringResource(R.string.settings_during_work_sub), onClick = onOpenDuringWork) { RowChevron() }
-            ListRow(MinaIcons.Message, CapsuleSettingsCopy.TITLE, CapsuleSettingsCopy.SUBTITLE, onClick = onOpenCapsule) {
-                RowValue(CapsuleSettingsCopy.label(capsuleMode))
-                RowChevron()
-            }
-            ListRow(MinaIcons.Globe, stringResource(R.string.language_title), onClick = onOpenLanguage) {
-                RowValue(languageLabel(language))
-                RowChevron()
-            }
-            val (notifText, notifTone) = notifSummary
-            ListRow(MinaIcons.Bell, StatusCopy.NOTIFICATIONS, stringResource(R.string.settings_notif_sub), onClick = onOpenNotifications) {
-                RowValue(notifText, notifTone)
-                RowChevron()
-            }
+    val privacyRows = onOpenMemory != null || webSitesCount != null || onOpenVault != null
+    LazyPageScaffold(stringResource(R.string.settings_title), onBack) {
+        item(key = "status", contentType = "status") {
+            SettingsStatusSummarySection(status = status, store = store, fallbackMainModel = mainModel, onProblem = onProblem)
         }
 
-        val privacyRows = onOpenMemory != null || webSitesCount != null || onOpenVault != null
-        if (privacyRows) {
-            GroupLabel(stringResource(R.string.settings_privacy))
+        item(key = "basic-label", contentType = "label") {
+            GroupLabel(stringResource(R.string.settings_basic))
+        }
+        item(key = "basic-card", contentType = "card") {
             GroupCard {
-                var first = true
-                fun take(): Boolean = first.also { first = false }
-                onOpenMemory?.let {
-                    ListRow(MinaIcons.Heart, stringResource(R.string.memory_and_skills), stringResource(R.string.settings_memory_sub), first = take(), onClick = it) { RowChevron() }
+                SettingsModelRow(store = store, fallbackMainModel = mainModel, onOpenModels = onOpenModels)
+                ListRow(
+                    MinaIcons.Spark,
+                    stringResource(R.string.model_specialist_title),
+                    stringResource(R.string.model_specialist_sub),
+                    onClick = onOpenSpecialist,
+                ) {
+                    RowValue(stringResource(R.string.router_mode_auto))
+                    RowChevron()
                 }
-                onOpenVault?.let {
-                    ListRow(MinaIcons.Lock, stringResource(R.string.settings_vault), stringResource(R.string.settings_vault_sub), first = take(), onClick = it) {
-                        vaultCount?.let { count -> RowValue(trPlural(R.plurals.settings_count_vault, count)) }
+                // Adjust whether the connection of the model should use a proxy. You can find it together
+                // with the model; containers, updates, and built-in browsers can also be found here.
+                proxy?.let {
+                    ListRow(MinaIcons.Link, NetProxyCopy.TITLE, proxyNote, onClick = onOpenProxy) {
+                        RowValue(NetProxyCopy.value(it))
                         RowChevron()
                     }
                 }
-                webSitesCount?.let {
-                    ListRow(MinaIcons.Globe, stringResource(R.string.settings_web_logins), first = take(), onClick = onOpenWebSites) { RowValue(trPlural(R.plurals.settings_count_sites, it)); RowChevron() }
+                SettingsUsageRows(
+                    store = store,
+                    usage = usage,
+                    fallbackUsageTokens = usageTokens,
+                    fallbackUsageToday = usageToday,
+                    onOpenUsage = onOpenUsage,
+                    onOpenUsageLimits = onOpenUsageLimits,
+                )
+                ListRow(MinaIcons.Phone, stringResource(R.string.settings_phone_ops), onClick = onOpenPhoneOps) {
+                    PhoneOpsPill(status)
+                    RowChevron()
                 }
-            }
-        }
-
-        val sandboxRow = sandbox?.takeIf { it !is SandboxStatus.Unsupported }
-        val recoveryRow = status.sdkInt >= Prerequisites.MIN_SDK
-        if (sandboxRow != null || routes != null || recoveryRow || computerAccess != null || showDeveloper) {
-            GroupLabel(stringResource(R.string.settings_advanced))
-            GroupCard {
-                var first = true
-                fun take(): Boolean = first.also { first = false }
-                if (sandboxRow != null) {
-                    ListRow(MinaIcons.Terminal, stringResource(R.string.settings_sandbox), first = take(), onClick = onOpenSandbox) {
-                        RowValue(sandboxValue(sandboxRow)); RowChevron()
-                    }
+                ListRow(MinaIcons.Phone, stringResource(R.string.appaccess_title), stringResource(R.string.appaccess_row_sub), onClick = onOpenAppAccess) { RowChevron() }
+                ListRow(MinaIcons.Moon, stringResource(R.string.settings_during_work), stringResource(R.string.settings_during_work_sub), onClick = onOpenDuringWork) { RowChevron() }
+                ListRow(MinaIcons.Message, CapsuleSettingsCopy.TITLE, CapsuleSettingsCopy.SUBTITLE, onClick = onOpenCapsule) {
+                    RowValue(CapsuleSettingsCopy.label(capsuleMode))
+                    RowChevron()
                 }
-                routes?.let {
-                    ListRow(MinaIcons.Route, stringResource(R.string.settings_routes), first = take(), onClick = onOpenRoutes) { RowValue(trPlural(R.plurals.settings_count_routes, it)); RowChevron() }
+                ListRow(MinaIcons.Globe, stringResource(R.string.language_title), onClick = onOpenLanguage) {
+                    RowValue(languageLabel(language))
+                    RowChevron()
                 }
-                if (recoveryRow) {
-                    ListRow(MinaIcons.Wrench, stringResource(R.string.settings_recovery), first = take(), onClick = onOpenRecovery) { RowChevron() }
-                }
-                computerAccess?.let { on ->
-                    ListRow(MinaIcons.Desktop, stringResource(R.string.mcp_title), first = take(), onClick = onOpenComputerAccess) {
-                        RowValue(stringResource(if (on) R.string.state_on else R.string.state_off)); RowChevron()
-                    }
-                }
-                if (showDeveloper) {
-                    ListRow(MinaIcons.Code, stringResource(R.string.settings_developer), first = take(), onClick = onOpenDeveloper) { RowChevron() }
-                }
-            }
-        }
-
-        GroupCard {
-            if (onCheckUpdates != null) {
-                ListRow(
-                    MinaIcons.Refresh,
-                    stringResource(R.string.about_check),
-                    first = true,
-                    onClick = onCheckUpdates,
-                ) {
-                    if (updateState != null) {
-                        TrailingValue(AboutCopy.checkValue(updateState))
-                    }
+                val (notifText, notifTone) = notifSummary
+                ListRow(MinaIcons.Bell, StatusCopy.NOTIFICATIONS, stringResource(R.string.settings_notif_sub), onClick = onOpenNotifications) {
+                    RowValue(notifText, notifTone)
                     RowChevron()
                 }
             }
-            ListRow(
-                MinaIcons.Info,
-                stringResource(R.string.settings_about),
-                first = onCheckUpdates == null,
-                onClick = onOpenAbout,
-            ) {
-                TrailingValue(AboutCopy.settingsValue(updateVersion, versionName))
-                RowChevron()
+        }
+
+        if (privacyRows) {
+            item(key = "privacy-label", contentType = "label") {
+                GroupLabel(stringResource(R.string.settings_privacy))
+            }
+            item(key = "privacy-card", contentType = "card") {
+                GroupCard {
+                    var first = true
+                    fun take(): Boolean = first.also { first = false }
+                    onOpenMemory?.let {
+                        ListRow(MinaIcons.Heart, stringResource(R.string.memory_and_skills), stringResource(R.string.settings_memory_sub), first = take(), onClick = it) { RowChevron() }
+                    }
+                    onOpenVault?.let {
+                        ListRow(MinaIcons.Lock, stringResource(R.string.settings_vault), stringResource(R.string.settings_vault_sub), first = take(), onClick = it) {
+                            vaultCount?.let { count -> RowValue(trPlural(R.plurals.settings_count_vault, count)) }
+                            RowChevron()
+                        }
+                    }
+                    webSitesCount?.let {
+                        ListRow(MinaIcons.Globe, stringResource(R.string.settings_web_logins), first = take(), onClick = onOpenWebSites) { RowValue(trPlural(R.plurals.settings_count_sites, it)); RowChevron() }
+                    }
+                }
+            }
+        }
+
+        item(key = "advanced-section", contentType = "advanced-section") {
+            SettingsAdvancedSection(
+                status = status,
+                sandbox = sandbox,
+                sandboxFlow = sandboxFlow,
+                routes = routes,
+                onOpenRoutes = onOpenRoutes,
+                onOpenSandbox = onOpenSandbox,
+                onOpenRecovery = onOpenRecovery,
+                computerAccess = computerAccess,
+                mcpNetworkFlow = mcpNetworkFlow,
+                mcpUsbFlow = mcpUsbFlow,
+                onOpenComputerAccess = onOpenComputerAccess,
+                showDeveloper = showDeveloper,
+                onOpenDeveloper = onOpenDeveloper,
+            )
+        }
+
+        item(key = "about-card", contentType = "card") {
+            GroupCard {
+                if (onCheckUpdates != null) {
+                    ListRow(
+                        MinaIcons.Refresh,
+                        stringResource(R.string.about_check),
+                        first = true,
+                        onClick = onCheckUpdates,
+                    ) {
+                        if (updateState != null) {
+                            TrailingValue(AboutCopy.checkValue(updateState))
+                        }
+                        RowChevron()
+                    }
+                }
+                ListRow(
+                    MinaIcons.Info,
+                    stringResource(R.string.settings_about),
+                    first = onCheckUpdates == null,
+                    onClick = onOpenAbout,
+                ) {
+                    TrailingValue(AboutCopy.settingsValue(updateVersion, versionName))
+                    RowChevron()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DuringWorkHost(
+    parallelLimitFlow: StateFlow<ParallelLimit>,
+    sdkInt: Int,
+    isLowRam: Boolean,
+    parallelTasksEnabled: Boolean,
+    parallelMax: Int,
+    onParallelMax: (Int) -> Unit,
+    keepScreenOn: Boolean,
+    onKeepScreenOn: (Boolean) -> Unit,
+    muteTarget: Boolean,
+    onMuteTarget: (Boolean) -> Unit,
+    operatingPace: OperatingPace,
+    onOperatingPace: (OperatingPace) -> Unit,
+    selfConfig: Boolean,
+    onSelfConfig: (Boolean) -> Unit,
+    onBack: () -> Unit,
+) {
+    val runtimeLimit by parallelLimitFlow.collectAsState()
+    val parallel = if (!parallelTasksEnabled) null else ParallelSetting(
+        parallelMax,
+        ParallelCapability.detect(
+            sdkInt,
+            isLowRam,
+            parallelMax,
+            secondDisplayFailed = runtimeLimit.reason == ParallelCapability.SECOND_DISPLAY_FAILED,
+        ),
+    )
+    DuringWorkScreen(
+        keepScreenOn,
+        onKeepScreenOn = onKeepScreenOn,
+        muteTarget,
+        onMuteTarget = onMuteTarget,
+        parallel = parallel,
+        onParallelMax = onParallelMax,
+        onBack = onBack,
+        operatingPace = operatingPace,
+        onOperatingPace = onOperatingPace,
+        selfConfig = selfConfig,
+        onSelfConfig = onSelfConfig,
+    )
+}
+
+@Composable
+private fun DeveloperOptionsHost(
+    store: ProviderStore,
+    speed: SpeedFlags,
+    onSpeed: (SpeedFlags) -> Unit,
+    onBack: () -> Unit,
+    autonomous: Boolean,
+    onAutonomous: (Boolean) -> Unit,
+    onOpenRunStats: () -> Unit,
+) {
+    val configs by store.configs.collectAsState()
+    val roles by store.roles.collectAsState()
+    // "View image positioning verified" in the developer options follows the image model (when using the
+    // main model to view images, it is the configuration of the main model)
+    val visionConfig = remember(configs, roles) { store.configFor(ModelRole.Vision) }
+    val scope = rememberCoroutineScope()
+    DeveloperOptionsScreen(
+        speed = speed,
+        onSpeed = onSpeed,
+        onBack = onBack,
+        autonomous = autonomous,
+        onAutonomous = onAutonomous,
+        grounding = visionConfig?.let { GroundingSetting(it.model, it.capabilities.groundingVerified) },
+        onGrounding = { verified -> scope.launch { withContext(Dispatchers.IO) { store.setVisionGroundingVerified(verified) } } },
+        onOpenRunStats = onOpenRunStats,
+    )
+}
+
+@Composable
+private fun RunStatsHost(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var metricsStore by remember(context) { mutableStateOf<RunMetricsStore?>(null) }
+    LaunchedEffect(context) {
+        metricsStore = withContext(Dispatchers.IO) { RunStore(context).metrics }
+    }
+    val store = metricsStore
+    if (store != null) {
+        RunStatsScreen(store, onBack = onBack)
+    } else {
+        RunStatsContent(null, 1, {}, {}, {}, onBack = onBack, loaded = false)
+    }
+}
+
+@Composable
+private fun rememberMainModelName(
+    store: ProviderStore?,
+    fallbackMainModel: String?,
+): String? {
+    if (store == null) return fallbackMainModel
+    val configs by store.configs.collectAsState()
+    val roles by store.roles.collectAsState()
+    return remember(configs, roles) {
+        roles.main?.let { id -> configs.firstOrNull { it.id == id } }?.let(ProviderConnection::displayName)
+    }
+}
+
+@Composable
+private fun SettingsStatusSummarySection(
+    status: SystemStatus,
+    store: ProviderStore?,
+    fallbackMainModel: String?,
+    onProblem: (Problem) -> Unit,
+) {
+    val activeMainModel = rememberMainModelName(store, fallbackMainModel)
+    val check = remember(status, activeMainModel) { Prerequisites.check(status, hasMainModel = activeMainModel != null) }
+    StatusSummary(check, onProblem)
+}
+
+@Composable
+private fun SettingsModelRow(
+    store: ProviderStore?,
+    fallbackMainModel: String?,
+    onOpenModels: () -> Unit,
+) {
+    val activeMainModel = rememberMainModelName(store, fallbackMainModel)
+    ListRow(MinaIcons.Spark, stringResource(R.string.settings_model), first = true, onClick = onOpenModels) {
+        RowValue(activeMainModel ?: stringResource(R.string.settings_not_set))
+        RowChevron()
+    }
+}
+
+@Composable
+private fun SettingsUsageRows(
+    store: ProviderStore?,
+    usage: UsageLedger?,
+    fallbackUsageTokens: Long?,
+    fallbackUsageToday: Int?,
+    onOpenUsage: () -> Unit,
+    onOpenUsageLimits: () -> Unit,
+) {
+    val (tokens, today) = if (store != null && usage != null) {
+        val providerList by store.providers.collectAsState()
+        val usageVersion by usage.version.collectAsState()
+        var computedWeek by remember { mutableStateOf<Long?>(null) }
+        var computedToday by remember { mutableStateOf<Int?>(null) }
+        LaunchedEffect(usageVersion, providerList) {
+            val (week, day) = withContext(Dispatchers.Default) {
+                val now = Instant.now()
+                val snapshot = usage.snapshot()
+                val weekTokens = UsageQuery.report(snapshot, UsageRange.LastDays(7), now, ZoneId.systemDefault(), emptyMap()).totals.tokens
+                val gemini = providerList.firstOrNull {
+                    it.kind == ProviderConfig.Kind.GeminiWeb || it.signIn == ProviderStore.GEMINI_WEB_SIGN_IN
+                }?.id
+                val dayCalls = UsageLimitsQuery.report(snapshot, gemini, now, ZoneId.of("Asia/Kolkata")).dailyCalls.toInt()
+                weekTokens to dayCalls
+            }
+            computedWeek = week
+            computedToday = day
+        }
+        computedWeek to computedToday
+    } else {
+        fallbackUsageTokens to fallbackUsageToday
+    }
+    tokens?.let {
+        ListRow(MinaIcons.Chart, UsageCopy.TITLE, onClick = onOpenUsage) {
+            RowValue(UsageCopy.settingsValue(it))
+            RowChevron()
+        }
+    }
+    today?.let {
+        ListRow(MinaIcons.Gauge, stringResource(R.string.usage_limits_title), onClick = onOpenUsageLimits) {
+            RowValue(stringResource(R.string.usage_limits_today_value, it))
+            RowChevron()
+        }
+    }
+}
+
+@Composable
+private fun SettingsAdvancedSection(
+    status: SystemStatus,
+    sandbox: SandboxStatus?,
+    sandboxFlow: StateFlow<SandboxStatus>?,
+    routes: Int?,
+    onOpenRoutes: () -> Unit,
+    onOpenSandbox: () -> Unit,
+    onOpenRecovery: () -> Unit,
+    computerAccess: Boolean?,
+    mcpNetworkFlow: StateFlow<Boolean>?,
+    mcpUsbFlow: StateFlow<Boolean>?,
+    onOpenComputerAccess: () -> Unit,
+    showDeveloper: Boolean,
+    onOpenDeveloper: () -> Unit,
+) {
+    val activeSandbox = if (sandboxFlow != null) sandboxFlow.collectAsState().value else sandbox
+    val activeComputerAccess = if (mcpNetworkFlow != null && mcpUsbFlow != null) {
+        val netOn by mcpNetworkFlow.collectAsState()
+        val usbOn by mcpUsbFlow.collectAsState()
+        netOn || usbOn
+    } else {
+        computerAccess
+    }
+    val sandboxRow = activeSandbox?.takeIf { it !is SandboxStatus.Unsupported }
+    val recoveryRow = status.sdkInt >= Prerequisites.MIN_SDK
+    if (sandboxRow != null || routes != null || recoveryRow || activeComputerAccess != null || showDeveloper) {
+        GroupLabel(stringResource(R.string.settings_advanced))
+        GroupCard {
+            var first = true
+            fun take(): Boolean = first.also { first = false }
+            if (sandboxRow != null) {
+                ListRow(MinaIcons.Terminal, stringResource(R.string.settings_sandbox), first = take(), onClick = onOpenSandbox) {
+                    RowValue(sandboxValue(sandboxRow)); RowChevron()
+                }
+            }
+            routes?.let {
+                ListRow(MinaIcons.Route, stringResource(R.string.settings_routes), first = take(), onClick = onOpenRoutes) { RowValue(trPlural(R.plurals.settings_count_routes, it)); RowChevron() }
+            }
+            if (recoveryRow) {
+                ListRow(MinaIcons.Wrench, stringResource(R.string.settings_recovery), first = take(), onClick = onOpenRecovery) { RowChevron() }
+            }
+            activeComputerAccess?.let { on ->
+                ListRow(MinaIcons.Desktop, stringResource(R.string.mcp_title), first = take(), onClick = onOpenComputerAccess) {
+                    RowValue(stringResource(if (on) R.string.state_on else R.string.state_off)); RowChevron()
+                }
+            }
+            if (showDeveloper) {
+                ListRow(MinaIcons.Code, stringResource(R.string.settings_developer), first = take(), onClick = onOpenDeveloper) { RowChevron() }
             }
         }
     }
